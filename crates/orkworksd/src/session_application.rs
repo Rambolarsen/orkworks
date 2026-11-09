@@ -3531,17 +3531,12 @@ impl SessionApplication {
             .as_ref()
             .filter(|workspace| workspace.path == path)
             .and_then(|workspace| workspace.lease.clone());
+        identity
+            .revalidate()
+            .map_err(|_| SessionError::BadRequest("workspace identity changed before adoption"))?;
         let workspace_lease = match existing_lease {
-            Some(lease) => {
-                identity.revalidate().map_err(|_| {
-                    SessionError::BadRequest("workspace identity changed before adoption")
-                })?;
-                lease
-            }
+            Some(lease) => lease,
             None => {
-                identity.revalidate().map_err(|_| {
-                    SessionError::BadRequest("workspace identity changed before adoption")
-                })?;
                 let lease = Arc::new(WorkspaceLease::acquire(&global_dir).map_err(|error| {
                     if error.kind() == std::io::ErrorKind::WouldBlock {
                         SessionError::Conflict
@@ -3661,12 +3656,10 @@ impl SessionApplication {
             .into_iter()
             .map(|session| session.id)
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) = recommendation_store.scrub_orphans(&retained_session_ids) {
+        recommendation_store.scrub_orphans(&retained_session_ids).map_err(|error| {
             tracing::warn!(path = %global_dir.display(), %error, "failed to scrub orphaned recommendations");
-            return Err(SessionError::Internal(
-                "failed to scrub orphaned recommendations",
-            ));
-        }
+            SessionError::Internal("failed to scrub orphaned recommendations")
+        })?;
         drop(preparing_workspace);
         (before, revocation) = {
             let workspace = self.state.workspace.lock().unwrap();
@@ -3722,7 +3715,8 @@ impl SessionApplication {
             .clear();
         self.state.bump_harness_probe_generation();
 
-        if let Some(workspace) = workspace.as_ref() {
+        {
+            let workspace = workspace.as_ref().expect("workspace was just adopted");
             let now = iso_now();
             let live_ids: std::collections::HashSet<String> = self
                 .state
@@ -3734,7 +3728,7 @@ impl SessionApplication {
                 .map(|(id, _)| id.clone())
                 .collect();
             for session in workspace.metadata.read_all_sessions() {
-                if (session.status == "running" || session.status == "creating")
+                if matches!(session.status.as_str(), "running" | "creating")
                     && !live_ids.contains(&session.id)
                 {
                     let _ = workspace.metadata.mutate_session_optional(
@@ -3752,16 +3746,14 @@ impl SessionApplication {
             }
             let protected_deliveries =
                 recommendation_deliveries_in_flight_for_workspace(&workspace.path);
-            if let Err(error) = workspace.recommendation_store.recover_orphaned_executions(
+            workspace.recommendation_store.recover_orphaned_executions(
                 &live_ids,
                 &protected_deliveries,
                 now,
-            ) {
+            ).map_err(|error| {
                 tracing::warn!(path = %global_dir.display(), %error, "failed to recover orphaned recommendation executions");
-                return Err(SessionError::Internal(
-                    "failed to recover orphaned recommendation executions",
-                ));
-            }
+                SessionError::Internal("failed to recover orphaned recommendation executions")
+            })?;
         }
 
         drop(workspace);
@@ -9856,6 +9848,71 @@ mod tests {
                     .to_string()
             );
         });
+    }
+
+    #[test]
+    fn opening_a_workspace_recovers_orphans_and_preserves_live_and_ended_sessions() {
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_support::FakeHome::set(home.path());
+        let root = tempfile::tempdir().unwrap();
+        let global_dir = crate::workspace_runtime::orkworks_global_dir(root.path()).unwrap();
+        let store = metadata::MetadataStore::new(&global_dir);
+        for (id, status) in [
+            ("orphan-running", "running"),
+            ("orphan-creating", "creating"),
+            ("live", "running"),
+            ("finished", "ended"),
+        ] {
+            let session = crate::test_support::test_session_metadata(
+                id,
+                id,
+                root.path().display().to_string(),
+                status,
+                "before",
+                "before",
+            );
+            store.write_session(&session);
+        }
+        let live_before = serde_json::to_value(store.read_session("live").unwrap()).unwrap();
+        let ended_before = serde_json::to_value(store.read_session("finished").unwrap()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        *state.workspace.lock().unwrap() = None;
+        let handle = attention_test_handle("live", root.path());
+        assert!(handle.info.has_live_runtime());
+        state.sessions.lock().unwrap().insert("live".into(), handle);
+        let application = SessionApplication::new(state);
+
+        application
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+
+        for id in ["orphan-running", "orphan-creating"] {
+            let session = store.read_session(id).unwrap();
+            assert_eq!(session.status, "ended");
+            assert_eq!(session.lifecycle, "dead");
+            assert_eq!(session.connectivity, "offline");
+            assert_eq!(session.terminal_outcome.as_deref(), Some("ended"));
+        }
+        assert_eq!(
+            serde_json::to_value(store.read_session("live").unwrap()).unwrap(),
+            live_before
+        );
+        assert_eq!(
+            serde_json::to_value(store.read_session("finished").unwrap()).unwrap(),
+            ended_before
+        );
+
+        // Reopening reuses the retained lease and leaves the recovered records alone.
+        let session_snapshot = || {
+            let mut sessions = store.read_all_sessions();
+            sessions.sort_by(|a, b| a.id.cmp(&b.id));
+            serde_json::to_value(sessions).unwrap()
+        };
+        let recovered_before = session_snapshot();
+        application
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+        assert_eq!(session_snapshot(), recovered_before);
     }
 
     #[test]
