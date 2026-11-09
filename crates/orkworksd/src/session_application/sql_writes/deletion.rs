@@ -45,7 +45,6 @@ impl Stage {
 }
 enum Files {
     Replay(Arc<std::io::Result<crate::metadata::replay_cleanup::AnchoredReplayCleanup>>),
-    Workflow(crate::workflow_observations::WorkflowObservationStore),
     Images(Arc<std::io::Result<crate::image_context::SqlImageCleanup>>),
     Settings(Arc<std::io::Result<crate::metadata::BoundSettingsCleanup>>),
     Recommendations(std::io::Result<crate::taskmaster::store::SqlCleanup>),
@@ -69,10 +68,6 @@ impl Files {
                     .as_ref()
                     .map_err(|e| std::io::Error::new(e.kind(), e.to_string()))
                     .and_then(|files| files.remove()),
-                CleanupGuards::default(),
-            ),
-            Self::Workflow(files) => (
-                files.delete_session_observations_durable(id),
                 CleanupGuards::default(),
             ),
             Self::Images(files) => {
@@ -141,6 +136,16 @@ pub(crate) struct RecommendationCleanupAdmission {
 #[cfg(test)]
 pub(crate) fn trusted_cleanup_admission_fixture() -> RecommendationCleanupAdmission {
     RecommendationCleanupAdmission { _private: () }
+}
+
+/// One-shot Workflow proof; constructed only after exact-job and original-owner checks.
+pub(crate) struct WorkflowCleanupAdmission {
+    identity: crate::session_store::SqlDeletionIdentity,
+}
+impl WorkflowCleanupAdmission {
+    pub(crate) fn identity(&self) -> &crate::session_store::SqlDeletionIdentity {
+        &self.identity
+    }
 }
 
 pub(crate) struct CapturedDeletion {
@@ -279,7 +284,15 @@ impl CapturedDeletion {
     pub(crate) async fn remove_workflow_evidence(
         self,
     ) -> Result<DeletionCleanupResult, StoreError> {
-        self.remove(Stage::Workflow).await
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            self.remove_sql_workflow().await
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            let _ = self;
+            Err(StoreError::Unsupported)
+        }
     }
     pub(crate) async fn remove_images(self) -> Result<DeletionCleanupResult, StoreError> {
         self.remove(Stage::Images).await
@@ -349,7 +362,7 @@ impl CapturedDeletion {
                             .ok_or(StoreError::Conflict)?;
                         let files = match stage {
                             Stage::Replay => Files::Replay(self.replay.clone()),
-                            Stage::Workflow => Files::Workflow(self.workflow.clone()),
+                            Stage::Workflow => return Err(StoreError::Conflict),
                             Stage::Images => Files::Images(self.images.clone()),
                             Stage::Settings => Files::Settings(self.settings.clone()),
                             Stage::Recommendations => {
@@ -436,3 +449,6 @@ impl CapturedDeletion {
         }
     }
 }
+
+#[path = "deletion/workflow.rs"]
+mod workflow;

@@ -111,6 +111,36 @@ impl SessionWrites {
         }
         Some(apply(ws, h, has_pid))
     }
+    /// Workflow admission must release its lane/candidate at the original
+    /// deadline even while an application guard remains contended.
+    fn organization_try_current<T>(
+        &self,
+        id: &str,
+        captured: Option<&Memory>,
+        exact: bool,
+        apply: impl FnOnce(&WorkspaceState, Option<&mut crate::SessionHandle>, bool) -> T,
+    ) -> Result<Option<T>, StoreError> {
+        use super::observation_opening::try_observation_lock;
+        let _projection = try_observation_lock(&self.state.projection_lock)?;
+        let workspace = try_observation_lock(&self.state.workspace)?;
+        let Some(ws) = workspace.as_ref() else {
+            return Ok(None);
+        };
+        if !self.workspace.matches(ws) || !Arc::ptr_eq(&self.reader, &ws.metadata.session_reader())
+        {
+            return Ok(None);
+        }
+        let mut sessions = try_observation_lock(&self.state.sessions)?;
+        let h = sessions.get_mut(id);
+        let pids = try_observation_lock(&self.state.session_pids)?;
+        let has_pid = pids.contains_key(id);
+        if h.as_ref().is_some_and(|h| h.info.id != id)
+            || captured.is_some_and(|m| !m.matches(ws, h.as_deref(), has_pid, exact))
+        {
+            return Ok(None);
+        }
+        Ok(Some(apply(ws, h, has_pid)))
+    }
     async fn organization_access<T: Send + 'static>(
         self: &Arc<Self>,
         id: String,
@@ -496,4 +526,4 @@ mod deletion;
 
 #[cfg(test)]
 pub(crate) use deletion::trusted_cleanup_admission_fixture;
-pub(crate) use deletion::RecommendationCleanupAdmission;
+pub(crate) use deletion::{RecommendationCleanupAdmission, WorkflowCleanupAdmission};

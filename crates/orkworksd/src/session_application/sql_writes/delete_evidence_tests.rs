@@ -16,6 +16,22 @@ fn workflow(state: &Arc<AppState>) -> WorkflowObservationStore {
         .workflow_observations
         .clone()
 }
+// Inspect copied fixture bytes as data; SQL admission intentionally disables
+// the live legacy cache API. Legacy module tests still assert cache semantics.
+fn segment_count(state: &Arc<AppState>, id: &str) -> usize {
+    let path = root(state).join(format!("workflow-observations/{id}.ndjson"));
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return 0,
+        Err(error) => panic!("{error}"),
+    };
+    bytes
+        .split(|b| *b == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| crate::workflow_observations::sql_origin::decode_line(line, id).unwrap())
+        .filter(|record| record.observation().is_some())
+        .count()
+}
 fn candidate() -> ObservationCandidate {
     ObservationCandidate {
         kind: ObservationKind::Obstacle,
@@ -56,8 +72,9 @@ async fn sql_evidence_cleanup_revokes_original_writer_preserves_replay_and_reope
     assert!(writer
         .record_batch(&FileClaim::new(), 2, vec![(0, candidate())])
         .is_err());
-    assert_eq!(files.session_observation_count(ID).unwrap(), 0);
-    assert_eq!(files.session_observation_count("other").unwrap(), 1);
+    assert_eq!(segment_count(&state, ID), 0);
+    assert!(files.session_observation_count(ID).is_err());
+    assert_eq!(segment_count(&state, "other"), 1);
     assert_eq!(
         std::fs::read(root(&state).join("workflow-observations/sequence")).unwrap(),
         sequence
@@ -138,7 +155,8 @@ async fn sql_evidence_cleanup_file_failure_revokes_without_progress_and_retry_pr
     assert!(receipt.progress.is_none());
     assert_eq!(progress(&store).await, 0);
     assert!(writer.record_batch(&FileClaim::new(), 2, vec![]).is_err());
-    assert_eq!(files.session_observation_count(ID).unwrap(), 1);
+    assert!(path.is_dir());
+    assert!(files.session_observation_count(ID).is_err());
     std::fs::remove_dir(&path).unwrap();
     store
         .deletion_progress(ID.into(), CREATED.into(), 5, false)
@@ -153,7 +171,8 @@ async fn sql_evidence_cleanup_file_failure_revokes_without_progress_and_retry_pr
         .unwrap();
     assert!(receipt.files.is_ok());
     assert!(matches!(receipt.progress, Some(Ok(7))));
-    assert_eq!(files.session_observation_count(ID).unwrap(), 0);
+    assert_eq!(segment_count(&state, ID), 0);
+    assert!(files.session_observation_count(ID).is_err());
     assert_eq!(
         store.pending_deletions(None, 100).await.unwrap().jobs.len(),
         1
@@ -214,7 +233,8 @@ async fn sql_evidence_cleanup_progress_failure_reports_removed_files_and_retries
     let mut gate = hold(&writes.replay_removed);
     let action = tokio::spawn(view.remove_workflow_evidence());
     gate.entered().await;
-    assert_eq!(files.session_observation_count(ID).unwrap(), 0);
+    assert_eq!(segment_count(&state, ID), 0);
+    assert!(files.session_observation_count(ID).is_err());
     let db = rusqlite::Connection::open(root(&state).join("session-store/v1.sqlite")).unwrap();
     db.execute_batch("BEGIN EXCLUSIVE").unwrap();
     drop(gate);
@@ -280,7 +300,8 @@ async fn sql_evidence_cleanup_admitted_caller_loss_finishes_on_original_owner() 
         }
         super::organization_tests::pending(&owner, false).await;
         assert_eq!(progress(&store).await, 2);
-        assert_eq!(files.session_observation_count(ID).unwrap(), 0);
+        assert_eq!(segment_count(&state, ID), 0);
+        assert!(files.session_observation_count(ID).is_err());
         assert_eq!(replacement.session_observation_count(ID).unwrap(), 1);
         assert!(writer.record_batch(&FileClaim::new(), 2, vec![]).is_err());
         store.close().await.unwrap();

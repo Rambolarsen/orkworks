@@ -1277,14 +1277,46 @@ Non-Unix has a fail-closed fixture.
 
 `sql_writes/delete_evidence_tests.rs` exercises the real SQL tombstone/job and
 shared store: bit `0x02` survives reopen without final completion; replay/legacy
-metadata and unrelated evidence remain. Replaced store instances fail before
-revocation. Pre-admission cancellation/expiry preserve the original writer;
-admitted caller loss and owner replacement finish on the retained original
-store with a detached receipt. File errors do not attempt progress, SQL busy
-after successful removal reports the partial outcome, and retry preserves other
-bits. The existing replay suite exercises the unchanged shared runner's stale
-workspace/runtime/reader/lease checks, job/identity revalidation, lane/reservation
-and capacity boundaries, and completion with one blocking worker.
+metadata and unrelated evidence remain. Post-admission assertions inspect copied
+fixture bytes and require legacy cache refusal on the SQL owner; the legacy
+module's original cache-preservation assertions remain unchanged. Replaced
+instances fail before revocation. Pending cancellation/expiry preserve the
+original writer; admitted caller loss and owner replacement finish on the
+retained original store. File errors do not attempt progress, SQL busy after
+removal reports partial success, and retries preserve other bits.
+
+`sql_writes/delete_workflow_sql_tests.rs` exercises the new purpose-specific
+runner, one-shot canonical `SqlCleanup` and exact original job. The retained
+worker opening and captured epoch/workspace/ID/creation must match the bounded
+current job/tombstone snapshot before admission. Tests refuse changed epoch,
+workspace, creation/job relationships, missing job/source and lost tombstone
+without byte or revocation effects. A corrupt payload ID is already rejected by
+the shared canonical document reader before effects; its new regression passes
+without a production correction. A later header cannot be adopted from the
+retained worker, and all-progress-bits-set remains eligible while that job exists.
+
+A Workflow-only mutation revalidates scope/job/finalization in its write
+transaction and merges `0x02` into current bits. Tests change epoch after file
+removal and observe a typed progress conflict without a false acknowledgement;
+ordinary progress advancing before or after removal remains preserved. No other
+recovery owner or finalization bit is changed.
+
+Real captured-producer fixtures hold the first durable batch counter while
+close-first finalization waits on the original lane, then remove the completed
+batch and preserve unrelated bytes/sequence. Deletion-first fixtures reject a
+delayed original batch, reject its revoked SQL permit independently of row/phase
+checks, and preserve a recreated source. A held application mutex cannot retain
+an expired pending job's lane/candidate. An isolated child fills the other 31
+file-job slots, cancels an admitted caller past its deadline, and proves the
+last slot, organization reservation, original lease and lane survive until
+actual file/progress settlement. Grant tests refuse read-to-cleanup upgrades
+and second-call removal of a later replacement.
+
+The original stale-epoch, SQL-mode legacy-refusal and post-removal stale-progress
+regressions were red before implementation. Focused deletion/grant checks pass;
+full repository verification and current-head review/CI are recorded with the
+concrete PR. This private macOS/Linux composition does not establish production
+selection, installed profiles, hardware power-loss behavior or performance.
 
 A single-Tokio-worker fixture holds the actual evidence mutex on an OS thread
 while admitted deletion stalls. Projection/workspace/session/PID guards remain
@@ -1842,5 +1874,5 @@ last slot remains held until actual batch settlement. The private final-scan
 fixtures cover qualified duplicate receipts, byte-preserving legacy collision
 refusal, partial-stage history progress, and unchanged production JSON routing
 and evaluation. Full verifier/current-code review and CI results belong to the
-concrete PR; these checks do not qualify exact-job Workflow deletion, assessment
-input construction, production activation or migration.
+concrete PR. Exact-job Workflow deletion has its own qualification above;
+assessment input construction, production activation and migration remain gated.

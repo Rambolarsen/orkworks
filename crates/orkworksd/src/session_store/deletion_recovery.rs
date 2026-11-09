@@ -31,6 +31,14 @@ pub(crate) struct SqlDeletionIdentity {
     created_at: String,
 }
 impl SqlDeletionIdentity {
+    pub(super) fn matches_scope(&self, epoch: &str, workspace: &str) -> bool {
+        self.database_epoch == epoch
+            && self.workspace_sha256 == hex::encode(Sha256::digest(workspace.as_bytes()))
+    }
+    pub(super) fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
     pub(crate) fn session_id(&self) -> &str {
         &self.session_id
     }
@@ -67,6 +75,42 @@ fn valid_identity(id: &str, created: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
 }
 impl Database {
+    /// Mark only Workflow completion, against the original scope and exact job.
+    /// Read-modify-write preserves any same-job stage bits advanced meanwhile.
+    pub(super) fn record_workflow_cleanup(&mut self, original: &SqlDeletionIdentity) -> Result<u8> {
+        let workspace = &self.workspace;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (epoch, stored): (String, String) = tx.query_row(
+            "SELECT epoch,workspace FROM store_header WHERE singleton=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if stored != *workspace || !original.matches_scope(&epoch, &stored) {
+            return Err(StoreError::Conflict);
+        }
+        let progress:Option<u8>=tx.query_row(
+            "SELECT j.progress FROM deletion_jobs j JOIN sessions s ON s.id=j.id AND s.created_at=j.created_at WHERE j.id=?1 AND j.created_at=?2 AND s.deleted=1",
+            rusqlite::params![original.session_id(),original.created_at()],|r|r.get(0)).optional()?;
+        let progress = progress.ok_or(StoreError::Conflict)? | 0x02;
+        let document =
+            read_document(&tx, original.session_id(), true)?.ok_or(StoreError::Conflict)?;
+        let record: crate::metadata::session_transactions::RevisionedSession =
+            serde_json::from_value(document)?;
+        if record.metadata.id != original.session_id()
+            || record.metadata.created_at != original.created_at()
+            || recorded_state(&record.metadata) != "closed"
+        {
+            return Err(StoreError::Conflict);
+        }
+        tx.execute(
+            "UPDATE deletion_jobs SET progress=?3 WHERE id=?1 AND created_at=?2",
+            rusqlite::params![original.session_id(), original.created_at(), progress],
+        )?;
+        tx.commit()?;
+        Ok(progress)
+    }
     // Keyset discovery is intentionally not a snapshot. Completion does not
     // invalidate continuation; restart from None for a new pass to find jobs
     // inserted behind the cursor. Every effect still needs its original owner.
