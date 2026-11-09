@@ -314,3 +314,22 @@ ownership, full phase integration, numeric/deadline/native/physical/restore
 qualification remain open. No checkbox above closes on the strength of the
 proposal or offline writer fixtures; a flush panic can still lose local facts
 until the actual retained reporting path exists.
+
+
+## Direct writer implementation scope accepted — 2026-11-09
+
+After #1607 the owner answered “keep going” to the exact implementation question.
+[#1609](https://github.com/Rambolarsen/orkworks/issues/1609) records acceptance
+and actual implementation together under the [bounded plan](2026-11-09-terminal-write-outcomes.md).
+The existing writer produces fixed checked byte/flush facts and returns them
+beside its writer through the same task join, preserving coarse acknowledgements.
+The production driver discards those facts after return; no application result
+reader/ledger is activated. Eleven offline operation/actual-task tests, full repository verification
+(3,371 Rust, 1,720 desktop and 1,204 docs tests plus builds/integrations) and
+fresh current-code `/code-review low` passed; the review found no issues.
+
+Only InputFact/Flush values are shared with the accounting module, whose Owner
+remains unwired. Panic after full write/flush and driver loss can still lose
+local evidence. Original root/resource/report transfer, retained publication,
+all physical phase ownership, complete numeric/deadline/native/resource fit,
+maintenance and restore remain open; no broad qualification box closes.

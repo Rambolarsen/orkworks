@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: Direct terminal writer and driver outcomes
-description: Proposed first producer slice returning fixed-size byte and flush facts from the existing writer without activating submission ownership.
+description: Accepted first producer slice returning fixed-size byte and flush facts from the existing writer without activating submission ownership.
 tags: [orkworks, sessions, terminal, ownership, qualification]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-bounded-implementation
 ---
 
 # Direct terminal writer and driver outcomes
@@ -17,12 +17,13 @@ delivered in #1593. Reuses the accepted [input-outcome semantics](2026-11-08-ter
 and [one-candidate exception](2026-11-09-submission-owner-qualification-sequencing.md).
 The exception is exhausted by that candidate; it does not authorize this code.
 
-**Status:** proposed. The user asked to continue with defining the first real
-producer integration. This document proposes the smallest actual writer-result
-slice and its implementation handoff for a single owner decision. No new code,
-writer/native probe, fixture execution or resource qualification was performed.
-Approval can cover the concrete slice and its normal repository/offline checks
-together; do not split unchanged acceptance into another docs-only task.
+**Status:** accepted for the exact bounded implementation. After #1607, the owner
+answered “keep going” to the explicit writer/driver implementation question.
+[#1609](https://github.com/Rambolarsen/orkworks/issues/1609) records that decision;
+the [implementation plan](../plans/2026-11-09-terminal-write-outcomes.md) routes
+code and ordinary repository/offline checks in the same task. No separate
+acceptance-only task is needed. Live/native/model/resource experiments and
+production submission-owner activation remain excluded.
 
 ## Problem and choice
 
@@ -61,7 +62,7 @@ Alternatives considered:
 - Another standalone owner or simulated drained producer adds no direct writer
   evidence. Use the existing writer and driver rather than a parallel algorithm.
 
-## Proposed approval scope
+## Accepted implementation scope
 
 1. Refactor the existing `PendingPtyWrite` loop to produce direct fixed-size byte
    and flush facts, and return those facts beside its original writer through the
@@ -225,6 +226,6 @@ transport, not application retention. Independent authority/source review found
 no material findings in the pinned loop/driver mapping, compatibility, panic/
 loss limits or explicit new approval/resource gates. Both reviews were read-only;
 no runtime operations or physical qualification were executed.
-This document is not accepted
-and cannot authorize its dependent code until the owner approves the three scope
-choices above. Existing outcome and candidate approvals remain valid unchanged.
+The owner approval above covers these unchanged three scope choices and their
+bounded implementation/check handoff. Existing outcome and candidate approvals
+remain valid; all excluded production/physical qualification remains gated.

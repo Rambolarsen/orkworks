@@ -339,3 +339,17 @@ without legacy repair or AppState adoption. This follows the accepted decision;
 it does not add a production format route, persist new tagged observations,
 compose Workflow deletion or construct assessment inputs. Those integrations and
 physical/rollout gates remain unchanged.
+
+
+## Amendment — 2026-11-09: direct terminal writer outcome slice
+
+After #1607, the owner answered “keep going” to the explicit implementation
+question for [direct writer/driver outcomes](../superpowers/specs/2026-11-09-terminal-writer-outcomes-design.md).
+This accepts one existing-loop refactor producing fixed byte/flush facts beside
+the returned writer through its existing join, with unchanged coarse caller
+behavior and deterministic offline tests. #1609 records acceptance and actual
+implementation together. No production submission-owner construction, new task/
+queue/payload copy, application graph policy, native/model experiment, numeric
+profile, Q/readiness or restore qualification is accepted by this slice. The
+previous candidate exception remains specific to #1593; this is the separately
+approved preparatory producer change.

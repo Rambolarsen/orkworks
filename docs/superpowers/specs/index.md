@@ -296,4 +296,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Source-only submission owner before physical qualification](2026-11-09-submission-owner-qualification-sequencing.md) — Accepted one-candidate sequencing exception for offline ownership/accounting implementation; production wiring and physical qualification remain gated.
 
-- [Direct terminal writer and driver outcomes](2026-11-09-terminal-writer-outcomes-design.md) — Proposed fixed-size facts from the existing writer/join with unchanged coarse acknowledgements; owner activation and physical/resource qualification remain gated.
+- [Direct terminal writer and driver outcomes](2026-11-09-terminal-writer-outcomes-design.md) — Accepted bounded writer/join refactor with fixed byte/flush facts and unchanged coarse acknowledgements; owner activation and physical/resource qualification remain gated.

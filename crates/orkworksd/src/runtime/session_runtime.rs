@@ -1,3 +1,4 @@
+use super::input_submission::{Flush, InputFact};
 use crate::runtime::observed_status::ProcessTransition;
 #[cfg(windows)]
 use crate::runtime::terminal_runtime::resolve_windows_program;
@@ -363,51 +364,113 @@ fn reject_runtime_command(command: RuntimeCommand) {
     }
 }
 
+/// Direct byte/flush evidence only; no application-retained submission claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PtyWriteOutcome {
+    input_bytes: usize,
+    fact: InputFact,
+}
+impl PtyWriteOutcome {
+    fn legacy_result(self) -> Result<(), ()> {
+        match self.fact {
+            InputFact::FullWrite { .. } => Ok(()),
+            _ => Err(()),
+        }
+    }
+}
+
+fn write_pty_input(
+    writer: &mut dyn Write,
+    data: &[u8],
+    mut stopped: impl FnMut() -> bool,
+) -> PtyWriteOutcome {
+    let mut reported = 0usize;
+    let mut invoked = false;
+    let fact = loop {
+        let remaining = &data[reported..];
+        if remaining.is_empty() {
+            // Final bytes can already be executing; stop/flush cannot undo them.
+            let flush = match writer.flush() {
+                Ok(()) => Flush::Succeeded,
+                Err(error) => {
+                    tracing::warn!(%error, "PTY flush failed after all input bytes were written");
+                    Flush::Failed
+                }
+            };
+            break InputFact::FullWrite { flush };
+        }
+        if stopped() {
+            break if invoked {
+                InputFact::PartialOrUnknown { reported }
+            } else {
+                InputFact::NoInputEffect
+            };
+        }
+        invoked = true;
+        match writer.write(remaining) {
+            Ok(n) if n > 0 && n <= remaining.len() => {
+                let Some(next) = reported.checked_add(n) else {
+                    break InputFact::PartialOrUnknown { reported };
+                };
+                reported = next;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            _ => break InputFact::PartialOrUnknown { reported },
+        }
+    };
+    PtyWriteOutcome {
+        input_bytes: data.len(),
+        fact,
+    }
+}
+
 // A blocking write owns its acknowledgement until the native operation has
 // returned. Dropping/aborting an async request cannot cancel that operation.
 struct PendingPtyWrite {
-    task: tokio::task::JoinHandle<Box<dyn Write + Send>>,
+    task: tokio::task::JoinHandle<(Box<dyn Write + Send>, PtyWriteOutcome)>,
     cancelled: Arc<AtomicBool>,
 }
 
 impl PendingPtyWrite {
     fn start(
-        mut writer: Box<dyn Write + Send>,
+        writer: Box<dyn Write + Send>,
         data: String,
         accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
         stop_rx: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
+        Self::start_inner(
+            writer,
+            data,
+            accepted,
+            stop_rx,
+            #[cfg(test)]
+            None,
+        )
+    }
+
+    fn start_inner(
+        mut writer: Box<dyn Write + Send>,
+        data: String,
+        accepted: Option<tokio::sync::oneshot::Sender<Result<(), ()>>>,
+        stop_rx: tokio::sync::watch::Receiver<bool>,
+        #[cfg(test)] after_ack: Option<Box<dyn FnOnce() + Send>>,
+    ) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
         let write_cancelled = cancelled.clone();
         let task = tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let mut remaining = data.as_bytes();
-                while !remaining.is_empty() {
-                    // Admission reads the shared stop state on the blocking
-                    // worker; the async driver's last observation may be stale.
-                    // Release the watch read lock before entering native I/O.
-                    if *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire) {
-                        return Err(());
-                    }
-                    match writer.write(remaining) {
-                        Ok(0) => return Err(()),
-                        Ok(n) => remaining = &remaining[n..],
-                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                        Err(_) => return Err(()),
-                    }
-                }
-                // portable-pty's native writers are unbuffered. Once the final
-                // write succeeds, the full prompt (including Enter) may already
-                // be executing. A later stop or flush error cannot make retry safe.
-                if let Err(error) = writer.flush() {
-                    tracing::warn!(%error, "PTY flush failed after all input bytes were written");
-                }
-                Ok(())
-            })();
+            let outcome = write_pty_input(writer.as_mut(), data.as_bytes(), || {
+                // Release the watch read lock before entering native I/O.
+                *stop_rx.borrow() || write_cancelled.load(Ordering::Acquire)
+            });
             if let Some(accepted) = accepted {
-                let _ = accepted.send(result);
+                let _ = accepted.send(outcome.legacy_result());
             }
-            writer
+            // Invocation-local fixture seam; absent from production.
+            #[cfg(test)]
+            if let Some(after_ack) = after_ack {
+                after_ack();
+            }
+            (writer, outcome)
         });
         Self { task, cancelled }
     }
@@ -2885,7 +2948,8 @@ async fn run_session_runtime(
                 result = async { (&mut pending_write.as_mut().expect("pending write").task).await }, if pending_write.is_some() => {
                     pending_write = None;
                     match result {
-                        Ok(returned_writer) => {
+                        Ok((returned_writer, _outcome)) => {
+                            // Application-retained reporting is a separate integration.
                             writer = Some(returned_writer);
                             if let Some(initial) = &mut initial_editor {
                                 if !initial.write_completed(tokio::time::Instant::now())
@@ -9135,3 +9199,7 @@ mod worktree_instruction_startup_tests {
         exercise("drift").await;
     }
 }
+
+#[cfg(test)]
+#[path = "session_runtime/write_outcome_tests.rs"]
+mod write_outcome_tests;

@@ -1,5 +1,6 @@
-//! Source-only local bookkeeping. No production caller, input capability, payload,
-//! native handle, physical-completion proof or production resource profile.
+//! Local submission accounting remains unwired; the terminal writer shares only
+//! fixed InputFact/Flush values. Owner has no production caller, input capability,
+//! payload/native handle, physical-completion proof or production resource profile.
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
