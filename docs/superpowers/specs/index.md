@@ -6,6 +6,8 @@ Dated design records; these do not establish current product behavior.
 
 - [SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Proposed typed unknown/qualified policy and bounded private test deliverable; production input authority remains gated.
 
+- [Complete original input coordinator and admission recipe](2026-11-09-input-coordinator-recipe-design.md) — Proposed application retention, closed continuation recipe and explicit production qualification/refusal gates.
+
 - [Original input scope and application retention](2026-11-09-original-input-scope-design.md) — Proposed strong workspace/runtime attachment and bounded offline retention handoff; production coordinator and root qualification stay gated.
 
 - [SQL assessment source provenance](2026-11-08-sql-assessment-source-provenance.md) — Proposed durable source-creation data and bounded SQL qualification; origin/publication routes stay gated.

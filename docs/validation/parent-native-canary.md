@@ -1,7 +1,7 @@
 ---
 type: Native Canary Evidence
 title: Parent continuation canary stopped unverified
-description: Four separately approved batches stopped unverified; the diagnostic packet identified the session-layout guard with observed process exit zero.
+description: Five separately approved batches stopped unverified; the corrected startup packet observed the expected entry with additional listing entries.
 tags: [orchestration, copilot, continuation, qualification]
 status: stable
 workflow_status: attempted-unverified
@@ -303,3 +303,72 @@ The later [offline startup/layout correction](native-history-startup.md) reprodu
 an initial empty-root rejection using synthetic directories and adds fixed layout
 flags for future failures. It does not recover this attempt's entry shape, identify
 its cause, change any historical receipt or authorize another native run.
+
+
+## Corrected-startup packet attempt — 2026-11-09
+
+[#1637](https://github.com/Rambolarsen/orkworks/issues/1637) executes one new exact
+owner decision after [#1633](https://github.com/Rambolarsen/orkworks/pull/1633).
+The owner answered “keep going” to the corrected batch question, unchanged limits,
+existing authentication and acknowledged provider billing/retention uncertainties.
+Executable packet bytes matched 42ea491e94f5a66bb151413e34f6579cde38599b before
+launch; the isolated worktree started at 5bc01fb75a6ae6f1d4a1362d280a035617448fe8. No packet source was changed.
+
+The unchanged [startup sanitized receipt](parent-native-canary-startup-summary.json)
+has SHA-256 4baa1da6e4c1a22331a97de3bd6f5cd54acda8ad2d8a97b288c1d983017c0e78.
+
+| Field | Corrected-startup observation |
+| --- | --- |
+| Outcome | unverified |
+| Discovery command attempts | 2 |
+| Native prompt invocation attempts | 1 |
+| Elapsed batch seconds | 6.17 |
+| Failure phase / stage / category | 1 / native-history / check-failed |
+| Fixed check code | history-session-layout |
+| layout.empty | false |
+| layout.expectedPresent | true |
+| layout.exclusiveExpected | false |
+| layout.expectedSymlink | null |
+| OS error | null |
+| Owned process started / observed exit code | true / 0 |
+| Termination steps completed / raw roots removed | true / true |
+| Provider request count / remote retention | unknown / unknown |
+
+The enumerated list contained the expected UUID path and was not the exclusive
+single expected entry. It was nonempty. This identifies an additional-list-entry
+condition in this attempt, not an empty-root stop. Names, exact counts and types of the
+additional entries were not retained. In particular, the receipt does not identify
+auxiliary files, another session, a replacement identity or a particular native
+layout. expectedSymlink is null because the scanner checks it only for an exclusive
+expected entry; null is not evidence that the path is or is not a symlink.
+
+Periodic and final scans share this check, and the receipt does not distinguish
+them or retain prior successfully consumed event counts. Do not infer that no
+history was ever read, or assign this entry shape to earlier attempts. There is
+no successful checks block, native capability proof or second prompt/resume.
+A model turn, tool delivery and provider billing count remain unverified.
+
+Exact approved commitments:
+
+- Proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+- Manifest SHA-256: e89cd3cf0ba4c9b91f7a752edecd6a59f815d02d087503a4ac577959f90f7c9a.
+
+The observer confirmed raw-root deletion. Disposable approval/output controls
+were removed after copying only this sanitized summary; the launcher was removed
+at close-out. No raw data was inspected afterward and no extra native diagnostic,
+retry, alternate names/model/transport or fallback ran. The four earlier receipt
+files remain byte-identical. Termination steps are not a universal descendant-
+liveness or OS-confinement proof.
+
+The pinned observer Python used -E -s -B; the helper kept -I -B. Bounds were two
+sequential gpt-6-luna prompts, four discovery commands, 240 seconds per prompt and
+600 seconds total, 24 observed tool calls and 32 observed turn/usage events, with
+no retry. This fifth approval is spent, including unused phase-two allowance;
+ongoing live budget is zero. #742 stays open and #740 closed; all three native
+capabilities and production eligibility remain unverified.
+
+Next useful work is offline review of the root-exclusivity assumption against
+pinned native layout/creation evidence and the actual exact-session identity
+contract. The additional entries are not automatically evidence of a foreign
+session, and are not automatically safe bookkeeping. Do not weaken a guard or
+spend further usage based on either assumption. No further execution is authorized.
