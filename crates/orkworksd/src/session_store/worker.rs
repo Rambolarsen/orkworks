@@ -70,6 +70,7 @@ enum Command {
         revision: String,
         organization_revision: String,
     },
+    RecordWorkflowCleanup(SqlDeletionIdentity),
     DeletionProgress {
         id: String,
         created: String,
@@ -168,6 +169,7 @@ impl Command {
             | Self::ValidateObservationSource(_)
             | Self::ValidateObservationEnding { .. }
             | Self::ValidateObservationOpening(_) => 64,
+            Self::RecordWorkflowCleanup(_) => 64,
             Self::CaptureAssessmentSources(_) => MAX_SOURCE_BYTES,
             Self::PendingDeletions(..) => 256 * 1024,
             // Canonical record plus JSON-escaped creation/session proof and decision.
@@ -258,6 +260,9 @@ impl Command {
                 db.begin_delete(&id, &created, &revision, &organization_revision)?;
                 Ok(Reply::Unit)
             }
+            Self::RecordWorkflowCleanup(original) => Ok(Reply::WorkflowProgress(
+                db.record_workflow_cleanup(&original)?,
+            )),
             Self::DeletionProgress {
                 id,
                 created,
@@ -304,6 +309,7 @@ enum Reply {
     OrganizationState(Option<super::OrganizationRecord>),
     DeletionPage(DeletionPage),
     DeletionRecord(Option<DeletionRecord>),
+    WorkflowProgress(u8),
     Page(Page),
     Rows(Vec<Summary>),
     Ids(Vec<String>),
@@ -1251,6 +1257,39 @@ impl SessionStore {
     ) -> Result<Option<DeletionRecord>> {
         match self.request(Command::DeletionRecord(id, created)).await? {
             Reply::DeletionRecord(record) => Ok(record),
+            _ => Err(StoreError::Unavailable),
+        }
+    }
+    pub(crate) async fn workflow_deletion_record(
+        &self,
+        original: &SqlDeletionIdentity,
+    ) -> Result<DeletionRecord> {
+        let opening = self.shared.opening.get().ok_or(StoreError::Unavailable)?;
+        if !original.matches_scope(&opening.epoch, &self.workspace) {
+            return Err(StoreError::Conflict);
+        }
+        let current = self
+            .deletion_record(original.session_id().into(), original.created_at().into())
+            .await?
+            .ok_or(StoreError::Missing)?;
+        if current.identity != *original {
+            return Err(StoreError::Conflict);
+        }
+        Ok(current)
+    }
+    pub(crate) async fn record_workflow_cleanup(
+        &self,
+        original: SqlDeletionIdentity,
+    ) -> Result<u8> {
+        let opening = self.shared.opening.get().ok_or(StoreError::Unavailable)?;
+        if !original.matches_scope(&opening.epoch, &self.workspace) {
+            return Err(StoreError::Conflict);
+        }
+        match self
+            .request(Command::RecordWorkflowCleanup(original))
+            .await?
+        {
+            Reply::WorkflowProgress(progress) => Ok(progress),
             _ => Err(StoreError::Unavailable),
         }
     }

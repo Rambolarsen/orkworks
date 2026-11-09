@@ -99,7 +99,7 @@ from these source-level ratings.
   exact intent/segment bounds, shared admission and original deadline retention.
   This file boundary has no production write-token minting path and does not
   establish producer currentness, complete batch settlement or deletion ordering.
-- [ ] Compose origin persistence with the existing grounded at-most-five
+- [x] Compose origin persistence with the existing grounded at-most-five
   final-scan candidates and the SQL Workflow deletion stage. One opaque original
   grant covers actual file work and finite settlement, never a fresh post-wait
   lookup. Preserve sequence/rate/grounding/source checks and idempotency behavior.
@@ -267,6 +267,31 @@ span the finite batch. Source/ending checks and memory-only shared revocation
 precede admission; admitted settlement preserves partial receipts and stops
 remaining I/O after uncertain mutation. The production runner remains JSON and
 its evaluation behavior is unchanged; the private SQL producer schedules none.
-The combined producer/deletion checkbox above remains open: exact-job Workflow
-deletion composition is the next distinct gate. Current branch verification and
-review evidence are recorded on its PR rather than inferred from earlier slices.
+The Workflow deletion follow-up now composes the exact-job original owner
+below. Current branch verification and review evidence are recorded on its PR
+rather than inferred from earlier slices.
+
+
+## Exact-job Workflow deletion composition
+
+The private Workflow stage now validates its complete original deletion identity
+against the retained worker opening and current bounded SQL job snapshot under
+its original lane. It obtains a distinct one-shot cleanup grant from the same
+canonical observation owner, performs file work outside application guards, and
+retains original resources through progress and delivery/caller-loss logging.
+The shared legacy physical core preserves existing revocation/cache/unlink/sync
+semantics; the legacy entry remains unavailable on an admitted SQL owner.
+
+The Workflow-only progress mutation checks original scope and the exact
+finalized tombstone/job in one write transaction, then ORs only `0x02` into
+current bits. It cannot acknowledge a replacement incarnation after file
+removal. Missing job or matching tombstoned row refuses, while ordinary same-job
+progress (including every stage bit being set) does not become a new identity.
+Real producer/close-first/delete ordering, delayed batch/source recreation,
+revoked permit, partial errors, pending guard expiry and admitted resource
+settlement are covered in controlled SQL/filesystem fixtures. No recommendation
+cleanup, other recovery owner, finalizer bit or production selector is changed.
+
+The copied close/reopen assessment-codec composition remains next. Whole-branch
+verification, review and CI evidence are recorded on this task's PR; this source
+work alone does not qualify activation, backup or installed/performance profiles.

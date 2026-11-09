@@ -94,8 +94,27 @@ impl WorkflowObservationStore {
         id: &str,
         sync: impl Fn(&std::fs::File) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        use std::os::fd::AsRawFd;
         let _operation = self.owner.legacy()?;
+        self.delete_captured(id, sync)
+    }
+    #[cfg(unix)]
+    pub(super) fn delete_admitted(&self, id: &str) -> std::io::Result<()> {
+        self.delete_captured(id, std::fs::File::sync_all)
+    }
+    #[cfg(not(unix))]
+    pub(super) fn delete_admitted(&self, _id: &str) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "workflow cleanup is not qualified on this platform",
+        ))
+    }
+    #[cfg(unix)]
+    fn delete_captured(
+        &self,
+        id: &str,
+        sync: impl Fn(&std::fs::File) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        use std::os::fd::AsRawFd;
         if id.is_empty()
             || id.len() > 256
             || !id

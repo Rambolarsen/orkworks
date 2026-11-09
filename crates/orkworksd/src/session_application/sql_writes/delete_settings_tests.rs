@@ -165,6 +165,7 @@ async fn sql_settings_cleanup_retains_permit_through_sql_failure_then_preserves_
     store.close().await.unwrap();
 }
 #[tokio::test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn sql_settings_cleanup_invalid_memory_preserves_other_stages_and_existing_progress() {
     let _serial = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes) = fixture().await;

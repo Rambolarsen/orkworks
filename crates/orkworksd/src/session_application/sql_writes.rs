@@ -436,8 +436,10 @@ fn enter_replay_gate(gate: &ReplayGate) {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod delete_evidence_tests;
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod delete_workflow_sql_tests;
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod delete_image_tests;
@@ -450,7 +452,7 @@ mod delete_recommendation_tests;
 
 #[cfg(test)]
 pub(crate) use organization::trusted_cleanup_admission_fixture;
-pub(crate) use organization::RecommendationCleanupAdmission;
+pub(crate) use organization::{RecommendationCleanupAdmission, WorkflowCleanupAdmission};
 
 mod opening;
 pub(crate) use opening::RecommendationOpenAdmission;

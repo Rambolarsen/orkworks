@@ -1653,37 +1653,58 @@ background recovery scheduler is enabled. See the
 
 ## Captured SQL workflow evidence cleanup
 
-The private `CapturedDeletion::remove_workflow_evidence` stage shares replay
-cleanup's bounded retained runner and captures the original shared workflow store
-without reopening it. Admission rechecks its exact instance as well as the
-existing workspace/reader/lease/runtime and physical-close fences. The admitted
-job retains the session lane, organization reservation, lease and file capacity
-while waiting for the workflow mutex and doing file/SQL work outside application
-guards. Caller loss retains completion; a replaced evidence owner yields a
-detached receipt without publishing current-owner success.
+The private `CapturedDeletion::remove_workflow_evidence` stage now has its own
+checked runner. It retains the complete `SqlDeletionIdentity` captured before
+waits, and validates the retained worker opening plus the exact current
+header/session/job snapshot under its original session lane. Changed scope,
+creation, a disappeared job or a missing matching tombstoned/finalized row
+refuses before file effects. Same-job progress changes remain eligible, including
+all stage bits being set while the job still exists.
 
-The workflow owner's narrow durable deletion variant revokes every captured
-writer for that session under the existing mutex before attempting unlink. On
-Unix it retains no-follow workspace/workflow directory handles from shared-store
-opening, so renamed/replaced paths cannot redirect deletion. Anchor-open errors
-disable only this durable path, preserving legacy opening behavior. It removes only the
-validated exact NDJSON basename, and synchronizes both directories before
-forgetting cached observations, duplicate keys and diagnostics. The sequence and
-other sessions remain unchanged. Retries repeat synchronization after absent
-files; unsupported platforms fail before effects. Legacy synchronous deletion
-keeps its prior behavior through shared revocation/cache helpers.
+Original workspace/reader/runtime/physical-close, workflow instance, root and
+lease checks precede a memory-only application callback and claim admission.
+Application guards use nonblocking checks under the original two-second pending
+deadline; expiry releases the candidate and lane even while a guard stays held.
+The app path remains the exact lexical path bound to the original worker;
+physical identity uses its separately retained canonical root. No SQL or file
+I/O runs under these guards.
 
-Only file success permits `progress | 0x02`, with `complete=false`. File and SQL
-failures remain distinct and leave the tombstone/job pending. This source-only
-stage adds no production SQL routing or live migration; remaining external
-owners and final deletion completion are subsequent prerequisites. See the
+The resulting `SqlCleanup` grants one removal through the canonical observation
+owner. Read admission cannot upgrade to it, and the retained grant cannot remove
+a replacement on a second call. It keeps SQL mode and excludes other file
+operations through progress recording and result delivery/detached logging.
+The original lane, organization reservation, lease, worker and existing captured
+file-budget slot span that same settlement. Pending cancellation prevents
+admission; admitted work finishes on its original scope after caller loss or
+expiry. An admitted observation batch holds the same lane until it settles,
+so close-first deletion follows it; deletion first prevents a delayed old batch
+from recreating evidence.
+
+The shared physical deletion core revokes captured writers for that session
+before attempting the exact unlink, then synchronizes both original directories
+before forgetting cached observations, duplicate keys and diagnostics. Failed
+unlink/sync leaves progress unset and preserves retryable state; absent-file
+retries still synchronize. Other segments and the sequence remain unchanged.
+The ordinary legacy entry still requires legacy admission and refuses on an
+admitted SQL owner. The private SQL composition uses the qualified macOS/Linux
+descriptor backend; legacy platform behavior is unchanged.
+
+Only file success requests the Workflow-specific progress mutation. Its write
+transaction checks the original epoch/workspace and exact tombstoned, finalized
+job again, then ORs `0x02` into current progress without removing the row/job.
+Thus scope changes after physical removal return a partial result rather than
+acknowledging a replacement job, and concurrent same-job bits are preserved.
+File and SQL failures remain distinct. Recommendation cleanup, other recovery
+owners and finalization progress are unchanged. Production routing, migration
+and complete activation remain gated. See the
 [stage validation](../validation/session-store-adapter.md#captured-sql-workflow-evidence-cleanup).
 
 ## Captured SQL session-image cleanup
 
 The private `CapturedDeletion::remove_images` stage uses the same original-owner,
 physical-close, exact tombstone, lane/reservation, cancellation/admission and
-bounded-capacity runner as replay/workflow cleanup. The existing read-only
+bounded-capacity runner as replay cleanup. Workflow's distinct canonical grant
+does not change this image owner. The existing read-only
 blocking capture also binds image-parent and target handles outside application
 guards. Image binding failure remains its own file outcome and does not prevent
 other cleanup stages. Only generated UUIDs can own image bundles; other ordinary
@@ -1986,9 +2007,10 @@ detached logging. No evaluator is scheduled from this private SQL path while
 assessment/recommendation inputs remain unqualified. The existing production
 JSON runner keeps its recording and evaluation behavior.
 
-Exact-job Workflow deletion ordering remains the next separate gate; these
-producer checks do not qualify deletion on the SQL owner, assessment construction,
-production selection or measured performance.
+Exact-job Workflow deletion is composed through the separate captured owner
+[described above](#captured-sql-workflow-evidence-cleanup). Copied close/reopen
+assessment-codec composition, complete input construction, production selection
+and measured performance remain separate gates.
 
 ## Recommendation cleanup preflight
 

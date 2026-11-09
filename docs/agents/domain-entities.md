@@ -366,8 +366,13 @@ a minting path only through the private original captured producer.
 `SqlEvidenceWrite` reports detached/current settlement and indexed
 `SqlCandidateResult` values (ungrounded, receipt or candidate/storage error),
 without scheduling evaluation. The file layer persists only through this separate
-boundary; exact-job Workflow deletion ordering and assessment composition remain
-pending. Production keeps its existing JSON authority.
+boundary. `SqlCleanup` is the distinct one-shot admitted Workflow deletion
+owner: it retains its original canonical candidate/store and captured
+`SqlDeletionIdentity` through file removal, identity-checked progress and result
+delivery. Read grants cannot mint it. Progress advancement alone is not a new
+job identity, and Workflow completion sets only `0x02` without finalizing the
+row/job. Assessment composition remains pending. Production keeps its existing
+JSON authority.
 
 ### Recommendation origins: analysis vs observations
 

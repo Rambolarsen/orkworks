@@ -72,6 +72,26 @@ impl SqlWriter {
         )
     }
 }
+/// Admitted original Workflow deletion; no read/write or second-removal upgrade.
+pub(crate) struct SqlCleanup {
+    _candidate: SqlCandidate,
+    store: WorkflowObservationStore,
+    admission: crate::session_application::sql_writes::WorkflowCleanupAdmission,
+    used: bool,
+}
+impl SqlCleanup {
+    pub(crate) fn remove(&mut self) -> io::Result<()> {
+        if self.used {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "cleanup grant already used",
+            ));
+        }
+        self.used = true;
+        self.store
+            .delete_admitted(self.admission.identity().session_id())
+    }
+}
 pub(crate) struct SqlCandidate {
     owner: Arc<Owner>,
     directory: fs::File,
@@ -219,6 +239,29 @@ impl SqlCandidate {
             candidate: self,
             admission,
             deadline: claim.deadline,
+            used: false,
+        })
+    }
+    /// The sealed token proves the caller has already won its deletion claim.
+    /// This callback is memory-only; removal happens after application guards drop.
+    pub(crate) fn admit_cleanup(
+        mut self,
+        admission: crate::session_application::sql_writes::WorkflowCleanupAdmission,
+        store: WorkflowObservationStore,
+    ) -> SqlResult<SqlCleanup> {
+        if self.admitted || !Arc::ptr_eq(&self.owner, &store.owner) {
+            return Err(crate::session_store::StoreError::Conflict);
+        }
+        self.owner
+            .state
+            .lock()
+            .map_err(|_| crate::session_store::StoreError::Unavailable)?
+            .sql = true;
+        self.admitted = true;
+        Ok(SqlCleanup {
+            _candidate: self,
+            store,
+            admission,
             used: false,
         })
     }
