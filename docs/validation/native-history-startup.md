@@ -85,3 +85,10 @@ New manifest SHA-256: e89cd3cf0ba4c9b91f7a752edecd6a59f815d02d087503a4ac577959f9
 Only its observer pin changes. All four prior batches are spent and none binds
 this manifest. Live budget is zero; another native batch needs a new exact owner
 decision. #742 stays open, #740 closed and all three native capabilities unverified.
+
+
+The later [owner-approved corrected-startup batch](parent-native-canary.md#corrected-startup-packet-attempt--2026-11-09)
+used this exact manifest. It stopped on a nonempty listing containing the expected
+entry and additional entries, whose names/types remain unknown. That fifth
+approval is spent; no ongoing live budget remains. The synthetic startup fix is
+not evidence for the cause of any earlier attempt.
