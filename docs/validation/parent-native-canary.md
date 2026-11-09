@@ -1,7 +1,7 @@
 ---
 type: Native Canary Evidence
 title: Parent continuation canary stopped unverified
-description: Two separately approved native batches stopped unverified; retained receipts distinguish the initial generic stop from the revised host-stage and exit observations.
+description: Three separately approved native batches stopped unverified; the corrected UUID packet reached a native-history stop with observed process exit zero.
 tags: [orchestration, copilot, continuation, qualification]
 status: stable
 workflow_status: attempted-unverified
@@ -163,3 +163,67 @@ The later [offline UUID audit](parent-native-canary-offline-audit.md) found and
 corrected an invalid ID in the future packet. Its source-level rejection path is
 consistent with exit 1 but cannot be retroactively identified as either run's
 particular cause. Both receipts and their hashes remain unchanged.
+
+
+## UUID-corrected packet attempt — 2026-11-09
+
+[#1613](https://github.com/Rambolarsen/orkworks/issues/1613) executes the new owner
+decision after [#1610](https://github.com/Rambolarsen/orkworks/pull/1610). The owner
+answered “go ahead” to the corrected exact packet, existing authentication and
+acknowledged retention/billing uncertainties. Proposal, manifest and executable
+fixture files matched merge ad007acaf740c994a8b84f5b86a4151ae528af95 before launch;
+the isolated execution worktree started at 06d658048d03b79952a11727dbf35637dd4fb897.
+The reviewed inputs and runner were not changed for this batch.
+
+The unchanged [corrected sanitized receipt](parent-native-canary-corrected-summary.json)
+has SHA-256 641708138cb1f13157ce9e59c6c34a3905667f409d51a034071042399076a925.
+
+| Field | Corrected-packet observation |
+| --- | --- |
+| Outcome | unverified |
+| Discovery command attempts | 2 |
+| Native prompt invocation attempts | 1 |
+| Elapsed batch seconds | 4.909 |
+| Failure phase / enclosing stage | 1 / native-history |
+| Failure category | check-failed |
+| OS error | null |
+| Owned process started | true |
+| Observed exit code | 0 |
+| Termination steps completed | true |
+| Raw roots removed | true |
+| Provider request count / remote retention | unknown / unknown |
+
+The receipt now locates the failed enclosing operation at native-history and
+records native exit zero. Neither establishes a successful model turn, delivered
+tool result or completed capability check. History scanning can run during the
+supervisor or after its clean return; this receipt does not distinguish them.
+History checks cover expected session layout, append-only prefix/tail and bounded
+allowlisted event projection. The particular failed condition was not retained.
+Do not infer missing history, a schema mismatch, authentication/model rejection or
+MCP name mapping as the cause. There is no successful checks block, and phase two
+was not attempted; exact resume remains unverified.
+
+The observer confirmed deletion of its raw roots. The disposable approval/output
+control root was removed after copying only the sanitized summary. No raw output
+or history was inspected afterward, no extra native diagnostic command ran and
+no retry, alternate naming/transport/model or fallback was attempted. The recorded
+termination sequence is not a universal descendant-liveness or confinement proof.
+
+Exact approval/source commitments:
+
+- Proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b.
+- Manifest SHA-256: e2cb9c9c41d2b0137aad51bd25fa12f367426fe2dcc9bdb075fc7a5ec95471ec.
+
+Bounds were unchanged: two sequential gpt-6-luna prompts, four source-discovery
+commands, 240 seconds per prompt/600 total, 24 observed tools and 32 observed
+turn/usage events, no retry. Provider request count/billing and remote retention
+remain unknown. The pinned observer Python used -E -s -B; the fixture helper kept
+its approved -I -B flags. Both earlier receipt files remain byte-identical.
+
+This one-batch approval is spent, including unused phase-two allowance. All three
+native checks remain unverified; #742 stays open and #740 closed. No production
+role/source eligibility, authority, storage or implementation claim follows.
+Before another live proposal, the useful bounded follow-up is a model-free audit
+of the pinned native-history layout/event contract against the observer, with a
+minimal fixed failure-code projection only if needed. This is a suggestion, not
+new execution authority or permission to inspect deleted raw data.

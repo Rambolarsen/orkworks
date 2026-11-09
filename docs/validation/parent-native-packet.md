@@ -1,10 +1,10 @@
 ---
 type: Qualification Packet
 title: Prepared parent native continuation canary
-description: Stdio MCP canary inputs, two historical unverified attempts and an offline UUID compatibility correction awaiting new live approval.
+description: Stdio MCP canary inputs, three unverified attempts, including the owner-approved UUID-corrected packet that stopped during native-history checks.
 tags: [orchestration, copilot, continuation, qualification]
 status: draft
-workflow_status: uuid-corrected-not-authorized
+workflow_status: uuid-corrected-attempt-spent
 ---
 
 # Prepared parent native continuation canary
@@ -15,8 +15,8 @@ The [plan](../superpowers/plans/2026-11-08-parent-native-packet.md) reuses the
 [offline peer](parent-continuation-fixture.md) without changing it. Preparation
 uses only Python fake clients and the fixture stdio server. No Copilot process,
 discovery command, SDK/ACP server, model or credential discovery has run for this
-packet during preparation. One later owner-approved native batch stopped
-[unverified](parent-native-canary.md) on 2026-11-09, with raw-root deletion confirmed.
+packet during preparation. Three separately owner-approved batches later stopped
+[unverified](parent-native-canary.md) on 2026-11-09, each with raw-root deletion confirmed.
 #740 stays closed; all three native checks remain **unverified**.
 
 ## Exact packet
@@ -166,5 +166,17 @@ Current corrected proposal SHA-256: 39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b
 Current corrected manifest SHA-256: e2cb9c9c41d2b0137aad51bd25fa12f367426fe2dcc9bdb075fc7a5ec95471ec.
 Model, tools, permissions, source/retention policy, limits and no-retry behavior
 are unchanged. Historical receipts and their source commitments remain unchanged.
-Both old approvals are spent and do not match these corrected bytes. **No native
-run is authorized** until a new exact owner decision.
+At correction time, both old approvals were spent and did not match these bytes;
+a new exact owner decision was required. The subsequent decision and attempt are
+recorded below.
+
+
+## Corrected batch spent — 2026-11-09
+
+A new exact owner decision authorized [#1613](https://github.com/Rambolarsen/orkworks/issues/1613)
+using the corrected proposal/manifest above. The unchanged runner attempted two
+discovery commands and one prompt, then stopped unverified in native-history with
+observed process exit zero. Its [retained receipt and limits](parent-native-canary.md#uuid-corrected-packet-attempt--2026-11-09)
+establish raw-root deletion, not a successful capability check or exact failure
+cause. No resume or retry ran. That new approval is now spent; ongoing live budget
+is zero and source/model/transport changes or another attempt need a new decision.
