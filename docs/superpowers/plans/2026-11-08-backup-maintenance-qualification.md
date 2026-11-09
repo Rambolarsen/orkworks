@@ -264,3 +264,18 @@ Reuse the accepted interface without repeat approval of unchanged choices. Actua
 submission/phase/result owner operations, complete numeric reservation/deadline
 enforcement and physical/native evidence still need closure before a bounded
 implementation handoff; an accepted paper record is not runtime capability.
+
+
+## Proposed source-only owner sequencing exception — 2026-11-09
+
+[#1584](https://github.com/Rambolarsen/orkworks/issues/1584) records a concrete
+[sequencing amendment proposal](../specs/2026-11-09-submission-owner-qualification-sequencing.md).
+Under a literal all-code reading, the current general handoff requires actual
+owner operations before their first candidate implementation can be planned. The proposal would allow exactly one unwired,
+source-only submission-record/accounting candidate and offline component checks
+after explicit owner approval and a bounded reviewed implementation plan.
+
+This exception remains proposed, not executable. It closes no remaining checkbox
+and changes no production/controller, native/SQL/model, resource-profile, Q or
+restore gate. Candidate evidence would establish only its actual local behavior,
+never production producer/physical qualification or complete resource fit.
