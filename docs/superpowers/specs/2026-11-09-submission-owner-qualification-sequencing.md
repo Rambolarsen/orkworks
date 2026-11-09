@@ -1,10 +1,10 @@
 ---
 type: Qualification Sequencing Amendment
 title: Source-only submission owner before physical qualification
-description: Proposed bounded candidate implementation route that breaks the owner-existence prerequisite cycle without enabling production input or maintenance.
+description: Accepted bounded candidate implementation route that breaks the owner-existence prerequisite cycle without enabling production input or maintenance.
 tags: [orkworks, sessions, terminal, maintenance, qualification]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-source-only-candidate
 ---
 
 # Source-only submission owner before physical qualification
@@ -20,8 +20,10 @@ and [source audit](../../validation/backup-maintenance-writer-audit.md) remain t
 canonical gates/evidence. Backup/adoption/v1, no resend, unknown protection,
 original ownership and no-automatic-stop policy are unchanged.
 
-**Status:** proposed sequencing exception for owner approval, not permission to
-write code today. Source pin `69f46a3a750668c25d7e48cf1e812ce50a6098e3`.
+**Status:** accepted for the single source-only candidate. After #1587, the owner
+answered “lets keep going” to the explicit request for a reviewed implementation
+plan then this one unwired module with offline tests. [#1589](https://github.com/Rambolarsen/orkworks/issues/1589)
+records that scoped approval on 2026-11-09. Source pin `69f46a3a750668c25d7e48cf1e812ce50a6098e3`.
 The terminal/runtime/application files inspected in #1567 are unchanged from
 `26e4e2a`; repeating that audit cannot produce missing operations or numeric fit.
 No code, product tests, native/SQL/model probes or live operations ran here.
@@ -42,7 +44,7 @@ It has no ability to submit terminal input, touch stores or issue maintenance
 receipts. Component checks can establish that candidate's actual bookkeeping
 behavior; they cannot qualify the absent producer integration or native profile.
 
-## Proposed choices
+## Accepted choices for the single candidate
 
 1. Permit one bounded source-only candidate owner implementation and its offline
    component verification before full producer/native/resource qualification,
@@ -54,9 +56,9 @@ behavior; they cannot qualify the absent producer integration or native profile.
    candidate verification inputs only. Production numeric values, real producer
    identity/admission, complete physical accounting and activation remain gated.
 
-These are new sequencing choices, not changes to accepted outcome semantics.
-Approval would permit planning/executing this single candidate slice under the
-checks below. It would not authorize wiring, relax no-resend/unknown handling,
+These unchanged sequencing choices are accepted, without changes to outcome
+semantics. Approval permits planning/executing this single candidate slice under
+the checks below. It would not authorize wiring, relax no-resend/unknown handling,
 qualify a module by name or make a fake success profile acceptable.
 
 ## First candidate slice and ownership
@@ -158,8 +160,9 @@ mark a ready native/backup/SQL profile or broadly authorize follow-on modules.
 The useful next result would be tested source code for this actual private owner,
 followed by honest evidence of its remaining producer/resource gaps. No further
 source inventory of unchanged terminal paths is required to plan that slice.
-Implementation cannot start from this proposal alone. Owner approval of these
-three choices is the final decision before its bounded implementation plan.
+The owner approval above supplies the single-candidate sequencing decision.
+The [bounded plan](../plans/2026-11-09-input-submission-owner-candidate.md) routes
+implementation and verification; production qualification remains separate.
 
 
 ## Review disposition
@@ -168,4 +171,4 @@ Fresh builder and independent authority reviews found no material findings in th
 one-candidate scope, fixture/evidence separation, resource disclaimers or required
 check boundaries. The sequencing conflict concerns treating the existing gate as
 applying to all candidate code; it does not invalidate the production prerequisite
-or claim production qualification is impossible. Approval remains pending.
+or claim production qualification is impossible. This review was reused for the unchanged acceptance; no production gate was waived.

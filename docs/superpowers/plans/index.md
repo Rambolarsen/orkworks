@@ -348,3 +348,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Continuous-parent capability handoff](2026-11-08-parent-continuation-capability-handoff.md) — Three event/gap/resume oracles, model-free preparation and explicit zero-call live gate.
 
 - [Native continuation packet preparation](2026-11-08-parent-native-packet.md) — One stdio route, model-free setup and a proposed two-phase budget requiring exact-packet owner approval.
+
+- [Source-only input submission owner candidate](2026-11-09-input-submission-owner-candidate.md) — Bounded implementation of one unwired private ownership/accounting module with offline behavioral verification.
