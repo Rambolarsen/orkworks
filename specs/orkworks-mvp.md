@@ -833,6 +833,17 @@ The first useful MVP should include:
   restoration. Electron resolves current session identity and tool configuration
   from its own workspace-bound sidecar before opening. Keep general terminal
   links restricted to HTTP(S); native opening uses a dedicated bounded bridge.
+  The same menu also offers **Visual Studio Code** with an application icon when
+  its `vscode` desktop URL handler is registered. This action opens the selected
+  session's reported task-worktree root, falling back to its working directory
+  only when no task-worktree binding exists. Label it as opening the project
+  folder; it does not transfer a conversation. It works independently of coding
+  tool, native session identity and lifecycle. Electron resolves and checks the
+  current directory, detects installation and revalidates the session directory
+  before dispatch through a fixed `vscode://file/` URL. Missing/invalid directories
+  disable the entry with an explanation; missing installations hide it. The menu
+  uses a neutral **Open in…** trigger and application icons for its destinations.
+  This owner-requested extension is tracked in #1601.
   See [native application opening](../docs/agents/harness-integration-contracts.md#native-application-opening)
   and [#1015](https://github.com/Rambolarsen/orkworks/issues/1015).
 - Electron launches Rust backend sidecar

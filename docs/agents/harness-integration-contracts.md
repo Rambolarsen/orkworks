@@ -614,6 +614,26 @@ excludes implicit current-directory command lookup, following the
 [Windows command-search contract](https://learn.microsoft.com/en-us/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw).
 The renderer has no shell API.
 
+### Project-folder opening
+
+The owner-requested #1601 extension adds Visual Studio Code to the same menu.
+It opens the selected session's current `worktreeBinding.root`, or `cwd` when
+there is no binding, independently of native identity and lifecycle. The entry
+is shown only when the OS reports a registered `vscode` application handler;
+invalid/missing directories leave an installed destination disabled with a reason.
+The neutral Open in… trigger and destination entries have icons.
+
+The existing workspace-bound bridge accepts only a fixed destination selector
+(`native` or `vscode`), never renderer-provided paths, commands or URLs. Electron
+loads the authoritative session, validates an absolute existing directory and
+rechecks the selected directory after capability inspection before dispatch.
+Generation cancellation remains binding. VS Code uses the documented
+[project URL](https://code.visualstudio.com/docs/configure/command-line#_opening-vs-code-with-urls)
+with path segments encoded and a trailing slash, without query parameters,
+commands, shell execution or conversation transfer. Windows local drive paths
+are supported; network share paths are unavailable in this slice. Installation
+inspection is capability evidence, not a live opening test or installer claim.
+
 ## Explicit task-worktree helper
 
 Codex and Claude Code `SessionStart`, and Copilot `sessionStart`, supply scoped

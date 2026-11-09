@@ -516,9 +516,13 @@ mutations independently of these renderer checks.
 
 Electron-main denies renderer popup and navigation requests, delegates valid HTTP(S) links to the OS default browser, and keeps same-origin Vite reloads inside Electron during development. xterm's OSC-8 terminal links use the narrow `openExternalLink` preload bridge, so they bypass renderer `window.open()` while still receiving Electron-main URL validation. Renderer load/process failures log bounded diagnostics and show a resource-free local recovery document; its retry returns to the captured original app URL, with only that exact packaged `file:` target allowlisted.
 
-`inspectSessionApp(workspacePath, sessionId)` and
-`openSessionApp(workspacePath, sessionId)` expose only bounded native desktop
-opening. Electron reads current session/tool data from its own ready sidecar;
+`inspectSessionApp(workspacePath, sessionId, destination?)` and
+`openSessionApp(workspacePath, sessionId, destination?)` expose bounded desktop
+opening with a fixed `native` (default) or `vscode` selector. VS Code is a
+project-folder destination: Electron detects its registered URL handler,
+validates the current session's task-worktree root (or cwd without a binding),
+rechecks that directory after probing, and opens an encoded `vscode://file/` URL.
+The renderer cannot provide a path, URL or command. Electron reads current session/tool data from its own ready sidecar;
 `electron/sessionAppOpener.ts` validates the exact native UUID and built-in tool,
 checks app registration and Claude capability/lifecycle/directory, and revalidates
 identity and lifecycle after asynchronous probing before dispatch. Main binds

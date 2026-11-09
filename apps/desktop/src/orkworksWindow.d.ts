@@ -213,8 +213,8 @@ declare global {
       clearHarnessCommandOverride: (
         harnessId: string,
       ) => Promise<{ ok: true } | { ok: false; error: string }>;
-      inspectSessionApp: (workspacePath: string, sessionId: string) => Promise<{ label: string; available: boolean; reason?: string }>;
-      openSessionApp: (workspacePath: string, sessionId: string) => Promise<void>;
+      inspectSessionApp: (workspacePath: string, sessionId: string, destination?: "native" | "vscode") => Promise<{ label: string; available: boolean; reason?: string; installed?: boolean }>;
+      openSessionApp: (workspacePath: string, sessionId: string, destination?: "native" | "vscode") => Promise<void>;
       openExternalLink: (url: string) => Promise<void>;
       readGitChanges: (request: GitChangesRequest) => Promise<GitChangesResult>;
       sessionTitle: (request: import("./sessionTitleTypes").SessionTitleRequest) => Promise<import("./sessionTitleTypes").SessionTitleResult>;

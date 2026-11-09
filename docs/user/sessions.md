@@ -141,10 +141,9 @@ may still use the earlier resume controls.
 
 ## Open a session in its desktop app
 
-In current source builds, the top-bar **Open in** control names the desktop app
-as soon as the selected session’s coding tool is known. It checks availability
-in advance and refreshes when the native conversation ID or session lifecycle
-changes. Built-in Codex sessions can open the same conversation in **ChatGPT**.
+In current source builds, the top-bar **Open in…** menu shows application icons
+and checks which destinations are available. It refreshes when the selected
+session's identity, lifecycle or project directory changes. Built-in Codex sessions can open the same conversation in **ChatGPT**.
 Built-in Claude Code sessions can open in **Claude** after you explicitly
 **Close** the session in OrkWorks. Opening never closes a running session for you.
 
@@ -154,6 +153,15 @@ apps. Claude also requires a supported CLI version, platform and subscription
 login. If opening fails, the error stays in the menu. OrkWorks never substitutes
 the most recent conversation or starts a new one. Published installers may not
 yet include this action.
+
+When Visual Studio Code has a registered desktop application link handler, the
+menu also offers **Visual Studio Code → Open project folder**. It opens the
+session's reported task worktree, or its working directory when no task worktree
+is reported. This works for any coding tool and does not require a captured
+conversation ID or a closed session. An unavailable project directory disables
+the option with an explanation. This opens the folder in the editor; it does
+not transfer the coding conversation. Published installers may not yet include
+this option.
 
 ## Find the next thing to inspect
 

@@ -1,7 +1,7 @@
 import { isAbsolute, win32 } from "node:path";
 
 // Deliberately duplicated in the renderer: neither side imports across the boundary.
-export type SessionAppAvailability = { label: string; available: boolean; reason?: string };
+export type SessionAppAvailability = { label: string; available: boolean; reason?: string; installed?: boolean };
 export interface SessionAppDependencies {
   platform: string;
   arch: string;
@@ -18,13 +18,30 @@ type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function resolveSessionApp(sessionId: unknown, deps: SessionAppDependencies): Promise<{ availability: SessionAppAvailability; nativeId?: string; harnessId?: string; command?: string; cwd?: string }> {
+const projectDirectory = (session: RecordValue): unknown => session.worktreeBinding == null ? session.cwd : record(session.worktreeBinding).root;
+
+async function resolveSessionApp(sessionId: unknown, deps: SessionAppDependencies, destination: unknown): Promise<{ availability: SessionAppAvailability; nativeId?: string; harnessId?: string; command?: string; cwd?: string; url?: string }> {
+  if (destination !== "native" && destination !== "vscode") throw new Error("Unsupported application destination.");
   if (typeof sessionId !== "string" || !sessionId || sessionId.length > 256) throw new Error("Invalid session ID.");
   deps.signal.throwIfAborted();
   const sessions = await deps.readSessions();
   if (!Array.isArray(sessions)) throw new Error("Couldn't read the current sessions.");
   const session = record(sessions.find(value => record(value).id === sessionId));
   if (!session.id) throw new Error("This session is no longer available.");
+  if (destination === "vscode") {
+    const installed = !!await deps.applicationForProtocol("vscode://").catch(() => "");
+    const availability = { label: "Visual Studio Code", installed, available: false };
+    if (!installed) return { availability: { ...availability, reason: "Visual Studio Code has no registered application link handler." } };
+    const cwd = projectDirectory(session);
+    const absolute = typeof cwd === "string" && (deps.platform === "win32" ? /^[a-z]:[\\/]/i.test(cwd) : isAbsolute(cwd));
+    if (!absolute || typeof cwd !== "string" || /[\x00-\x1f\x7f]/.test(cwd)) return { availability: { ...availability, reason: "The session project directory is unavailable." } };
+    try { await deps.checkDirectory(cwd); }
+    catch { return { availability: { ...availability, reason: "The session project directory is unavailable." } }; }
+    deps.signal.throwIfAborted();
+    const path = deps.platform === "win32" ? "/" + cwd.replace(/\\/g, "/") : cwd;
+    const encoded = path.split("/").map((segment, index) => deps.platform === "win32" && index === 1 ? segment : encodeURIComponent(segment)).join("/");
+    return { availability: { ...availability, available: true }, cwd, url: `vscode://file${encoded.replace(/\/+$/, "")}/` };
+  }
   const harnessId = session.harnessId;
   const label = harnessId === "codex" ? "ChatGPT" : harnessId === "claude-code" ? "Claude" : "Native application";
   const unavailable = (reason: string) => ({ availability: { label, available: false, reason } });
@@ -59,23 +76,29 @@ async function resolveSessionApp(sessionId: unknown, deps: SessionAppDependencie
   return { availability: { label, available: true }, nativeId, harnessId, command, cwd };
 }
 
-export async function inspectSessionApp(sessionId: unknown, deps: SessionAppDependencies): Promise<SessionAppAvailability> {
-  return (await resolveSessionApp(sessionId, deps)).availability;
+export async function inspectSessionApp(sessionId: unknown, deps: SessionAppDependencies, destination: unknown = "native"): Promise<SessionAppAvailability> {
+  return (await resolveSessionApp(sessionId, deps, destination)).availability;
 }
 
-export async function openSessionApp(sessionId: unknown, deps: SessionAppDependencies): Promise<void> {
-  const target = await resolveSessionApp(sessionId, deps);
-  if (!target.availability.available || !target.nativeId) throw new Error(target.availability.reason ?? "Desktop opening is unavailable.");
+export async function openSessionApp(sessionId: unknown, deps: SessionAppDependencies, destination: unknown = "native"): Promise<void> {
+  const target = await resolveSessionApp(sessionId, deps, destination);
+  if (!target.availability.available) throw new Error(target.availability.reason ?? "Desktop opening is unavailable.");
   // Capability probes yield: Resume, native-ID replacement, or deletion may have
   // happened meanwhile. Read the authoritative session again before dispatch.
   const sessions = await deps.readSessions();
   const current = record(Array.isArray(sessions) ? sessions.find(value => record(value).id === sessionId) : undefined);
+  if (destination === "vscode") {
+    if (!current.id || projectDirectory(current) !== target.cwd) throw new Error("The session project directory changed while checking its application destination.");
+    deps.signal.throwIfAborted();
+    await deps.openExternal(target.url!);
+    return;
+  }
   if (current.harnessId !== target.harnessId || record(current.resume).harnessSessionId !== target.nativeId
     || (target.command && (current.lifecycle !== "dead" || current.cwd !== target.cwd))) {
     throw new Error("The session changed while checking its desktop destination. Close any running Claude session and try again.");
   }
   deps.signal.throwIfAborted();
-  if (target.command && target.cwd) {
+  if (target.command && target.cwd && target.nativeId) {
     await deps.run(target.command, ["--desktop", "--resume", target.nativeId], target.cwd);
   } else {
     await deps.openExternal(`codex://threads/${target.nativeId}`);
