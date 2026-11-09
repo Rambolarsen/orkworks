@@ -1,5 +1,5 @@
-//! Local submission accounting remains unwired; the terminal writer shares only
-//! fixed InputFact/Flush values. Owner has no production caller, input capability,
+//! Production starts remain unreported; a private optional writer bridge shares
+//! fixed facts and unique reporters. Owner has no production caller, input capability,
 //! payload/native handle, physical-completion proof or production resource profile.
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -77,22 +77,30 @@ struct Entry {
     input_bytes: usize,
     deadline: Instant,
     input: Option<InputFact>,
+    checkpoint: Option<usize>,
     phases: [PhaseState; 4],
     protected: bool,
     live_reporters: usize,
 }
 impl Entry {
+    fn input_fact(&self) -> InputFact {
+        self.input.unwrap_or_else(|| match self.checkpoint {
+            Some(reported) if reported == self.input_bytes => InputFact::FullWrite {
+                flush: Flush::Unknown,
+            },
+            Some(reported) => InputFact::PartialOrUnknown { reported },
+            None => InputFact::Unresolved,
+        })
+    }
     fn snapshot(&self, now: Instant) -> Snapshot {
         Snapshot {
             context: self.context,
             input_bytes: self.input_bytes,
-            fact: self.input.unwrap_or(InputFact::Unresolved),
+            fact: self.input_fact(),
             phases: self.phases,
             protected: self.protected
-                || matches!(
-                    self.input,
-                    Some(InputFact::Unresolved | InputFact::PartialOrUnknown { .. })
-                )
+                || self.input == Some(InputFact::Unresolved)
+                || matches!(self.input_fact(), InputFact::PartialOrUnknown { .. })
                 || self.phases.iter().any(|phase| {
                     matches!(
                         phase,
@@ -125,7 +133,7 @@ impl Core {
             .ok_or(Error::Stale)
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Key {
     index: usize,
     serial: u64,
@@ -234,6 +242,7 @@ impl Owner {
             input_bytes,
             deadline,
             input: None,
+            checkpoint: None,
             phases: [PhaseState::Pending; 4],
             protected: false,
             live_reporters: 4,
@@ -297,7 +306,10 @@ impl Owner {
             {
                 return Err(Error::Protected);
             }
-            if entry.live_reporters != 0 || entry.phases.iter().any(|p| *p == PhaseState::Pending) {
+            if entry.input.is_none()
+                || entry.live_reporters != 0
+                || entry.phases.iter().any(|p| *p == PhaseState::Pending)
+            {
                 return Err(Error::Pending);
             }
             state.slots[observer.key.index] = None;
@@ -323,6 +335,61 @@ impl Drop for Observer {
     }
 }
 impl Reporter {
+    /// Association only: these handles grant no native input authority.
+    pub(super) fn validate_pair(&self, returned: &Self, input_bytes: usize) -> Result<(), Error> {
+        if self.phase != 1 || returned.phase != 2 {
+            return Err(Error::WrongRole);
+        }
+        if !Arc::ptr_eq(&self.core, &returned.core) || self.key != returned.key {
+            return Err(Error::Stale);
+        }
+        let mut state = self.core.lock()?;
+        let entry = Core::entry(&mut state, self.key)?;
+        if entry.input_bytes != input_bytes {
+            return Err(Error::InvalidFact);
+        }
+        if entry.protected {
+            return Err(Error::Protected);
+        }
+        if entry.phases[..3].contains(&PhaseState::Settled(PhaseResult::NoEffect)) {
+            return Err(Error::Conflict);
+        }
+        if entry.input.is_some()
+            || entry.checkpoint.is_some()
+            || entry.phases[1] != PhaseState::Pending
+            || entry.phases[2] != PhaseState::Pending
+        {
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
+
+    pub(super) fn checkpoint(&self, reported: usize) -> Result<(), Error> {
+        let mut state = self.core.lock()?;
+        let entry = Core::entry(&mut state, self.key)?;
+        if self.phase != 1 {
+            entry.protected = true;
+            return Err(Error::WrongRole);
+        }
+        if entry.input.is_some() || entry.phases[1] != PhaseState::Pending {
+            entry.protected = true;
+            return Err(Error::Conflict);
+        }
+        if reported > entry.input_bytes
+            || (reported == 0 && entry.input_bytes != 0)
+            || entry.checkpoint.is_some_and(|previous| reported < previous)
+        {
+            entry.protected = true;
+            return Err(Error::InvalidFact);
+        }
+        entry.checkpoint = Some(reported);
+        if entry.phases[..3].contains(&PhaseState::Settled(PhaseResult::NoEffect)) {
+            entry.protected = true;
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
+
     pub(super) fn record_input(&self, fact: InputFact) -> Result<(), Error> {
         let mut state = self.core.lock()?;
         let entry = Core::entry(&mut state, self.key)?;
@@ -341,6 +408,19 @@ impl Reporter {
         if entry.input.is_some() {
             entry.protected = true;
             return Err(Error::Conflict);
+        }
+        if let Some(prefix) = entry.checkpoint {
+            let preserves = match fact {
+                InputFact::FullWrite { .. } => true,
+                InputFact::PartialOrUnknown { reported } => {
+                    prefix < entry.input_bytes && reported >= prefix
+                }
+                _ => false,
+            };
+            if !preserves {
+                entry.protected = true;
+                return Err(Error::Conflict);
+            }
         }
         let contradicts_no_effect = matches!(
             fact,
@@ -363,8 +443,8 @@ impl Reporter {
         if self.phase < 3
             && result == PhaseResult::NoEffect
             && matches!(
-                entry.input,
-                Some(InputFact::FullWrite { .. } | InputFact::PartialOrUnknown { .. })
+                entry.input_fact(),
+                InputFact::FullWrite { .. } | InputFact::PartialOrUnknown { .. }
             )
         {
             entry.protected = true;
@@ -398,3 +478,14 @@ impl Drop for Reporter {
 #[cfg(test)]
 #[path = "input_submission/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(super) mod test_support {
+    use super::Owner;
+    pub(crate) fn poison(owner: &Owner) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = owner.core.state.lock().unwrap();
+            panic!("injected reporting mutex poison");
+        }));
+    }
+}

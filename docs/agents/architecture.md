@@ -1316,6 +1316,18 @@ remains unwired; panic or driver loss can still lose local facts. This is no
 application-retained completion, native-profile or maintenance proof. See the
 [accepted writer slice](../superpowers/specs/2026-11-09-terminal-writer-outcomes-design.md).
 
+The source also includes a private optional [retained reporting bridge](../superpowers/specs/2026-11-09-retained-writer-transfer-design.md).
+Its fixed monotonic byte checkpoint is separate from immutable terminal input,
+preserving known prefixes/full bytes before flush. Unique validated writer/return
+reporters follow the existing worker and its own awaited join; report failures
+remain separate from byte truth. Rejected start returns its consumed inputs,
+and early Drop/panic leaves protected loss rather than fabricated completion.
+Every production start still has reporting absent; there is no production Owner
+factory, application result reader, original root/resource/profile integration
+or maintenance activation. The newest native-return-to-checkpoint count and
+actual physical-resource ownership can still be unknown.
+
+
 The shared provider process runner owns a Windows Job object per invocation
 (`process_job.rs`, re-exported by `providers/windows_process.rs`). It assigns the suspended child before resuming
 execution, preventing descendants from escaping timeout cleanup. Termination

@@ -1,10 +1,10 @@
 ---
 type: Design Contract
 title: Retained writer checkpoints and return reporting
-description: Proposed fixed byte checkpoints and unique writer/return reporter transfer through the existing worker before any production submission-owner activation.
+description: Accepted fixed byte checkpoints and unique writer/return reporter transfer through the existing worker before any production submission-owner activation.
 tags: [orkworks, terminal, ownership, qualification]
-status: draft
-workflow_status: proposed-owner-review
+status: stable
+workflow_status: accepted-bounded-implementation
 ---
 
 # Retained writer checkpoints and return reporting
@@ -16,13 +16,15 @@ and [submission owner](../plans/2026-11-09-input-submission-owner-candidate.md)
 in #1593. PR #1611 implemented [issue #1609](https://github.com/Rambolarsen/orkworks/issues/1609);
 the plan tracks that implementation issue. Reuse accepted [input truth/completion](2026-11-08-terminal-input-outcome-interface-design.md)
 and [reservation/deadline](2026-11-08-maintenance-settlement-bounds-design.md)
-semantics. Prior approvals do not authorize the new bridge or owner changes.
+semantics. The explicit scoped approval below authorizes this bridge; earlier
+approvals are reused within their unchanged scopes.
 
-**Status:** proposed for one concrete implementation decision. The user asked to
-continue with designing the retained transfer after #1611. No bridge code or writer/native/model/resource qualification experiment ran
-for this proposal; ordinary docs validation is separate.
-If approved, record acceptance, a bounded plan and actual code in one task;
-no separate unchanged acceptance-only task or repeated source inventory.
+**Status:** accepted for this exact bounded implementation. After #1616, the
+owner answered “keep going” to the explicit checkpoint/reporter-bridge question,
+with production reporting still absent. [#1620](https://github.com/Rambolarsen/orkworks/issues/1620)
+records acceptance and actual code together under the [bounded plan](../plans/2026-11-09-writer-reporting-bridge.md).
+No repeat execution approval or separate acceptance-only task is required.
+Production activation and live/native/model/resource experiments stay excluded.
 
 ## Concrete gap and chosen approach
 
@@ -47,7 +49,7 @@ conflict protection; recording full bytes only after flush loses known truth on
 panic; a second result cache duplicates ownership; a detached reporting worker
 adds lifetime/resource obligations. Use the existing record, worker and join.
 
-## Proposed approval scope
+## Accepted implementation scope
 
 1. Extend the private candidate with fixed monotonic checked byte checkpoints,
    strongest-known snapshots and consistency checks against terminal facts,
@@ -232,8 +234,8 @@ recommendation settlement, storage format or production Owner factory change.
 Pass is actual local checkpoint/reporting transfer through existing operations.
 It is not real root/lease/payload resource ownership, all-module registration,
 qualified numeric/deadline/native/physical fit, Q/readiness, backup or restore.
-Those gates remain open; this proposal does not authorize its code until the
-three scoped choices above are approved.
+Those gates remain open; the approval above authorizes only the three scoped
+choices and their bounded implementation/check handoff.
 
 ## Review disposition
 

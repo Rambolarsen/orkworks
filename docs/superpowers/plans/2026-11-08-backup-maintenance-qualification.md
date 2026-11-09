@@ -350,3 +350,24 @@ advance local retention/transfer evidence only, with no production Owner factory
 real root/resource/profile/admission/phase integration, force resolution, native/
 physical qualification, Q/readiness or restore result. Native-return-to-checkpoint
 panic and driver/resource loss remain honestly unknown; no broad box above closes.
+
+
+## Checkpoint/reporting bridge scope accepted — 2026-11-09
+
+After #1616 the owner answered “keep going” to the exact implementation question.
+[#1620](https://github.com/Rambolarsen/orkworks/issues/1620) records approval,
+the [bounded plan](2026-11-09-writer-reporting-bridge.md) and actual optional bridge
+in one task. Fixed checkpoints preserve known bytes independently of immutable
+terminal facts; unique reporter validation retains all inputs on refusal, and
+writer publication/actual shared join keep completion distinct from ack/Drop.
+All 41 related owner/writer cases (17 new) and full repository verification
+passed: 3,414 Rust, 1,720 desktop and 1,204 docs tests plus builds/integrations.
+The earlier unchanged SQL observer setup failure passed isolated and in the full
+parallel run; its exact cause remains unproven. Fresh current-code medium review
+approved the exact five-file manifest with no findings.
+
+All production starts remain unreported/None, with no Owner factory or original
+root/resource/profile/application integration. The bridge never completes
+preparation/bookkeeping, grants input authority or qualifies native/physical
+teardown, Q/readiness, backup or restore. Required current-head CI/PR evidence
+still gates merge; no broad qualification box closes here.
