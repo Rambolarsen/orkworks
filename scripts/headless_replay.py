@@ -299,7 +299,7 @@ def run(engine, root, parent=None, budgets=None):
         confirmed(receipt, 'engine-reachable')
         prepare_context(root, context, deadline, log)
         confirmed(receipt, 'context-prepared')
-        status, _ = command([engine, 'build', '--target', 'headless-replay', '--iidfile', str(output/'image-id'), str(context)], deadline, log)
+        status, _ = command([engine, 'build', '--file', str(context/'Containerfile'), '--target', 'headless-replay', '--iidfile', str(output/'image-id'), str(context)], deadline, log)
         if status:
             raise Failure('image build failed')
         image = read_id(output/'image-id', image=True)

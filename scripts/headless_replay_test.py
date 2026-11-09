@@ -25,11 +25,15 @@ if cmd=='image': print(json.dumps(['HOME=/tmp/orkworks-home']));sys.exit(0)
 if cmd=='container':
  if '{{json .Mounts}}' in args:
   print(json.dumps([{'Type':'bind'}] if mode=='implicit-mount' else []));sys.exit(0)
- values=['HOME=/tmp/orkworks-home','container=podman']
+ values=['HOME=/tmp/orkworks-home']
+ if pathlib.Path(sys.argv[0]).name=='podman': values.append('container=podman')
  if mode=='ambient-env': values.append('AWS_SECRET_ACCESS_KEY=private-qualification-sentinel')
  if mode=='proxy-injected': values.append('HTTP_PROXY=private-qualification-sentinel')
  print(json.dumps(values));sys.exit(0)
 if cmd=='build':
+ if pathlib.Path(sys.argv[0]).name=='docker':
+  definition=pathlib.Path(args[args.index('--file')+1]) if '--file' in args else pathlib.Path(args[-1])/'Dockerfile'
+  if not definition.is_file(): print('build definition not found',file=sys.stderr);sys.exit(1)
  if mode=='build-fail': sys.exit(7)
  if mode=='build-timeout': time.sleep(10)
  if mode=='orphaned-cli':
@@ -121,6 +125,13 @@ class ReplayTests(unittest.TestCase):
         self.assertIn('apps/desktop/tsconfig.json',context)
         self.assertFalse(any('.env' in p or '.git' in p for p in context))
         self.assertFalse((self.out/'context').exists(),'private build context is removed')
+
+    def test_docker_builds_containerfile_snapshot_without_default_dockerfile(self):
+        engine=self.bin/'docker';engine.write_text(FAKE);engine.chmod(0o755)
+        with contextlib.redirect_stdout(io.StringIO()):
+            code,out=self.runner.run('docker',self.root,self.base,self.budgets)
+        self.assertEqual(code,0,(out/'run.log').read_text())
+        self.assertIn(['rm',CID],self.calls())
 
     def test_input_symlink_never_reaches_daemon(self):
         target=self.root/'apps/desktop/src/App.tsx';target.unlink();target.symlink_to(self.base/'secret')
