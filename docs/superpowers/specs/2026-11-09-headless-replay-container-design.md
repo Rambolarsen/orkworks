@@ -67,7 +67,12 @@ Prepare dependencies during the image build:
 - Copy renderer `src/` and only the existing application-shell test plus any
   assets it actually requires, using explicit source paths. Do not copy `.git`,
   `.env` files, local state, host dependencies, credentials or the repository
-  root wholesale. Build context exclusions remain in force.
+  root wholesale. The host wrapper assembles a private minimal build context
+  from an explicit tracked fixture-input allowlist, including the Containerfile
+  and required desktop inputs, reading current tracked file contents. Reject
+  input symlinks escaping the checkout and exclude credentials/private files
+  before sending the context to the daemon, not merely from final image COPY.
+  Do not send the ambient repository root as the build context.
 - Store source/dependencies under `/opt/replay`, owned by root and readable
   but not writable by the runtime user. Cache image layers by manifest/lock
   inputs; do not replace, chown, prune or share the existing dev named caches.
@@ -186,7 +191,9 @@ questions in #95 remain separate even if this no-mount fixture succeeds.
 2. Implement the one host command with behavioral tests of an injected fake
    engine executable: unavailable engine, failed/timed-out build/create,
    assertion failure, run timeout, interruption, bounded/truncated output,
-   failed export/ownership checks and unreachable cleanup. Assert actual
+   failed export/ownership checks and unreachable cleanup. Include a private
+   `.env` sentinel and an escaping input symlink in the build-context tests;
+   neither may reach the daemon. Assert actual
    attempted commands, result/evidence and exact-CID cleanup; never source-text
    checks or deletion of a pre-existing canary container/directory. Then verify
    the same lifecycle against real candidate engines. Do not enable runtime
