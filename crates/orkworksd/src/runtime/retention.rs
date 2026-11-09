@@ -510,6 +510,196 @@ mod tests {
         assert!(ws.metadata.session_file_exists("closed-new"));
     }
 
+    #[derive(Clone, Copy, Debug)]
+    enum RetentionGuard {
+        PendingOrganization,
+        TrackedPid,
+        TerminalAttached,
+        ResumeInProgress,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum RetentionPolicy {
+        Age,
+        Count,
+    }
+
+    async fn assert_retention_guard_preserves_session(
+        protection: RetentionGuard,
+        policy: RetentionPolicy,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let _reservation = {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            for (id, activity) in [
+                ("protected", "2024-01-01T00:00:00Z"),
+                ("eligible", "2024-01-02T00:00:00Z"),
+                ("newest", "2024-02-01T00:00:00Z"),
+            ] {
+                ws.metadata
+                    .write_session(&retention_test_session(id, activity));
+            }
+            assert!(!retention_protected(
+                &state,
+                ws,
+                "protected",
+                None,
+                "2024-01-01T00:00:00Z",
+            ));
+            if matches!(protection, RetentionGuard::PendingOrganization) {
+                Some(ws.metadata.organization.reserve("protected").unwrap())
+            } else {
+                None
+            }
+        };
+        match protection {
+            RetentionGuard::PendingOrganization => {}
+            RetentionGuard::TrackedPid => {
+                state
+                    .session_pids
+                    .lock()
+                    .unwrap()
+                    .insert("protected".into(), std::process::id());
+            }
+            RetentionGuard::TerminalAttached | RetentionGuard::ResumeInProgress => {
+                let (kill_tx, _) = tokio::sync::watch::channel(false);
+                let mut info = test_session_info(
+                    "protected",
+                    "Protected",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2024-01-01T00:00:00Z",
+                );
+                info.lifecycle_phase = "ended".into();
+                info.lifecycle = "dead".into();
+                let mut handle = crate::SessionHandle {
+                    info,
+                    kill_tx,
+                    output_buffer: crate::peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    pending_work_signal: None,
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached_test(),
+                    terminal_attached: false,
+                    resume_in_progress: false,
+                    capacity: crate::capacity_state::CapacityState::default(),
+                    active_work_hook: false,
+                };
+                assert!(crate::session_application::session_actions::runtime_closed(
+                    Some(&handle),
+                    false,
+                ));
+                handle.terminal_attached = matches!(protection, RetentionGuard::TerminalAttached);
+                handle.resume_in_progress = matches!(protection, RetentionGuard::ResumeInProgress);
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .insert("protected".into(), handle);
+            }
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            match policy {
+                RetentionPolicy::Age => {
+                    config.max_age_days = 1;
+                    config.max_sessions = 0;
+                }
+                RetentionPolicy::Count => {
+                    config.max_age_days = 0;
+                    config.max_sessions = 2;
+                }
+            }
+        }
+        let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        retention_cleanup_once(&state, now).await;
+
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().unwrap();
+        assert!(
+            ws.metadata.session_file_exists("protected"),
+            "{protection:?} must survive {policy:?} retention",
+        );
+        assert!(
+            !ws.metadata.session_file_exists("eligible"),
+            "{policy:?} retention must still delete the eligible session",
+        );
+        assert!(ws.metadata.session_file_exists("newest"));
+    }
+
+    #[tokio::test]
+    async fn age_retention_preserves_pending_organization() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::PendingOrganization,
+            RetentionPolicy::Age,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn count_retention_preserves_pending_organization() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::PendingOrganization,
+            RetentionPolicy::Count,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn age_retention_preserves_tracked_pid() {
+        assert_retention_guard_preserves_session(RetentionGuard::TrackedPid, RetentionPolicy::Age)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn count_retention_preserves_tracked_pid() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::TrackedPid,
+            RetentionPolicy::Count,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn age_retention_preserves_terminal_attachment() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::TerminalAttached,
+            RetentionPolicy::Age,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn count_retention_preserves_terminal_attachment() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::TerminalAttached,
+            RetentionPolicy::Count,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn age_retention_preserves_resume_in_progress() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::ResumeInProgress,
+            RetentionPolicy::Age,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn count_retention_preserves_resume_in_progress() {
+        assert_retention_guard_preserves_session(
+            RetentionGuard::ResumeInProgress,
+            RetentionPolicy::Count,
+        )
+        .await;
+    }
+
     fn spam_observation_key(index: usize) -> String {
         format!("spam-{index}")
     }
