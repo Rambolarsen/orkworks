@@ -1,0 +1,53 @@
+{
+  "kind": "offline-synthetic-startup-correction-not-native-cause",
+  "source": {
+    "member": "app.js",
+    "sha256": "f84061b62eeb1cd78a655555890fe1a776509203fca68144745467e26e443813",
+    "byteOffset": 143181,
+    "anchor": "async appendFile(n,r,o){try{await lrt(n,r,o)}"
+  },
+  "sourceLimit": "JS adapter retries ENOENT after recursive parent mkdir then append; direct local native construction is delegated and this is not proof of the historical creation path.",
+  "pristineWait": {
+    "phase": 1,
+    "final": false,
+    "emptyRoot": true,
+    "offset": 0,
+    "projectedEventCount": 0
+  },
+  "layoutFields": {
+    "empty": "boolean",
+    "expectedPresent": "boolean",
+    "exclusiveExpected": "boolean",
+    "expectedSymlink": "boolean only when exclusive; otherwise null"
+  },
+  "literalFailureExamples": {
+    "empty": {
+      "empty": true,
+      "expectedPresent": false,
+      "exclusiveExpected": false,
+      "expectedSymlink": null
+    },
+    "wrong": {
+      "empty": false,
+      "expectedPresent": false,
+      "exclusiveExpected": false,
+      "expectedSymlink": null
+    },
+    "extra": {
+      "empty": false,
+      "expectedPresent": true,
+      "exclusiveExpected": false,
+      "expectedSymlink": null
+    },
+    "symlink": {
+      "empty": false,
+      "expectedPresent": true,
+      "exclusiveExpected": true,
+      "expectedSymlink": true
+    }
+  },
+  "proposalSha256": "39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b",
+  "manifestSha256": "e89cd3cf0ba4c9b91f7a752edecd6a59f815d02d087503a4ac577959f90f7c9a",
+  "historicalCause": "unconfirmed; actual entry shape deleted/not retained",
+  "liveBudget": 0
+}

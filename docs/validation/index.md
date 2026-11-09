@@ -122,3 +122,5 @@ Capability research, validation results, and evidence fixtures.
 - [Native canary UUID compatibility correction](parent-native-canary-offline-audit.md) — Pinned source rejection, corrected synthetic identity and offline guard/input evidence.
 
 - [Native history assumptions and fixed check reporting](native-history-source-audit.md) — Static bridges, unresolved runtime assumptions and fixed nonsecret history-check codes.
+
+- [Wait for initial history directory creation](native-history-startup.md) — Pristine phase-one empty-root waiting and fixed layout failure booleans, tested offline.
