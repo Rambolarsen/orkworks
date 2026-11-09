@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 if (process.versions.electron) {
   const { app, BrowserWindow } = await import('electron');
+  if (process.env.ORKWORKS_SHELL_PROFILE) app.setPath('userData', process.env.ORKWORKS_SHELL_PROFILE);
   app.disableHardwareAcceleration();
   app.whenReady().then(async () => {
     const win = new BrowserWindow({ show: false, width: 1280, height: 700 });
@@ -28,11 +29,93 @@ if (process.versions.electron) {
       await win.loadFile(process.env.ORKWORKS_SHELL_FIXTURE);
       await waitFor('window.fixture?.ready');
     };
+    const captureReplay = async label => {
+      if (!process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) return;
+      const { writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const directory = process.env.ORKWORKS_REPLAY_ARTIFACT_DIR;
+      // Geometry can settle before Chromium composites the revealed/resized grid.
+      await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+      writeFileSync(join(directory, label + '.png'), (await win.webContents.capturePage()).toPNG());
+      writeFileSync(join(directory, label + '.json'), JSON.stringify(await evaluate(`({
+        text: document.body.innerText,
+        errors: fixture.errors,
+        rows: [...document.querySelectorAll('.terminal-container .xterm-rows > div')].map(row=>row.textContent),
+        elements: [...document.querySelectorAll('.terminal-shell, .terminal-container, .xterm, .xterm-screen')].map(el=>({
+          className: el.className, rect: el.getBoundingClientRect().toJSON(), style: el.getAttribute('style'),
+        })),
+      })`), null, 2));
+    };
     try {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-branch-documents') {
+      if (scenario === 'app-review-replay') {
+        // Real App -> TerminalPanel -> HistoricalTerminal -> xterm. Only the
+        // backend/bridge/PTY boundary is synthetic, as in the other app flows.
+        const snapshot = `(() => {
+          const container = document.querySelector('.terminal-container');
+          const terminal = container?.querySelector('.xterm');
+          const screen = terminal?.querySelector('.xterm-screen');
+          if (!screen) return null;
+          const box = container.getBoundingClientRect();
+          const style = getComputedStyle(container);
+          return {
+            rows: [...terminal.querySelectorAll('.xterm-rows > div')].map(row=>row.textContent),
+            natural: [parseFloat(terminal.style.width), parseFloat(terminal.style.height)],
+            screen: screen.getBoundingClientRect().toJSON(),
+            content: {left:box.left+parseFloat(style.paddingLeft),top:box.top+parseFloat(style.paddingTop),
+              right:box.right-parseFloat(style.paddingRight),bottom:box.bottom-parseFloat(style.paddingBottom)},
+            scale: new DOMMatrixReadOnly(getComputedStyle(terminal).transform).a,
+          };
+        })()`;
+        const assertReplay = async natural => {
+          const view = await evaluate(snapshot);
+          assert.equal(await evaluate('document.querySelector(".historical-terminal-size").textContent'), 'Recorded at 120 × 40');
+          assert.equal(view.rows.length, 40, 'recorded rows survive container resizing');
+          assert.equal(view.rows[0], '0123456789'.repeat(12), 'all 120 columns stay on the first row');
+          assert.equal(view.rows[1].trim(), 'Z', 'column 121 wraps onto the second row');
+          assert.equal(view.rows[2].trim(), 'second-row');
+          assert.equal(view.rows[39].trim(), 'last-row', 'absolute row addressing keeps the recorded grid');
+          assert.ok(view.natural.every(size=>size>0), 'a positive natural size was measured');
+          if (natural) assert.deepEqual(view.natural, natural, 'resize scales rather than reflows the grid');
+          assert.ok(view.scale>0 && view.scale<=1, 'replay only shrinks');
+          assert.ok(view.screen.width>0 && view.screen.height>0, 'replay remains visible');
+          for (const edge of ['left','top']) assert.ok(view.screen[edge]>=view.content[edge]-1, edge+' fits content');
+          for (const edge of ['right','bottom']) assert.ok(view.screen[edge]<=view.content[edge]+1, edge+' fits content');
+          return view;
+        };
+        for (const initiallyHidden of [false, true]) {
+          if (initiallyHidden) await fresh();
+          await waitFor('document.querySelector("[data-session-id=other] .session-row-select")');
+          await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+          await waitFor('!!fixture.releaseReplay');
+          if (initiallyHidden) await evaluate('document.querySelector(".terminal-shell").style.display="none"');
+          await evaluate('fixture.releaseReplay()');
+          await waitFor('document.querySelector(".historical-terminal-size")');
+          if (initiallyHidden) {
+            // Let the real observer/render callbacks see the zero-size mount.
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            assert.equal(await evaluate('document.querySelector(".xterm-screen").getBoundingClientRect().width'), 0);
+            await captureReplay('initially-hidden');
+            await evaluate('document.querySelector(".terminal-shell").style.removeProperty("display")');
+          }
+          await waitFor(`(${snapshot})?.natural.every(size=>Number.isFinite(size)) && (${snapshot})?.rows.some(row=>row.trim()==="last-row")`);
+          const original = await assertReplay();
+          const label = initiallyHidden ? 'revealed' : 'visible';
+          await captureReplay(label + '-wide');
+          await evaluate('Object.assign(document.querySelector(".terminal-shell").style,{width:"360px",height:"240px",flex:"none"});void 0');
+          await waitFor(`(${snapshot}).screen.right<=(${snapshot}).content.right+1 && (${snapshot}).screen.bottom<=(${snapshot}).content.bottom+1`);
+          const narrow = await assertReplay(original.natural);
+          assert.ok(narrow.scale<original.scale, 'smaller container changes the rendered scale');
+          await captureReplay(label + '-narrow');
+          await evaluate('document.querySelector(".terminal-shell").removeAttribute("style")');
+          await waitFor(`(${snapshot}).scale===${original.scale}`);
+          await assertReplay(original.natural);
+          assert.deepEqual(await evaluate('fixture.errors'), []);
+        }
+        return;
+      } else if (scenario === 'app-review-branch-documents') {
         await waitFor('document.querySelector("[data-shell-selected-session]") || fixture.sessionList.length===2');
         await click('details');
         await waitFor('document.querySelector("[data-document-kind=design]")');
@@ -2036,6 +2119,9 @@ if (process.versions.electron) {
       await waitFor('document.querySelector(".shell-layout").dataset.mode === "wide"');
       console.log('Fixed shell responsive destinations, resizing, zoom, and focus checks passed');
 
+    } catch (error) {
+      try { await captureReplay('failure'); } catch (captureError) { console.error('Replay capture failed:', captureError); }
+      throw error;
     } finally {
       win.destroy();
       app.quit();
@@ -2046,14 +2132,18 @@ if (process.versions.electron) {
   const { default: test } = await import('node:test');
   const { spawnSync } = await import('node:child_process');
   const { createRequire } = await import('node:module');
-  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { mkdirSync, mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
+  const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
+    const replayArtifacts = scenario === 'app-review-replay'
+      ? (process.env.ORKWORKS_REPLAY_ARTIFACT_DIR ? resolve(process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) : mkdtempSync(join(tmpdir(), 'orkworks-replay-artifacts-')))
+      : undefined;
+    if (replayArtifacts) mkdirSync(replayArtifacts, { recursive: true });
     try {
       const bundle = await build({
         stdin: { contents: `
@@ -2121,7 +2211,7 @@ if (process.versions.electron) {
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')||${JSON.stringify(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
             if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
-            if(${JSON.stringify(scenario)}==='app-review-terminal-links'){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
+            if(['app-review-terminal-links','app-review-replay'].includes(${JSON.stringify(scenario)})){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
             if(${JSON.stringify(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
@@ -2153,6 +2243,10 @@ if (process.versions.electron) {
                 fixture.sessionList=[created];return response(created);
               }
               if(path.endsWith('/summary-log'))return response({entries:[]});
+              if(path==='/sessions/other/terminal-output' && ${JSON.stringify(scenario)}==='app-review-replay') {
+                await new Promise(resolve=>fixture.releaseReplay=resolve);
+                return response({lines:[{text:'\\x1b[2J\\x1b[H'+'0123456789'.repeat(12)+'Z\\x1b[3;1Hsecond-row\\x1b[40;1Hlast-row',delimiter:''}],cols:120,rows:40});
+              }
               if(path==='/sessions/other/terminal-output')return response({lines:[${JSON.stringify(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${JSON.stringify(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
@@ -2241,7 +2335,9 @@ if (process.versions.electron) {
       const fixture = join(directory, 'index.html');
       writeFileSync(fixture, '<style>' + (bundle.outputFiles.find(f=>f.path.endsWith('.css'))?.text||'') + '</style><div id="root" style="height:650px;display:'+(scenario.startsWith('app-')?'block':'flex')+'"></div><script>' + bundle.outputFiles.find(f=>!f.path.endsWith('.css')).text + '</script>');
       const electron = require('electron');
-      const env = { ...process.env, ORKWORKS_SHELL_FIXTURE: fixture, ORKWORKS_SHELL_SCENARIO: scenario };
+      const env = { ...process.env, ORKWORKS_SHELL_FIXTURE: fixture, ORKWORKS_SHELL_SCENARIO: scenario, ORKWORKS_SHELL_PROFILE: join(directory, 'profile') };
+      if (replayArtifacts) env.ORKWORKS_REPLAY_ARTIFACT_DIR = replayArtifacts;
+      else delete env.ORKWORKS_REPLAY_ARTIFACT_DIR;
       delete env.ELECTRON_RUN_AS_NODE;
       const args = [fileURLToPath(import.meta.url)];
       if (process.platform === 'linux') args.unshift('--no-sandbox');
@@ -2249,6 +2345,10 @@ if (process.versions.electron) {
       if (headlessLinux) args.unshift('-a', electron);
       const result = spawnSync(headlessLinux ? 'xvfb-run' : electron, args,
         { env, encoding: 'utf8', timeout: 30000, windowsHide: true });
+      if (replayArtifacts) {
+        writeFileSync(join(replayArtifacts, 'subprocess.log'), [result.error?.stack, result.stdout, result.stderr].filter(Boolean).join('\n'));
+        console.log('Replay artifacts:', replayArtifacts);
+      }
       assert.ifError(result.error);
       assert.equal(result.status, 0, result.stdout + result.stderr);
     } finally {
