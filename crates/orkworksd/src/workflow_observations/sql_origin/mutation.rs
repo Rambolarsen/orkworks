@@ -34,29 +34,59 @@ pub(super) fn resolve_retry(
         {
             return Err(StoreError::TooLarge);
         }
-        let (key, payload, accepted) = retry_fields(record);
-        if key != proposed.idempotency_key_hash || !within_window(now, accepted) {
-            continue;
+        if let Some(found) = matching_retry(
+            record,
+            &proposed.idempotency_key_hash,
+            &proposed.payload_hash,
+            now,
+            |origin| same_scope(origin, &proposed.origin),
+        )? {
+            if receipt.is_some() {
+                return Err(StoreError::Corrupt);
+            }
+            receipt = Some(found);
         }
-        let Some(origin) = record.origin() else {
-            // A legacy collision cannot be acknowledged as a qualified retry.
-            return Err(StoreError::Conflict);
-        };
-        if !same_scope(origin, &proposed.origin) || payload != proposed.payload_hash {
-            return Err(StoreError::Conflict);
-        }
-        if receipt.is_some() {
-            return Err(StoreError::Corrupt);
-        }
-        receipt = Some(RecordOutcome::Duplicate {
-            observation_id: record.identity().0.into(),
-            sequence: record.sequence(),
-            accepted_at: accepted.into(),
-        });
     }
     Ok(receipt)
 }
 
+pub(super) fn retry_for_source(
+    record: &RecordData,
+    source: &crate::session_store::ObservationSource,
+    key: &str,
+    payload: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<RecordOutcome>> {
+    matching_retry(record, key, payload, now, |origin| {
+        origin.database_epoch() == source.database_epoch()
+            && origin.workspace_sha256() == source.workspace_sha256()
+            && origin.session_id() == source.session_id()
+            && origin.created_at() == source.created_at()
+    })
+}
+fn matching_retry(
+    record: &RecordData,
+    expected_key: &str,
+    expected_payload: &str,
+    now: DateTime<Utc>,
+    same_scope: impl FnOnce(&OriginData) -> bool,
+) -> Result<Option<RecordOutcome>> {
+    let (key, payload, accepted) = retry_fields(record);
+    if key != expected_key || !within_window(now, accepted) {
+        return Ok(None);
+    }
+    let Some(origin) = record.origin() else {
+        return Err(StoreError::Conflict);
+    };
+    if !same_scope(origin) || payload != expected_payload {
+        return Err(StoreError::Conflict);
+    }
+    Ok(Some(RecordOutcome::Duplicate {
+        observation_id: record.identity().0.into(),
+        sequence: record.sequence(),
+        accepted_at: accepted.into(),
+    }))
+}
 fn same_scope(a: &OriginData, b: &OriginData) -> bool {
     a.database_epoch() == b.database_epoch()
         && a.workspace_sha256() == b.workspace_sha256()
@@ -64,7 +94,7 @@ fn same_scope(a: &OriginData, b: &OriginData) -> bool {
         && a.created_at() == b.created_at()
 }
 
-fn retry_fields(record: &RecordData) -> (&str, &str, &str) {
+pub(super) fn retry_fields(record: &RecordData) -> (&str, &str, &str) {
     match &record.0 {
         Record::Observation(v) => (
             &v.idempotency_key_hash,

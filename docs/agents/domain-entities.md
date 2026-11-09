@@ -357,8 +357,13 @@ Canonical shared admission and legacy SQL-evidence refusal are implemented.
 Pure retry resolution and eviction now preserve qualified scope and original
 receipts across observation/tombstone data. Legacy collisions refuse and legacy
 evictions remain unqualified. These data transformations establish no write grant.
-Writer/deletion composition and production routing remain pending. Production
-keeps its existing JSON authority.
+`SqlWriter` is a distinct non-cloneable admitted file-operation owner. It retains
+the canonical candidate/descriptor, original source and claim deadline until its
+physical persistence operation settles. Read admission cannot mint it. Its
+sealed write-token type is private to the checked application subtree and has
+no production minting path. The file layer persists only through this separate
+boundary; source-currentness checks, grounded batch composition and Workflow
+deletion ordering remain pending. Production keeps its existing JSON authority.
 
 ### Recommendation origins: analysis vs observations
 

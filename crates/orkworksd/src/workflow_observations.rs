@@ -3399,4 +3399,4 @@ pub(crate) mod sql_origin;
 mod owner_tests;
 
 mod operation;
-pub(crate) use operation::{SqlCandidate, SqlOwner};
+pub(crate) use operation::{SqlCandidate, SqlOwner, SqlWriter};

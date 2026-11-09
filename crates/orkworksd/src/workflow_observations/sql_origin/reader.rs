@@ -7,10 +7,23 @@ use std::{
 };
 const MAX_ENTRIES: usize = 4097;
 const MAX_SEGMENTS: usize = 4096;
-const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 const MAX_LINES: usize = 65536;
 const MAX_SELECTED_BYTES: usize = 768 * 1024;
 
+pub(super) type Stamp = (u64, u64, u64, i64, i64, i64, i64);
+pub(super) struct Inventory {
+    pub(super) sequence: Option<u64>,
+    pub(super) bytes: usize,
+    pub(super) segments: usize,
+    _capacity: ObservationReadCapacity,
+}
+struct Scanned {
+    records: Vec<RecordData>,
+    sequence: Option<u64>,
+    bytes: usize,
+    segments: usize,
+}
 pub(crate) struct ScanRequest {
     deadline: Instant,
     capacity: ObservationReadCapacity,
@@ -29,6 +42,30 @@ impl Snapshot {
     }
 }
 impl ScanRequest {
+    pub(in crate::workflow_observations) fn limit_deadline(mut self, original: Instant) -> Self {
+        self.deadline = self.deadline.min(original);
+        self
+    }
+    pub(super) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+    pub(super) fn inspect_at(
+        self,
+        directory: &File,
+        epoch: &str,
+        workspace: &str,
+        visit: impl FnMut(&str, &RecordData, u64, usize, Stamp) -> Result<()>,
+    ) -> Result<Inventory> {
+        validate_scope(self.deadline, epoch, workspace)?;
+        let scanned = native::scan(directory, self.deadline, epoch, workspace, false, visit)?;
+        check(self.deadline)?;
+        Ok(Inventory {
+            sequence: scanned.sequence,
+            bytes: scanned.bytes,
+            segments: scanned.segments,
+            _capacity: self.capacity,
+        })
+    }
     /// Capture before any queue/permit wait. This is accounting, not file authority.
     pub(crate) fn capture(original_deadline: Instant) -> Result<Self> {
         let deadline = original_deadline.min(Instant::now() + Duration::from_secs(2));
@@ -44,22 +81,33 @@ impl ScanRequest {
         epoch: &str,
         workspace_hash: &str,
     ) -> Result<Snapshot> {
-        check(self.deadline)?;
-        if uuid::Uuid::parse_str(epoch)
-            .map(|v| v.to_string() != epoch)
-            .unwrap_or(true)
-            || !hex_digest(workspace_hash)
-        {
-            return Err(StoreError::Corrupt);
-        }
-        let (records, sequence) = native::scan(directory, self.deadline, epoch, workspace_hash)?;
+        validate_scope(self.deadline, epoch, workspace_hash)?;
+        let scanned = native::scan(
+            directory,
+            self.deadline,
+            epoch,
+            workspace_hash,
+            true,
+            |_, _, _, _, _| Ok(()),
+        )?;
         check(self.deadline)?;
         Ok(Snapshot {
-            records,
-            sequence,
+            records: scanned.records,
+            sequence: scanned.sequence,
             _capacity: self.capacity,
         })
     }
+}
+fn validate_scope(deadline: Instant, epoch: &str, workspace: &str) -> Result<()> {
+    check(deadline)?;
+    if uuid::Uuid::parse_str(epoch)
+        .map(|v| v.to_string() != epoch)
+        .unwrap_or(true)
+        || !hex_digest(workspace)
+    {
+        return Err(StoreError::Corrupt);
+    }
+    Ok(())
 }
 fn check(deadline: Instant) -> Result<()> {
     if Instant::now() >= deadline {
@@ -270,7 +318,9 @@ mod native {
         deadline: Instant,
         epoch: &str,
         workspace: &str,
-    ) -> Result<(Vec<RecordData>, Option<u64>)> {
+        retain: bool,
+        mut visit: impl FnMut(&str, &RecordData, u64, usize, Stamp) -> Result<()>,
+    ) -> Result<Scanned> {
         if !directory.metadata()?.is_dir() {
             return Err(StoreError::Corrupt);
         }
@@ -278,7 +328,8 @@ mod native {
         let mut names = Names::new(directory)?;
         let mut counts = Counts::default();
         let (mut counter, mut highest) = (None, 0);
-        let mut selected: BTreeMap<u64, RecordData> = BTreeMap::new();
+        let mut selected: BTreeMap<u64, (String, usize)> = BTreeMap::new();
+        let mut data: BTreeMap<u64, RecordData> = BTreeMap::new();
         let mut selected_bytes = 2usize; // Compact JSON array, including separators.
         let mut line = Vec::new();
         while let Some(name) = names.next()? {
@@ -320,7 +371,10 @@ mod native {
                 if let Some(session) = session {
                     let (mut observations, mut tombstones) = (0usize, 0usize);
                     let (mut ids, mut sequences) = (HashSet::new(), HashSet::new());
+                    let mut offset = 0u64;
                     while input.line(&mut counts, &mut line)? {
+                        let start = offset;
+                        offset += line.len() as u64 + 1;
                         if line.iter().all(u8::is_ascii_whitespace) {
                             continue;
                         }
@@ -338,6 +392,7 @@ mod native {
                             return Err(StoreError::Corrupt);
                         }
                         highest = highest.max(sequence);
+                        visit(session, &record, start, line.len(), before)?;
                         if record.observation().is_some() {
                             add(
                                 &mut observations,
@@ -345,24 +400,29 @@ mod native {
                                 super::super::super::MAX_SEGMENT_OBSERVATIONS,
                             )?;
                             if selected.contains_key(&sequence)
-                                || selected.values().any(|r| r.identity().0 == id)
+                                || selected.values().any(|(retained, _)| retained == id)
                             {
                                 return Err(StoreError::Corrupt);
                             }
-                            let bytes = record.encode()?.len();
+                            let bytes = if retain { record.encode()?.len() } else { 0 };
                             selected_bytes = selected_bytes
                                 .checked_add(bytes + usize::from(!selected.is_empty()))
                                 .ok_or(StoreError::TooLarge)?;
-                            selected.insert(sequence, record);
+                            selected.insert(sequence, (id.to_owned(), bytes));
+                            if retain {
+                                data.insert(sequence, record);
+                            }
                             if selected.len() > super::super::super::MAX_WORKSPACE_OBSERVATIONS {
-                                if let Some((_, removed)) = selected.pop_first() {
-                                    selected_bytes -= removed.encode()?.len() + 1;
+                                if let Some((removed_sequence, (_, removed_bytes))) =
+                                    selected.pop_first()
+                                {
+                                    selected_bytes -= removed_bytes + 1;
+                                    data.remove(&removed_sequence);
                                 }
                             }
-                            // Every valid record has enough required wire bytes that
-                            // 10,000 records cannot fit this cap. Early overflow cannot
-                            // hide a later otherwise-valid top-10,000 selection.
-                            if selected_bytes > MAX_SELECTED_BYTES {
+                            // Inventory returns no payload snapshot. It retains at most
+                            // 10,000 UUID/sequence pairs; the result-byte cap stays on reads.
+                            if retain && selected_bytes > MAX_SELECTED_BYTES {
                                 return Err(StoreError::TooLarge);
                             }
                         } else {
@@ -385,7 +445,12 @@ mod native {
             return Err(StoreError::Corrupt);
         }
         check(deadline)?;
-        Ok((selected.into_values().collect(), counter))
+        Ok(Scanned {
+            records: data.into_values().collect(),
+            sequence: counter,
+            bytes: counts.bytes,
+            segments: counts.segments,
+        })
     }
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -396,7 +461,9 @@ mod native {
         _: Instant,
         _: &str,
         _: &str,
-    ) -> Result<(Vec<RecordData>, Option<u64>)> {
+        _: bool,
+        _: impl FnMut(&str, &RecordData, u64, usize, Stamp) -> Result<()>,
+    ) -> Result<Scanned> {
         Err(StoreError::Unsupported)
     }
 }

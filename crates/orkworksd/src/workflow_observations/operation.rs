@@ -17,6 +17,31 @@ pub(super) struct Legacy {
 pub(crate) struct SqlOwner {
     _owner: Arc<Owner>,
 }
+/// Original admitted file ownership; read-only opening never constructs this type.
+pub(crate) struct SqlWriter {
+    candidate: SqlCandidate,
+    admission: crate::session_application::sql_writes::ObservationWriteAdmission,
+    deadline: std::time::Instant,
+}
+impl SqlWriter {
+    /// Blocking-only, outside application guards. Actual effects retain the owner.
+    pub(crate) fn persist(
+        self,
+        request: sql_origin::ScanRequest,
+        origin: ObservationOrigin,
+        key: &str,
+        candidate: ObservationCandidate,
+    ) -> std::result::Result<RecordOutcome, sql_origin::WriteError> {
+        sql_origin::persist(
+            &self.candidate.directory,
+            self.admission,
+            request.limit_deadline(self.deadline),
+            origin,
+            key,
+            candidate,
+        )
+    }
+}
 pub(crate) struct SqlCandidate {
     owner: Arc<Owner>,
     directory: fs::File,
@@ -131,6 +156,12 @@ impl SqlCandidate {
         _admission: crate::session_application::sql_writes::ObservationOpenAdmission,
         claim: &FileClaim,
     ) -> SqlResult<()> {
+        self.admit_file(claim)
+    }
+    fn admit_file(&mut self, claim: &FileClaim) -> SqlResult<()> {
+        if self.admitted {
+            return Err(crate::session_store::StoreError::Conflict);
+        }
         claim.admit()?;
         self.owner
             .state
@@ -139,6 +170,20 @@ impl SqlCandidate {
             .sql = true;
         self.admitted = true;
         Ok(())
+    }
+    /// Memory-only admission in the short checked application callback. The
+    /// returned grant leaves that callback before any filesystem work starts.
+    pub(crate) fn admit_write(
+        mut self,
+        admission: crate::session_application::sql_writes::ObservationWriteAdmission,
+        claim: &FileClaim,
+    ) -> SqlResult<SqlWriter> {
+        self.admit_file(claim)?;
+        Ok(SqlWriter {
+            candidate: self,
+            admission,
+            deadline: claim.deadline,
+        })
     }
     pub(crate) fn read_scope(
         &self,
