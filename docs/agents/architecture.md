@@ -1340,6 +1340,18 @@ native RootKey, application coordinator/phase/graph integration, physical/resour
 profile, maintenance or restore result. Last-reference destruction is not proof
 of physical completion.
 
+A private [finite input coordinator](../superpowers/plans/2026-11-09-private-input-coordinator.md)
+now retains routes, declared job charges and fixed continuation state in that
+same Core/Entry. Job admission and Closing share the transition mutex. Unique job
+and slot handles enforce at-most-once local admission and the original deadline;
+claim/notification/final-claim slots are distinct. Lost/failed/unknown work and an
+unfulfilled committed graph reservation retain protection and capacity. Removed
+route handles remain charged until Drop, with scope resources released outside
+the mutex. Actual optional writer/join checks keep real preparation/bookkeeping
+pending. Production registration/Open and absent-producer completion adapters do
+not exist; fixture registration/results are test-only. These local quotas and
+transitions are not a complete production/native/resource/readiness profile.
+
 
 The shared provider process runner owns a Windows Job object per invocation
 (`process_job.rs`, re-exported by `providers/windows_process.rs`). It assigns the suspended child before resuming

@@ -399,3 +399,18 @@ The first implementation is pure policy returning source data, with Qualified
 claim/scope factories limited to trusted tests. It creates no production
 OriginalInputs, producer origin authority, SQL/file/model call or routing. The
 existing source/record/reader/prompt limits and later qualification gates remain.
+
+## Amendment — 2026-11-09: private finite input coordinator
+
+After #1641 the owner answered “keep going” to the explicit [coordinator/recipe](../superpowers/specs/2026-11-09-input-coordinator-recipe-design.md)
+implementation question. #1644 records the three choices, reviewed plan and
+private code together: original application-lifetime ownership using the existing
+Entry/Core; complete finite reservation/continuation/deadline semantics; and one
+preparatory implementation with explicit non-authoritative fixture parameters.
+Unavailable actual producer/root/profile adapters stay closed. Test-only local
+transition results cannot certify actual preparation/bookkeeping/graph completion
+or readiness. Existing input truth/no-resend/registration/bounds contracts stand.
+
+No production constructor/caller, native RootKey/readiness, shipping defaults,
+native/SQL/model/resource experiment, maintenance/restore activation or complete
+physical/resource qualification is accepted by this private slice.

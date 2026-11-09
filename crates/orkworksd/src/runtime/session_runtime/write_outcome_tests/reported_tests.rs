@@ -498,3 +498,49 @@ async fn bound_original_lease_survives_coordinator_and_waiter_loss_during_flush(
     // Last Core destruction releases the lease, not a claim of whole-job completion.
     assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
 }
+
+#[tokio::test]
+async fn coordinator_loss_during_actual_flush_retains_recipe_scope_and_late_facts() {
+    use input_submission::coordinator::tests::{local_dispatch, setup, submit};
+    use input_submission::recipe::{Slot, SlotState};
+    let root = tempfile::tempdir().unwrap();
+    let (coordinator, route, source) = setup(root.path());
+    let mut admitted = submit(&coordinator, &route, &source, 1);
+    local_dispatch(&mut admitted.job); // Local recipe inputs, not physical prep.
+    let Submission {
+        reporters: [preparation, writer, returned, bookkeeping],
+        observer,
+    } = admitted.submission;
+    let (hold, observing, release) = gate();
+    let mut native = BlockingWriter::plain();
+    native.flush = Some(hold);
+    let pending = start(input(Box::new(native), (writer, returned)));
+    entered(observing).await;
+    drop((admitted.job, coordinator, route, source));
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_err());
+    let snapshot = observer.snapshot(Instant::now()).unwrap();
+    assert_eq!(
+        snapshot.fact,
+        InputFact::FullWrite {
+            flush: Flush::Unknown
+        }
+    );
+    assert_eq!(
+        snapshot.recipe.unwrap().slots[Slot::Bookkeeping as usize],
+        SlotState::Lost
+    );
+    pending_application_phases(&snapshot);
+    drop(release);
+    let (_, outcome) = joined(pending).await.unwrap();
+    assert_eq!(
+        outcome.fact,
+        InputFact::FullWrite {
+            flush: Flush::Succeeded
+        }
+    );
+    let snapshot = observer.snapshot(Instant::now()).unwrap();
+    assert!(snapshot.protected);
+    pending_application_phases(&snapshot);
+    drop((observer, preparation, bookkeeping));
+    assert!(crate::workspace_runtime::WorkspaceLease::acquire(root.path()).is_ok());
+}
