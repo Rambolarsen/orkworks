@@ -593,8 +593,16 @@ async fn workflow_admitted_caller_loss_retains_last_slot_lane_and_lease_until_se
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
             if let Ok(slot) = file_budget::reserve(0) {
-                drop(slot);
-                break;
+                // Capacity can drop before the captured job's later fields,
+                // including another bound cleanup's lease. Observe every
+                // resource settling instead of treating one as a barrier.
+                if lease.upgrade().is_none()
+                    && !organization.pending(ID)
+                    && store.runtime_lane(ID).unwrap().try_lock_owned().is_ok()
+                {
+                    drop(slot);
+                    break;
+                }
             }
             tokio::task::yield_now().await;
         }
