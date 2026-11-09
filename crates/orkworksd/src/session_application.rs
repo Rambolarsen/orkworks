@@ -3605,27 +3605,30 @@ impl SessionApplication {
             .read()
             .map_err(workspace_memory_error)?
             .unwrap_or_default();
-        let original_active_harness_ids = memory.active_harness_ids.clone();
         let mut normalized_active_harness_ids = Vec::new();
         let mut seen_active_harness_ids = std::collections::HashSet::new();
         let mut integration_cleanup_keys = std::collections::BTreeSet::new();
-        for id in &original_active_harness_ids {
-            let Some(harness) = harness_snapshot.registry.get(id) else {
-                continue;
-            };
-            if harness.definition.retired
-                || !seen_active_harness_ids.insert(harness.definition.id.clone())
+        for harness in memory
+            .active_harness_ids
+            .iter()
+            .filter_map(|id| harness_snapshot.registry.get(id))
+        {
+            if !harness.definition.retired
+                && seen_active_harness_ids.insert(harness.definition.id.clone())
             {
-                if let Some(binding) = harness.definition.integration.as_ref() {
-                    integration_cleanup_keys
-                        .insert(crate::harness::integration::integration_key(binding));
-                }
-                continue;
+                normalized_active_harness_ids.push(harness.definition.id.clone());
+            } else {
+                integration_cleanup_keys.extend(
+                    harness
+                        .definition
+                        .integration
+                        .as_ref()
+                        .map(crate::harness::integration::integration_key),
+                );
             }
-            normalized_active_harness_ids.push(harness.definition.id.clone());
         }
-        memory.active_harness_ids = normalized_active_harness_ids;
-        if memory.active_harness_ids != original_active_harness_ids {
+        if memory.active_harness_ids != normalized_active_harness_ids {
+            memory.active_harness_ids = normalized_active_harness_ids;
             memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
             memory_edit.write(&memory).map_err(workspace_memory_error)?;
         }
@@ -9954,7 +9957,7 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_workspace_publishes_a_new_revision_when_pruning_stale_harnesses() {
+    fn opening_a_workspace_normalizes_harnesses_once_and_reports_cleanup_keys() {
         let home = tempfile::tempdir().unwrap();
         let _home = crate::test_support::FakeHome::set(home.path());
         let root = tempfile::tempdir().unwrap();
@@ -9970,10 +9973,16 @@ mod tests {
             .unwrap()
             .metadata
             .write_workspace_memory(&metadata::WorkspaceMemory {
-                last_active_session_id: None,
-                last_active_at: None,
+                last_active_session_id: Some("remembered-session".into()),
+                last_active_at: Some("2026-11-09T00:00:00Z".into()),
                 active_harness_ids: vec![
                     "retired-custom".into(),
+                    "gemini".into(),
+                    "gh-copilot".into(),
+                    "codex".into(),
+                    "copilot".into(),
+                    "generic-shell".into(),
+                    "generic-shell".into(),
                     "gemini".into(),
                     "gh-copilot".into(),
                 ],
@@ -9984,7 +9993,22 @@ mod tests {
             .open_workspace(root.path().to_path_buf())
             .unwrap();
 
-        assert_eq!(snapshot.active_harness_ids, vec!["copilot"]);
+        assert_eq!(
+            snapshot.active_harness_ids,
+            vec!["copilot", "codex", "generic-shell"]
+        );
+        assert_eq!(
+            snapshot.last_active_session_id.as_deref(),
+            Some("remembered-session")
+        );
+        assert_eq!(
+            snapshot
+                .integration_cleanup_keys
+                .iter()
+                .map(|key| key.adapter_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["copilot", "gemini"]
+        );
         assert_eq!(snapshot.active_harness_revision, 8);
         let memory = state
             .workspace
@@ -9995,8 +10019,39 @@ mod tests {
             .metadata
             .read_workspace_memory()
             .unwrap();
-        assert_eq!(memory.active_harness_ids, vec!["copilot"]);
+        assert_eq!(
+            memory.active_harness_ids,
+            vec!["copilot", "codex", "generic-shell"]
+        );
         assert_eq!(memory.active_harness_revision, 8);
+        assert_eq!(
+            memory.last_active_session_id.as_deref(),
+            Some("remembered-session")
+        );
+        assert_eq!(
+            memory.last_active_at.as_deref(),
+            Some("2026-11-09T00:00:00Z")
+        );
+
+        let reopened = SessionApplication::new(state.clone())
+            .open_workspace(root.path().to_path_buf())
+            .unwrap();
+        assert_eq!(reopened.active_harness_ids, snapshot.active_harness_ids);
+        assert_eq!(reopened.active_harness_revision, 8);
+        assert!(reopened.integration_cleanup_keys.is_empty());
+        let unchanged = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_workspace_memory()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(unchanged).unwrap(),
+            serde_json::to_value(memory).unwrap()
+        );
     }
 
     #[test]
