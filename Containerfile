@@ -41,7 +41,7 @@ RUN printf 'export PATH="/usr/local/cargo/bin:$PATH"\n' > /etc/profile.d/cargo.s
 
 # pnpm 11 via corepack (bundled with Node 22), matching the packageManager pin
 # in apps/desktop/package.json.
-RUN corepack enable && corepack prepare pnpm@11.9.0 --activate
+RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
 
 WORKDIR /workspace
 
