@@ -1381,7 +1381,7 @@ app.whenReady().then(async () => {
     return { ok: false, state: "picker", failure: result.failure };
   });
 
-  function sessionAppRequest(expectedWorkspace: unknown, id: unknown, open: boolean) {
+  function sessionAppRequest(expectedWorkspace: unknown, id: unknown, open: boolean, destination: unknown) {
     if (typeof expectedWorkspace !== "string" || expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
     return withReadyBackendGeneration(async (port, _token, signal) => {
       if (expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
@@ -1406,11 +1406,11 @@ app.whenReady().then(async () => {
           });
         }),
       };
-      return open ? openSessionApp(id, deps) : inspectSessionApp(id, deps);
+      return open ? openSessionApp(id, deps, destination) : inspectSessionApp(id, deps, destination);
     });
   }
-  ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, false));
-  ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown) => sessionAppRequest(expectedWorkspace, id, true));
+  ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, false, destination));
+  ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, true, destination));
 
   let skillInventory: SkillInventory | null = null;
   let inventoryGeneration = "";

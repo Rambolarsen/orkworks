@@ -168,3 +168,66 @@ test("Windows runs the installed shim without a repository-local command shadowi
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+
+test("VS Code opens the reported task worktree independently of native identity and tool", async () => {
+  const f = fixture("generic-shell");
+  f.setSessions([{ id: "selected", cwd: "/original", worktreeBinding: { root: "/task folder/a#b?c%done", commonDir: "/repo/.git" }, lifecycle: "alive" }]);
+  assert.deepEqual(await inspectSessionApp("selected", f.deps, "vscode"), { label: "Visual Studio Code", installed: true, available: true });
+  assert.deepEqual(f.opened, []);
+  await openSessionApp("selected", f.deps, "vscode");
+  assert.deepEqual(f.opened, ["vscode://file/task%20folder/a%23b%3Fc%25done/"]);
+  assert.deepEqual(f.commands, []);
+});
+
+test("VS Code falls back to cwd only without a task-worktree binding and supports Windows drive paths", async () => {
+  const f = fixture();
+  f.deps.platform = "win32";
+  f.setSessions([{ id: "selected", cwd: "C:\\My Project\\repo" }]);
+  await openSessionApp("selected", f.deps, "vscode");
+  assert.deepEqual(f.opened, ["vscode://file/C:/My%20Project/repo/"]);
+});
+
+test("missing VS Code is marked uninstalled and cannot be dispatched", async () => {
+  const f = fixture();
+  f.deps.applicationForProtocol = async () => "";
+  const result = await inspectSessionApp("selected", f.deps, "vscode");
+  assert.equal(result.installed, false);
+  assert.equal(result.available, false);
+  await assert.rejects(openSessionApp("selected", f.deps, "vscode"));
+  assert.deepEqual(f.opened, []);
+});
+
+test("VS Code rejects invalid and missing directories without falling back from a broken worktree", async () => {
+  for (const root of ["relative", "", undefined, "/bad\0path"]) {
+    const f = fixture();
+    f.setSessions([{ id: "selected", cwd: "/valid", worktreeBinding: { root } }]);
+    assert.equal((await inspectSessionApp("selected", f.deps, "vscode")).available, false);
+    await assert.rejects(openSessionApp("selected", f.deps, "vscode"));
+    assert.deepEqual(f.opened, []);
+  }
+  const f = fixture();
+  f.deps.checkDirectory = async () => { throw new Error("Directory was removed"); };
+  assert.equal((await inspectSessionApp("selected", f.deps, "vscode")).available, false);
+  await assert.rejects(openSessionApp("selected", f.deps, "vscode"));
+  assert.deepEqual(f.opened, []);
+});
+
+test("VS Code rejects changed/deleted sessions and cancelled capability inspection", async () => {
+  for (const replacement of [[], [{ id: "selected", cwd: "/other" }]]) {
+    const f = fixture();
+    f.deps.checkDirectory = async () => { f.setSessions(replacement); };
+    await assert.rejects(openSessionApp("selected", f.deps, "vscode"), /changed|available/);
+    assert.deepEqual(f.opened, []);
+  }
+  const f = fixture();
+  f.deps.applicationForProtocol = async () => { f.controller.abort(); return "Visual Studio Code"; };
+  await assert.rejects(openSessionApp("selected", f.deps, "vscode"));
+  assert.deepEqual(f.opened, []);
+});
+
+test("the application bridge rejects arbitrary destination selectors", async () => {
+  const f = fixture();
+  await assert.rejects(openSessionApp("selected", f.deps, "https://example.com"));
+  assert.deepEqual(f.opened, []);
+});

@@ -138,8 +138,8 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("set-harness-command-override", harnessId, commandPath),
   clearHarnessCommandOverride: (harnessId: string): Promise<unknown> =>
     ipcRenderer.invoke("clear-harness-command-override", harnessId),
-  inspectSessionApp: (workspacePath: string, sessionId: string): Promise<import("./sessionAppOpener").SessionAppAvailability> => ipcRenderer.invoke("inspect-session-app", workspacePath, sessionId),
-  openSessionApp: (workspacePath: string, sessionId: string): Promise<void> => ipcRenderer.invoke("open-session-app", workspacePath, sessionId),
+  inspectSessionApp: (workspacePath: string, sessionId: string, destination: "native" | "vscode" = "native"): Promise<import("./sessionAppOpener").SessionAppAvailability> => ipcRenderer.invoke("inspect-session-app", workspacePath, sessionId, destination),
+  openSessionApp: (workspacePath: string, sessionId: string, destination: "native" | "vscode" = "native"): Promise<void> => ipcRenderer.invoke("open-session-app", workspacePath, sessionId, destination),
   openExternalLink: (url: string): Promise<void> => ipcRenderer.invoke("open-external-link", url),
   readGitChanges: (request: GitChangesRequest): Promise<GitChangesResult> => ipcRenderer.invoke("read-git-changes", request),
   sessionTitle: (request: SessionTitleRequest): Promise<SessionTitleResult> => ipcRenderer.invoke("session-title", request),
