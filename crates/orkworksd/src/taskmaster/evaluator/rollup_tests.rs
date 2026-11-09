@@ -219,6 +219,81 @@ fn apply_combined_output(
 }
 
 #[test]
+fn rollup_application_rejects_empty_or_missing_members_without_legacy_writes() {
+    for ids in [vec![], vec!["missing"], vec!["a", "missing"]] {
+        let directory = tempfile::tempdir().unwrap();
+        let (state, _runtime, recommendations) = seeded_state(&directory, &["a", "b"]);
+        let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+        let before = serde_json::to_value(stored_recommendations(&state)).unwrap();
+        let mut legacy_update = recommendations[0].clone();
+        legacy_update.summary = "This update must not be persisted".into();
+        let instance = workspace_instance(&state);
+        let workspace = state.workspace.lock().unwrap();
+        assert!(
+            !crate::session_application::SessionApplication::apply_rollup_clusters_locked(
+                workspace.as_ref().unwrap(),
+                instance,
+                &snapshots,
+                &[RollupCluster {
+                    member_recommendation_ids: ids.iter().map(|id| (*id).into()).collect(),
+                    target_surface: TargetSurface::Tooling,
+                    title: "Invalid members".into(),
+                    summary: "No partial changes".into(),
+                    proposed_change: validated(&cluster(&["a", "b"])).proposed_change,
+                }],
+                1,
+                &[legacy_update],
+            )
+        );
+        drop(workspace);
+        assert_eq!(
+            serde_json::to_value(stored_recommendations(&state)).unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
+fn rollup_application_uses_the_updated_first_member_in_id_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state, _runtime, recommendations) = seeded_state(&directory, &["b", "a"]);
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    let mut legacy_update = recommendations[1].clone();
+    legacy_update.workflow_improvement.expected_benefit = "Updated benefit from a".into();
+    let instance = workspace_instance(&state);
+    let workspace = state.workspace.lock().unwrap();
+    assert!(
+        crate::session_application::SessionApplication::apply_rollup_clusters_locked(
+            workspace.as_ref().unwrap(),
+            instance,
+            &snapshots,
+            &[validated(&cluster(&["b", "a"]))],
+            1,
+            &[legacy_update],
+        )
+    );
+    drop(workspace);
+    let parent_id = stable_rollup_id(&["a".into(), "b".into()]);
+    let records = stored_recommendations(&state);
+    let parent = records
+        .iter()
+        .find(|record| record.id == parent_id)
+        .unwrap();
+    assert_eq!(parent.rollup_member_ids, ["a", "b"]);
+    assert_eq!(
+        parent.workflow_improvement.expected_benefit,
+        "Updated benefit from a"
+    );
+    assert!(records
+        .iter()
+        .filter(|record| record.id != parent_id)
+        .all(|member| {
+            member.status == RecommendationStatus::RolledUp
+                && member.rolled_up_by.as_deref() == Some(parent_id.as_str())
+        }));
+}
+
+#[test]
 fn rollup_prompt_is_bounded_and_labels_all_supplied_data_untrusted() {
     let directory = tempfile::tempdir().unwrap();
     let (_state, _runtime, mut recommendations) = seeded_state(&directory, &["a", "b"]);
