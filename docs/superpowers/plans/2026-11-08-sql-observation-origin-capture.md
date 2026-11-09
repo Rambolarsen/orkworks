@@ -112,12 +112,16 @@ from these source-level ratings.
   remains eligible according to existing stage bits. Cover cancellation
   after file admission and unchanged non-target evidence/progress. Keep legacy
   methods unavailable on the admitted SQL owner; no generic bypass.
-- [ ] Compose copied close/reopen fixtures through the strict reader and existing
+- [x] Compose copied close/reopen fixtures through the strict reader and existing
   assessment source codec. A new qualified observation contributes its exact
-  original pair/value to the accepted envelope; any mixed legacy observation,
-  recommendation or readiness input refuses whole assessment admission. Do not
-  add a production OriginalInputs constructor, scheduler, model call, pending
+  original pair/value to the accepted envelope. Preserve a mixed legacy
+  observation in strict inventory as data without an origin. Do not add a
+  production OriginalInputs constructor, scheduler, model call, pending
   publication, source-aware recommendation cleanup or startup/activation route.
+- [ ] Qualify whole-assessment refusal of mixed unknown observation,
+  recommendation or readiness input through its future original-input owner.
+  The trusted test-only codec constructor validates shape, not origin authority;
+  malformed/missing source fields alone do not prove this semantic gate.
 - [ ] Update canonical domain/architecture/validation claims with actual evidence;
   run scoped regressions and `bash scripts/verify-repo.sh`, current-code manual
   review, required/routed CI and the normal PR/owned cleanup lifecycle. Source
@@ -292,6 +296,27 @@ revoked permit, partial errors, pending guard expiry and admitted resource
 settlement are covered in controlled SQL/filesystem fixtures. No recommendation
 cleanup, other recovery owner, finalizer bit or production selector is changed.
 
-The copied close/reopen assessment-codec composition remains next. Whole-branch
-verification, review and CI evidence are recorded on this task's PR; this source
-work alone does not qualify activation, backup or installed/performance profiles.
+## Copied assessment-codec qualification
+
+The copied-fixture continuation composes actual captured final-scan output with
+closed SQL/evidence files, the checked strict reopen path and the existing
+assessment source codec. Tests pin the exact original pair/value and specified
+envelope digest, current-source refusal after creation/deletion/removal/epoch
+changes, and byte-preserving retention of a mixed legacy observation without an
+origin, even when its ID exists in SQL. The strict reader never fills that
+missing provenance from a current row or silently removes the value.
+
+Review found that malformed-envelope tests were being mistaken for semantic
+unknown-input refusal. Those assertions were removed. The trusted fixture
+constructor accepts valid explicit empty source sets; it cannot distinguish an
+unknown owner from a qualified source-free owner. Whole-assessment refusal of
+unknown observation/recommendation/readiness inputs remains a future owner
+qualification gate, separate from this copied-data result.
+
+All envelope assembly remains in the test module and uses the existing trusted
+`OriginalInputs::fixture`; no production constructor or parsed-data authority is
+added. No assessment is published and no evaluator/model/scheduler runs.
+Whole-branch verification, review and CI evidence are recorded on this task's
+PR. Production input construction, activation, backup and installed/performance
+qualification remain separate gates; newer retained-input proposals are not
+implemented by this qualification.

@@ -1876,3 +1876,35 @@ refusal, partial-stage history progress, and unchanged production JSON routing
 and evaluation. Full verifier/current-code review and CI results belong to the
 concrete PR. Exact-job Workflow deletion has its own qualification above;
 assessment input construction, production activation and migration remain gated.
+
+
+## Copied observation-to-assessment source qualification
+
+The three `sql_observation_assessment_tests` compose the actual private captured
+final-scan producer, closed/copied database and observation files, the checked
+SQL observation reopen path and the existing assessment source codec/typed SQL
+validation. The copied record retains the producer receipt's complete value,
+original epoch/workspace and exact session creation. The specified envelope
+hash is checked independently of the codec's digest helper; changing the
+retained value changes that hash.
+
+Controlled creation, tombstone, removed-row and epoch changes refuse the original
+fixture claim without refreshing its scope or changing observation/counter
+bytes. Complete strict inventory retains a mixed legacy observation, whose
+missing origin remains missing even with its ID present in SQL. Its exact value
+and both selected records remain in the snapshot, with no evidence rewrite.
+
+This does not establish semantic whole-assessment refusal of unknown inputs.
+The existing trusted test-only envelope constructor rejects malformed source
+fields but accepts valid explicit empty source sets. It cannot establish that
+an input owner knew a complete closure. Mixed observation/recommendation/
+readiness admission and source-free authority remain gated on the future
+original-input owner. Review caught the distinction and the misleading
+malformed-envelope assertions were removed.
+
+These tests use only the existing trusted `cfg(test)` claim constructor. They
+qualify copied data composition and point-in-time SQL validation, not production
+original-input authority, assessment publication, recommendation cleanup,
+startup/migration, physical durability or performance. Production remains JSON.
+The concrete PR records current-source verification/review evidence and any
+unrelated suite limitations rather than extending earlier results by inference.
