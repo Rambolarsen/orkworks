@@ -381,6 +381,15 @@ async fn sql_observer_pipeline_discards_rpc_when_durable_native_identity_changes
 
 #[tokio::test]
 async fn sql_observer_pipeline_preserves_new_work_recorded_during_rpc() {
+    // Exact revision assertions require uncontended SQL commit/live publication.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_preserves_new_work_recorded_during_rpc"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
