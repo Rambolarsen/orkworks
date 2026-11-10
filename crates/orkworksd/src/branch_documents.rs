@@ -161,16 +161,80 @@ pub(crate) fn resolve_from_scan(
     Ok((id, documents, notice))
 }
 
-pub(crate) fn projection(store: &crate::branch_documents_store::Store, root: &Path) -> Projection {
-    projection_from_scan(store, root, store.scan(root, false))
+#[cfg(test)]
+fn projection(store: &crate::branch_documents_store::Store, root: &Path) -> Projection {
+    projection_from_resolved(
+        store,
+        resolve_from_scan(store, root, store.scan(root, false)),
+    )
 }
 
-pub(crate) fn projection_from_scan(
+pub(crate) fn unavailable_projection(notice: String) -> Projection {
+    Projection {
+        branch: None,
+        shared_sessions: 1,
+        steps: DocumentKind::ALL
+            .into_iter()
+            .map(|kind| Step {
+                kind,
+                available: false,
+                title: None,
+                file_name: None,
+                source: None,
+                pinned: false,
+                selection_id: None,
+            })
+            .collect(),
+        notice: Some(notice),
+    }
+}
+
+pub(crate) struct PreparedProjection {
+    pub(crate) identity: Identity,
+    pub(crate) projection: Projection,
+    pub(crate) reconciliation: crate::branch_documents_store::PreparedReconciliation,
+}
+
+/// All Git and document reads happen before the caller enters the input fence.
+pub(crate) fn prepare_projection(
     store: &crate::branch_documents_store::Store,
     root: &Path,
     scan: Result<Scan, String>,
+) -> Result<PreparedProjection, String> {
+    let id = identity(root)?;
+    if scan.as_ref().is_ok_and(|scan| scan.identity != id) {
+        return Err("Branch changed during document inspection.".into());
+    }
+    let reconciliation = store.prepare_reconciliation(&id, scan.as_ref().ok())?;
+    let notice = match scan {
+        Ok(scan) => scan.notice,
+        Err(error) => Some(error),
+    };
+    let documents = reconciliation
+        .documents
+        .iter()
+        .filter(|doc| doc.pinned || validate_document(&id, doc).is_ok())
+        .cloned()
+        .collect();
+    let projection = projection_from_resolved(store, Ok((id.clone(), documents, notice)));
+    Ok(PreparedProjection {
+        identity: id,
+        projection,
+        reconciliation,
+    })
+}
+
+fn projection_from_resolved(
+    _store: &crate::branch_documents_store::Store,
+    resolved: Result<(Identity, Vec<Document>, Option<String>), String>,
 ) -> Projection {
-    let resolved = resolve_from_scan(store, root, scan);
+    #[cfg(test)]
+    {
+        let hook = _store.before_projection.lock().unwrap().take();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
     let (id, documents, notice) = match resolved {
         Ok(result) => (Some(result.0), result.1, result.2),
         Err(error) => (None, Vec::new(), Some(error)),

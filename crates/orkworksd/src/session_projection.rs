@@ -150,11 +150,46 @@ struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
 }
 
-/// Fresh for each validation pass: shared historical rows must not multiply
-/// repository opens, and the final pass must not reuse pre-discovery identity.
+/// Only location-relevant state participates in optimistic validation. Output,
+/// labels and summaries can advance without starving session refreshes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LocationInputs {
+    cwd: String,
+    binding: Option<crate::session_location::WorktreeBinding>,
+    reported_cwd: Option<String>,
+    pid: Option<u32>,
+    runtime: Option<crate::runtime::session_runtime::RuntimeIdentity>,
+}
+
+impl LocationInputs {
+    // Caller holds the projection fence; this captures state and durable
+    // metadata without resolving Git, process CWD or filesystem paths.
+    fn capture(state: &AppState, id: &str) -> Option<Self> {
+        let info = crate::session_location::subject_info(state, id).ok()?;
+        let runtime = state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|h| h.runtime.identity());
+        let reported_cwd = state.peon.reported_cwd.read().unwrap().get(id).cloned();
+        let pid = state.session_pids.lock().unwrap().get(id).copied();
+        Some(Self {
+            cwd: info.cwd,
+            binding: info.worktree_binding,
+            reported_cwd,
+            pid,
+            runtime,
+        })
+    }
+}
+
+/// Fresh for each validation pass: coalesce shared worktrees, but never reuse
+/// pre-discovery Git or binding validation during the final pass.
 #[derive(Default)]
 struct DocumentLocations {
     roots: HashMap<PathBuf, Option<PathBuf>>,
+    bindings: HashMap<(String, String), Option<PathBuf>>,
     branches: HashMap<PathBuf, Option<crate::branch_documents::Identity>>,
 }
 
@@ -173,18 +208,34 @@ impl DocumentLocations {
             .clone()
     }
 
-    fn session_root(&mut self, state: &AppState, id: &str) -> Option<PathBuf> {
-        let info = crate::session_location::subject_info(state, id).ok()?;
-        let (cwd, _) = crate::session_location::effective_directory(state, &info).ok()?;
-        self.root(&cwd)
+    fn location_root(&mut self, inputs: &LocationInputs) -> Option<PathBuf> {
+        if let Some(binding) = &inputs.binding {
+            return self
+                .bindings
+                .entry((binding.root.clone(), binding.common_dir.clone()))
+                .or_insert_with(|| binding.validate().ok())
+                .clone();
+        }
+        let process_cwd = if inputs.reported_cwd.is_none() {
+            inputs
+                .pid
+                .and_then(|pid| crate::procfs::live_cwds(&[pid]).remove(&pid))
+        } else {
+            None
+        };
+        let cwd = inputs
+            .reported_cwd
+            .as_ref()
+            .or(process_cwd.as_ref())
+            .unwrap_or(&inputs.cwd);
+        self.root(Path::new(cwd))
     }
 
     fn context(
         &mut self,
-        state: &AppState,
-        id: &str,
+        inputs: &LocationInputs,
     ) -> Option<(PathBuf, Option<crate::branch_documents::Identity>)> {
-        let root = self.session_root(state, id)?;
+        let root = self.location_root(inputs)?;
         let branch = self.branch(&root);
         Some((root, branch))
     }
@@ -425,13 +476,36 @@ impl SessionProjection {
             .unwrap()
             .as_ref()
             .map(|ws| ws.metadata.branch_documents.clone());
+        let captured: HashMap<_, _> = infos
+            .iter()
+            .map(|info| {
+                (
+                    info.id.clone(),
+                    LocationInputs::capture(&self.state, &info.id),
+                )
+            })
+            .collect();
         drop(_fence);
         let mut locations = DocumentLocations::default();
-        let contexts: Vec<_> = infos
+        let contexts: HashMap<_, _> = captured
             .iter()
-            .map(|info| (info.id.clone(), locations.context(&self.state, &info.id)))
+            .map(|(id, inputs)| {
+                (
+                    id.clone(),
+                    inputs.as_ref().and_then(|inputs| locations.context(inputs)),
+                )
+            })
             .collect();
-        let infos = self.enrich_workspace_with_documents(infos, documents, true);
+        let infos = self.enrich_workspace_with_documents(infos, documents, Some(&captured));
+        // Reinspect the captured inputs with fresh Git/process caches, then
+        // compare those inputs under the fence. No repository I/O runs there.
+        let mut current_locations = DocumentLocations::default();
+        let context_matches = captured.iter().all(|(id, inputs)| {
+            inputs
+                .as_ref()
+                .and_then(|inputs| current_locations.context(inputs))
+                == contexts[id]
+        });
         let _fence = self.state.projection_lock.lock().unwrap();
         let matches = {
             let current = self.state.workspace.lock().unwrap();
@@ -441,11 +515,11 @@ impl SessionProjection {
                 _ => false,
             }
         };
-        let mut current_locations = DocumentLocations::default();
         if !matches
-            || contexts
+            || !context_matches
+            || captured
                 .iter()
-                .any(|(id, context)| current_locations.context(&self.state, id) != *context)
+                .any(|(id, inputs)| LocationInputs::capture(&self.state, id) != *inputs)
         {
             return Err(io::Error::other(
                 "workspace or session location changed during document inspection",
@@ -573,14 +647,14 @@ impl SessionProjection {
             .unwrap()
             .as_ref()
             .map(|ws| ws.metadata.branch_documents.clone());
-        self.enrich_workspace_with_documents(infos, documents, false)
+        self.enrich_workspace_with_documents(infos, documents, None)
     }
 
     fn enrich_workspace_with_documents(
         &self,
         mut infos: Vec<SessionInfo>,
         documents: Option<Arc<crate::branch_documents_store::Store>>,
-        validate_sessions: bool,
+        captured: Option<&HashMap<String, Option<LocationInputs>>>,
     ) -> Vec<SessionInfo> {
         let session_pids = self.state.session_pids.lock().unwrap().clone();
         let reported_cwds = self.state.peon.reported_cwd.read().unwrap().clone();
@@ -617,62 +691,88 @@ impl SessionProjection {
             // rather than multiplying discovery and selection reads by history.
             let mut projections = HashMap::<PathBuf, crate::branch_documents::Projection>::new();
             let mut locations = DocumentLocations::default();
-            let mut current_locations = DocumentLocations::default();
             let mut memberships = HashMap::<(String, PathBuf), bool>::new();
             for info in &mut infos {
                 let root = if let Some(binding) = &info.worktree_binding {
-                    binding.validate().ok()
+                    locations
+                        .bindings
+                        .entry((binding.root.clone(), binding.common_dir.clone()))
+                        .or_insert_with(|| binding.validate().ok())
+                        .clone()
                 } else {
                     effective_cwds
                         .get(&info.id)
                         .and_then(|cwd| locations.root(Path::new(cwd)))
                 };
-                let projection =
-                    root.as_deref()
-                        .filter(|root| {
-                            info.worktree_binding.is_some()
-                                || *memberships
-                                    .entry((info.cwd.clone(), root.to_path_buf()))
-                                    .or_insert_with(|| {
-                                        root.to_str().is_some_and(|root| {
-                                            crate::session_location::WorktreeBinding::resolve(
-                                                &info.cwd, root,
-                                            )
-                                            .is_ok()
-                                        })
-                                    })
-                        })
-                        .and_then(|root| {
-                            let scan =
-                                (!projections.contains_key(root)).then(|| store.scan(root, false));
-                            let _fence = self.state.projection_lock.lock().unwrap();
-                            if validate_sessions
-                                && current_locations
-                                    .session_root(&self.state, &info.id)
-                                    .as_deref()
-                                    != Some(root)
-                            {
-                                return None;
-                            }
-                            let workspace = self.state.workspace.lock().unwrap();
-                            if !workspace.as_ref().is_some_and(|ws| {
-                                Arc::ptr_eq(&store, &ws.metadata.branch_documents)
-                            }) {
-                                return None;
-                            }
-                            Some(
-                                projections
-                                    .entry(root.to_path_buf())
-                                    .or_insert_with(|| {
-                                        crate::branch_documents::projection_from_scan(
-                                            &store,
-                                            root,
-                                            scan.expect("uncached root has a prepared scan"),
+                let projection = root
+                    .as_deref()
+                    .filter(|root| {
+                        info.worktree_binding.is_some()
+                            || *memberships
+                                .entry((info.cwd.clone(), root.to_path_buf()))
+                                .or_insert_with(|| {
+                                    root.to_str().is_some_and(|root| {
+                                        crate::session_location::WorktreeBinding::resolve(
+                                            &info.cwd, root,
                                         )
+                                        .is_ok()
                                     })
-                                    .clone(),
-                            )
+                                })
+                    })
+                    .and_then(|root| {
+                        if let Some(projection) = projections.get(root) {
+                            // Shared rows still validate their own current input
+                            // tuple; only repository/document inspection is shared.
+                            if let Some(captured) = captured {
+                                let _fence = self.state.projection_lock.lock().unwrap();
+                                if LocationInputs::capture(&self.state, &info.id)
+                                    != captured[&info.id]
+                                {
+                                    return None;
+                                }
+                            }
+                            return Some(projection.clone());
+                        }
+                        let scan = store.scan(root, false);
+                        let prepared =
+                            crate::branch_documents::prepare_projection(&store, root, scan);
+                        let mut fresh = DocumentLocations::default();
+                        let context_matches = captured.is_none_or(|captured| {
+                            captured[&info.id]
+                                .as_ref()
+                                .and_then(|inputs| fresh.location_root(inputs))
+                                .as_deref()
+                                == Some(root)
+                        }) && prepared.as_ref().map_or(true, |prepared| {
+                            fresh.branch(root).as_ref() == Some(&prepared.identity)
                         });
+                        let _fence = self.state.projection_lock.lock().unwrap();
+                        if !context_matches
+                            || captured.is_some_and(|captured| {
+                                LocationInputs::capture(&self.state, &info.id) != captured[&info.id]
+                            })
+                        {
+                            return None;
+                        }
+                        let workspace = self.state.workspace.lock().unwrap();
+                        if !workspace
+                            .as_ref()
+                            .is_some_and(|ws| Arc::ptr_eq(&store, &ws.metadata.branch_documents))
+                        {
+                            return None;
+                        }
+                        let projection = match prepared {
+                            Ok(prepared) => match store.try_publish(&prepared.reconciliation) {
+                                Ok(()) => prepared.projection,
+                                Err(error) => {
+                                    crate::branch_documents::unavailable_projection(error)
+                                }
+                            },
+                            Err(error) => crate::branch_documents::unavailable_projection(error),
+                        };
+                        projections.insert(root.to_path_buf(), projection.clone());
+                        Some(projection)
+                    });
                 if let Some(projection) = projection {
                     if projection.steps.iter().any(|step| step.available) {
                         info.has_openable_plan = Some(true);
@@ -1832,6 +1932,63 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "manual isolated 800-row refresh and input-fence benchmark"]
+    fn benchmark_shared_history_input_fence_wait() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let metadata = &workspace.as_ref().unwrap().metadata;
+            for i in 0..800 {
+                let mut meta = test_session_metadata(
+                    format!("history-{i}"),
+                    "claude",
+                    dir.path().display().to_string(),
+                    "ended",
+                    "2026-11-10T10:00:00Z",
+                    "2026-11-10T10:00:00Z",
+                );
+                meta.cwd = dir.path().display().to_string();
+                meta.worktree_binding = Some(
+                    crate::session_location::WorktreeBinding::resolve(&meta.cwd, &meta.cwd)
+                        .unwrap(),
+                );
+                metadata.write_session(&meta);
+            }
+        }
+        let done = Arc::new(AtomicBool::new(false));
+        let observe_state = state.clone();
+        let observe_done = done.clone();
+        let observer = std::thread::spawn(move || {
+            let mut maximum = std::time::Duration::ZERO;
+            let mut count = 0_u64;
+            while !observe_done.load(Ordering::Acquire) {
+                let start = std::time::Instant::now();
+                let guard = observe_state.projection_lock.lock().unwrap();
+                maximum = maximum.max(start.elapsed());
+                drop(guard);
+                count += 1;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            (count, maximum)
+        });
+        for pass in 0..3 {
+            let start = std::time::Instant::now();
+            let rows = SessionProjection::new(state.clone()).list().unwrap();
+            assert_eq!(rows.len(), 800);
+            eprintln!(
+                "800-row bound-worktree refresh pass {pass}: {:?}",
+                start.elapsed()
+            );
+        }
+        done.store(true, Ordering::Release);
+        let (count, maximum) = observer.join().unwrap();
+        eprintln!("input-fence observer: {count} acquisitions, maximum observed wait {maximum:?}");
+    }
+
+    #[test]
     #[ignore = "manual read-only real-history projection benchmark"]
     fn benchmark_real_history_document_projection() {
         let source = std::env::var("ORKWORKS_BENCH_SESSION_DIR").unwrap();
@@ -1931,6 +2088,233 @@ mod tests {
             input_can_enter,
             "document inspection must not block terminal input"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_document_validation_does_not_block_real_input_delivery_or_bookkeeping() {
+        use std::time::Duration;
+        let (dir, state, mut receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *store.before_projection.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+        }));
+        // Capture runtime identity before pausing: do not let the test itself
+        // need a lock which the blocked inspector might retain.
+        let (identity, sender) = {
+            let sessions = state.sessions.lock().unwrap();
+            let runtime = &sessions["lag-test"].runtime;
+            (runtime.identity(), runtime.control_tx.clone())
+        };
+        let projection_state = state.clone();
+        let projection =
+            std::thread::spawn(move || SessionProjection::new(projection_state).list());
+        let entered = tokio::time::timeout(Duration::from_secs(5), entered_rx).await;
+        if !matches!(entered, Ok(Ok(()))) {
+            let _ = release_tx.send(());
+            let _ = projection.join();
+            panic!("document validation hook was not reached");
+        }
+        let input_state = state.clone();
+        let mut owner = tokio::spawn(async move {
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
+                &input_state,
+                "lag-test",
+                &identity,
+                &sender,
+                "x".into(),
+            )
+            .await
+        });
+        let command = tokio::time::timeout(Duration::from_secs(2), receiver.recv()).await;
+        let delivered = if let Ok(Some(crate::runtime::session_runtime::RuntimeCommand::Input {
+            accepted: Some(ack),
+            ..
+        })) = command
+        {
+            ack.send(Ok(())).unwrap();
+            true
+        } else {
+            false
+        };
+        let completed = if delivered {
+            matches!(
+                tokio::time::timeout(Duration::from_secs(2), &mut owner).await,
+                Ok(Ok(Ok(())))
+            )
+        } else {
+            false
+        };
+        // Unblock and join before asserting, including on the red path.
+        let _ = release_tx.send(());
+        let projection_result = projection.join().unwrap();
+        if !completed {
+            owner.abort();
+        }
+        assert!(
+            delivered,
+            "document validation must not block terminal input delivery"
+        );
+        assert!(
+            completed,
+            "input bookkeeping must finish while document validation is paused"
+        );
+        projection_result.unwrap();
+        assert!(
+            state.sessions.lock().unwrap()["lag-test"]
+                .capacity
+                .control_revision()
+                .unwrap()
+                > 0
+        );
+    }
+
+    #[tokio::test]
+    async fn document_projection_rejects_changed_location_runtime_or_workspace_before_publication()
+    {
+        for change in ["binding", "runtime", "delete", "workspace", "branch"] {
+            let (dir, state, _receiver) = input_fixture();
+            git2::Repository::init(dir.path()).unwrap();
+            std::fs::create_dir(dir.path().join("specs")).unwrap();
+            std::fs::write(dir.path().join("specs/current.md"), "# Current\n").unwrap();
+            let store = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .branch_documents
+                .clone();
+            let identity = crate::branch_documents::identity(dir.path()).unwrap();
+            let mutate = state.clone();
+            let root = dir.path().to_owned();
+            *store.before_projection.lock().unwrap() = Some(Box::new(move || {
+                match change {
+                    "binding" => {
+                        mutate
+                            .sessions
+                            .lock()
+                            .unwrap()
+                            .get_mut("lag-test")
+                            .unwrap()
+                            .info
+                            .worktree_binding = Some(crate::session_location::WorktreeBinding {
+                            root: root.join("missing").display().to_string(),
+                            common_dir: root.join(".git").display().to_string(),
+                        })
+                    }
+                    "runtime" => {
+                        mutate
+                            .sessions
+                            .lock()
+                            .unwrap()
+                            .get_mut("lag-test")
+                            .unwrap()
+                            .runtime =
+                            crate::runtime::session_runtime::SessionRuntime::detached(24, 80)
+                    }
+                    "delete" => {
+                        mutate.sessions.lock().unwrap().remove("lag-test");
+                    }
+                    "workspace" => {
+                        // Same path is not the same workspace ownership instance.
+                        let replacement = crate::test_support::test_app_state_with_workspace(&root);
+                        *mutate.workspace.lock().unwrap() =
+                            replacement.workspace.lock().unwrap().take();
+                    }
+                    "branch" => git2::Repository::open(&root)
+                        .unwrap()
+                        .set_head("refs/heads/replaced")
+                        .unwrap(),
+                    _ => unreachable!(),
+                }
+            }));
+            assert!(SessionProjection::new(state).list().is_err(), "{change}");
+            assert!(
+                store.load(&identity).unwrap().is_empty(),
+                "{change}: stale prepared work must not publish a branch selection"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn document_projection_withholds_prepared_slots_after_a_newer_pin() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("specs")).unwrap();
+        std::fs::write(dir.path().join("specs/current.md"), "# Current\n").unwrap();
+        std::fs::write(dir.path().join("specs/pinned.md"), "# Pinned\n").unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let identity = crate::branch_documents::identity(dir.path()).unwrap();
+        let pin = crate::branch_documents::document(
+            dir.path(),
+            "specs/pinned.md",
+            crate::metadata::PlanSource::UserSelected,
+            true,
+        )
+        .unwrap();
+        let mutate = store.clone();
+        let id = identity.clone();
+        *store.before_projection.lock().unwrap() = Some(Box::new(move || {
+            mutate.report(&id, pin).unwrap();
+        }));
+        let rows = SessionProjection::new(state).list().unwrap();
+        let projection = rows[0].plan_documents.as_ref().unwrap();
+        assert!(projection.steps.iter().all(|step| !step.available));
+        assert!(projection
+            .notice
+            .as_deref()
+            .unwrap()
+            .contains("selection changed"));
+        let current = store.load(&identity).unwrap();
+        assert_eq!(current.len(), 1);
+        assert!(current[0].pinned);
+        assert_eq!(current[0].reference.relative_path, "specs/pinned.md");
+    }
+
+    #[tokio::test]
+    async fn document_projection_allows_output_and_title_changes_during_inspection() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let mutate = state.clone();
+        *store.before_projection.lock().unwrap() = Some(Box::new(move || {
+            let mut sessions = mutate.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.info.label = "A newer title".into();
+            handle.output_buffer.push("more output".into());
+        }));
+        let rows = SessionProjection::new(state).list().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "lag-test");
     }
 
     #[tokio::test]
