@@ -433,3 +433,23 @@ cancellation does not itself revoke an explicit current-epoch UI correction.
 Ordinary ended-session metadata is not orchestration settlement. The plan selects
 no new cutoff and authorizes no adapter, native probe, migration or runtime work;
 conditional evidence and existing approval gates remain unchanged.
+
+
+## Scoped terminal authority amendment accepted — 2026-11-10
+
+The [owner-accepted terminal correction authority policy](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+supersedes this profile's earlier persistence-denial cutoff only for its exact
+Electron-authorized terminal/evaluation-only correction to an existing head.
+Sidecar admission-first may finish one attempted transaction after scope closure;
+closure-first denies admission. This includes a request admitted after local UI
+closure but before the sidecar processes closure. Durable acceptance remains SQL
+commit; stale response delivery remains separately denied. The original worker/
+lease may remain retained indefinitely, without delaying ordinary stop or
+permitting writes through ownership loss. #744's separate claim class stays excluded.
+
+Acceptance is for further design/qualification. Exact authority-owner/closure/
+metadata codecs and lifecycle integration are still undefined; terminal producer,
+consumer/index completeness and native execution remain unqualified. Existing
+report/head/receipt/summary/resource definitions, caps and conditional packet bytes
+are unchanged and gain no retrospective authority proof. No dependent fixture/
+adapter, native probe or executable runtime plan is granted by this record.

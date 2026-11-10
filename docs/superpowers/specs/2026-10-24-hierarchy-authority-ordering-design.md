@@ -350,3 +350,18 @@ no-automatic-retry, immediate-stop and current read/response rules remain. The
 separate [#1415 evidence proposal](https://github.com/Rambolarsen/orkworks/issues/1415)
 must close its representation/accounting/compatibility before dependent work;
 this decision changes no codec, format, numerical budget or production behavior.
+
+
+## Separate #742 terminal policy acceptance — 2026-11-10
+
+The [terminal user-correction authority amendment](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+has scoped owner acceptance for further design/qualification. It settles #742's
+policy decision only for an explicit terminal/evaluation-only correction to an
+existing report head. It does not add research reports to this document's #744
+claim class or permit either class to stand in for the other's authority metadata.
+Earlier blanket no-decision wording for #742 is superseded only in that narrow
+policy scope; all other #742 actions retain their independent cutoff and gates.
+The distributed local/sidecar closure interval, stale-response separation and
+potentially indefinite original worker/lease cost are explicit in the accepted
+record. Source, transport, producer, custody, lifecycle and native proof remain
+required; no codec, quota, executable/runtime plan or probe authorization changes.

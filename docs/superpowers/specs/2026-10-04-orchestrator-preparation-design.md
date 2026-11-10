@@ -1584,3 +1584,24 @@ comparison is not runtime qualification; all three native checks remain
 unverified. Offline fixture preparation and a separately reviewed, finite live
 batch remain distinct tasks. No new model calls, transport integration, authority
 or retry budget is authorized, and #740 research remains closed.
+
+
+## Terminal user-correction authority acceptance — 2026-11-10
+
+The owner [accepted the exact terminal correction cutoff and tradeoffs](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+for further design and qualification. For the terminal/evaluation-only profile's
+explicit user correction to an existing report head, sidecar admission before
+sidecar-observed closure permits that one attempted transaction to reach proven
+disposition; closure-first denies it. This narrowly supersedes the earlier
+revocation-before-physical-commit requirement for that action only. Local UI
+closure can precede sidecar admission during message transit, and stale response
+delivery remains denied even if persistence succeeds. Ordinary stop stays
+independent of SQL; the original worker/store/lease may remain retained indefinitely.
+
+Completion/cancellation alone still does not revoke an eligible terminal UI
+correction. Initial/child reports, active preparation, plans/launches and other
+control actions do not inherit this exception or #744's claim class. Source/epoch/
+health/dependency/quota checks remain binding. Exact transport, authority metadata,
+terminal producer, complete consumer proof, lifecycle integration and native
+qualification remain open; no codec/default, fixture, adapter, new probe budget or
+executable/runtime plan is approved. Keep #742/#1089 open.
