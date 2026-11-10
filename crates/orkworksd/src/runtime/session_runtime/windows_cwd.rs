@@ -1,7 +1,41 @@
 //! Windows PTY launch directory handling for command shims.
 use std::io;
+use std::path::Path;
 
-pub(super) fn process_cwd(cwd: &str, _program: &str) -> io::Result<String> {
+/// Windows canonicalization returns device paths (\\?\C:\...), but cmd shims
+/// started through ConPTY cannot use them as a working directory. Keep the
+/// canonical path in session metadata and simplify only the child's cwd.
+pub(super) fn process_cwd(cwd: &str, program: &str) -> io::Result<String> {
+    let is_cmd_shim = Path::new(program)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        });
+    if !is_cmd_shim {
+        return Ok(cwd.to_owned());
+    }
+
+    if let Some(path) = cwd.strip_prefix(r"\\?\") {
+        let bytes = path.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\'
+        {
+            return Ok(path.to_owned());
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Windows command shims require a local drive workspace",
+        ));
+    }
+    if cwd.starts_with(r"\\") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Windows command shims require a local drive workspace",
+        ));
+    }
     Ok(cwd.to_owned())
 }
 
@@ -30,6 +64,7 @@ mod tests {
             "Windows canonicalization must exercise the device path"
         );
         let launch_cwd = process_cwd(canonical_text, shim.to_str().unwrap()).unwrap();
+        assert_eq!(launch_cwd, canonical_text.trim_start_matches(r"\\?\"));
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows: 24,
@@ -49,6 +84,30 @@ mod tests {
             std::path::Path::new(actual.trim()).canonicalize().unwrap(),
             canonical,
             "cmd shim did not start in the selected workspace"
+        );
+    }
+
+    #[test]
+    fn only_command_shims_need_the_simplified_cwd() {
+        let cwd = r"\\?\C:\repo";
+        assert_eq!(process_cwd(cwd, "codex.exe").unwrap(), cwd);
+        assert_eq!(process_cwd(cwd, "codex.CMD").unwrap(), r"C:\repo");
+        assert_eq!(process_cwd(cwd, "codex.bat").unwrap(), r"C:\repo");
+    }
+
+    #[test]
+    fn command_shims_reject_unc_workspaces() {
+        assert_eq!(
+            process_cwd(r"\\?\UNC\server\share\repo", "codex.cmd")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            process_cwd(r"\\server\share\repo", "codex.cmd")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
         );
     }
 }
