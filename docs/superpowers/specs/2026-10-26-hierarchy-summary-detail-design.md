@@ -445,3 +445,16 @@ summary/ledger branches and logical read/invalidation oracles. It supplies no
 admission/termination producer, live authority, native durability, index completeness
 or runtime eligibility. Existing source definitions and earlier fixture bytes are
 unchanged; broader lifecycle and executable-plan gates remain open.
+
+
+## Gate 1 authority proposal — 2026-11-10
+
+The [terminal correction authority investigation/proposal](../specs/2026-11-10-terminal-correction-authority-design.md)
+traces existing main/sidecar seams and missing producer stages at
+`cd6415f0384561d52b952a4c7d20fdd3c48275a7`. It proposes a separately scoped
+exact terminal user-correction admission cutoff for owner review, explicitly
+including the interval between local UI closure and sidecar closure processing.
+Existing #742 persistence-denial rules and #744 exclusions remain unchanged until
+acceptance. This is no native fence, new codec, fixture, completed producer gate,
+executable plan or runtime permission. Existing read/metric/viewing acceptance and
+conditional fixture evidence remain valid within their recorded scope.

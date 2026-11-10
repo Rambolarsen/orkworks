@@ -309,3 +309,5 @@ Dated design records; these do not establish current product behavior.
 - [Direct terminal writer and driver outcomes](2026-11-09-terminal-writer-outcomes-design.md) — Accepted bounded writer/join refactor with fixed byte/flush facts and unchanged coarse acknowledgements; owner activation and physical/resource qualification remain gated.
 
 - [Retained writer checkpoints and return reporting](2026-11-09-retained-writer-transfer-design.md) — Accepted bounded checkpoints and private optional reporter transfer through actual offline operations; production reporting and physical qualification remain gated.
+
+- [Terminal correction authority ordering](2026-11-10-terminal-correction-authority-design.md) — Proposed exact terminal UI-correction cutoff and distributed closure cost before producer/native qualification.
