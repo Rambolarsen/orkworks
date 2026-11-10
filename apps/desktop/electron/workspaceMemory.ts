@@ -364,12 +364,13 @@ function replaceExistingWorkspaceHistoryOnWindows(temporary: string, target: str
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_HISTORY_TEMPORARY, $env:ORKWORKS_HISTORY_TARGET, $null, $true)",
+    "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_HISTORY_TEMPORARY, $env:ORKWORKS_HISTORY_TARGET, $env:ORKWORKS_HISTORY_BACKUP, $true); try { [System.IO.File]::Delete($env:ORKWORKS_HISTORY_BACKUP) } catch {}",
   ], {
     env: {
       ...process.env,
       ORKWORKS_HISTORY_TEMPORARY: temporary,
       ORKWORKS_HISTORY_TARGET: target,
+      ORKWORKS_HISTORY_BACKUP: `${temporary}.bak`,
     },
     stdio: "ignore",
   });

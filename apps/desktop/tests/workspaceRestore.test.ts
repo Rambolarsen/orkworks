@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   buildWorkspaceRestoreRequest,
   parseWorkspaceRestoreResponse,
+  sameWorkspaceIdentity,
   workspaceHistoryPath,
 } from "../electron/workspaceRestore.ts";
 
@@ -28,6 +29,13 @@ test("Windows restore requests use the native canonical path form", { skip: proc
   const request = buildWorkspaceRestoreRequest(process.cwd(), identity);
   assert.equal(request.path, process.cwd());
   assert.equal(request.workspaceIdentity, `\\\\?\\${identity}`);
+});
+
+test("navigation accepts the sidecar's namespaced Windows workspace identity", () => {
+  const identity = process.platform === "win32" ? "C:\\real\\repo" : "/real/repo";
+  const sidecarIdentity = buildWorkspaceRestoreRequest(identity, identity).workspaceIdentity;
+  assert.equal(sameWorkspaceIdentity(identity, sidecarIdentity), true);
+  assert.equal(sameWorkspaceIdentity(identity, process.platform === "win32" ? "\\\\?\\C:\\other" : "/other"), false);
 });
 
 test("workspace history keeps the canonical request identity when display and canonical paths differ", () => {

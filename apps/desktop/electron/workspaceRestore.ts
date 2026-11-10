@@ -18,6 +18,10 @@ export function workspaceHistoryPath(
   return canonicalPath ?? restoredWorkspace?.path ?? null;
 }
 
+export function sameWorkspaceIdentity(desktopPath: string, sidecarIdentity: string): boolean {
+  return toNamespacedPath(desktopPath) === sidecarIdentity;
+}
+
 export function buildWorkspaceRestoreRequest(
   displayPath: string,
   workspaceIdentity: string,

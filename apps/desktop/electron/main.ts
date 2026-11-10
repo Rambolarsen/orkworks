@@ -36,7 +36,7 @@ import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, typ
 import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody } from "./sidecarClient";
 import { channelForVersion, createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
-import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse } from "./workspaceRestore";
+import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse, sameWorkspaceIdentity } from "./workspaceRestore";
 import { workspaceHistoryPath } from "./workspaceRestore";
 import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
 import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
@@ -1494,8 +1494,8 @@ app.whenReady().then(async () => {
       throw new Error("Workspace navigation is available only in a ready workspace.");
     }
     const workspaceIdentity = latestBackendLifecycle.workspace.workspaceIdentity;
-    if (!workspaceIdentity || workspacePath !== workspaceIdentity
-      || workspaceSwitchCoordinator?.getCurrentWorkspacePath() !== workspaceIdentity) {
+    if (!workspaceIdentity || !workspacePath || !sameWorkspaceIdentity(workspacePath, workspaceIdentity)
+      || !sameWorkspaceIdentity(workspaceSwitchCoordinator?.getCurrentWorkspacePath() ?? "", workspaceIdentity)) {
       throw new Error("Ready workspace identity is unavailable.");
     }
     return { workspaceIdentity, generation: backendGeneration };
@@ -1515,14 +1515,14 @@ app.whenReady().then(async () => {
     const { workspaceIdentity, generation } = currentNavigationIdentity();
     const stillCurrent = () => latestBackendLifecycle.state === "ready"
       && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
-      && workspacePath === workspaceIdentity && backendGeneration === generation;
+      && !!workspacePath && sameWorkspaceIdentity(workspacePath, workspaceIdentity) && backendGeneration === generation;
     return workspaceNavigationMemory.complete(workspaceIdentity, generation, stillCurrent, surface as LastCentralSurface);
   });
   ipcMain.handle("delete-workspace-navigation", async () => {
     const { workspaceIdentity, generation } = currentNavigationIdentity();
     const stillCurrent = () => latestBackendLifecycle.state === "ready"
       && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
-      && workspacePath === workspaceIdentity && backendGeneration === generation;
+      && !!workspacePath && sameWorkspaceIdentity(workspacePath, workspaceIdentity) && backendGeneration === generation;
     return workspaceNavigationMemory.delete(workspaceIdentity, generation, stillCurrent);
   });
   ipcMain.handle("rebuild-workspace-navigation", async () => confirmShellMemoryRebuild("navigation", mainWindow,

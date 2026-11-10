@@ -50,8 +50,8 @@ export async function writeKnowledgeFile(path: string, content: string, signal?:
     signal?.throwIfAborted();
     if (process.platform === "win32" && exists) {
       execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
-        "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_KNOWLEDGE_TEMPORARY, $env:ORKWORKS_KNOWLEDGE_TARGET, $null, $true)"],
-      { env: { ...process.env, ORKWORKS_KNOWLEDGE_TEMPORARY: temporary, ORKWORKS_KNOWLEDGE_TARGET: path }, stdio: "ignore", windowsHide: true, timeout: 5_000 });
+        "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_KNOWLEDGE_TEMPORARY, $env:ORKWORKS_KNOWLEDGE_TARGET, $env:ORKWORKS_KNOWLEDGE_BACKUP, $true); try { [System.IO.File]::Delete($env:ORKWORKS_KNOWLEDGE_BACKUP) } catch {}"],
+      { env: { ...process.env, ORKWORKS_KNOWLEDGE_TEMPORARY: temporary, ORKWORKS_KNOWLEDGE_TARGET: path, ORKWORKS_KNOWLEDGE_BACKUP: `${temporary}.bak` }, stdio: "ignore", windowsHide: true, timeout: 5_000 });
     } else await rename(temporary, path);
   } finally { await rm(temporary, { force: true }); }
 }
