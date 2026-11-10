@@ -32,9 +32,11 @@ test("Windows shell layout replaces an existing record on save", {
   try {
     const memory = createShellLayoutMemory(directory);
     assert.equal(memory.read().diagnostic, null);
+    assert.deepEqual(await memory.save({ sessionsWidth: 280, inspectorWidth: 360, sessionsVisible: true, density: "low" }), { ok: true });
     const saved = await memory.save({ sessionsWidth: 300, inspectorWidth: 400, sessionsVisible: false, density: "high" });
     assert.deepEqual(saved, { ok: true });
-    assert.equal(memory.read().revision, 1);
+    assert.equal(memory.read().revision, 2);
+    assert.equal(memory.read().preferences.sessionsWidth, 300);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
