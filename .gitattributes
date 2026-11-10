@@ -75,3 +75,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 /docs/validation/parent-native-canary-startup-summary.json text eol=lf
 
 /docs/validation/parent-native-canary-operation-lock-summary.json text eol=lf
+
+# Preserve independent terminal UI scope/receipt oracle bytes on Windows.
+/docs/validation/terminal-authority-vectors.json text eol=lf

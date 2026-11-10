@@ -1,0 +1,456 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "synthetic-scope-and-isolated-receipt-membership-not-native-or-complete-publication",
+  "inputSha256": "002fafccc15959fb0dd743474431c9c137894f31300174a859cd14d6d017b671",
+  "reportProfileSha256": "6a8dff458950faee467a73a4cf76bf9f5d9f62d144a11bb450491ec5cfb12a92",
+  "binding": {
+    "workspaceId": "r2-workspace",
+    "sidecarGeneration": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "traces": [
+    {
+      "id": "close-before-open",
+      "seed": {},
+      "steps": [
+        [
+          "close",
+          "1",
+          [
+            "ok",
+            "1",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "open",
+          "1",
+          [
+            "closed",
+            "1",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "open",
+          "2",
+          [
+            "ok",
+            "1",
+            "2",
+            null,
+            "0"
+          ]
+        ],
+        [
+          "close",
+          "1",
+          [
+            "ok",
+            "1",
+            "2",
+            null,
+            "0"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "admission-first-drains-original",
+      "seed": {},
+      "steps": [
+        [
+          "open",
+          "1",
+          [
+            "ok",
+            "0",
+            "1",
+            null,
+            "0"
+          ]
+        ],
+        [
+          "admit",
+          "1",
+          [
+            "admitted",
+            "0",
+            "1",
+            "1",
+            "1"
+          ]
+        ],
+        [
+          "close",
+          "1",
+          [
+            "ok",
+            "1",
+            null,
+            "1",
+            "1"
+          ]
+        ],
+        [
+          "open",
+          "2",
+          [
+            "unavailable",
+            "1",
+            null,
+            "1",
+            "1"
+          ]
+        ],
+        [
+          "uncertain",
+          "1",
+          [
+            "unavailable",
+            "1",
+            null,
+            "1",
+            "1"
+          ]
+        ],
+        [
+          "committed",
+          "1",
+          [
+            "settled",
+            "1",
+            null,
+            null,
+            "1"
+          ]
+        ],
+        [
+          "open",
+          "2",
+          [
+            "ok",
+            "1",
+            "2",
+            null,
+            "1"
+          ]
+        ],
+        [
+          "admit",
+          "2",
+          [
+            "admitted",
+            "1",
+            "2",
+            "2",
+            "2"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "close-first-denies-write",
+      "seed": {},
+      "steps": [
+        [
+          "open",
+          "1",
+          [
+            "ok",
+            "0",
+            "1",
+            null,
+            "0"
+          ]
+        ],
+        [
+          "close",
+          "1",
+          [
+            "ok",
+            "1",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "admit",
+          "1",
+          [
+            "closed",
+            "1",
+            null,
+            null,
+            "0"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "skips-do-not-advance",
+      "seed": {},
+      "steps": [
+        [
+          "open",
+          "2",
+          [
+            "conflict",
+            "0",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "close",
+          "2",
+          [
+            "conflict",
+            "0",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "inspect",
+          "1",
+          [
+            "ok",
+            "0",
+            null,
+            null,
+            "0"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "admission-counter-does-not-wrap",
+      "seed": {
+        "lastAdmissionSequence": "18446744073709551615"
+      },
+      "steps": [
+        [
+          "open",
+          "1",
+          [
+            "ok",
+            "0",
+            "1",
+            null,
+            "18446744073709551615"
+          ]
+        ],
+        [
+          "admit",
+          "1",
+          [
+            "exhausted",
+            "0",
+            "1",
+            null,
+            "18446744073709551615"
+          ]
+        ],
+        [
+          "close",
+          "1",
+          [
+            "ok",
+            "1",
+            null,
+            null,
+            "18446744073709551615"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "scope-counter-final-close",
+      "seed": {
+        "closedThrough": "18446744073709551614"
+      },
+      "steps": [
+        [
+          "open",
+          "18446744073709551615",
+          [
+            "ok",
+            "18446744073709551614",
+            "18446744073709551615",
+            null,
+            "0"
+          ]
+        ],
+        [
+          "close",
+          "18446744073709551615",
+          [
+            "ok",
+            "18446744073709551615",
+            null,
+            null,
+            "0"
+          ]
+        ],
+        [
+          "open",
+          "18446744073709551615",
+          [
+            "closed",
+            "18446744073709551615",
+            null,
+            null,
+            "0"
+          ]
+        ]
+      ]
+    }
+  ],
+  "requestUtf8": "{\"expectedReportHead\":{\"contentDigest\":\"44e011f776ba5cb213ab2b3fda5f6aa46f2fb7e3310a8ef27168761c2403de16\",\"reportId\":\"report-c1\",\"reportVersion\":1},\"expectedRunVersion\":4,\"expectedTaskVersion\":null,\"operation\":\"correctResearchReport\",\"report\":{\"author\":{\"kind\":\"user\"},\"blockers\":[],\"childSessionId\":\"researcher-c1\",\"configurationDigest\":\"104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d\",\"contentDigest\":\"fdfc6c6081b00c3dbad8ac433ced05834a652fd5b49c936d6cf3297fc5062735\",\"evidenceReferences\":[{\"excerptDigest\":\"6a78cb7815b1b504f6279c4f8f4981682afe639b5a0d4914abcfda195c4ae263\",\"id\":\"e-c1\",\"kind\":\"file\",\"location\":\"L1\",\"path\":\"research/c1.txt\",\"revision\":\"fixture-v2\"}],\"findings\":[{\"answer\":\"c1 corrected observation.\",\"classification\":\"established\",\"evidenceReferenceIds\":[\"e-c1\"],\"questionIds\":[\"q-c1\"]}],\"launchGeneration\":\"6676cfa3a4cd00e015ecee6c2775e84b0cdf8892d6ec80dc2eca24b8aeb15c1e\",\"limitations\":[],\"planId\":\"r2-research-plan\",\"planRevision\":1,\"questionIds\":[\"q-c1\"],\"recommendations\":[],\"reportId\":\"report-c1\",\"reportVersion\":2,\"reservationId\":\"res-c1\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"schemaVersion\":1,\"sidecarGeneration\":\"79b8442cf6dc0504e7cf6896613b4a0df850702188af37af404fab6f7e2bfc25\",\"taskId\":\"research-c1\",\"uncertainties\":[]},\"schemaVersion\":1,\"stream\":{\"childSessionId\":\"researcher-c1\",\"configurationDigest\":\"104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d\",\"planId\":\"r2-research-plan\",\"planRevision\":1,\"reservationId\":\"res-c1\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"taskId\":\"research-c1\",\"workspaceId\":\"r2-workspace\"}}",
+  "requestSha256": "661d52df17462a99c8e3d02db38baf80a5740289d2f6146a96b2ea9003b2f222",
+  "reportUtf8": "{\"author\":{\"kind\":\"user\"},\"blockers\":[],\"childSessionId\":\"researcher-c1\",\"configurationDigest\":\"104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d\",\"contentDigest\":\"fdfc6c6081b00c3dbad8ac433ced05834a652fd5b49c936d6cf3297fc5062735\",\"evidenceReferences\":[{\"excerptDigest\":\"6a78cb7815b1b504f6279c4f8f4981682afe639b5a0d4914abcfda195c4ae263\",\"id\":\"e-c1\",\"kind\":\"file\",\"location\":\"L1\",\"path\":\"research/c1.txt\",\"revision\":\"fixture-v2\"}],\"findings\":[{\"answer\":\"c1 corrected observation.\",\"classification\":\"established\",\"evidenceReferenceIds\":[\"e-c1\"],\"questionIds\":[\"q-c1\"]}],\"launchGeneration\":\"6676cfa3a4cd00e015ecee6c2775e84b0cdf8892d6ec80dc2eca24b8aeb15c1e\",\"limitations\":[],\"planId\":\"r2-research-plan\",\"planRevision\":1,\"questionIds\":[\"q-c1\"],\"recommendations\":[],\"reportId\":\"report-c1\",\"reportVersion\":2,\"reservationId\":\"res-c1\",\"runId\":\"a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1\",\"schemaVersion\":1,\"sidecarGeneration\":\"79b8442cf6dc0504e7cf6896613b4a0df850702188af37af404fab6f7e2bfc25\",\"taskId\":\"research-c1\",\"uncertainties\":[]}",
+  "responseUtf8": "{\"acceptedHead\":{\"contentDigest\":\"fdfc6c6081b00c3dbad8ac433ced05834a652fd5b49c936d6cf3297fc5062735\",\"reportId\":\"report-c1\",\"reportVersion\":2},\"schemaVersion\":1}",
+  "receipt": {
+    "row": {
+      "table": "report_receipts",
+      "key": {
+        "stream": {
+          "childSessionId": "researcher-c1",
+          "configurationDigest": "104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d",
+          "planId": "r2-research-plan",
+          "planRevision": 1,
+          "reservationId": "res-c1",
+          "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+          "taskId": "research-c1",
+          "workspaceId": "r2-workspace"
+        },
+        "reportVersion": 2
+      },
+      "body": {
+        "schemaVersion": 2,
+        "operation": "correctResearchReport",
+        "expectedTaskVersion": null,
+        "expectedRunVersion": 4,
+        "expectedReportHead": {
+          "contentDigest": "44e011f776ba5cb213ab2b3fda5f6aa46f2fb7e3310a8ef27168761c2403de16",
+          "reportId": "report-c1",
+          "reportVersion": 1
+        },
+        "requestDigest": "6461547e8d9e04e95cec24a166980ec9324ebc1f8f6238881b49c82c5a269f88",
+        "response": {
+          "schemaVersion": 1,
+          "acceptedHead": {
+            "reportId": "report-c1",
+            "reportVersion": 2,
+            "contentDigest": "fdfc6c6081b00c3dbad8ac433ced05834a652fd5b49c936d6cf3297fc5062735"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "40e69c192c2b43d23b94d9496ced713dccbbbaa9d11ab95b62c53760873c70f0",
+          "commitSequence": "2",
+          "changeDigest": "df453daeebb22e0ba0d7a965e98b5a10d363c5f1e2c2737a4995334f5946fcc8"
+        },
+        "authorization": {
+          "policy": "terminal-ui-correction-v1",
+          "sidecarGeneration": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "scopeSequence": "1",
+          "admissionSequence": "1"
+        }
+      }
+    },
+    "rowCommitment": "0c48cfff013b603312d984c6c050ef25c739d005c7de2dfc8a892585c0a82838",
+    "manifest": {
+      "schemaVersion": 3,
+      "workspaceId": "r2-workspace",
+      "storageEpoch": "40e69c192c2b43d23b94d9496ced713dccbbbaa9d11ab95b62c53760873c70f0",
+      "commitSequence": "2",
+      "predecessor": {
+        "storageEpoch": "40e69c192c2b43d23b94d9496ced713dccbbbaa9d11ab95b62c53760873c70f0",
+        "commitSequence": "1",
+        "changeDigest": "f14f1da4d9fb26dc0dfb9e4526211e7ee035f39fb090dfa407d5e332ff7f20f8"
+      },
+      "commandKind": "report-publication",
+      "changes": [
+        {
+          "table": "report_receipts",
+          "key": {
+            "stream": {
+              "childSessionId": "researcher-c1",
+              "configurationDigest": "104f11984e3e956d0a56f5c862bc7d55add3c248962af6697e3a6b30a7270b1d",
+              "planId": "r2-research-plan",
+              "planRevision": 1,
+              "reservationId": "res-c1",
+              "runId": "a616f395a541efe0a1d39c755eb7b161e208d21b70a76e780596dd13781f7acc-1",
+              "taskId": "research-c1",
+              "workspaceId": "r2-workspace"
+            },
+            "reportVersion": 2
+          },
+          "beforeDigest": null,
+          "afterDigest": "0c48cfff013b603312d984c6c050ef25c739d005c7de2dfc8a892585c0a82838"
+        }
+      ]
+    },
+    "metadataBytes": 1244,
+    "retainedBytes": 1044,
+    "authorizationBytes": 186
+  },
+  "maximum": {
+    "row": {
+      "table": "report_receipts",
+      "key": {
+        "stream": {
+          "workspaceId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-9223372036854775807",
+          "planId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "planRevision": 64,
+          "taskId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "reservationId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "childSessionId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "configurationDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "reportVersion": 8
+      },
+      "body": {
+        "schemaVersion": 2,
+        "operation": "correctResearchReport",
+        "expectedTaskVersion": null,
+        "expectedRunVersion": 2147483647,
+        "expectedReportHead": {
+          "reportId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+          "reportVersion": 8,
+          "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "response": {
+          "schemaVersion": 1,
+          "acceptedHead": {
+            "reportId": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "reportVersion": 8,
+            "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "commitSequence": "18446744073709551615",
+          "changeDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "authorization": {
+          "policy": "terminal-ui-correction-v1",
+          "sidecarGeneration": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "scopeSequence": "18446744073709551615",
+          "admissionSequence": "18446744073709551615"
+        }
+      }
+    },
+    "metadataBytes": 2149,
+    "overCapBytes": 101
+  }
+}

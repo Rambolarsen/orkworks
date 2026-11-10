@@ -4,7 +4,7 @@ title: Terminal correction UI scope and authority metadata protocol
 description: Proposed bounded main-sidecar scope control, exact operation admission and versioned report-receipt authority metadata.
 tags: [orkworks, hierarchy, reports, authority, protocol]
 status: draft
-workflow_status: proposed-for-owner-review
+workflow_status: scoped-accepted-for-documentation-components
 ---
 
 # Terminal correction UI scope and authority metadata protocol
@@ -13,12 +13,14 @@ Tracking: [#1089](https://github.com/Rambolarsen/orkworks/issues/1089),
 [#742](https://github.com/Rambolarsen/orkworks/issues/742), initiative
 [#738](https://github.com/Rambolarsen/orkworks/issues/738).
 Inspection base: `7af090ed684051900b6872955922d64c705a9766`.
-**New protocol/codec choices proposed for scoped owner review.** The
+**Protocol/codec choices accepted for documentation fixtures and further
+qualification; native/runtime gates remain open.** The
 [cutoff policy is already accepted](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10);
-this document does not ask to accept it again. New message/state/receipt choices
-below are not accepted by drafting or merging this proposal. No fixture, route,
-adapter, migration, lifecycle topology, native/model probe or runtime plan is
-implemented or authorized here.
+this document does not ask to accept it again. The owner subsequently accepted
+the new message/state/receipt choices in the [record below](#scoped-protocol-acceptance-and-component-handoff--2026-11-10).
+Earlier proposed/pending wording remains decision history. The record authorizes
+only offline documentation components and further qualification, not a route,
+adapter, migration, lifecycle topology, native/model probe or runtime plan.
 
 ## Outcome, alternatives and ownership
 
@@ -393,3 +395,32 @@ namespace rotation explicit; same-lifetime workspace rebinding is outside this
 first protocol and cannot reset the old owner. These clarifications have no
 separate fresh review claim. This review is
 written-contract review only, not a runtime/fixture execution or owner acceptance.
+
+## Scoped protocol acceptance and component handoff — 2026-11-10
+
+After merged [PR #1664](https://github.com/Rambolarsen/orkworks/pull/1664), the owner
+answered “keep going” to the explicit approval question for the new protocol and
+receipt-v2 codec for documentation fixtures and further qualification. Reviewed
+head: `54caa8698e4ab9d467bd267fcc6fcddbbf09c2a7`; proposal merge:
+`51385e8227576b62ba559bbb614b2e190e13a706`. This accepts the concrete scope counter/
+closed-watermark state, fixed control transport and 4 KiB/1 KiB control ceilings,
+handler/read-rate mappings, main-derived headers and one-pending request rule, and
+receipt-v2 authorization/compatibility/accounting representation. The unchanged
+2 KiB receipt cap includes the explicit maximum-width rejection cost. It does not
+reopen the accepted cutoff or expand #744's claim class.
+
+The [offline component packet](../../validation/terminal-authority-components.md),
+tracked by [#1669](https://github.com/Rambolarsen/orkworks/issues/1669), supplies a
+pure scope model, local pending/response predicates and exact receipt-membership/
+byte components with independent Python vectors. These are conditional logical
+evidence. Captured authentication/rate/lease/source/producer predicates are not
+implemented security or eligibility checks. Its isolated receipt manifest is not
+a complete legal publication transaction or admission/terminal provenance.
+
+Real Electron sender/counter ownership, private transport/handler priority, actual
+rate/resource enforcement, complete writer/consumer membership, terminal/history
+initialization, native commit/lease/lifecycle/recovery and source/storage/#740
+qualification remain independent gates. No production module, listener, HTTP route,
+SQL store, migration, live coding tool/model/native probe or executable runtime
+plan is enabled. Existing source/report/request/response domains, old catalog bytes
+and numeric limits are unchanged. Keep #1089/#742/#744/#746 open.
