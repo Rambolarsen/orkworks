@@ -1,3 +1,5 @@
+import { toNamespacedPath } from "node:path";
+
 import type { BackendLifecycleWorkspace } from "./backendLifecycleEvent";
 
 export interface WorkspaceRestoreRequest {
@@ -20,7 +22,7 @@ export function buildWorkspaceRestoreRequest(
   displayPath: string,
   workspaceIdentity: string,
 ): WorkspaceRestoreRequest {
-  return { path: displayPath, workspaceIdentity };
+  return { path: displayPath, workspaceIdentity: toNamespacedPath(workspaceIdentity) };
 }
 
 export async function parseWorkspaceRestoreResponse(

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -15,10 +16,18 @@ function jsonResponse(status: number, body?: unknown): Response {
 }
 
 test("workspace restore request keeps display path separate from canonical identity", () => {
-  assert.deepEqual(buildWorkspaceRestoreRequest("./repo", "/real/repo"), {
+  const identity = process.platform === "win32" ? "C:\\real\\repo" : "/real/repo";
+  assert.deepEqual(buildWorkspaceRestoreRequest("./repo", identity), {
     path: "./repo",
-    workspaceIdentity: "/real/repo",
+    workspaceIdentity: process.platform === "win32" ? "\\\\?\\C:\\real\\repo" : identity,
   });
+});
+
+test("Windows restore requests use the native canonical path form", { skip: process.platform !== "win32" }, () => {
+  const identity = realpathSync.native(process.cwd());
+  const request = buildWorkspaceRestoreRequest(process.cwd(), identity);
+  assert.equal(request.path, process.cwd());
+  assert.equal(request.workspaceIdentity, `\\\\?\\${identity}`);
 });
 
 test("workspace history keeps the canonical request identity when display and canonical paths differ", () => {
