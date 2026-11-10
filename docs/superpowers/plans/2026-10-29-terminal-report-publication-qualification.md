@@ -4,7 +4,7 @@ title: Terminal report producer and authority qualification
 description: Investigate the real terminal producer and user-correction authority cutoff before proposing a bounded executable publication qualification.
 tags: [orkworks, reports, preparation, authority, qualification]
 status: draft
-workflow_status: gated-on-source-and-ordering-decisions
+workflow_status: gated-on-authority-contract-and-producer-qualification
 ---
 
 # Terminal report producer and authority qualification
@@ -230,3 +230,22 @@ Existing #742 persistence-denial rules and #744 exclusions remain unchanged unti
 acceptance. This is no native fence, new codec, fixture, completed producer gate,
 executable plan or runtime permission. Existing read/metric/viewing acceptance and
 conditional fixture evidence remain valid within their recorded scope.
+
+
+## Gate 1 policy accepted; technical qualification remains open — 2026-11-10
+
+The owner [accepted the concrete terminal correction cutoff and tradeoffs](../specs/2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+after PR #1660. Gate 1's policy decision is settled for the narrow terminal/
+evaluation-only user correction: exact sidecar admission-first may finish after
+sidecar-observed closure; closure-first denies. Acceptance includes admission
+during local closure message transit, denied stale delivery and potentially
+indefinite original worker/lease retention. It does not expand #744's claim class
+or give lost ownership a write exception.
+
+Next close the concrete authority-owner, scope-generation/closure acknowledgement
+and metadata contracts for written review. Gate 1's missing production trace is
+not converted into proof by this acceptance. Gate 2's real terminal producer,
+receipt/ledger initialization and complete consumer/index boundary remain open.
+No new codec/default, lifecycle topology, dependent fixture/adapter, native/model
+probe or executable runtime plan is approved. Existing conditional rows and all
+source/storage/native/#740 gates keep their stated evidence limits.

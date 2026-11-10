@@ -458,3 +458,16 @@ Existing #742 persistence-denial rules and #744 exclusions remain unchanged unti
 acceptance. This is no native fence, new codec, fixture, completed producer gate,
 executable plan or runtime permission. Existing read/metric/viewing acceptance and
 conditional fixture evidence remain valid within their recorded scope.
+
+
+## Terminal correction cutoff accepted — 2026-11-10
+
+The owner [accepted the exact terminal correction authority policy](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+for further design/qualification after PR #1660. This settles the pending policy
+decision in the preceding Gate 1 handoff, including sidecar admission during local
+closure message transit and potentially indefinite original worker/lease retention.
+It changes no read/metric/viewing DTO, material/revision domain, fixture byte or cap.
+SQL commit remains durable acceptance; stale responses cannot mark viewed or make
+a retained overview current. Exact authority/closure/metadata contracts, terminal
+producer and complete dependency proof, writer/lifecycle/native qualification and
+separately approved executable runtime plans remain open. Keep #1089 open.

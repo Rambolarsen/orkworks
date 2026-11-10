@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Terminal research-report correction authority ordering
-description: Proposed exact-operation cutoff and source-owner handoff for terminal user corrections before native publication qualification.
+description: Accepted scoped terminal-correction authority cutoff for further design, with transport, producer and native qualification still gated.
 tags: [orkworks, hierarchy, reports, authority, qualification]
 status: draft
-workflow_status: proposed-for-owner-review
+workflow_status: scoped-accepted-for-further-design
 ---
 
 # Terminal research-report correction authority ordering
@@ -15,9 +15,12 @@ Tracking: [#1089](https://github.com/Rambolarsen/orkworks/issues/1089),
 Inspection base: `cd6415f0384561d52b952a4c7d20fdd3c48275a7`.
 This is Gate 1's written investigation and concrete proposed decision from the
 [terminal publication qualification plan](../plans/2026-10-29-terminal-report-publication-qualification.md#gate-1--exact-ui-authority-and-ordering-decision).
-**Owner acceptance is pending.** Existing #742 authority rules remain binding.
-No new authority, codec, fixture, runtime plan, native probe or implementation is
-authorized by this proposal or its merge.
+**Scoped owner acceptance recorded below for further design and qualification.**
+The terminal-only policy amendment is accepted; it establishes no implemented
+operation authority, new codec, executable plan, native probe or runtime permission.
+Earlier proposal/pending-decision wording below is retained as decision history;
+the [acceptance record](#scoped-owner-acceptance-and-handoff--2026-11-10) governs
+this exact scope.
 
 ## Outcome and existing evidence
 
@@ -204,3 +207,49 @@ authored proposal review, not independent producer agreement or executed native
 evidence. A subsequent author clarification records the current stop-before-open
 sidecar lifecycle and the still-missing draining-owner integration explicitly.
 Gate 1 remains pending owner decision; Gates 2–3 remain unqualified.
+
+## Scoped owner acceptance and handoff — 2026-11-10
+
+After merged [PR #1660](https://github.com/Rambolarsen/orkworks/pull/1660), the
+owner answered “go ahead” to the explicit question whether one correction admitted
+by the sidecar may finish after workspace closure, including admission after the
+local UI changes but before closure reaches the sidecar, and the possibility that
+a stalled write retains the original worker and lease indefinitely. The question
+limited acceptance to further design and qualification, not runtime behavior.
+Reviewed proposal head: `52d6720c44c63ca7b0acaf1abfd12af3bce0fdc8`; merge:
+`b74bbb167feb204a21197babc2942c16502b453e`.
+
+Accepted scope is the existing terminal/evaluation-only profile's explicit
+Electron-authorized correction of an existing report head in a proven completed
+or cancelled current-epoch run. Sidecar admission versus sidecar-observed closure
+orders permission for that one exact attempted transaction; closure-first denies
+it, admission-first may finish after closure. Queue entry/rate charge grants no
+surviving permission. SQL commit remains durable acceptance. Local UI closure
+stops new local requests and stale delivery immediately but is not the persistence
+cutoff; closure acknowledgement is not rollback or settlement proof. Exact retry
+requires fresh current authorization and normal rate/receipt rules.
+
+The accepted cost includes the distributed closure interval, no success delivery
+to stale scope despite possible persistence, uncertain disposition retained on the
+original worker/store/lease, and potentially indefinite hierarchy unavailability
+while that owner retires. Ordinary stop remains independent of SQL. Actual lease
+loss or uncertain ownership gains no write exception. Source eligibility, complete
+dependency protection, current epoch, quotas and recovery remain mandatory. The
+current stop-before-open sidecar lifecycle is not changed or qualified by acceptance.
+
+This supersedes revoke-before-physical-commit denial only for this exact #742
+terminal user-correction policy. #744's distinct claim class is neither reused nor
+expanded. Initial/child reports, active preparation, plans/grants/launches, control
+commands, purge/deletion and all other excluded actions retain their own gates.
+Existing source/material/receipt definitions, numeric caps and conditional fixture
+bytes are unchanged. No existing fixture acquires real authority retrospectively.
+
+The Gate 1 policy choice is settled. The next written deliverable must close the
+actual authority-owner/transport/scope-generation/closure acknowledgement and
+metadata contracts; no encoding, retention default or lifecycle topology is
+selected by this record. Gate 2's real terminal producer, receipt-ledger
+initialization and complete consumer/index proof remain open. Those concrete new
+contracts need their scoped review/acceptance before dependent fixtures/adapters.
+Native/storage/producer/#740 qualification, an affected ADR before architecture
+implementation and a separately approved executable runtime plan remain gates.
+Keep #1089/#742/#744/#746 open. No new live-probe or retry budget is granted.

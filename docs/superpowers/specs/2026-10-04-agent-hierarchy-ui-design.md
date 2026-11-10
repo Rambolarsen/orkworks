@@ -829,3 +829,18 @@ detail-only changes invalidate the snapshot. Existing codecs, limits and the
 fixture-only preview boundary are unchanged. Producer/writer/source/packing and
 storage/native qualification, #740 and separately approved executable runtime
 plans remain gates; keep #746 and #1089 open.
+
+
+## Terminal correction persistence and stale UI — 2026-11-10
+
+The owner [accepted the scoped terminal correction authority tradeoff](2026-11-10-terminal-correction-authority-design.md#scoped-owner-acceptance-and-handoff--2026-11-10)
+for further design/qualification. Local workspace closure immediately stops new
+local requests and stale delivery, but is not a persistence cutoff: one exact
+terminal correction may commit if admitted before sidecar-observed closure,
+including admission during the closure message's transit. Lost acknowledgement
+leaves disposition unknown; hiding success does not imply rollback. No completion
+may publish into a newly selected workspace, clear its failure fence or mark a
+summary viewed. Existing explicit complete-current-material viewing rules stay
+unchanged. The authority/closure protocol, lifecycle integration, producer/writer
+invalidation and native qualification remain open; no production UI/runtime plan
+is authorized. Keep #746/#1089 open.
