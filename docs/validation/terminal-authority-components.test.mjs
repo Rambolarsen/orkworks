@@ -282,3 +282,28 @@ test('missing or malformed frame/request/scope context cannot authorize delivery
  assert.equal(canDeliver(captured,{...captured,open:true,frameId:undefined}),false);
  assert.equal(canDeliver({...captured,scope:{}},{...captured,scope:{},open:true}),false);
 });
+
+test('independent oracle keeps explicit UTF-8 and LF under simulated Windows text defaults',()=>{
+ const temporary=mkdtempSync(join(tmpdir(),'orkworks-windows-writer-'));
+ try{
+  const output=join(temporary,'vectors.json');
+  const script=[
+   'import pathlib, runpy, sys',
+   'def windows_write_text(self, data, encoding=None, errors=None, **kwargs):',
+   "    with self.open('w', encoding=encoding or 'cp1252', errors=errors, newline='\\r\\n') as stream:",
+   '        return stream.write(data)',
+   'pathlib.Path.write_text = windows_write_text',
+   'script, output = sys.argv[1:]',
+   "sys.argv = [script, '--output', output]",
+   "runpy.run_path(script, run_name='__main__')"
+  ].join('\n');
+  execFileSync('python3',['-c',script,fileURLToPath(new URL('generate-terminal-authority-vectors.py',import.meta.url)),output]);
+  assert.deepEqual(readFileSync(output),readFileSync(new URL('terminal-authority-vectors.json',import.meta.url)));
+ }finally{rmSync(temporary,{recursive:true,force:true});}
+});
+
+test('closed scope and exhausted rate are rejected before report normalization',()=>{
+ const closed=control(opened(),wire('close'),assumed).state;
+ assert.equal(admit(closed,scope(1),'not-json',assumed).status,'closed');
+ assert.equal(admit(opened(),scope(1),'not-json',{...assumed,rateAdmitted:false}).status,'limit-exceeded');
+});

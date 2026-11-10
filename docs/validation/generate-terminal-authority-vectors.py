@@ -70,4 +70,4 @@ assert packet['maximum']['metadataBytes']==2149 and packet['maximum']['overCapBy
 parser=argparse.ArgumentParser()
 parser.add_argument('--output',type=Path,required=True)
 args=parser.parse_args()
-args.output.write_text(json.dumps(packet,ensure_ascii=False,indent=2)+'\n')
+args.output.write_bytes((json.dumps(packet,ensure_ascii=False,indent=2)+'\n').encode('utf-8'))

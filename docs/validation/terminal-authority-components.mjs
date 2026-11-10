@@ -54,11 +54,13 @@ function requestShape(raw,profile){
 }
 export function admit(state,scope,requestUtf8,captured){
  if(captured.authenticated!==true||captured.originalOwner!==true)return result(state,'unauthorized');
- let request;try{scopeShape(scope);request=requestShape(requestUtf8,captured.reportProfile);}catch{return result(state,'bad-request');}
- if(!sameOwner(state,scope)||request.stream.workspaceId!==state.workspaceId)return result(state,'stale');
+ try{scopeShape(scope);}catch{return result(state,'bad-request');}
+ if(!sameOwner(state,scope))return result(state,'stale');
  if(state.openScopeSequence!==scope.scopeSequence||counter(scope.scopeSequence)!==counter(state.closedThrough)+1n)return result(state,'closed');
  if(state.activeDecision)return result(state,'busy');
  if(captured.rateAdmitted!==true)return result(state,'limit-exceeded');
+ let request;try{request=requestShape(requestUtf8,captured.reportProfile);}catch{return result(state,'bad-request');}
+ if(request.stream.workspaceId!==state.workspaceId)return result(state,'stale');
  if(captured.sourceEligible!==true||captured.leaseCurrent!==true||captured.ownerHealthy!==true)return result(state,'unavailable');
  const last=counter(state.lastAdmissionSequence);if(last===MAX)return result(state,'exhausted');
  const decision={scope:clone(scope),admissionSequence:String(last+1n),requestUtf8,requestDigest:domain('orkworks.research-report-request.v1',request)};

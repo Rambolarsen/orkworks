@@ -29,7 +29,7 @@ Existing [terminal publication](report-publication-components.md),
   It contains pure scope transitions, main pending/delivery predicates and the
   receipt-v2 normalization/commit-membership/byte predicates. No production caller
   imports it. It reuses the existing report source validator and canonical JSON.
-- `terminal-authority-components.test.mjs` runs 67 behavioral tests in `docs:check`.
+- `terminal-authority-components.test.mjs` runs 69 behavioral tests in `docs:check`.
   Cases include literal expected results, malformed/self-consistent adversaries,
   isolated size boundaries and six independently specified traces.
 - `generate-terminal-authority-vectors.py` uses only Python stdlib, never imports
@@ -130,7 +130,7 @@ eligible profile or complete legal publication transaction.
 
 ## Failing-first and review evidence
 
-Initial scaffold run: 39 failed / 3 passed out of 42. After implementing those
+Shaped scaffold run: 39 failed / 3 passed out of 42. After implementing those
 components all 42 passed. Added owner-health, pending and membership cases exposed
 8 failures before their checks; 51 then passed. Two isolated size-predicate cases
 failed before implementation. Independent vector/regeneration cases then passed.
@@ -179,7 +179,7 @@ monthly quota exhaustion, and no blind retry was requested.
 
 An additional failing-first guard rejects missing/malformed synthetic frame,
 request and scope values before delivery identity comparison; two absent values
-cannot compare equal and authorize success. Final focused coverage is 67 tests.
+cannot compare equal and authorize success. Post-cycle-1 focused coverage was 67 tests.
 The quoted-checkout regression also asserts that its nested runner executed the
 one selected regeneration test, rather than silently inheriting the parent Node
 test context and skipping it.
@@ -187,3 +187,18 @@ test context and skipping it.
 Final post-review local validation passed all 1,271 documentation tests (67 new),
 metadata/index/dead-link checks and the docs build. Full repository verification
 remains stopped at missing desktop dependencies; no broader pass is claimed.
+
+## Hosted portability correction — cycle 2 of 3
+
+Codex reviewed `b71207c91f5d16ba60198942b76d6c43f7581f98` and found that the
+Python generator's default text writer could emit CRLF on Windows despite the
+retained LF oracle. A failing black-box regression ran the real generator with
+simulated Windows text-writer newline/encoding defaults; the result differed in
+bytes before the fix. Output now uses explicit UTF-8 bytes, preserving LF and all
+retained oracle bytes. This is simulated text-default evidence, not a native
+Windows run. An additional failing-first admission-order case ensures closed
+scope/rate rejection precedes normalization. All 69 focused tests pass.
+
+The original head's applicable PR CI and owned CodeQL later appeared and passed;
+they do not qualify these newer heads. Current-head hosted results and bounded
+review disposition are recorded in the PR before its terminal state.
