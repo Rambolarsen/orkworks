@@ -96,6 +96,12 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_drive_workspace_is_preserved() {
+        let cwd = r"C:\repo with spaces";
+        assert_eq!(process_cwd(cwd, "codex.cmd").unwrap(), cwd);
+    }
+
+    #[test]
     fn command_shims_reject_unc_workspaces() {
         assert_eq!(
             process_cwd(r"\\?\UNC\server\share\repo", "codex.cmd")
