@@ -40,11 +40,19 @@ pub(crate) enum ProbeError {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CleanupState {
+    Accepted,
+    Rejected,
+    #[cfg(target_os = "macos")]
+    PendingExit,
+}
+
 struct Owner {
     child: Child,
     #[cfg(windows)]
     job: Option<crate::process_job::ProcessJob>,
-    cleanup: Option<bool>,
+    cleanup: Option<CleanupState>,
     reaped: bool,
     _permit: OwnedSemaphorePermit,
     #[cfg(test)]
@@ -52,6 +60,11 @@ struct Owner {
 }
 impl Owner {
     fn peek_exit(&self) -> io::Result<Option<bool>> {
+        #[cfg(all(test, target_os = "macos"))]
+        if self.faults.pending_exit.load(Ordering::Relaxed) {
+            self.faults.pending_checks.fetch_add(1, Ordering::Relaxed);
+            return Ok(None);
+        }
         #[cfg(unix)]
         {
             // This owner is the sole waiter. WNOWAIT keeps the leader's PID
@@ -88,67 +101,99 @@ impl Owner {
         }
     }
     fn terminate(&mut self) -> bool {
-        if let Some(accepted) = self.cleanup {
-            return accepted;
+        if let Some(state) = self.cleanup {
+            return state == CleanupState::Accepted;
         }
         #[cfg(unix)]
-        let accepted = {
+        let state = {
             // ECHILD means identity is no longer anchored. Never target a
             // remembered numeric PGID after that loss, or after reaping.
             match self.peek_exit() {
-                Err(_) => false,
+                Err(_) => CleanupState::Rejected,
                 Ok(_) => {
                     #[cfg(all(test, target_os = "macos"))]
                     if let Some(before_kill) = self.faults.before_group_kill.lock().unwrap().take()
                     {
                         before_kill(self);
                     }
+                    #[cfg(all(test, target_os = "macos"))]
+                    self.faults.group_signals.fetch_add(1, Ordering::Relaxed);
                     let result =
                         unsafe { libc::kill(-(self.child.id() as libc::pid_t), libc::SIGKILL) };
                     let error = io::Error::last_os_error().raw_os_error();
-                    let mut accepted = result == 0 || error == Some(libc::ESRCH);
+                    let mut state = if result == 0 || error == Some(libc::ESRCH) {
+                        CleanupState::Accepted
+                    } else {
+                        CleanupState::Rejected
+                    };
                     #[cfg(target_os = "macos")]
-                    if !accepted && error == Some(libc::EPERM) {
-                        // Darwin returns EPERM for a group containing only an
-                        // unreaped zombie leader. Do not generalize EPERM into
-                        // success: query this still-anchored group and reject
-                        // any other member or uncertain/truncated native result.
-                        // The leader may have exited after the pre-signal check.
-                        accepted = only_exited_leader(self);
+                    if state == CleanupState::Rejected && error == Some(libc::EPERM) {
+                        // Darwin can reject the signal before the exiting
+                        // leader is waitable. Pending is not cleanup evidence.
+                        state = exited_leader_cleanup(self);
                     }
-                    accepted
+                    state
                 }
             }
         };
         #[cfg(windows)]
-        let accepted = {
+        let state = {
             let job_ok = self.job.as_ref().is_some_and(|job| job.terminate().is_ok());
             // Covers a suspended child whose Job assignment failed. This is an
             // owned process handle, not a PID reconstructed after exit.
             let _ = self.child.kill();
             self.job.take(); // final kill-on-close handle, including failure
-            job_ok
+            if job_ok {
+                CleanupState::Accepted
+            } else {
+                CleanupState::Rejected
+            }
         };
         #[cfg(not(any(unix, windows)))]
-        let accepted = false;
+        let state = CleanupState::Rejected;
+        self.record_cleanup(state)
+    }
+    fn record_cleanup(&mut self, state: CleanupState) -> bool {
         #[cfg(test)]
-        let accepted = accepted && !self.faults.cleanup.load(Ordering::Relaxed);
-        self.cleanup = Some(accepted);
-        if !accepted {
+        let state = if self.faults.cleanup.load(Ordering::Relaxed) {
+            CleanupState::Rejected
+        } else {
+            state
+        };
+        self.cleanup = Some(state);
+        if state == CleanupState::Rejected {
             tracing::warn!(
                 stage = "probe_cleanup",
                 code = "unconfirmed",
                 "probe cleanup unconfirmed"
             );
         }
-        accepted
+        state == CleanupState::Accepted
+    }
+    fn confirm_cleanup(&mut self) {
+        #[cfg(target_os = "macos")]
+        if self.cleanup == Some(CleanupState::PendingExit) {
+            let state = exited_leader_cleanup(self);
+            self.record_cleanup(state);
+        }
+    }
+    fn cancel_cleanup(&mut self) {
+        self.terminate();
+        #[cfg(target_os = "macos")]
+        if self.cleanup == Some(CleanupState::PendingExit) {
+            self.record_cleanup(CleanupState::Rejected);
+        }
     }
     fn reap(&mut self) {
         #[cfg(test)]
         if self.faults.reap.load(Ordering::Relaxed) {
             return;
         }
-        if self.cleanup.is_none() || self.reaped {
+        if !matches!(
+            self.cleanup,
+            Some(CleanupState::Accepted | CleanupState::Rejected)
+        ) || self.reaped
+        {
             return;
         }
         if let Ok(Some(_)) = self.child.try_wait() {
@@ -158,9 +203,11 @@ impl Owner {
 }
 
 #[cfg(target_os = "macos")]
-fn only_exited_leader(owner: &Owner) -> bool {
-    if !matches!(owner.peek_exit(), Ok(Some(_))) {
-        return false;
+fn exited_leader_cleanup(owner: &Owner) -> CleanupState {
+    match owner.peek_exit() {
+        Ok(None) => return CleanupState::PendingExit,
+        Err(_) => return CleanupState::Rejected,
+        Ok(Some(_)) => {}
     }
     let leader = owner.child.id();
     const PROC_PGRP_ONLY: u32 = 2; // SDK sys/proc_info.h
@@ -175,15 +222,32 @@ fn only_exited_leader(owner: &Owner) -> bool {
             std::mem::size_of_val(&members) as i32,
         )
     };
+    #[cfg(test)]
+    let bytes = if let Some((bytes, injected)) = *owner.faults.membership_result.lock().unwrap() {
+        members = injected;
+        bytes
+    } else {
+        bytes
+    };
     if bytes < 0
         || bytes as usize > std::mem::size_of_val(&members)
         || bytes as usize % std::mem::size_of::<i32>() != 0
     {
-        return false;
+        return CleanupState::Rejected;
     }
-    members[..bytes as usize / std::mem::size_of::<i32>()]
+    if members[..bytes as usize / std::mem::size_of::<i32>()]
         .iter()
         .all(|pid| *pid == leader as i32)
+    {
+        CleanupState::Accepted
+    } else {
+        CleanupState::Rejected
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn only_exited_leader(owner: &Owner) -> bool {
+    exited_leader_cleanup(owner) == CleanupState::Accepted
 }
 
 async fn capture_stream<R: tokio::io::AsyncRead + Unpin>(
@@ -220,7 +284,7 @@ impl Shared {
         self.cancelled.notify_waiters();
         let owners = self.owners.lock().unwrap().clone();
         for owner in owners {
-            owner.lock().unwrap().terminate();
+            owner.lock().unwrap().cancel_cleanup();
         }
     }
     fn register(&self, owner: Arc<Mutex<Owner>>) -> bool {
@@ -419,31 +483,53 @@ impl ProbeService {
             _ = self.shared.cancelled.notified() => Err(ProbeError::Closed),
             result = tokio::time::timeout_at(deadline, capture) => result.unwrap_or(Err(ProbeError::Timeout)),
         };
-        let accepted = owner.lock().unwrap().terminate();
-        // Already-closed registration and cancellation are also caught if the
-        // Notify notification occurred before this future registered interest.
-        if self.shared.closed.load(Ordering::Acquire) {
-            return Err(ProbeError::Closed);
-        }
-        if !accepted {
-            return Err(ProbeError::CleanupUnconfirmed);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return result.and(Err(ProbeError::Timeout));
-        }
+        // Confirmation and reaping share this single settlement endpoint.
         let settle_until = std::cmp::min(deadline, tokio::time::Instant::now() + CLEANUP_WAIT);
+        {
+            let mut owned = owner.lock().unwrap();
+            owned.terminate();
+            if self.shared.closed.load(Ordering::Acquire) {
+                return Err(ProbeError::Closed);
+            }
+            if owned.cleanup == Some(CleanupState::Rejected) {
+                return Err(ProbeError::CleanupUnconfirmed);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return result.and(Err(ProbeError::Timeout));
+            }
+        }
         loop {
+            if self.shared.closed.load(Ordering::Acquire) {
+                return Err(ProbeError::Closed);
+            }
             {
                 let mut owned = owner.lock().unwrap();
+                if owned.cleanup == Some(CleanupState::Rejected) {
+                    return Err(ProbeError::CleanupUnconfirmed);
+                }
+                if tokio::time::Instant::now() >= settle_until {
+                    return Err(ProbeError::CleanupUnconfirmed);
+                }
+                owned.confirm_cleanup();
+                if owned.cleanup == Some(CleanupState::Rejected) {
+                    return Err(ProbeError::CleanupUnconfirmed);
+                }
                 owned.reap();
                 if owned.reaped {
+                    if tokio::time::Instant::now() >= settle_until {
+                        return Err(ProbeError::CleanupUnconfirmed);
+                    }
                     break;
                 }
             }
-            if tokio::time::Instant::now() >= settle_until {
-                return Err(ProbeError::CleanupUnconfirmed);
-            }
-            tokio::time::sleep(POLL).await;
+            tokio::time::sleep_until(std::cmp::min(
+                settle_until,
+                tokio::time::Instant::now() + POLL,
+            ))
+            .await;
+        }
+        if self.shared.closed.load(Ordering::Acquire) {
+            return Err(ProbeError::Closed);
         }
         drop(lease);
         result
@@ -468,7 +554,7 @@ impl Drop for ProbeService {
 struct Lease(Arc<Mutex<Owner>>);
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.0.lock().unwrap().terminate();
+        self.0.lock().unwrap().cancel_cleanup();
     }
 }
 static SERVICE: OnceLock<Result<ProbeService, ()>> = OnceLock::new();

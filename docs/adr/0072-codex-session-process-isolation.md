@@ -80,3 +80,15 @@ settlement is at most one second within that budget. Admission is bounded to
 Shutdown closes admission and requests cleanup before a bounded reaping drain.
 This amendment does not authorize a hosted model probe, native activation,
 storage cutover, process adoption or termination of a user's shared daemon.
+
+## Amendment — 2026-11-10: confirm a settling Darwin probe leader
+
+The owner approved the [#957 correction](../superpowers/plans/2026-11-10-probe-exit-confirmation.md).
+After one Darwin EPERM group-signal result, an original-child exit that is not
+yet observable may be confirmed asynchronously within the existing shared
+cleanup/reaping endpoint. Acceptance still requires original-child exit, the
+existing bounded native membership proof and timely reaping. Retain original
+ownership until confirmation is finalized; no later numeric signal is issued.
+Cancellation/shutdown finalize pending confirmation as unconfirmed and leave
+only exact-child reaping. This operationalizes the existing ownership decision
+and does not supersede its practical boundary, deadline or failure policy.

@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
+
 - [Private SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Approved bounded pure policy/test slice; production claim minting and routing stay gated.
 
 - [Private finite input coordinator](2026-11-09-private-input-coordinator.md) — Approved fixed recipe/route/resource enforcement and actual offline scope/writer retention implementation.
