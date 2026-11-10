@@ -262,6 +262,8 @@ jobs:
           foreach ($test in $required) {
             if ($listed -notcontains "$($test): test") { throw "Missing required Windows test: $test" }
           }
+      - name: Test Windows Codex shim working directory
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml npm_cmd_shim_starts_in_selected_workspace -- --test-threads=1
       - name: Test owned short probe processes
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml probe_process -- --test-threads=1
       - name: Test native Claude reporter event mapping
