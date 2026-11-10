@@ -16,7 +16,7 @@ const pnpmCli = process.env.npm_execpath;
 
 function pnpm(...args) {
   assert.ok(pnpmCli, "run this integration test through pnpm test:native");
-  execFileSync(process.execPath, [pnpmCli, ...args], { cwd: root, stdio: "pipe", timeout: 120_000 });
+  execFileSync(pnpmCli, args, { cwd: root, stdio: "pipe", timeout: 120_000 });
 }
 
 function electronEval(code) {
