@@ -1,3 +1,7 @@
+#[cfg(windows)]
+#[path = "session_runtime/windows_cwd.rs"]
+mod windows_cwd;
+
 use super::input_submission::{Error as ReportError, Flush, InputFact, PhaseResult, Reporter};
 use crate::runtime::observed_status::ProcessTransition;
 #[cfg(windows)]
@@ -2519,6 +2523,12 @@ async fn run_session_runtime(
     let mut execution_env = Vec::new();
     let mut cmd = CommandBuilder::new(&program);
     cmd.args(&command.args);
+    #[cfg(windows)]
+    let process_cwd = windows_cwd::process_cwd(&command.cwd, &program)
+        .map_err(|error| StartupError::classified(Code::ProcessSpawnFailed, error))?;
+    #[cfg(windows)]
+    cmd.cwd(&process_cwd);
+    #[cfg(not(windows))]
     cmd.cwd(&command.cwd);
     for (key, value) in std::env::vars() {
         if should_forward_terminal_env(&key) {
@@ -2616,6 +2626,9 @@ async fn run_session_runtime(
         }
         cmd = CommandBuilder::new(owned.resolved_executable());
         cmd.args(owned.tui_args());
+        #[cfg(windows)]
+        cmd.cwd(&process_cwd);
+        #[cfg(not(windows))]
         cmd.cwd(&command.cwd);
         cmd.env_clear();
         for (key, value) in &execution_env {
