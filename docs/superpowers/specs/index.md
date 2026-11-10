@@ -311,3 +311,5 @@ Dated design records; these do not establish current product behavior.
 - [Retained writer checkpoints and return reporting](2026-11-09-retained-writer-transfer-design.md) — Accepted bounded checkpoints and private optional reporter transfer through actual offline operations; production reporting and physical qualification remain gated.
 
 - [Terminal correction authority ordering](2026-11-10-terminal-correction-authority-design.md) — Proposed exact terminal UI-correction cutoff and distributed closure cost before producer/native qualification.
+
+- [Terminal UI authority protocol](2026-11-10-terminal-ui-authority-protocol-design.md) — Proposed bounded scope closure, exact admission and receipt-v2 authority metadata under the accepted cutoff.
