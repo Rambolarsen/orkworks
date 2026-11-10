@@ -4,7 +4,7 @@
 # The dev target copies no source; compose.yaml bind-mounts /workspace.
 # The explicit headless-replay target snapshots only its allowlisted fixture.
 #
-# Matches release.yml: Node 22, pnpm 11 (corepack), Rust stable.
+# Matches release.yml: Node 22, pnpm 12 (corepack), Rust stable.
 
 FROM node:22-bookworm-slim AS dev
 
@@ -39,9 +39,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 # resets PATH and would drop cargo/rustup; re-export it for login shells.
 RUN printf 'export PATH="/usr/local/cargo/bin:$PATH"\n' > /etc/profile.d/cargo.sh
 
-# pnpm 11 via corepack (bundled with Node 22), matching the packageManager pin
+# pnpm 12 via corepack (bundled with Node 22), matching the packageManager pin
 # in apps/desktop/package.json.
-RUN corepack enable && corepack prepare pnpm@11.24.0 --activate
+RUN corepack enable && corepack prepare pnpm@12.18.0 --activate
 
 WORKDIR /workspace
 
