@@ -4,7 +4,7 @@ title: Responsive session refresh inspection
 description: Deliver session-location and document inspection outside the terminal input fence with stale-result rejection.
 tags: [sessions, terminal, performance, plan]
 status: draft
-workflow_status: review
+workflow_status: implemented
 ---
 
 # Responsive session refresh inspection
@@ -112,3 +112,32 @@ SQL implementation are unchanged by this repair. The parallel failure is not
 claimed fixed or conclusively classified; a full four-thread verification run
 is required before PR readiness. The failed log is retained at
 `/private/tmp/orkworks-session-refresh-verify.log`.
+
+After rebasing onto current main, the four-thread full run also stopped at Rust:
+3,475 passed, one failed and 19 ignored. This time the failing test was
+`image_context::tests::contended_cleanup_preserves_metadata_and_can_be_retried`:
+the immediate post-drop cleanup retry returned `Resource temporarily unavailable
+(os error 35)` at line 407. Its exact isolated rerun passed (one test, 0.04
+seconds). The image/retention source is unchanged by this repair. No claim is
+made about the underlying cause of this intermittent contention. The log is
+`/private/tmp/orkworks-session-refresh-verify-bounded.log`. A complete serial
+verification is running; both earlier failing tests have passed in that run.
+
+Draft PR: [#1663](https://github.com/Rambolarsen/orkworks/pull/1663).
+The source remains the reviewed patch after rebase. The PR remains draft until
+full verification has completed; the initial parallel results remain evidence,
+not superseded by isolated passes or a later serial result.
+
+## Final source verification
+
+Complete `RUST_TEST_THREADS=1 bash scripts/verify-repo.sh` passed on the rebased
+source: 3,476 Rust unit tests with 19 existing/manual ignored, all applicable
+Rust integrations, 31 OpenCode reporter tests, desktop type-check, native ABI
+repair, 1,721 desktop tests passed (1,724 total with three skips), desktop build,
+1,204 docs checks and site build, diff check and both close-out hooks. Log:
+`/private/tmp/orkworks-session-refresh-verify-serial.log`.
+The source repair does not claim to fix the two separate parallel-suite failures
+recorded above. Required hosted Rust CI also passed with its four-thread setting.
+The reviewed code diff is unchanged; only this execution record follows it.
+PR checks, current-head review inventory and guarded cleanup remain the owning
+session's PR lifecycle work. Live adoption remains owner-controlled under #1222.
