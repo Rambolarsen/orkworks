@@ -266,3 +266,18 @@ new metadata is 2,149 bytes and must reject under the unchanged 2 KiB cap.
 No prior fixture, source/request/response byte, #744 claim class or numeric source
 limit changes. Real terminal producer/history/consumer proof, lifecycle/native
 qualification and separately approved executable/runtime plans remain open.
+
+
+## Scoped protocol acceptance and offline components — 2026-11-10
+
+The owner [accepted the exact scope/control/receipt-v2 protocol](2026-11-10-terminal-ui-authority-protocol-design.md#scoped-protocol-acceptance-and-component-handoff--2026-11-10)
+for documentation fixtures and further qualification after PR #1664. The
+[offline component packet](../../validation/terminal-authority-components.md)
+under #1669 preserves source/report/request/response bytes and existing limits,
+including rejection of the 2,149-byte maximum-width receipt at the unchanged
+2 KiB cap. Receipt-v2 authorization is a tagged storage variant, not #744 claim
+authority, a new table or an implicit upgrade of v1 history. Captured scope/rate/
+source/producer predicates and its isolated receipt membership witness do not
+qualify native security, a complete legal publication transaction or Gate 2's
+real terminal producer/history/consumer proof. Lifecycle/transport/storage/native/
+#740 and separately approved executable runtime plans remain open.

@@ -128,3 +128,5 @@ Capability research, validation results, and evidence fixtures.
 - [Native history assumptions and fixed check reporting](native-history-source-audit.md) — Static bridges, unresolved runtime assumptions and fixed nonsecret history-check codes.
 
 - [Wait for initial history directory creation](native-history-startup.md) — Pristine phase-one empty-root waiting and fixed layout failure booleans, tested offline.
+
+- [Offline terminal authority and receipt components](terminal-authority-components.md) — Conditional scope ordering, local pending and exact receipt-v2 membership/byte oracles; no complete publication or native proof.
