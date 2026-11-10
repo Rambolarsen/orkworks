@@ -249,3 +249,16 @@ receipt/ledger initialization and complete consumer/index boundary remain open.
 No new codec/default, lifecycle topology, dependent fixture/adapter, native/model
 probe or executable runtime plan is approved. Existing conditional rows and all
 source/storage/native/#740 gates keep their stated evidence limits.
+
+
+## Concrete scope and receipt protocol proposal — 2026-11-10
+
+The [terminal UI authority protocol proposal](../specs/2026-11-10-terminal-ui-authority-protocol-design.md)
+advances the accepted cutoff into exact bounded scope/control/header state and a
+version-2 report receipt authorization member. These new encodings/control limits
+and compatibility/accounting choices await scoped review/acceptance; they do not
+follow implicitly from the policy approval. The maximum-width old receipt plus
+new metadata is 2,149 bytes and must reject under the unchanged 2 KiB cap.
+No prior fixture, source/request/response byte, #744 claim class or numeric source
+limit changes. Real terminal producer/history/consumer proof, lifecycle/native
+qualification and separately approved executable/runtime plans remain open.
