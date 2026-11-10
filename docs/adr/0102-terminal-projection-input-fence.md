@@ -50,3 +50,14 @@ No schema migration, terminal restart, automatic retry or attention-authority
 expansion is introduced. Rollback is a code revert and owner-controlled restart.
 
 Owner acceptance: 2026-11-01, “go ahead, implement”, followed by “keep going”.
+
+## Amendment 2026-11-10: remaining Git/document inspection
+
+The accepted [branch projection amendment](0102-branch-document-association.md#amendment-2026-11-10-responsive-projection-inspection)
+operationalizes the remaining-I/O follow-up from this decision. Session refresh
+captures location-only inputs under the existing fence, performs Git and
+document validation outside it, and compares fresh context plus current
+location/runtime/workspace identity before returning. Prepared branch selections
+use nonblocking, generation-checked publication. Capacity computation and commit,
+input ownership, metadata/organization ordering and retention remain unchanged.
+No new location revision, metadata schema or storage activation is introduced.

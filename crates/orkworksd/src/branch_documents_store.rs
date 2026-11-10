@@ -16,10 +16,21 @@ pub(crate) struct Store {
     #[cfg(test)]
     pub(crate) before_scan: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
+    pub(crate) before_projection: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
     pub(crate) before_pin_reset: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
     pub(crate) before_content_return: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
+/// Loaded and merged under the branch lock; repository/content inspection is
+/// free to run after that lock is released. Publication compares the generation.
+pub(crate) struct PreparedReconciliation {
+    identity: Identity,
+    generation: u64,
+    before: Vec<Document>,
+    pub(crate) documents: Vec<Document>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Record {
@@ -36,6 +47,8 @@ impl Store {
             generation: std::sync::atomic::AtomicU64::new(0),
             #[cfg(test)]
             before_scan: Mutex::new(None),
+            #[cfg(test)]
+            before_projection: Mutex::new(None),
             #[cfg(test)]
             before_pin_reset: Mutex::new(None),
             #[cfg(test)]
@@ -197,6 +210,13 @@ impl Store {
             return Ok(current);
         }
         let before = current.clone();
+        Self::merge_candidates(&mut current, scan);
+        if current != before {
+            self.save(&scan.identity, current.clone())?;
+        }
+        Ok(current)
+    }
+    fn merge_candidates(current: &mut Vec<Document>, scan: &Scan) {
         for candidate in &scan.documents {
             if current.iter().any(|d| d.kind == candidate.kind && d.pinned) {
                 continue;
@@ -234,11 +254,48 @@ impl Store {
             current.push(candidate.clone());
         }
         current.sort_by_key(|d| if d.kind == DocumentKind::Design { 0 } else { 1 });
-        if current != before {
-            self.save(&scan.identity, current.clone())?;
-        }
-        Ok(current)
     }
+
+    pub(crate) fn prepare_reconciliation(
+        &self,
+        identity: &Identity,
+        scan: Option<&Scan>,
+    ) -> Result<PreparedReconciliation, String> {
+        let lock = self.lock(identity);
+        let _guard = lock.lock().map_err(|_| "Branch selection unavailable.")?;
+        let before = self.load(identity)?;
+        let generation = self.generation.load(std::sync::atomic::Ordering::Acquire);
+        let mut documents = before.clone();
+        if let Some(scan) = scan.filter(|scan| {
+            scan.generation
+                .is_none_or(|observed| observed == generation)
+        }) {
+            Self::merge_candidates(&mut documents, scan);
+        }
+        Ok(PreparedReconciliation {
+            identity: identity.clone(),
+            generation,
+            before,
+            documents,
+        })
+    }
+
+    /// Called at projection publication: never wait for a branch inspector
+    /// while retaining the terminal input fence, and never reload documents here.
+    pub(crate) fn try_publish(&self, prepared: &PreparedReconciliation) -> Result<(), String> {
+        let lock = self.lock(&prepared.identity);
+        let _guard = lock
+            .try_lock()
+            .map_err(|_| "Branch selection busy; refresh.")?;
+        if self.generation.load(std::sync::atomic::Ordering::Acquire) != prepared.generation {
+            return Err("Document selection changed; refresh.".into());
+        }
+        if prepared.documents != prepared.before {
+            self.save(&prepared.identity, prepared.documents.clone())?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn use_latest(
         &self,
         id: &Identity,
@@ -380,6 +437,49 @@ mod tests {
             .report(&a, doc("docs/superpowers/plans/b.md", true))
             .is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"{\"version\":999}");
+    }
+
+    #[test]
+    fn prepared_publication_cannot_replace_a_newer_pin() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = identity("task");
+        let prepared = store
+            .prepare_reconciliation(
+                &id,
+                Some(&Scan {
+                    generation: None,
+                    identity: id.clone(),
+                    documents: vec![doc("docs/superpowers/plans/automatic.md", false)],
+                    notice: None,
+                }),
+            )
+            .unwrap();
+        store
+            .report(&id, doc("docs/superpowers/plans/pinned.md", true))
+            .unwrap();
+        assert!(store.try_publish(&prepared).is_err());
+        let current = store.load(&id).unwrap();
+        assert_eq!(current.len(), 1);
+        assert!(current[0].pinned);
+        assert_eq!(
+            current[0].reference.relative_path,
+            "docs/superpowers/plans/pinned.md"
+        );
+    }
+
+    #[test]
+    fn prepared_publication_never_waits_for_a_branch_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        let id = identity("task");
+        let prepared = store.prepare_reconciliation(&id, None).unwrap();
+        let lock = store.lock(&id);
+        let guard = lock.lock().unwrap();
+        // The same-thread lock would deadlock if publication used lock().
+        assert!(store.try_publish(&prepared).is_err());
+        drop(guard);
+        assert!(store.try_publish(&prepared).is_ok());
     }
 
     #[test]

@@ -64,3 +64,24 @@ Independent app instances keep their current isolated workspace writers.
 The owner approved this concrete additive storage/protocol design after its
 explanation and explicitly authorized implementation. Acceptance alone does not
 establish which published installers contain the runtime.
+
+## Amendment 2026-11-10: responsive projection inspection
+
+The owner authorized the [session refresh repair](../superpowers/specs/2026-11-10-session-refresh-lag-design.md)
+after live sampling found repeated location and document validation under the
+terminal-input fence. Keep the existing branch selection and action-authority
+contract. Capture location-only inputs and current runtime identity under the
+fence; inspect effective roots, branch identity, document content/history and
+selection availability outside it. A fresh final inspection uses new
+request-local caches, followed by a fenced comparison of current location inputs
+and workspace/store ownership. Equivalent restored location tuples need no new
+metadata revision; replaced runtimes retain their existing generation identity.
+
+Prepare selection reconciliation under the existing branch lock outside the
+input fence. Publication uses nonblocking branch-lock admission and the exact
+prepared store generation, retaining pin/provenance precedence. Changed or busy
+selection state withholds the prepared slots for that pass. Bounded atomic
+selection writes retain the existing fenced authority; Git/document reads and
+branch-lock waits do not. Metadata/organization projection keeps its prior
+ordering, so remaining fenced I/O must still be measured. Live adoption requires
+an owner-controlled restart and responsiveness validation.

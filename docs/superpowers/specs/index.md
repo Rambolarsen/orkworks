@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Responsive session refresh inspection](2026-11-10-session-refresh-lag-design.md) — Capture/inspect/recheck repair for terminal lag; source implementation authorized, live replacement owner-controlled.
+
 - [Checked SQL observation input owner](2026-11-09-sql-observation-input-owner.md) — Proposed bounded observation-only claim owner; whole-assessment authority and production routing remain gated.
 
 - [Headless replay fixture container](2026-11-09-headless-replay-container-design.md) — Proposed isolated image, non-root offline execution, caller-owned artifacts and exact-container cleanup for #95.
