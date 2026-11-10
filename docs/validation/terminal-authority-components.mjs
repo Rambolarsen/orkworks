@@ -46,7 +46,7 @@ function requestShape(raw,profile){
  for(const k of ['workspaceId','runId','planId','taskId','reservationId','childSessionId'])id(q.stream[k]);
  integer(q.stream.planRevision,64);digest(q.stream.configurationDigest);
  exact(q.expectedReportHead,'reportId reportVersion contentDigest');id(q.expectedReportHead.reportId);integer(q.expectedReportHead.reportVersion,7);digest(q.expectedReportHead.contentDigest);
- validateReport(q.report,profile);same(q.report.author,{kind:'user'});integer(q.report.reportVersion,8);
+ same(q.stream,profile.stream);validateReport(q.report,profile);same(q.report.author,{kind:'user'});integer(q.report.reportVersion,8);
  same(q.report.reportVersion,q.expectedReportHead.reportVersion+1);same(q.report.reportId,q.expectedReportHead.reportId);digest(q.report.contentDigest);
  for(const k of ['runId','planId','planRevision','taskId','reservationId','childSessionId','configurationDigest'])same(q.report[k],q.stream[k]);
  const body=clone(q.report);delete body.contentDigest;same(domain('orkworks.research-report.v1',body),q.report.contentDigest);
@@ -85,7 +85,11 @@ export function reconcilePending(pending,ack){
  }catch{return no;}
 }
 export function canDeliver(captured,current){
- return current.open===true&&current.frameId===captured.frameId&&current.requestId===captured.requestId&&canonical(current.scope)===canonical(captured.scope);
+ try{
+  exact(captured,'scope frameId requestId');exact(current,'scope frameId requestId open');
+  scopeShape(captured.scope);scopeShape(current.scope);id(captured.frameId);id(current.frameId);id(captured.requestId);id(current.requestId);
+  return current.open===true&&current.frameId===captured.frameId&&current.requestId===captured.requestId&&canonical(current.scope)===canonical(captured.scope);
+ }catch{return false;}
 }
 function link(c){exact(c,'storageEpoch commitSequence changeDigest');digest(c.storageEpoch);digest(c.changeDigest);counter(c.commitSequence,true);}
 function receiptJoin(row,requestUtf8,version,profile){

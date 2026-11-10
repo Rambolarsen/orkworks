@@ -29,7 +29,7 @@ Existing [terminal publication](report-publication-components.md),
   It contains pure scope transitions, main pending/delivery predicates and the
   receipt-v2 normalization/commit-membership/byte predicates. No production caller
   imports it. It reuses the existing report source validator and canonical JSON.
-- `terminal-authority-components.test.mjs` runs 64 behavioral tests in `docs:check`.
+- `terminal-authority-components.test.mjs` runs 67 behavioral tests in `docs:check`.
   Cases include literal expected results, malformed/self-consistent adversaries,
   isolated size boundaries and six independently specified traces.
 - `generate-terminal-authority-vectors.py` uses only Python stdlib, never imports
@@ -154,8 +154,36 @@ executable plans remain open. Keep #1089/#742/#744/#746 open.
 
 The receipt reviewer separately checked the targeted normalization correction and
 confirmed it resolved the finding without a source-schema or authority widening;
-the 64-test suite passed in that follow-up. Full docs validation passed 1,268
+the 64-test suite passed in that follow-up. Initial full docs validation passed 1,268
 tests, including all 64 new cases. The repository verifier stopped at its
 prerequisite check because this owned worktree has no desktop dependencies; no
 broad Rust/desktop pass is claimed. Applicable hosted results are recorded on
 the PR before its terminal state.
+
+## Hosted review correction — cycle 1 of 3
+
+Codex reviewed initial PR head `a449971f29e7a337f5ad37ab6575cff9831ec41c` and
+found two valid gaps: URL.pathname passed encoded paths to Python in a spaced
+checkout, and request normalization did not compare the complete request stream
+with the captured profile stream's workspace. New regressions reproduced both
+before their fixes. Regeneration now uses fileURLToPath; a black-box copied checkout
+with spaces and percent characters runs the actual regeneration test with inherited
+Node test context removed, ensuring that nested test really executes. Normalization
+now joins the full request/profile streams before the closed report validator.
+
+All 66 focused tests pass after the corrections. These fixes preserve the reviewed
+protocol, existing sources and all conditional/native evidence limits. The original
+1,268-test run above remains its own passing result; final complete docs and hosted
+results are recorded on the PR. No Copilot result is claimed: its AI scan reported
+monthly quota exhaustion, and no blind retry was requested.
+
+An additional failing-first guard rejects missing/malformed synthetic frame,
+request and scope values before delivery identity comparison; two absent values
+cannot compare equal and authorize success. Final focused coverage is 67 tests.
+The quoted-checkout regression also asserts that its nested runner executed the
+one selected regeneration test, rather than silently inheriting the parent Node
+test context and skipping it.
+
+Final post-review local validation passed all 1,271 documentation tests (67 new),
+metadata/index/dead-link checks and the docs build. Full repository verification
+remains stopped at missing desktop dependencies; no broader pass is claimed.

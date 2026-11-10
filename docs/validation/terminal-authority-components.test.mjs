@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {readFileSync,mkdtempSync,rmSync,cpSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {canonical} from './report-publication-components.mjs';
@@ -227,7 +228,7 @@ test('independent receipt bytes/hash/link and accounting match the real codec, r
 test('independent generator reproduces the complete retained oracle byte-for-byte',()=>{
  const temporary=mkdtempSync(join(tmpdir(),'orkworks-ui-authority-'));
  try{
-  const output=join(temporary,'vectors.json');execFileSync('python3',[new URL('generate-terminal-authority-vectors.py',import.meta.url).pathname,'--output',output]);
+  const output=join(temporary,'vectors.json');execFileSync('python3',[fileURLToPath(new URL('generate-terminal-authority-vectors.py',import.meta.url)),'--output',output]);
   assert.deepEqual(readFileSync(output),readFileSync(new URL('terminal-authority-vectors.json',import.meta.url)));
  }finally{rmSync(temporary,{recursive:true,force:true});}
 });
@@ -254,4 +255,30 @@ for(const [name,change] of [['extra report property',q=>q.report.hidden='not app
  assert.throws(()=>makeReceiptV2(row,raw,d));
  row.body.schemaVersion=2;row.body.authorization={policy:'terminal-ui-correction-v1',sidecarGeneration:binding.sidecarGeneration,scopeSequence:'1',admissionSequence:'1'};
  assert.throws(()=>validateReceiptV2(row,context(row,raw)));
+});
+
+test('captured profile workspace must match the complete request stream at every receipt path',()=>{
+ const foreign=clone(reportProfile);foreign.stream.workspaceId='different-workspace';
+ assert.equal(admit(opened(),scope(1),req,{...assumed,reportProfile:foreign}).status,'bad-request');
+ assert.throws(()=>makeReceiptWithProfile(original,req,decision().decision,foreign));
+ const row=makeReceiptV2(original,req,decision().decision),ctx=context(row);ctx.reportProfile=foreign;
+ assert.throws(()=>validateReceiptV2(row,ctx));
+});
+test('independent regeneration works from a checkout containing spaces and URL escapes',()=>{
+ const temporary=mkdtempSync(join(tmpdir(),'orkworks-space-'));
+ try{
+  const destination=join(temporary,'review % space');
+  const source=fileURLToPath(new URL('.',import.meta.url));
+  cpSync(source,destination,{recursive:true,filter:entry=>statSync(entry).isDirectory()?resolve(entry)===resolve(source):/\.(mjs|json|py)$/.test(entry)});
+  const {NODE_TEST_CONTEXT,...environment}=process.env;
+  const output=execFileSync(process.execPath,['--test','--test-reporter=tap','--test-name-pattern=^independent generator reproduces the complete retained oracle byte-for-byte$',join(destination,'terminal-authority-components.test.mjs')],{stdio:'pipe',env:environment}).toString();
+  assert.match(output,/^# pass 1$/m);
+ }finally{rmSync(temporary,{recursive:true,force:true});}
+});
+
+test('missing or malformed frame/request/scope context cannot authorize delivery by equality',()=>{
+ assert.equal(canDeliver({},{open:true}),false);
+ const captured={scope:scope(1),frameId:'frame-1',requestId:'request-1'};
+ assert.equal(canDeliver(captured,{...captured,open:true,frameId:undefined}),false);
+ assert.equal(canDeliver({...captured,scope:{}},{...captured,scope:{},open:true}),false);
 });
