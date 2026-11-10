@@ -4,7 +4,7 @@ title: Confirm a settling probe leader after Darwin EPERM
 description: Reproduced cleanup race and a proposed bounded confirmation phase retaining original-child ownership and group proof.
 tags: [harnesses, probes, macos, safety, testing]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: implementation-verification
 ---
 
 # Confirm a settling probe leader after Darwin EPERM
@@ -12,7 +12,9 @@ workflow_status: awaiting-owner-approval
 Outcome: avoid discarding valid discovery output when Darwin rejects a group
 signal before the original child's exit becomes observable. Tracking:
 [#957](https://github.com/Rambolarsen/orkworks/issues/957). This is a proposed
-cleanup lifecycle correction, awaiting owner approval before implementation.
+cleanup lifecycle correction, approved by the owner on 2026-11-10 ("go ahead"
+after the concrete PR #1661 design request). This authorizes its bounded
+implementation and synthetic fixtures; no installed-tool or model probe is needed.
 
 ## Reproduced evidence
 
@@ -110,7 +112,7 @@ contract and ADR amendment before dependent implementation.
       Complete platform CI; distinguish macOS evidence from Linux/Windows checks.
       Keep unrelated #957 failures and historical causes explicitly open.
 
-## Investigated risks and plan review
+## Initial investigated risks and plan review
 
 The main uncertainty was whether this was load-induced timeout or cleanup
 refusal; native traces resolve it to the latter for the reproduction. Source
@@ -134,3 +136,40 @@ independent review, full-suite success, runtime fix or historical-cause closure
 is claimed by this document. The required owner decision is this bounded
 pending-confirmation lifecycle, including shared settlement budget and
 cancellation/reaper disposition. Existing ownership and deadline approvals stand.
+
+## Implementation evidence — 2026-11-10
+
+The approved private pending state is implemented in `probe_process.rs`.
+Confirmation retains the original child/permit, excludes pending reaper
+consumption, and shares one endpoint with reaping. Drop and service close
+finalize pending confirmation without another group signal.
+
+The exact new exit-gap regression failed first with CleanupUnconfirmed in the
+old cleanup path. Initial implementation testing exposed changed timeout error
+precedence in an existing settlement test; that compatibility difference was
+corrected. The final probe group passes all 20 tests, including 500 ms operation
+deadline versus one-second settlement exhaustion, caller abort/service close,
+remaining live members, ECHILD and invalid native query lengths (-1, 3, 12).
+The earlier 100 exact fake-CLI matrices all passed (1,000 version/help cases);
+no installed coding tool or model was invoked.
+
+Two read-only Luna reviewers inspected the final Rust diff SHA-256
+`6b60e5555293416d8f938e9948b7af1f38912a0dc35530a17064f743c749a919`.
+Correctness/security review completed at medium effort without findings.
+Coverage review found two missing denial cases, now added; a later concern
+about timeout mapping was withdrawn after examining capped capture and the
+passing fixture. No further changes were requested.
+
+The default-concurrency full verifier failed: 3,473 Rust unit tests passed,
+one failed, 18 ignored. The unchanged
+`sql_observer_pipeline_preserves_new_work_recorded_during_rpc` expected metadata
+revision 4 but observed 3 at `sql_observer_tests.rs:415`. A fresh exact process
+passed that one test. No cause, historical linkage or full-run success is
+inferred. Final four-thread full verification is in progress; no test, timeout,
+exclusion or committed CI concurrency setting changed for that run.
+
+Clippy passes with repository warnings; the runner's manual-is-multiple-of
+warning is on its unchanged native byte-alignment expression. Node 22 docs
+metadata/index/link/build and all 1,204 documentation tests passed. Final
+CI, full-verification and merge dispositions will be recorded on PR #1661.
+The authenticated Taskmaster recommendation inventory returned zero records.

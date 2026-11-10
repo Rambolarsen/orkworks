@@ -221,3 +221,22 @@ and bounded reaper; and preserving existing per-caller capture/environment
 semantics. No choice above is recorded as already owner-approved. A fresh read-only
 builder check on 2026-11-07 returned “nothing important left.” It does not
 substitute for owner acceptance or platform fixture evidence.
+
+## Amendment — 2026-11-10: settling Darwin exit confirmation
+
+The owner approved the [bounded confirmation plan](../plans/2026-11-10-probe-exit-confirmation.md)
+after #957 reproduced EPERM before the original child's exit became observable.
+Only on Darwin, a single rejected group signal followed by a still-pending
+original-child exit can enter private pending confirmation. Pending is not
+accepted cleanup. Observe exit asynchronously, without holding the owner mutex
+across awaits, then require the existing bounded group-membership proof.
+Confirmation and reaping share one endpoint: min(operation deadline, cleanup
+start + one second). No additional signal, retry, ownership reconstruction,
+quota increase or additional cleanup window is allowed.
+
+Retain the original Child and permit; the reaper must not consume its exit
+while confirmation is pending. Drop, timeout and shutdown finalize pending
+confirmation as unconfirmed, permitting only original-child reaping afterward.
+No late success is published, and non-reapable owners retain their permits.
+All existing exit/capture policies, native proof requirements and non-Darwin
+behavior remain. Approval is not implementation or platform qualification.

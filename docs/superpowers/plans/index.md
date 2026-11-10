@@ -4,7 +4,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
-- [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Reproduced #957 cleanup race and proposed bounded confirmation; owner approval pending.
+- [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
 
 - [Private SQL assessment input classification](2026-11-09-sql-assessment-input-classification.md) — Approved bounded pure policy/test slice; production claim minting and routing stay gated.
 
