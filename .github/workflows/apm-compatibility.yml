@@ -54,7 +54,7 @@ jobs:
           uv run --project .apm-compatibility-source --no-dev python apps/desktop/tests/skillApmQualification.py
       - uses: pnpm/action-setup@v4
         with:
-          version: 11.24.0
+          version: 12.18.0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
