@@ -25,6 +25,19 @@ test("shell layout initializes defaults, saves bounded preferences, and resets p
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("Windows shell layout replaces an existing record on save", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
+  try {
+    const memory = createShellLayoutMemory(directory);
+    assert.equal(memory.read().diagnostic, null);
+    const saved = await memory.save({ sessionsWidth: 300, inspectorWidth: 400, sessionsVisible: false, density: "high" });
+    assert.deepEqual(saved, { ok: true });
+    assert.equal(memory.read().revision, 1);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("invalid and future shell layout records preserve bytes until confirmed rebuild", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-"));
   try {

@@ -79,8 +79,8 @@ function lock(directory: string): number | null {
 const replaceFile: ShellFileReplacer = (temporary, target, targetExists) => {
   if (process.platform === "win32" && targetExists) {
     execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
-      "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_SHELL_TEMPORARY, $env:ORKWORKS_SHELL_TARGET, $null, $true)"], {
-      env: { ...process.env, ORKWORKS_SHELL_TEMPORARY: temporary, ORKWORKS_SHELL_TARGET: target }, stdio: "ignore",
+      "$ErrorActionPreference = 'Stop'; [System.IO.File]::Replace($env:ORKWORKS_SHELL_TEMPORARY, $env:ORKWORKS_SHELL_TARGET, $env:ORKWORKS_SHELL_BACKUP, $true); try { [System.IO.File]::Delete($env:ORKWORKS_SHELL_BACKUP) } catch {}"], {
+      env: { ...process.env, ORKWORKS_SHELL_TEMPORARY: temporary, ORKWORKS_SHELL_TARGET: target, ORKWORKS_SHELL_BACKUP: `${temporary}.bak` }, stdio: "ignore",
     });
   } else renameSync(temporary, target);
 };

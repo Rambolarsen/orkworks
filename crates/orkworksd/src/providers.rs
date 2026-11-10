@@ -2831,7 +2831,13 @@ impl ProviderManager {
             .list_models_command
             .as_deref()
             .ok_or_else(|| "Codex app-server command is not configured".to_string())?;
-        let mut child = Command::new(command)
+        #[cfg(windows)]
+        let executable = crate::harness::detect::probe_installed_tool(command)
+            .map(|tool| tool.executable)
+            .unwrap_or_else(|| command.into());
+        #[cfg(not(windows))]
+        let executable = std::path::PathBuf::from(command);
+        let mut child = Command::new(executable)
             .args(&definition.list_models_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -5563,6 +5569,26 @@ exit 17
             manager.discover_models("command-provider").unwrap(),
             vec!["command-model"]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn codex_app_server_discovery_resolves_npm_command_shim() {
+        use crate::test_support::FakePath;
+
+        let dir = tempfile::tempdir().unwrap();
+        let name = "orkworks-codex-model-fixture";
+        std::fs::write(dir.path().join(name), "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::write(
+            dir.path().join(format!("{name}.cmd")),
+            "@echo off\r\nset /p first=\r\necho {\"id\":1,\"result\":{}}\r\nset /p second=\r\nset /p third=\r\necho {\"id\":2,\"result\":{\"data\":[{\"id\":\"windows-shim-model\"}]}}\r\n",
+        )
+        .unwrap();
+        let _path = FakePath::prepend(dir.path());
+        let manager = ProviderManager::for_tests(sample_settings(vec![]), vec![]);
+
+        let models = manager.discover_codex_session_models(name).unwrap();
+        assert_eq!(models[0].id, "windows-shim-model");
     }
 
     #[cfg(unix)]
