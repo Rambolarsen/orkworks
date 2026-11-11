@@ -315,3 +315,4 @@ Dated design records; these do not establish current product behavior.
 - [Terminal correction authority ordering](2026-11-10-terminal-correction-authority-design.md) — Proposed exact terminal UI-correction cutoff and distributed closure cost before producer/native qualification.
 
 - [Terminal UI authority protocol](2026-11-10-terminal-ui-authority-protocol-design.md) — Proposed bounded scope closure, exact admission and receipt-v2 authority metadata under the accepted cutoff.
+- [Fresh report-retention ledger initialization](2026-11-11-report-retention-initialization-design.md) — Proposed fresh workspace/run zero ledgers, exact creation effects and no-adoption recovery for Gate 2.

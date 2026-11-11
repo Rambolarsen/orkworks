@@ -194,3 +194,13 @@ Local review against Gate 2's four requirements finds terminal, history/accounti
 consumer/index and projection handoffs above. Ready as a written investigation;
 **not Gate 2 completion or executable handoff**. Reverting this document changes
 no store; future schema downgrade/recovery remains undefined until designed.
+
+## Fresh-ledger proposal — 2026-11-11
+
+The [initialization proposal](../superpowers/specs/2026-11-11-report-retention-initialization-design.md)
+under [#1679](https://github.com/Rambolarsen/orkworks/issues/1679) makes the ledger
+creation gap concrete: workspace zero report usage at fresh store initialization
+and run zero usage at first source admission, with original proof recognition and
+no backfill of older stores. These are proposed choices, not acceptance or a
+producer-qualified history. Gate 2 remains Investigate; finish/cancel, original
+report publication and complete consumer/index proof remain open.

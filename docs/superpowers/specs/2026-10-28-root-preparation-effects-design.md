@@ -463,3 +463,14 @@ accepted row/resource meanings and existing fixture catalogs. Its numerical
 choices, derived whole-store accounting and explicit no-pruning exhaustion
 policy remain proposed; no production capacity, shared-custody qualification,
 native mechanism or runtime plan is approved by this routing note.
+
+## Fresh report-ledger extension proposed — 2026-11-11
+
+The [fresh report-retention initialization proposal](2026-11-11-report-retention-initialization-design.md)
+under [#1679](https://github.com/Rambolarsen/orkworks/issues/1679) proposes a tenth
+workspace zero resource at new-store initialization and one run report resource
+at first subject preparation. Original recipe/source/receipt bytes and witnesses
+remain unchanged; existing nine-ledger stores are not backfilled. These additional
+effects and creation-proof recognition need scoped acceptance before fixtures.
+No report publication, terminal conversion, consumer closure or runtime/native
+execution is supplied; #1089 Gate 2 remains Investigate.
