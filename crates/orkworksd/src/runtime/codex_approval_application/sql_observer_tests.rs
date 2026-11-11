@@ -260,6 +260,15 @@ async fn sql_observer_pipeline_read_stall_cannot_adopt_a_replacement_tracker() {
 
 #[tokio::test]
 async fn sql_observer_pipeline_metadata_read_time_cannot_refresh_an_old_rpc() {
+    // Stale-RPC assertions require an uncontended post-read callback.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_metadata_read_time_cannot_refresh_an_old_rpc"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
