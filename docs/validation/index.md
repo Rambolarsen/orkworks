@@ -130,3 +130,4 @@ Capability research, validation results, and evidence fixtures.
 - [Wait for initial history directory creation](native-history-startup.md) — Pristine phase-one empty-root waiting and fixed layout failure booleans, tested offline.
 
 - [Offline terminal authority and receipt components](terminal-authority-components.md) — Conditional scope ordering, local pending and exact receipt-v2 membership/byte oracles; no complete publication or native proof.
+- [Terminal producer, history and consumer closure](terminal-producer-history-consumer-contract.md) — Gate 2 producer, report-ledger initialization and complete consumer/index gaps; written investigation only.
