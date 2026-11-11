@@ -277,3 +277,18 @@ source/producer predicates and its isolated receipt membership witness do not
 qualify native security, a complete legal publication transaction or Gate 2's
 real terminal producer/history/consumer proof. Lifecycle/transport/storage/native/
 #740 and separately approved executable runtime plans remain open.
+
+## Gate 2 producer, history and consumer investigation — 2026-11-11
+
+The [written contract investigation](../../validation/terminal-producer-history-consumer-contract.md)
+traces the current source seams and separates accepted terminal/authority protocol
+choices from missing real finish/cancel effects, first-report history/ledger
+creation and complete source-owner consumer/index membership. Initial preparation
+does not initialize report ledgers or create terminal state. Terminal status
+cannot prove that retained preparation/summary/plan consumers are absent.
+
+Gate 2 remains Investigate. Next close those mappings in the #742/storage and
+#744/#746 owning contracts, with scoped acceptance of any new choices before
+dependent fixtures. Accepted protocols, caps and retained artifacts are unchanged;
+no runtime/native execution, lifecycle topology, migration or executable plan is
+supplied. Keep #1089/#742/#744/#746 open and preserve independent qualification gates.
