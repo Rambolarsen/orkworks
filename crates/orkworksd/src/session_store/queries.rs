@@ -113,8 +113,14 @@ fn tokens(conn: &Connection, text: &str) -> Result<Option<String>> {
 pub(super) struct ReadBudget<'a>(&'a Connection);
 impl<'a> ReadBudget<'a> {
     pub(super) fn new(conn: &'a Connection) -> Self {
-        let deadline = std::time::Instant::now() + Duration::from_millis(100);
-        conn.progress_handler(1000, Some(move || std::time::Instant::now() >= deadline));
+        Self::with_clock(conn, std::time::Instant::now)
+    }
+    fn with_clock(
+        conn: &'a Connection,
+        mut now: impl FnMut() -> std::time::Instant + Send + 'static,
+    ) -> Self {
+        let deadline = now() + Duration::from_millis(100);
+        conn.progress_handler(1000, Some(move || now() >= deadline));
         Self(conn)
     }
 }
@@ -125,6 +131,13 @@ impl Drop for ReadBudget<'_> {
 }
 impl Database {
     pub(super) fn history(&self, query: HistoryQuery) -> Result<Page> {
+        self.history_with_clock(query, std::time::Instant::now)
+    }
+    fn history_with_clock(
+        &self,
+        query: HistoryQuery,
+        now: impl FnMut() -> std::time::Instant + Send + 'static,
+    ) -> Result<Page> {
         use sha2::{Digest, Sha256};
         let limit = query.limit.unwrap_or(50);
         if !(1..=100).contains(&limit)
@@ -143,7 +156,7 @@ impl Database {
                 return Err(StoreError::TooLarge);
             }
         }
-        let _budget = ReadBudget::new(&self.conn);
+        let _budget = ReadBudget::with_clock(&self.conn, now);
         let search = tokens(&self.conn, &query.text)?;
         let digest = hex::encode(Sha256::digest(serde_json::to_vec(&(
             &query.state,
@@ -550,18 +563,60 @@ mod tests {
             value["summary"] = serde_json::json!("字".repeat(20_000));
             db.insert(value).unwrap();
         }
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        // Enforce the summary-only read independently of elapsed wall time.
+        db.conn.authorizer(Some(|context: AuthContext<'_>| {
+            if matches!(
+                context.action,
+                AuthAction::Read {
+                    table_name: "sessions",
+                    column_name: "metadata"
+                }
+            ) {
+                Authorization::Deny
+            } else {
+                Authorization::Allow
+            }
+        }));
+        // Payload bounds do not depend on how long the test thread is descheduled.
+        let started = std::time::Instant::now();
         let page = db
-            .history(HistoryQuery {
-                limit: Some(100),
-                ..Default::default()
-            })
+            .history_with_clock(
+                HistoryQuery {
+                    limit: Some(100),
+                    ..Default::default()
+                },
+                move || started,
+            )
             .unwrap();
-        assert!(!page.rows.is_empty());
+        assert_eq!(page.rows.len(), 40);
+        assert!(!page.has_more);
         assert!(serde_json::to_vec(&page).unwrap().len() <= 256 * 1024);
         for row in &page.rows {
             assert!(serde_json::to_vec(row).unwrap().len() <= 8192);
             assert!(row.preview_truncated);
         }
+        // The same real query must expire at the unchanged 100 ms deadline.
+        let mut first = true;
+        assert!(matches!(
+            db.history_with_clock(
+                HistoryQuery {
+                    limit: Some(100),
+                    ..Default::default()
+                },
+                move || {
+                    if std::mem::take(&mut first) {
+                        started
+                    } else {
+                        started + Duration::from_millis(100)
+                    }
+                }
+            ),
+            Err(StoreError::Expired)
+        ));
+        db.conn
+            .authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+        // Both successful and interrupted queries must leave detail reads usable.
         assert_eq!(
             db.get("id-00").unwrap().unwrap()["label"]
                 .as_str()
