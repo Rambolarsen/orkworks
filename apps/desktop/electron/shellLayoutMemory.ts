@@ -207,10 +207,7 @@ export class RevisionedShellMemory<P> {
       // Confirmed recovery may replace an unreadable regular file without
       // reading it, while retaining its inode so a failed publication can
       // still roll back exactly.
-      const target = this.path();
-      const info = lstatSync(target);
-      if (!info.isFile()) throw error;
-      return this.retainRegularPrior(target, info);
+      return this.retainRegularPrior(this.path());
     }
     if (previous === "non_regular") {
       const target = this.path();
@@ -235,8 +232,7 @@ export class RevisionedShellMemory<P> {
     // A hardlink preserves an oversized prior inode for rollback without
     // buffering it or copying attacker-sized bytes. If unsupported, decline
     // the rebuild before publication.
-    const target = this.path();
-    return this.retainRegularPrior(target);
+    return this.retainRegularPrior(this.path());
   }
 
   private priorInPlace(previous: RetainedPrior): boolean {

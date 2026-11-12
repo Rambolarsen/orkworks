@@ -154,6 +154,53 @@ test("confirmed rebuild recovers an unreadable regular shell record", (t) => {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+test("unreadable recovery rejects a symlink swapped in during the failed read", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-unreadable-swap-"));
+  try {
+    const target = shellLayoutMemoryPath(directory);
+    const referent = join(directory, "referent.txt");
+    writeFileSync(referent, "preserve referenced bytes");
+    try { symlinkSync(referent, target); }
+    catch { return t.skip("symlink creation is unavailable"); }
+    unlinkSync(target);
+    writeFileSync(target, "unreadable prior record");
+    const moduleUrl = new URL("../electron/shellLayoutMemory.ts", import.meta.url).href;
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const [target, directory, referent] = process.argv.slice(1);
+      const originalOpen = fs.openSync;
+      let swappedIdentity = null;
+      fs.openSync = (path, ...args) => {
+        if (path === target && swappedIdentity === null) {
+          fs.unlinkSync(target);
+          fs.symlinkSync(referent, target);
+          const info = fs.lstatSync(target);
+          swappedIdentity = { dev: info.dev, ino: info.ino };
+          const denied = new Error('injected unreadable target replacement');
+          denied.code = 'EACCES';
+          throw denied;
+        }
+        return originalOpen(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const { createShellLayoutMemory } = await import(${JSON.stringify(moduleUrl)});
+      const result = await createShellLayoutMemory(directory).rebuild(true);
+      console.log(JSON.stringify({ result, swappedIdentity }));
+    `;
+    const child = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", script, target, directory, referent], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+    const { result, swappedIdentity } = JSON.parse(child.stdout);
+    assert.deepEqual(result, { ok: false, diagnostic: "write_failed" });
+    const retained = lstatSync(target);
+    assert.equal(retained.isSymbolicLink(), true);
+    assert.deepEqual({ dev: retained.dev, ino: retained.ino }, swappedIdentity);
+    assert.equal(readlinkSync(target), referent);
+    assert.equal(readFileSync(referent, "utf8"), "preserve referenced bytes");
+    assert.equal(readdirSync(directory).some((name) => name.endsWith(".bak")), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("confirmed shell-layout rebuild can replace a FIFO record", async (t) => {
   if (process.platform === "win32") return t.skip("FIFOs are unavailable on Windows");
   const directory = mkdtempSync(join(tmpdir(), "ork-shell-layout-fifo-rebuild-"));
