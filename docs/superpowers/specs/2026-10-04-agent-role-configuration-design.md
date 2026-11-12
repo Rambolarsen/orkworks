@@ -1468,3 +1468,14 @@ transaction fixture, old-store import, database, migration, adapter, launch or
 runtime work is authorized by the source decision. #1183 and #1176 remain open;
 #740 research stays closed, with practical native guardrails governing later
 configuration qualification.
+
+## Retained-file research source profile proposed — 2026-11-12
+
+The [research source-codec proposal](2026-11-12-research-source-codecs-design.md)
+under #1689 supplies new immutable research capture/scope/plan and original-source
+types, three proposed logical research-report tool IDs and a bounded research-input
+startup/settings variant. It reuses unchanged v3 configuration fields/digest and
+existing permission/rule/skill/model leaves with explicit research specializations.
+These choices await scoped acceptance; old direct-execution/root profiles gain no
+new tool or delivery permission. No source fixture, adapter eligibility, runtime/
+native execution or complete research-control/catalog/publisher is supplied.

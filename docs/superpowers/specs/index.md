@@ -235,6 +235,7 @@ Dated design records; these do not establish current product behavior.
 - [Remaining root bootstrap source schemas](2026-10-27-root-bootstrap-source-schemas-design.md) — Proposed root-only coordination, requirement/settings/model records and exact rendering for review before dependent fixtures.
 
 - [Research report source codecs for evidence fixtures](2026-10-28-research-report-source-codecs-design.md) — Proposed closed report/finding/reference leaves and exact descriptor joins before R2 source fixtures.
+- [Single-task retained-file research source codecs](2026-11-12-research-source-codecs-design.md) — Proposed questions/captures/scope, exact research configuration/plan and original launch sources; scoped acceptance pending.
 
 - [Initial root preparation membership and transaction effects](2026-10-28-root-preparation-effects-design.md) — Proposed typed initial membership, protected capability artifacts and exact two-branch preparation effects; new choices await owner review.
 

@@ -929,3 +929,14 @@ accepted source/control/membership contracts and inspected seams. It reported no
 factual mismatch or important unanswered question for the bounded qualification
 handoff. The named executable/native/index/recovery gaps remain unverified; the
 review is not their qualification or an approval of new implementation behavior.
+
+## Separate research-source proposal — 2026-11-12
+
+The [retained-file research source proposal](2026-11-12-research-source-codecs-design.md)
+defines distinct research record names/domains and scoped common-leaf reuse; it
+does not relabel this accepted direct-execution slice. It proposes sharing the
+existing child-source-retained-bytes run/workspace pool with those research
+occurrences, without another allowance or historical initialization permission.
+That extension awaits scoped acceptance and a later complete catalog/version
+decision. Existing source/control/component bytes and limits remain unchanged;
+no dependent research fixture, runtime/native execution or actual producer is supplied.
