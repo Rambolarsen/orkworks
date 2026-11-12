@@ -551,23 +551,53 @@ mod unix {
 
     #[tokio::test]
     async fn cleanup_settle_uses_remaining_deadline() {
+        use std::os::unix::process::CommandExt;
+
         let service = ProbeService::new().unwrap();
         let dir = tempfile::tempdir().unwrap();
         service.shared.faults.reap.store(true, Ordering::Relaxed);
-        let start = Instant::now();
-        assert_eq!(
-            service
-                .run(
-                    &mut shell("printf version", dir.path()),
-                    policy(true, true),
-                    Duration::from_millis(100)
-                )
-                .await
-                .unwrap_err(),
-            ProbeError::CleanupUnconfirmed
-        );
+        let permit = service.shared.permits.clone().try_acquire_owned().unwrap();
+        let child = shell("printf version", dir.path())
+            .process_group(0)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let owner = Arc::new(Mutex::new(Owner {
+            child,
+            cleanup: None,
+            reaped: false,
+            _permit: permit,
+            faults: service.shared.faults.clone(),
+        }));
+        let lease = Lease(owner.clone());
+        assert!(service.shared.register(owner.clone()));
+
+        // Native startup is outside this settlement-only budget. Observe exit
+        // without reaping so cleanup retains the original process-group owner.
+        let ready_by = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(success) = owner.lock().unwrap().peek_exit().unwrap() {
+                assert!(success);
+                break;
+            }
+            assert!(std::time::Instant::now() < ready_by, "child did not exit");
+            tokio::time::sleep(POLL).await;
+        }
+        tokio::time::pause();
+        let start = tokio::time::Instant::now();
+        let result = service
+            .settle(&owner, start + Duration::from_millis(100), None)
+            .await;
+        assert_eq!(owner.lock().unwrap().cleanup, Some(CleanupState::Accepted));
+        drop(lease);
+        drop(owner);
+        assert_eq!(result.unwrap_err(), ProbeError::CleanupUnconfirmed);
         assert!(start.elapsed() < Duration::from_millis(800));
         assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT - 1);
+
+        // The background native reaper uses real time during teardown.
+        tokio::time::resume();
         service.shared.faults.reap.store(false, Ordering::Relaxed);
         service.shutdown().await;
         assert_eq!(service.shared.permits.available_permits(), OWNER_LIMIT);
