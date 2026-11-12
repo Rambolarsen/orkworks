@@ -452,3 +452,14 @@ not select missing codecs, event history or a storage format. Metadata width
 examples and declared source-body measurements are not command/proof/ledger/
 catalog or consumer qualification. Current controls, actual source-owner/native
 events and atomic first-report publication remain gated.
+
+## Prepared input/current-control prefix proposed
+
+The [separate prefix proposal](2026-11-12-research-input-control-prefix-design.md)
+replaces no accepted immutable source. It makes the missing research prepared-input,
+current-version and positive collection ownership choices concrete for owner
+review, names existing source limits/proposed owners, and enumerates local
+read/write effects. The earlier preparation-1/CommitRef assumptions remain
+unqualified components; new input-2/current-control bytes require their own
+scoped acceptance. A complete catalog, legal history, native bridge/cutoff and
+consumer publication are not supplied.

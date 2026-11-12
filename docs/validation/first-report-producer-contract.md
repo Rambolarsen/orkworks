@@ -289,3 +289,16 @@ native events and legal command history remain unqualified. Next written closure
 is prepared input/current controls with exact original-versus-live version and
 source-owner effect ownership; complete catalog/accounting/consumer/atomic
 publication closure still follows. #1689 remains open and Gate 2 Investigate.
+
+## Prepared-input/current-control prefix proposed
+
+The [written prefix proposal](../superpowers/specs/2026-11-12-research-input-control-prefix-design.md)
+now specifies a research decision/input variant, original-versus-live version
+rules, sole current run owner, positive prospective collection/expectation
+membership, local source/control row effects and planned module ownership.
+Its normal no-intervening-event trace freezes assignment identity at 2 while
+live task version reaches 7 before report admission; neither is a wire default.
+Report-induced input revisions retain the old parent decision as stale.
+All new choices await scoped review. Complete consumer/index/catalog, actual
+ordinary/native bridge, report cutoff and first-report transaction/history
+qualification remain open; earlier protocol/artifact bytes are preserved.
