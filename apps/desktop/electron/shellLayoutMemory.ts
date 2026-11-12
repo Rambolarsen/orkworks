@@ -268,15 +268,11 @@ export class RevisionedShellMemory<P> {
     }
     let currentBytes: Buffer | "oversize" | "non_regular" | "unreadable" | null;
     try { currentBytes = this.readTarget(); }
-    catch {
-      if (!candidate || !this.candidateInPlace(candidate)) return { ok: false, diagnostic: "restore_failed" };
-      currentBytes = "unreadable";
-    }
-    if (currentBytes === "oversize" || currentBytes === "non_regular") {
+    catch { currentBytes = "unreadable"; }
+    if (typeof currentBytes === "string") {
       if (!candidate || !this.candidateInPlace(candidate)) return { ok: false, diagnostic: "restore_failed" };
     }
-    if (currentBytes !== null && currentBytes !== "unreadable"
-      && currentBytes !== "oversize" && currentBytes !== "non_regular" && !currentBytes.equals(attempted)) {
+    if (Buffer.isBuffer(currentBytes) && !currentBytes.equals(attempted)) {
       const observed = this.load();
       if (observed.record) return { ok: false, diagnostic: "write_failed" };
       try {
