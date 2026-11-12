@@ -414,3 +414,99 @@ complete as disabled source implementation; this does not satisfy Task 4 or fix
 the currently installed primary flow. The external signed-publication and
 separately budgeted paired-usefulness gates remain open in #1703 and #1694.
 No private Brain reads, signed publication, live model call or activation occurred.
+
+
+## Signed publication and first usefulness attempt, 18:47 UTC
+
+The owner explicitly approved Brain PR #147's exact public candidate and signed
+publication, then authorized five paired trials capped at sixty model calls with
+no silent retries or model switches. Brain PR #147 merged as
+`bc0d46a599be626885ac39d2c2a016ae963287a1`. The successful publication workflow
+[43276768094](https://github.com/Rambolarsen/brain/actions/runs/43276768094)
+deployed immutable `brain-4` with the unchanged production key.
+[Publication operations](../../agents/taskmaster-knowledge-publication.md#improvement-guidance-publication)
+records the verified identities and recovery. The actual signed entry and rubric
+fit the initial guidance budget. Source now packages the generated activation;
+focused offline starter verification passes. This establishes signed guidance
+availability, not recommendation quality or an installed release.
+
+The owner-authorized trial ran once for each fixed case using Codex
+`gpt-6-luna` at medium reasoning effort through the existing inference-only
+native adapter. Both arms used the actual signed guidance and production
+collector over the same pinned Git fixtures. The app used the production
+investigation engine; the controlled baseline used a data-only broker and
+natural final advice rather than the app's fourteen-row result schema. Neither
+arm could execute commands, edit files or use native tools. Each arm retained
+the six-call/eight-minute ceilings and the same evidence/guidance limits.
+
+The compiled trial harness SHA-256 was
+`2436a55f93b6fceb43cce5ce50b0c0b4b2be59aa4f9465106c46d1189a8911c3`;
+`run.json` separately records the base source commit, runtime-module hash, signed
+identity and exact model selection. Full fixture trees, tracked paths and file
+hashes were verified before dispatch. All requests and raw responses, including
+rejected results, remain in the owner-local qualification artifacts. The ledger
+finished **incomplete**, with **27 reserved and 27 completed calls of 60**, no
+retries, switches or fixture changes. Unused calls do not authorize a second
+run of a case.
+
+| Fixed case | App / baseline calls | App outcome | Controlled baseline |
+| --- | --- | --- | --- |
+| Behavioral assertions | 4 / 2 | Valid preferred change: assert the arithmetic return value rather than a constant | Invalid evidence response |
+| Entry command | 3 / 2 | Valid preferred change: align the absent verification script named in instructions with the actual script | Invalid evidence response |
+| CI failure status | 3 / 2 | Rejected final: useful failure-masking diagnosis with citations to undelivered pages | Invalid evidence response |
+| Already satisfied | 3 / 2 | Valid result with no preferred change | Invalid evidence response |
+| Restricted tests | 4 / 2 | Rejected final: undelivered-page citations; raw setup-documentation proposal is a weak but plausible supported hypothesis | Invalid evidence response |
+
+Actual offline decoding of each rejected app response against its saved prompt
+returned `Improvement opportunity has invalid identity or citations`. The raw CI
+response recognized the workflow's unconditional-success fallback, but cannot
+count as a valid positive after rejection. The restricted response correctly
+recognized that excluded tests are unknown; it did not claim they were absent.
+Independent review treats its local-version alignment idea as a weak but plausible
+supported hypothesis with modest payoff for this small dependency-free package.
+An observed incident is not required by the design. Citation rejection still
+prevents counting that result as a validated negative pass.
+
+All five baseline second responses set `finish: true` while requesting knowledge
+pages. The decoder correctly rejected that combination. The baseline prompt
+omitted the explicit empty-request completion rule present in the app prompt,
+so these failures do not show that direct Brain advice is poor. There are no
+valid baseline preferred opportunities to compare; the paired-comparison gate
+is **unevaluable**, not passed by default. Independent adjudication accepts the
+two valid positives and the satisfied negative, but does **not** qualify
+activation. The two-of-three positive floor alone cannot override that gate.
+
+Post-trial corrections clarify the baseline completion contract and explicitly
+separate final citation sources from catalog-only guidance in the production
+prompt. Citation validation remains unchanged. These corrections have not had
+a new live trial. Production qualification stays false, the existing primary
+action remains, and #1694 stays open. A new paired run requires an explicit
+owner authorization because the approved plan permits one attempt per case.
+
+### Qualification continuation verification
+
+The full repository verifier completed with `RUST_TEST_THREADS=1`: 3,541 Rust
+tests passed (21 ignored), integration tests passed, 31 reporter tests passed,
+1,743 desktop tests passed (five skipped), native ABI/type checks and desktop
+build passed, and 1,505 documentation tests plus docs build passed. Two earlier
+parallel runs encountered existing timing-sensitive SQL queue/expiry and
+readiness scheduling assertions, followed by shared-lock poisoning; the first
+failing tests passed independently and the serial full run passed. Those
+failures remain in the local verification logs; no unrelated production code
+was changed to suppress them.
+
+After the final prompt-only corrections, all 23 improvement-engine tests and
+all ten deterministic qualification tests passed. Both new prompt contracts
+were observed failing before their corrections and passing afterward. The
+post-trial runner hash is
+`d6f2af43e79b484d3a97d4a0804f92967af695b1ac95eb19415b2a113659250f`,
+which differs from the preserved live-run hash above. A fresh manual medium
+review approved the current code/assets diff without findings; reviewed file
+hashes were independently matched before commit. Medium effort is justified
+by the test harness's size and provider-authorization boundaries.
+
+Documentation and worktree currency checks passed. The documentation currency
+warning recommends public onboarding review because a release input changed;
+public user instructions remain accurate while the new flow is disabled. The
+canonical architecture and publication guide now distinguish signed starter
+availability from the unpassed usefulness gate and published installers.

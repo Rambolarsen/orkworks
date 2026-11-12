@@ -596,12 +596,14 @@ fn mandatory_rubric_pages_are_supplied_before_the_first_exchange() {
     let mut entry = rubric_page.clone();
     entry.id = "playbooks/taskmaster-improvement.md".into();
     entry.content = "Use the complete linked rubric before assessing.".into();
+    let mut catalog_only = rubric_page.clone();
+    catalog_only.id = "concepts/catalog-only.md".into();
     let mut calls = 0;
     let result = investigate_from(
         Instant::now(),
         evidence,
         &rubric,
-        &[entry.clone(), rubric_page.clone()],
+        &[entry.clone(), rubric_page.clone(), catalog_only.clone()],
         &entry.id,
         &mut |input: Invocation<'_>| {
             calls += 1;
@@ -616,6 +618,27 @@ fn mandatory_rubric_pages_are_supplied_before_the_first_exchange() {
                         .into(),
                 )
             } else {
+                let prompt: serde_json::Value = serde_json::from_str(input.prompt).unwrap();
+                let sources = &prompt["finalCitationSources"];
+                assert_eq!(
+                    sources["knowledgePageIds"],
+                    serde_json::json!([entry.id, rubric_page.id])
+                );
+                assert!(prompt["knowledgeCatalog"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|page| page["id"] == catalog_only.id));
+                let supplied_hashes = prompt["repositoryFacts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|fact| fact["sha256"].clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    sources["repositoryFactHashes"],
+                    serde_json::json!(supplied_hashes)
+                );
                 Ok(value.to_string())
             }
         },
