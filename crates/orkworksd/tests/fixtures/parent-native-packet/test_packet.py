@@ -369,9 +369,10 @@ class SupervisorCheckTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups require POSIX")
     def test_deadline_and_independent_raw_caps_have_distinct_codes(self):
+        # Keep cap clients alive until supervised cleanup, rather than racing their exit.
         cases = [("import time; time.sleep(20)", .15, 1024, 8192, "supervisor-deadline"),
-                 ("print('x'*4096)", 2, 1024, 8192, "supervisor-file-cap"),
-                 ("print('x'*512)", 2, 1024, 100, "supervisor-total-cap")]
+                 ("import time; print('x'*4096, flush=True); time.sleep(20)", 2, 1024, 8192, "supervisor-file-cap"),
+                 ("import time; print('x'*512, flush=True); time.sleep(20)", 2, 1024, 100, "supervisor-total-cap")]
         for client, seconds, file_cap, total_cap, code in cases:
             with self.subTest(code=code), tempfile.TemporaryDirectory() as root:
                 root = Path(root).resolve()
