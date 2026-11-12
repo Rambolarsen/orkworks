@@ -61,7 +61,12 @@ impl Manifest {
             || self.context_level == ContextLevel::SessionObservations
             || self.ranges.len() > 32
             || self.pages.len() > 16
-            || self.ranges.iter().map(|r| r.bytes).sum::<usize>() > 65536
+            || self.ranges.iter().any(|r| r.bytes > 8192)
+            || self
+                .ranges
+                .iter()
+                .try_fold(0usize, |total, range| total.checked_add(range.bytes))
+                .is_none_or(|total| total > 65536)
             || self
                 .ranges
                 .iter()
@@ -85,8 +90,7 @@ impl Manifest {
             .iter()
             .any(|s| !hash(s))
             || self.ranges.iter().any(|r| {
-                r.bytes > 8192
-                    || !hash(&r.sha256)
+                !hash(&r.sha256)
                     || r.offset
                         .checked_add(r.bytes as u64)
                         .is_none_or(|end| end > r.file_size)
@@ -205,6 +209,10 @@ impl Record {
 pub(crate) struct ReportStore {
     root: PathBuf,
 }
+
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;
 impl ReportStore {
     pub(crate) fn new(root: &Path) -> Self {
         Self { root: root.into() }

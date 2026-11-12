@@ -74,18 +74,18 @@ design approval is needed for decisions within that contract.
 
 ## Task 1: finite protocol and safe progressive evidence
 
-- [ ] Add `taskmaster/improvement/mod.rs`, `model.rs`, `evidence.rs` and focused
+- [x] Add `taskmaster/improvement/mod.rs`, `model.rs`, `evidence.rs` and focused
   tests; extend the existing evidence owner only with the narrow helpers needed
   to reuse its canonical catalog, safe open and instruction closure.
-- [ ] First prove failing cases: a needed implementation beyond the first excerpt
+- [x] First prove failing cases: a needed implementation beyond the first excerpt
   can be requested without a candidate; invalid/duplicate IDs and schemas,
   denied/symlink/ignored/credential paths, UTF-8 boundaries, changed facts,
   instruction closure and each exact aggregate limit are enforced.
-- [ ] Implement typed step/result decoding and a finite call/evidence budget;
+- [x] Implement typed step/result decoding and a finite call/evidence budget;
   finalization is reserved and already-satisfied/unknown cases remain honest.
   Validate shared scoring rows and preferred-candidate citations through the
   public module interface, not test-only bypasses.
-- [ ] Check: focused Rust improvement tests pass, ordinary assessment/readiness
+- [x] Check: focused Rust improvement tests pass, ordinary assessment/readiness
   collector tests still pass and no production caller/admission is enabled yet.
 
 ## Task 2: runtime, report publication and privacy
@@ -160,7 +160,7 @@ recovery and checks; no speculative runtime authority or extra design gate added
 
 ## Integration interface and ownership
 
-Task 1 is implemented in the owning worktree; fifteen focused tests pass. The
+Task 1 is implemented in the owning worktree; nineteen focused tests pass. The
 separate store currently has no production caller. Whole-repository verification
 precedes its integration checkpoint commit. Do not confuse this foundation with
 an enabled feature or useful live-provider qualification.
@@ -220,3 +220,42 @@ pre-call timer. Cancellation stops new dispatch and requests termination of the
 current owned invocation; ownership and the analysis lease persist through actual
 cleanup. If existing transport APIs cannot provide that guarantee, extend their
 control seam with focused regression coverage before making admission eligible.
+
+## Bounded handoff — 2026-11-12
+
+Core checkpoint `7d95dc6e` is implemented and source-reviewed at medium effort
+because the strict-protocol/evidence diff exceeds 500 source lines. Its nineteen
+focused tests pass; the earlier full verifier passed 3,496 Rust tests (19 ignored),
+Rust integrations, 1,722 desktop tests (5 skipped), build and 1,297 docs tests.
+A required store aggregate-overflow fix and regression are included in the next
+checkpoint. The review must be refreshed for the integrated code before merge.
+
+Backend and desktop handoffs have been copied into the owning worktree. They
+remain **uncommitted pending integrated verification**. Backend adds typed signed
+capability capture, report privacy/origin reconciliation, strict provenance that
+fails closed against legacy reports and unavailable authenticated route shells.
+Desktop adds bounded IPC, strict report parsing, legacy fallback and investigation
+wording. Parent regression fixes retain legacy Fix with AI, count UTF-8 bytes,
+validate score/coverage consistency and combine workspace abort with IPC timeout.
+Type-check and all 64 focused desktop tests passed after those fixes. Backend
+worker focused tests/format passed. The integrated full verifier is running at
+`/private/tmp/orkworks-brain-improvement-integrated-verify.log`; do not claim its
+success until the actual final result is read. Tool session: 82221 in this thread.
+
+The replacement is still unavailable. Outstanding Task 2 requirements: live run
+and analysis-lease ownership, actual provider deadline/cancellation cleanup,
+range-aware current report projection/fences, recommendation pending publication
+and restart recovery, and linked history. No provider controls were implemented;
+do not infer a runtime from the current unavailable HTTP shell. Do not enable or
+merge as a complete feature. Task 4 needs signed publication [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
+and a separately authorized finite paired-usefulness trial budget. Actual packaged
+brain-3 has only assessment/readiness capabilities and lacks the new entry.
+
+The root worktree is `/Users/froomiebot/workspace/orkworks-brain-improvement-design`.
+Child backend/desktop worktrees retain the handoff originals; their writers have
+stopped. Preserve them until current parent changes are committed/verified, then
+remove only these explicitly owned child worktrees. No live provider calls,
+publication, migration, merge or production activation occurred. The original
+PR #1690 two-hour lifecycle budget expires at 06:47 UTC; hand off rather than
+silently reset it. Continue with the remaining real runtime/transport seam and
+current-tree verification/review in a fresh session, following #1694.
