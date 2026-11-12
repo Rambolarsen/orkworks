@@ -293,34 +293,35 @@ export async function discoverSkills(options: {
         ),
       ),
     );
-    for (const [plugin, registrations] of Object.entries(record(config.plugins)))
-      if (Array.isArray(registrations))
-        for (const entry of registrations) {
-          const registration = record(entry);
-          if (
-            typeof registration.installPath !== "string" ||
-            !isAbsolute(registration.installPath)
-          )
-            continue;
-          if (registration.scope === "user")
-            add(
-              join(registration.installPath, "skills"),
-              "personal",
-              ["claude"],
-              plugin,
-            );
-          if (
-            workspace &&
-            ["project", "local"].includes(registration.scope) &&
-            registration.projectPath === workspace
-          )
-            add(
-              join(registration.installPath, "skills"),
-              "workspace",
-              ["claude"],
-              plugin,
-            );
-        }
+    for (const [plugin, registrations] of Object.entries(record(config.plugins))) {
+      if (!Array.isArray(registrations)) continue;
+      for (const entry of registrations) {
+        const registration = record(entry);
+        if (
+          typeof registration.installPath !== "string" ||
+          !isAbsolute(registration.installPath)
+        )
+          continue;
+        if (registration.scope === "user")
+          add(
+            join(registration.installPath, "skills"),
+            "personal",
+            ["claude"],
+            plugin,
+          );
+        if (
+          workspace &&
+          ["project", "local"].includes(registration.scope) &&
+          registration.projectPath === workspace
+        )
+          add(
+            join(registration.installPath, "skills"),
+            "workspace",
+            ["claude"],
+            plugin,
+          );
+      }
+    }
   } catch (error) {
     if (!missing(error))
       result.diagnostics.push(
@@ -461,20 +462,19 @@ export async function discoverSkills(options: {
               (join(skill.resolvedPath, "SKILL.md") === path ||
                 skill.paths.some(alias => join(alias, "SKILL.md") === path)),
           );
-          if (match) {
-            match.management = "apm";
-            const hashes = apmHashes.get(match) || new Set<string>();
-            const recorded = record(entry.deployed_file_hashes)[file];
-            hashes.add(typeof recorded === "string" && /^sha256:[0-9a-f]{64}$/i.test(recorded)
-              ? recorded.slice(7).toLowerCase() : "");
-            apmHashes.set(match, hashes);
-            if (typeof entry.local_path === "string")
-              match.packageSource = entry.local_path;
-            else if (typeof entry.repo_url === "string")
-              match.packageSource = entry.repo_url;
-            if (typeof entry.version === "string")
-              match.version = entry.version;
-          }
+          if (!match) continue;
+          match.management = "apm";
+          const hashes = apmHashes.get(match) || new Set<string>();
+          const recorded = record(entry.deployed_file_hashes)[file];
+          hashes.add(typeof recorded === "string" && /^sha256:[0-9a-f]{64}$/i.test(recorded)
+            ? recorded.slice(7).toLowerCase() : "");
+          apmHashes.set(match, hashes);
+          if (typeof entry.local_path === "string")
+            match.packageSource = entry.local_path;
+          else if (typeof entry.repo_url === "string")
+            match.packageSource = entry.repo_url;
+          if (typeof entry.version === "string")
+            match.version = entry.version;
         }
       }
     } catch (error) {
