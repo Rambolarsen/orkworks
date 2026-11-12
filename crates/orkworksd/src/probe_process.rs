@@ -483,6 +483,18 @@ impl ProbeService {
             _ = self.shared.cancelled.notified() => Err(ProbeError::Closed),
             result = tokio::time::timeout_at(deadline, capture) => result.unwrap_or(Err(ProbeError::Timeout)),
         };
+        self.settle(&owner, deadline, result.as_ref().err().copied())
+            .await?;
+        drop(lease);
+        result
+    }
+
+    async fn settle(
+        &self,
+        owner: &Arc<Mutex<Owner>>,
+        deadline: tokio::time::Instant,
+        capture_error: Option<ProbeError>,
+    ) -> Result<(), ProbeError> {
         // Confirmation and reaping share this single settlement endpoint.
         let settle_until = std::cmp::min(deadline, tokio::time::Instant::now() + CLEANUP_WAIT);
         {
@@ -495,7 +507,7 @@ impl ProbeService {
                 return Err(ProbeError::CleanupUnconfirmed);
             }
             if tokio::time::Instant::now() >= deadline {
-                return result.and(Err(ProbeError::Timeout));
+                return Err(capture_error.unwrap_or(ProbeError::Timeout));
             }
         }
         loop {
@@ -531,8 +543,7 @@ impl ProbeService {
         if self.shared.closed.load(Ordering::Acquire) {
             return Err(ProbeError::Closed);
         }
-        drop(lease);
-        result
+        Ok(())
     }
 
     pub(crate) async fn shutdown(&self) {
