@@ -1406,6 +1406,8 @@ esac
             dir = dir.path().display(),
             stage = stage
         );
+        #[cfg(target_os = "macos")]
+        prepare_version_fixture(&executable).await;
         std::fs::write(&executable, &script).unwrap();
         crate::test_support::make_test_executable(&executable);
         let executable = executable.canonicalize().unwrap();
