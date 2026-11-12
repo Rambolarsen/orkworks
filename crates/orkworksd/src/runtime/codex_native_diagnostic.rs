@@ -702,6 +702,16 @@ async fn diagnostic_fake_owned_runtime_disconnect_input_and_drain_cleanup() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     let disconnected = sink.lock().unwrap().observer_disconnects;
+    // A paused observer still captures snapshots. Force one on either side of
+    // the synthetic wait so stale ownership cannot depend on task scheduling.
+    let generation = state.sessions.lock().unwrap()[&id].runtime.run_generation();
+    let cancelled = std::sync::atomic::AtomicBool::new(false);
+    let sync_observer = || {
+        super::super::codex_approval_application::begin_observation(
+            &state, &id, generation, &cancelled,
+        )
+    };
+    let _ = sync_observer();
     // Establish a fake held Codex wait; approved input must independently clear it.
     {
         let workspace = state.workspace.lock().unwrap();
@@ -724,13 +734,12 @@ async fn diagnostic_fake_owned_runtime_disconnect_input_and_drain_cleanup() {
             "codex_hook",
             1.0,
         );
-        handle
-            .runtime
-            .native_approval
-            .as_mut()
-            .unwrap()
-            .record_validated_permission(&handle.runtime.attention_owner);
+        let tracker = handle.runtime.native_approval.as_mut().unwrap();
+        // This direct fixture write replaces the observer's previous owner.
+        tracker.invalidate();
+        tracker.record_validated_permission(&handle.runtime.attention_owner);
     }
+    let _ = sync_observer();
     let (_master, slave) = terminal_pair();
     let before = attributes(slave.as_raw_fd());
     {
