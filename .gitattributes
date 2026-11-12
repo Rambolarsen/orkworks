@@ -84,3 +84,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve the independent research capture/scope oracle on Windows.
 /docs/validation/research-capture-scope-components.json text eol=lf
+
+# Preserve independent research configuration/startup oracle bytes.
+/docs/validation/research-startup-components.json text eol=lf

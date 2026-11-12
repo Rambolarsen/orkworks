@@ -137,3 +137,12 @@ the [first-report investigation](first-report-producer-contract.md). #1689 stays
 open through those criteria. Existing accepted report/request/head/receipt and
 configuration protocols remain unchanged. No runtime/native execution, adapter,
 migration, model probe or executable runtime plan is authorized by this packet.
+
+## Configuration/startup continuation
+
+The [next source-component packet](research-startup-components.md) supplies a
+complete synthetic research v3 configuration, unverified retained evidence and
+composed startup under the existing scoped acceptance. It rebinds sample source
+bytes into its own task context; this original packet stays unchanged. Original
+plan/approval/launch sources, prepared input, controls, storage accounting/catalog
+and report consumers remain unqualified.
