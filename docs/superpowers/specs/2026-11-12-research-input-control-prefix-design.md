@@ -516,3 +516,9 @@ unchanged; the new packet builds its own input-2-bound synthetic source chain.
 The [first offline prefix packet](../../validation/research-prefix-components.md)
 records the scoped component evidence and the still-unqualified producer/history/
 consumer obligations. It does not implement the proposed product modules.
+
+The [written membership/publication follow-up](2026-11-12-research-membership-publication-design.md)
+proposes exact logical reference recipes, complete discovery and the narrow first-
+report effect union. Its new research registry/discovery/eligibility choices are
+not accepted by the earlier four-choice prefix acceptance. It supplies no new
+fixture, catalog/version or product implementation.

@@ -314,3 +314,15 @@ assumptions. Earlier artifacts remain unchanged. This does not close legal event
 history, actual currentness/authority, consumer/index completeness, shared resource
 accounting, report cutoff, ordinary-session bridge or atomic publication. Gate 2
 remains Investigate; no runtime/native work or executable product plan follows.
+
+## Written membership and publication follow-up
+
+The [research membership/publication proposal](../superpowers/specs/2026-11-12-research-membership-publication-design.md)
+names the exact research source/control and compact report-registry reference
+recipes, separate prospective versus immutable consumers, and original-to-final
+first-report effect/accounting ownership. It proposes the existing child discovery
+discipline for research and a narrow one-local-collection positive slice; unknown
+or unsupported consumers remain unavailable. These new choices await scoped owner
+review. The prefix fixture remains a component packet, not a consumer-completeness
+proof. No catalog/version, actual producer/index/cutoff/ordinary bridge or runtime
+qualification follows; accepted protocols and earlier artifact bytes are unchanged.
