@@ -326,3 +326,15 @@ or unsupported consumers remain unavailable. These new choices await scoped owne
 review. The prefix fixture remains a component packet, not a consumer-completeness
 proof. No catalog/version, actual producer/index/cutoff/ordinary bridge or runtime
 qualification follows; accepted protocols and earlier artifact bytes are unchanged.
+
+## Offline research membership and local-effect packet
+
+The owner accepted the three [membership/discovery choices](../superpowers/specs/2026-11-12-research-membership-publication-design.md#scoped-owner-acceptance-and-offline-component-handoff)
+for offline fixtures only. The [component packet](research-membership-components.md)
+derives separate forward/reverse sets from unchanged prefix examples, retains
+original assessment/runtime references, distinguishes inline from standalone
+report sources, and compares four local input/control values. Its synthetic
+request/head/receipt and supplied coverage/header assumptions qualify no global
+consumer completeness, legal event history, real CAS or publication. Full catalog/
+initializer/accounting/index/proof/cutoff/ordinary-bridge and runtime gates remain
+open. Gate 2 stays Investigate; earlier protocols and artifact bytes are preserved.
