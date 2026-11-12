@@ -13,6 +13,15 @@ fn result(
 }
 #[tokio::test]
 async fn sql_observer_pipeline_reads_sql_and_commits_only_current_rpc_effects() {
+    // Exact commit/publication assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_reads_sql_and_commits_only_current_rpc_effects"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
