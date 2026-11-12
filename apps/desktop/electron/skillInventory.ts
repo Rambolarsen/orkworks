@@ -381,19 +381,7 @@ export async function discoverSkills(options: {
         const metadata = skillMetadata(text);
         const key = root.scope + "\0" + canonical;
         const existing = entries.get(key);
-        if (existing) {
-          existing.paths = Array.from(new Set([...existing.paths, path]));
-          if (root.plugin) {
-            existing.plugins = Array.from(
-              new Set([...(existing.plugins || []), root.plugin]),
-            ).sort();
-            existing.management = "plugin";
-            if (root.version) existing.version = root.version;
-          }
-          existing.tools = Array.from(
-            new Set([...existing.tools, ...root.tools]),
-          );
-        } else
+        if (!existing) {
           entries.set(key, {
             id: createHash("sha256").update(key).digest("hex"),
             ...metadata,
@@ -405,6 +393,19 @@ export async function discoverSkills(options: {
             ...(root.plugin ? { plugins: [root.plugin] } : {}),
             ...(root.version ? { version: root.version } : {}),
           });
+          return;
+        }
+        existing.paths = Array.from(new Set([...existing.paths, path]));
+        if (root.plugin) {
+          existing.plugins = Array.from(
+            new Set([...(existing.plugins || []), root.plugin]),
+          ).sort();
+          existing.management = "plugin";
+          if (root.version) existing.version = root.version;
+        }
+        existing.tools = Array.from(
+          new Set([...existing.tools, ...root.tools]),
+        );
         return;
       } catch (error) {
         if (!missing(error)) {
