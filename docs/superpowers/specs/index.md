@@ -320,3 +320,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Brain-guided next improvement](2026-11-12-brain-guided-improvement-design.md) — Proposed manual progressive investigation with shared assessment, ranked opportunities and one preferred next step.
 - [Research prepared input and current-control prefix](2026-11-12-research-input-control-prefix-design.md) — Research input/stale-assessment, live-versus-frozen controls, positive collection ownership and source-owner effect boundaries; scoped acceptance for offline prefix components only.
+- [Research membership and first-report publication closure](2026-11-12-research-membership-publication-design.md) — Proposed typed research/reference recipes, complete discovery and original-to-final effect ownership; scoped written review only.
