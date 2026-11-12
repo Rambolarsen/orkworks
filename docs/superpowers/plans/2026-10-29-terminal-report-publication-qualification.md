@@ -292,3 +292,22 @@ Gate 2 remains Investigate. Next close those mappings in the #742/storage and
 dependent fixtures. Accepted protocols, caps and retained artifacts are unchanged;
 no runtime/native execution, lifecycle topology, migration or executable plan is
 supplied. Keep #1089/#742/#744/#746 open and preserve independent qualification gates.
+
+## Fresh report-ledger creation proposal — 2026-11-11
+
+The [proposed initialization extension](../specs/2026-11-11-report-retention-initialization-design.md)
+makes one Gate 2 seam concrete under #1679: existing workspace/run resource codecs
+with explicit zero creation at new-store initialization and first source admission,
+original creation-proof joins and no old-store adoption. Scoped owner acceptance
+is pending; the proposal does not qualify initial/child report history, terminal
+creation or complete consumers. No dependent fixture/runtime/native execution or
+executable plan is delivered. Gate 2 remains Investigate.
+
+## Fresh-ledger choices accepted; offline creation witnesses — 2026-11-12
+
+The [scoped owner acceptance](../specs/2026-11-11-report-retention-initialization-design.md#scoped-owner-acceptance--2026-11-12)
+permits only independent offline fixtures for fresh ledger creation. Their
+[separate evidence packet](../../validation/report-ledger-initialization.md)
+retains synthetic original sources and no report-producing command. This closes
+the initialization design/acceptance seam, not real producer/history/consumer
+qualification. Gate 2 stays Investigate; runtime/native execution remains excluded.
