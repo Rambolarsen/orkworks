@@ -354,3 +354,23 @@ codec, producer behavior or accepted lifecycle rule changed. This was one review
 round; the author applied the clarification afterward. Neither reviewer executed
 code, a fixture, database or native/runtime process. Physical/global completeness,
 actual source currentness, authority and publication remain unverified.
+
+## Scoped owner acceptance and offline component handoff
+
+The owner answered “keep going” to the explicit request to accept the three
+choices for **offline fixtures only**. This accepts the research reference recipes,
+single local prospective collection boundary and stricter discovery limits at
+that scope. It does not accept a physical catalog/initializer, real source/index/
+currentness proof, cutoff/ordinary bridge or product implementation.
+
+The bounded packet derives research object/source/history membership and separate
+membership sets for the four unchanged prefix views. It adds a synthetic compact
+head/receipt/request join over the supplied first report and compares the four
+local input/control changes between the running and selected-source samples.
+Conditional discovery traces retain supplied coverage/header assumptions. It
+creates no store, reducer, publisher, legal event sequence or whole accounting
+witness. Earlier artifact bytes remain unchanged; broader gates above stay open.
+
+The [offline membership/effect packet](../../validation/research-membership-components.md)
+records bounded component evidence for this acceptance. Its supplied owner/header
+assumptions do not prove complete source/index coverage or legal publication.

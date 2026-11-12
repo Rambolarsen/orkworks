@@ -138,3 +138,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline original research source chain](research-chain-components.md) — Synthetic original plan/approval/reservation/allocation/attachment/assignment joins and source domains; no actual event history, control or storage publication qualification.
 
 - [Offline research input and current-control prefix](research-prefix-components.md) — Separate assessment/event origins, input-2-bound synthetic sources and finite current-control/collection views; no transaction or publication qualification.
+
+- [Offline research membership and local effects](research-membership-components.md) — Independent finite reference/reverse sets, synthetic registry joins and four local value comparisons; no global completeness, legal history or publication qualification.
