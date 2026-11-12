@@ -1267,6 +1267,8 @@ printf 'codex-cli 0.160.0\n'
 "#,
                 KEYS.join(" ")
             );
+            #[cfg(target_os = "macos")]
+            prepare_version_fixture(&executable).await;
             std::fs::write(&executable, script).unwrap();
             crate::test_support::make_test_executable(&executable);
             let identity = ExecutableIdentity::read(&executable).unwrap();
