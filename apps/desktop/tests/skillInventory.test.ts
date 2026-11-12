@@ -198,17 +198,22 @@ test("includes Codex system and manifest-declared cached plugin skills without c
   await f.put(f.home, ".codex/skills/.system/system");
   await f.put(f.home, ".codex/skills/.other/hidden");
   const legacy = await codexPlugin(f, "legacy", "1.0", { name: "legacy", skills: "./workflows", version: "1.0" });
-  await f.put(legacy, "workflows/first");
+  const legacySkill = await realpath(await f.put(legacy, "workflows/first"));
   await f.put(legacy, "skills/not-declared");
-  const portable = await codexPlugin(f, "portable", "2.0", { name: "portable", version: "2.0" }, true);
-  await f.put(portable, "skills/second");
+  const portable = await codexPlugin(f, "portable", "2.0", { name: "portable", version: "2.0", skills: "./workflows" }, true);
+  const portableSkill = await realpath(await f.put(portable, "skills/second"));
+  await f.put(portable, "workflows/not-declared");
   const older = await codexPlugin(f, "portable", "1.0", { name: "portable", version: "1.0" }, true);
   await f.put(older, "skills/second");
+  const toolsOnly = await codexPlugin(f, "tools-only", "1.0", { name: "tools-only" });
+  await f.put(toolsOnly, "skills/not-declared");
   const result = await discoverSkills({ workspace: null, home: f.home, env: {} });
   assert.equal(result.skills.length, 4);
   assert.ok(result.skills.every(s => s.tools.includes("codex") && s.scope === "personal"));
   assert.deepEqual(result.skills.filter(s => s.plugins?.includes("portable@test-market")).map(s => s.version).sort(), ["1.0", "2.0"]);
   assert.equal(result.skills.find(s => s.plugins?.includes("legacy@test-market"))?.version, "1.0");
+  assert.equal(result.skills.find(s => s.plugins?.includes("legacy@test-market"))?.resolvedPath, legacySkill);
+  assert.equal(result.skills.find(s => s.plugins?.includes("portable@test-market") && s.version === "2.0")?.resolvedPath, portableSkill);
   assert.ok(result.diagnostics.some(s => /Codex.*active version.*not verified/.test(s)));
 });
 
