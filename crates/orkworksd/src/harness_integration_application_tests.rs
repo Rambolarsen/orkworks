@@ -1085,6 +1085,25 @@ async fn codex_owned_install_preserves_needs_trust_with_compatible_tool() {
         "codex",
         "#!/bin/sh\necho 'codex-cli 0.114.0'\n",
     );
+    #[cfg(target_os = "macos")]
+    {
+        // First execution of a new script can exceed the production probe
+        // deadline under load. Prepare this compatible-tool fixture first.
+        let mut command = std::process::Command::new(bin_dir.path().join("codex"));
+        let output = crate::probe_process::run(
+            &mut command,
+            crate::probe_process::ProbePolicy {
+                max_bytes: 64,
+                reject_overflow: true,
+                require_success: true,
+            },
+            std::time::Duration::from_secs(30),
+        )
+        .await
+        .expect("synthetic compatible Codex fixture preparation timed out or failed");
+        assert_eq!(output.stdout, b"codex-cli 0.114.0\n");
+        assert!(output.stderr.is_empty());
+    }
     let _fake_path = FakePath::prepend(bin_dir.path());
     let app = HarnessIntegrationApplication::new(state);
 
