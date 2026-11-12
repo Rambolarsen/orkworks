@@ -16,7 +16,7 @@ async fn isolated_case(case: &str) -> bool {
     isolated_test(format!("{module}::{case}")).await
 }
 
-pub(super) async fn isolated_test(test: String) -> bool {
+pub(crate) async fn isolated_test(test: String) -> bool {
     const CHILD: &str = "ORKWORKS_NATIVE_SQL_TEST_CASE";
     let marker = format!("isolated native SQL case: {test}");
     if std::env::var(CHILD).as_deref() == Ok(test.as_str()) {
