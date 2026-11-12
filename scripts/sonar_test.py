@@ -53,6 +53,52 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse((destination / 'outside.json').exists(),
                          'embedded reference outside the checkout must not be copied')
 
+    def test_snapshot_prunes_generated_directories_before_enumeration(self):
+        self.write('crates/orkworksd/src/nested/source.rs',
+                   'const DATA: &[u8] = include_bytes!("../../../../tests/fixtures/kept.bin");\n')
+        self.write('tests/fixtures/kept.bin', 'embedded payload\n')
+        generated = [self.root / 'crates/orkworksd' / name for name in
+                     ('target', 'node_modules', 'dist', 'dist-electron', 'out',
+                      'release', '.sonar', '.scannerwork')]
+        generated.append(self.root / 'crates/orkworksd/src/nested/target')
+        for directory in generated:
+            directory.mkdir(parents=True)
+            (directory / 'generated.rs').write_text(
+                'const BAIT: &str = include_str!("never-copied.py");\n')
+            (directory / 'never-copied.py').write_text('generated\n')
+        scandir = os.scandir
+
+        def reject_generated(path):
+            if Path(path) in generated:
+                self.fail('generated directory was enumerated: ' + str(path))
+            return scandir(path)
+
+        destination = self.root / 'snapshot'
+        # Python 3.9 caches scandir on pathlib's accessor at import time.
+        with mock.patch.object(os, 'scandir', side_effect=reject_generated), mock.patch.object(
+                getattr(self.root, '_accessor', os), 'scandir', side_effect=reject_generated):
+            sonar.snapshot(self.root, destination)
+        self.assertEqual((destination / 'tests/fixtures/kept.bin').read_text(),
+                         'embedded payload\n')
+        self.assertTrue((destination / 'crates/orkworksd/src/nested/source.rs').is_file())
+        for directory in generated:
+            self.assertFalse((destination / directory.relative_to(self.root)).exists())
+
+    def test_embedded_reference_discovery_propagates_source_traversal_errors(self):
+        self.write('crates/orkworksd/src/source.rs', 'const VALUE: u8 = 1;\n')
+        source = self.root / 'crates/orkworksd/src'
+        scandir = os.scandir
+
+        def disappear(path):
+            if Path(path) == source:
+                raise FileNotFoundError('source directory disappeared')
+            return scandir(path)
+
+        with mock.patch.object(os, 'scandir', side_effect=disappear), mock.patch.object(
+                getattr(self.root, '_accessor', os), 'scandir', side_effect=disappear):
+            with self.assertRaisesRegex(FileNotFoundError, 'source directory disappeared'):
+                sonar.embedded_references(self.root)
+
     def test_snapshot_includes_edits_and_untracked_source_but_not_credentials(self):
         self.write('apps/desktop/src/main.ts', 'export const answer = 2;\n')
         self.write('apps/desktop/src/new.ts', 'export const extra = 3;\n')
