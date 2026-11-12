@@ -14437,7 +14437,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             let mut meta = crate::test_support::test_session_metadata(
                 &id,
                 "Old topic",
-                &root.path().display().to_string(),
+                root.path().display().to_string(),
                 "running",
                 "now",
                 "now",
