@@ -127,7 +127,10 @@ test("includes configured OpenCode paths and Claude plugin registrations with ho
     join(f.home, ".claude/plugins/installed_plugins.json"),
     JSON.stringify({
       version: 2,
-      plugins: { "sample@local": [{ scope: "user", installPath: plugin }] },
+      plugins: {
+        "ignored@shape": { scope: "user", installPath: plugin },
+        "sample@local": [{ scope: "user", installPath: plugin }],
+      },
     }),
   );
   const result = await discoverSkills({
@@ -266,7 +269,11 @@ test("reads realistic APM deployment locks and attributes only recorded workspac
     [`.agents/skills/generated/resources/file-${n}.md`, "sha256:" + "a".repeat(64)]));
   const text = JSON.stringify({ lockfile_version: "1", dependencies: [{
     repo_url: "owner/skill-package", version: "1.2.3",
-    deployed_files: [".agents/skills/generated/SKILL.md", ".claude/skills/generated/SKILL.md"],
+    deployed_files: [
+      ".agents/skills/missing/SKILL.md",
+      ".agents/skills/generated/SKILL.md",
+      ".claude/skills/generated/SKILL.md",
+    ],
     deployed_file_hashes: hashes,
   }] });
   assert.ok(Buffer.byteLength(text) > 300000);
