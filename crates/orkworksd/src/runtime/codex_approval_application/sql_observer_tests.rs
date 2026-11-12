@@ -62,6 +62,15 @@ async fn sql_observer_pipeline_reads_sql_and_commits_only_current_rpc_effects() 
 }
 #[tokio::test]
 async fn sql_observer_pipeline_discards_a_hook_obsolete_rpc_result() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_discards_a_hook_obsolete_rpc_result"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
@@ -342,6 +351,15 @@ async fn sql_observer_pipeline_metadata_read_time_cannot_refresh_an_old_rpc() {
 
 #[tokio::test]
 async fn sql_observer_pipeline_cancelled_metadata_read_never_publishes_a_tick() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_cancelled_metadata_read_never_publishes_a_tick"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
@@ -632,6 +650,15 @@ async fn sql_observer_recovers_rpc_polling_after_detached_wait_without_adopting_
 
 #[tokio::test]
 async fn sql_observer_conflicting_tick_preserves_existing_wait_and_resumes_rpc() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_conflicting_tick_preserves_existing_wait_and_resumes_rpc"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
@@ -707,6 +734,15 @@ async fn sql_observer_conflicting_tick_preserves_existing_wait_and_resumes_rpc()
 
 #[tokio::test]
 async fn sql_observer_effect_read_cannot_adopt_a_replacement_controller() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_effect_read_cannot_adopt_a_replacement_controller"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for clear in [false, true] {
         let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
