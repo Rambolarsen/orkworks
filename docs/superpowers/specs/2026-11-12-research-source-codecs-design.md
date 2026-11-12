@@ -432,3 +432,12 @@ reservation/allocation/attachment/assignment, shared-pool accounting and report
 consumers remain outside that packet's qualification. The accepted choices for
 those sources need no repeat acceptance within this scope; their evidence is
 still required. See the [capture/scope component evidence](../../validation/research-capture-scope-components.md).
+
+## Configuration/startup component continuation
+
+The [research configuration/startup packet](../../validation/research-startup-components.md)
+continues that scoped acceptance with synthetic complete v3 configuration,
+unverified common capability artifacts and exact retained-input composition.
+It qualifies neither original plan/approval/launch sources nor native delivery,
+prepared input, current controls, storage catalog/accounting or report consumers.
+No accepted protocol/domain or original component artifact is changed.

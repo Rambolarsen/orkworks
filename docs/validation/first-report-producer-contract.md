@@ -269,3 +269,12 @@ synthetic bindings. It does not close configuration/startup, original approval/
 launch sources, prepared input, current controls, report consumers, accounting,
 catalog or atomic first-report publication. #1689 remains open and Gate 2 remains
 Investigate. All earlier source/control/report vectors retain their original bytes.
+
+## Research configuration/startup component continuation
+
+The [synthetic configuration/startup packet](research-startup-components.md) adds
+complete v3 research source-shape, common evidence and startup composition checks
+under the existing scoped acceptance. Actual capture/admission/model delivery and
+tool mapping remain unqualified, as do the original source chain and all current
+control/catalog/consumer/atomic-publication obligations above. Gate 2 remains
+Investigate and #1689 remains open.
