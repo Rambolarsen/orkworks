@@ -478,3 +478,11 @@ and fresh-run creation. It proposes no change to correction effects, receipt
 variants, source/request domains or caps, and permits no old-store backfill.
 Creation choices await scoped acceptance; original report history, real terminal
 producers, complete consumers and native/executable qualification remain gated.
+
+## Fresh-ledger acceptance and offline creation evidence — 2026-11-12
+
+The owner [accepted explicit fresh workspace/run ledger creation](2026-11-11-report-retention-initialization-design.md#scoped-owner-acceptance--2026-11-12)
+for offline fixtures only. The [creation witnesses](../../validation/report-ledger-initialization.md)
+check the initial zero-ledger extension; they do not prove original report history,
+real finish/cancel transitions or eligibility for this correction profile. Existing
+receipt/source/request bytes, caps and prior conditional packet remain unchanged.

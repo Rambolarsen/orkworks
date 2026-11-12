@@ -78,3 +78,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independent terminal UI scope/receipt oracle bytes on Windows.
 /docs/validation/terminal-authority-vectors.json text eol=lf
+
+# Preserve the separate offline report-ledger creation oracle on Windows.
+/docs/validation/report-ledger-initialization.json text eol=lf

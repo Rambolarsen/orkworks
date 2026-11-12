@@ -4,10 +4,14 @@ title: Fresh report-retention ledger initialization
 description: Proposed exact fresh-store and fresh-run resource initialization bridging initial preparation to later report-history qualification without adopting old stores.
 tags: [orkworks, hierarchy, reports, preparation, storage, accounting]
 status: draft
-workflow_status: proposed-for-scoped-owner-review
+workflow_status: scoped-accepted-for-offline-fixtures
 ---
 
 # Fresh report-retention ledger initialization
+
+The [scoped acceptance record](#scoped-owner-acceptance--2026-11-12) supersedes
+the proposal/pending wording retained below. Acceptance covers offline
+documentation fixtures only; production and Gate 2 qualifications remain open.
 
 Tracking: [#1679](https://github.com/Rambolarsen/orkworks/issues/1679),
 [#1089](https://github.com/Rambolarsen/orkworks/issues/1089),
@@ -234,3 +238,24 @@ producers. The author subsequently clarified that admission preserves the
 draft-owned preparation ledger while requiring absent initial reporting resources;
 no independent rereview of that wording is claimed. No fixture/runtime/native
 qualification was performed by either reviewer.
+
+## Scoped owner acceptance — 2026-11-12
+
+The owner answered **“go ahead”** to the explicit question following PR #1681:
+accept the fresh workspace/run ledger creation points, exact 12/19/16 row effects
+and original creation proofs, reject old-store backfill, and preserve all caps,
+**for offline documentation fixtures only**. Reviewed proposal head:
+`59ffe0fc79967743c14d99cc2c6792a2a036e1a1`. This accepts the three named choices
+above, including no draft-lifetime report ledger and the compatibility cost for
+older nine-ledger stores. It does not qualify any original producer command.
+
+Independent offline creation/accounting witnesses and denials may now depend on
+this closed extension. Preserve prior source catalogs, protocols and conditional
+evidence limits. Actual report/terminal history, complete consumer/index proof,
+native/UI/lease/storage/custody behavior and separately approved executable plans
+remain gated. Keep #1089/#742/#744/#746 open; #1679's scoped design/acceptance
+prerequisite can be completed independently of those broader gates.
+
+The [offline creation evidence](../../validation/report-ledger-initialization.md)
+records the independent separate witnesses, exact byte/row measurements and
+semantic denial cases under those unchanged limitations.

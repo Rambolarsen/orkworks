@@ -474,3 +474,12 @@ remain unchanged; existing nine-ledger stores are not backfilled. These addition
 effects and creation-proof recognition need scoped acceptance before fixtures.
 No report publication, terminal conversion, consumer closure or runtime/native
 execution is supplied; #1089 Gate 2 remains Investigate.
+
+## Fresh report-ledger extension accepted for offline fixtures — 2026-11-12
+
+The owner [accepted the three concrete initialization choices](2026-11-11-report-retention-initialization-design.md#scoped-owner-acceptance--2026-11-12)
+after PR #1681. The [separate offline packet](../../validation/report-ledger-initialization.md)
+adds only the closed workspace/run report-ledger creation effects to the retained
+initial scenarios. Original artifacts and this earlier recipe body are unchanged.
+No old-store adoption, actual report/terminal producer or native/runtime eligibility
+is established; #1089 Gate 2 remains Investigate.
