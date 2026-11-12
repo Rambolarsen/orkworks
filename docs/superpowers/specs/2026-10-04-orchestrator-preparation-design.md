@@ -1605,3 +1605,18 @@ health/dependency/quota checks remain binding. Exact transport, authority metada
 terminal producer, complete consumer proof, lifecycle integration and native
 qualification remain open; no codec/default, fixture, adapter, new probe budget or
 executable/runtime plan is approved. Keep #742/#1089 open.
+
+## First-report producer source investigation — 2026-11-12
+
+The [written first-report contract](../../validation/first-report-producer-contract.md)
+derives this protocol's initial child admission/retry/history and complete
+publication responsibilities without changing its bytes, caps or authority.
+The accepted selected child source/control profile is direct-execution only;
+it supplies no research question/task/control producer. The actual live task
+version and current run owner must come from the appropriate original producer,
+not captured R2 context, a frozen reservation version or a terminal row.
+
+[#1689](https://github.com/Rambolarsen/orkworks/issues/1689) tracks that research
+source/control/catalog and effect-map prerequisite. Existing #742 logical
+lifecycle acceptance stands; no general lifecycle reapproval, dependent fixture,
+runtime/native execution or storage-format conversion is requested or supplied.

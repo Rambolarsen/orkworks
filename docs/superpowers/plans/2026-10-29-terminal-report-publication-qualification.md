@@ -311,3 +311,18 @@ permits only independent offline fixtures for fresh ledger creation. Their
 retains synthetic original sources and no report-producing command. This closes
 the initialization design/acceptance seam, not real producer/history/consumer
 qualification. Gate 2 stays Investigate; runtime/native execution remains excluded.
+
+## First-report source and effect investigation — 2026-11-12
+
+The [first-report producer contract](../../validation/first-report-producer-contract.md)
+maps accepted child admission/retry and original report/history/resource effects.
+Existing selected child source/control codecs are direct-execution only; their
+report-evidence reads do not qualify a research producer. Retained R2 v1 requests
+use a captured task version 1 and cannot establish the selected positive-version
+reservation chain. Format-3 report witnesses are not format-4 child history.
+
+[#1689](https://github.com/Rambolarsen/orkworks/issues/1689) owns the missing research
+source/control/catalog and complete first-report effect closure. No new codec,
+cutoff, fixture or conversion is selected. The accepted fresh-ledger seam remains
+closed within its scope; real report/terminal producers and complete consumers
+remain unqualified. Gate 2 stays Investigate; no runtime/native execution.

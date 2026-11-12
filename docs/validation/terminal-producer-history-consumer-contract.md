@@ -212,3 +212,15 @@ for offline documentation fixtures. The [separate creation packet](report-ledger
 checks conditional zero-ledger effects and original proof joins, preserving earlier
 inputs. It qualifies no real report/terminal producer, nonzero report history or
 complete source-owner inventory. All broader Gate 2 gaps above remain open.
+
+## First-report source-owner refinement — 2026-11-12
+
+The [first-report investigation](first-report-producer-contract.md) refines the
+missing-source handoff: selected child source/control codecs already exist for
+direct execution, but explicitly exclude the research producer needed here.
+Their current run-version owner and format-4 catalog cannot be inferred from the
+format-3 terminal/fresh-ledger packets. It records exact initial request/history
+joins, active collection/expectation obligations and the R2 captured-version limit.
+[#1689](https://github.com/Rambolarsen/orkworks/issues/1689) requests that specific
+research source/control closure. No accepted logical protocol is reopened or
+broader Gate 2 prerequisite marked complete.
