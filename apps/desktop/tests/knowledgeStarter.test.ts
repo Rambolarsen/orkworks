@@ -15,13 +15,19 @@ const publicKey = readFileSync(path.join(resources, 'public-key.pem'), 'utf8');
 test('packaged starter has eligible publisher-signed privacy and manifest proof', () => {
   const proof = verifyKnowledgeActivation(readFileSync(starterPath), publicKey);
   assert.equal(proof.bundle.privacyPolicyVersion, 1);
-  assert.equal(proof.identity.version, 'brain-3');
-  assert.equal(proof.identity.sequence, 3);
-  assert.equal(proof.identity.bundleSha256, 'ac2d1750c76163cad6226eb94ee316cae46788623380589025753adca69fa511');
+  assert.equal(proof.identity.version, 'brain-4');
+  assert.equal(proof.identity.sequence, 4);
+  assert.equal(proof.identity.bundleSha256, 'f117033cb8496507f481ae2c88adc3a60c2779d5ede21a8bd2fedc485793c1b3');
   const manifestBytes = Buffer.from(proof.activation.manifestEnvelopeBase64, 'base64');
   assert.equal(createHash('sha256').update(manifestBytes).digest('hex'),
-    '4e028762fae8a8dca9ebd346210dc965295e43ea43ed6c760ca545de9ea48eb3');
+    'd53160cb8a71a2aa8c2469f7f0989c6d8ba88c36e4da5d36561692e0677b053d');
   assert.ok(proof.bundle.capabilities.includes('taskmaster-assessment-v1'));
+  assert.ok(proof.bundle.capabilities.includes('taskmaster-improvement-v1'));
+  const entry = proof.bundle.pages.find(page => page.id === 'playbooks/taskmaster-improvement.md');
+  assert.ok(entry, 'the signed improvement entry must be available offline');
+  for (const concept of proof.bundle.readinessRubric?.concepts ?? []) {
+    assert.ok(entry.relatedIds.includes(concept.pageId));
+  }
   assert.equal(proof.identity.publicKeySha256, 'a35da5934c629903f8f31db5067a9c5086f8372c34e3d917c9efb7decfd465dd');
   assert.ok(proof.bundle.capabilities.includes('taskmaster-readiness-v1'));
   assert.deepEqual(proof.bundle.readinessRubric?.concepts.map(row => row.conceptId), [...READINESS_CONCEPT_IDS]);

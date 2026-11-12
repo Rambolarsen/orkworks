@@ -45,7 +45,7 @@ On 2026-10-25 the owner approved the exact public candidate and signed
 publication in [Brain PR #127](https://github.com/Rambolarsen/brain/pull/127).
 The [publication workflow](https://github.com/Rambolarsen/brain/actions/runs/40211250600)
 completed after that merge.
-Current source packages the generated activation proof for this publication.
+The readiness source change packaged the generated activation proof for this publication.
 The pinned public key is unchanged. Older format-1 publications remain eligible
 for older clients; readiness requires the complete format-2 descriptor.
 
@@ -63,6 +63,37 @@ archive-owned version, sequence and publication time yields the exact reviewed
 public candidate in every field. Offline Electron and Rust tests exercise the
 actual generated starter. This publication does not establish model score quality
 or availability in a published OrkWorks installer.
+
+## Improvement guidance publication
+
+On 2026-11-12 the owner approved the exact public candidate in
+[Brain PR #147](https://github.com/Rambolarsen/brain/pull/147). The
+[publication workflow](https://github.com/Rambolarsen/brain/actions/runs/43276768094)
+completed against merge `bc0d46a599be626885ac39d2c2a016ae963287a1`.
+Current source packages this generated activation proof with the unchanged key.
+
+| Identity | Improvement publication |
+| --- | --- |
+| Version / sequence / bundle format | `brain-4` / `4` / `2` |
+| Bundle-envelope SHA-256 | `f117033cb8496507f481ae2c88adc3a60c2779d5ede21a8bd2fedc485793c1b3` |
+| Manifest-envelope SHA-256 | `d53160cb8a71a2aa8c2469f7f0989c6d8ba88c36e4da5d36561692e0677b053d` |
+| Reviewed public-core SHA-256 | `06adeee0640ff57803a6d991d989531221cbce13b54b630b8cb180f51ff8434e` |
+| Capability / entry | `taskmaster-improvement-v1` / `playbooks/taskmaster-improvement.md` |
+
+The live manifest, historical manifest and
+[immutable bundle](https://rambolarsen.github.io/brain/orkworks-knowledge/bundles/brain-4.json)
+matched the workflow artifacts byte for byte. The Electron verifier accepted the
+retained proof with the production pin; changing the signed capability was
+rejected. The entry and every linked rubric page occupy 16,417 UTF-8 bytes,
+within the investigation's initial guidance budget. Previous guidance pages and
+the complete rubric remain unchanged.
+
+The first workflow signed and archived `brain-4`, then failed to locate the
+Pages artifact immediately after upload. A single fresh run at the same source
+merge deployed the existing immutable bytes. No new version or key was created.
+Publication and offline starter verification establish guidance availability;
+paired usefulness qualification separately determines recommendation activation.
+Neither establishes availability in a published OrkWorks installer.
 
 ## Promotion and publishing ownership
 

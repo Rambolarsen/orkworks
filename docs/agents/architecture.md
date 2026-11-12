@@ -156,8 +156,8 @@ the sidecar independently verifies that proof and owns bounded analysis and
 evidence validation. Knowledge cannot change execution authority.
 Brain-backed analysis requires server-owned, reverified durable knowledge proof
 under [ADR 0081](../adr/0081-signed-taskmaster-knowledge-activation-proof.md).
-Current source packages the generated `brain-3` signed starter with the complete readiness
-rubric and unchanged public pin from the approved production publication. Admission checks
+Current source packages the generated `brain-4` signed starter with the complete readiness
+rubric, improvement playbook and unchanged public pin from the approved production publication. Admission checks
 manual requests, scheduling and worker entry before provider preparation, context
 collection or usage reservation. Missing, corrupt, unsupported or mismatched proof
 remains unavailable; unsigned policy fields, legacy snapshots and executable
@@ -2312,8 +2312,12 @@ freshness remains unknown for that purpose while the improvement report has its
 own currentness validation. A history write failure is separate from the report.
 
 Production qualification is a code-owned disabled gate, with no environment or
-HTTP override. The packaged public starter does not yet include the required
+HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication. The desktop retains the existing primary action whenever the
-replacement is unavailable. Neither local transport tests nor this source
+tracks publication and consumer integration. The first five-pair usefulness trial
+remains unqualified: two positive app results were valid, two app results were
+rejected and all controlled baselines failed their evidence protocol. The
+baseline prompt omitted a completion rule; post-trial prompt corrections have
+not received a new live qualification. The desktop retains the existing primary
+action whenever the replacement is unavailable. Neither local transport tests nor this source
 implementation establish usefulness qualification or published-installer behavior.
