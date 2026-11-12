@@ -618,3 +618,11 @@ The security-focused manual medium review approved all three changed source
 files without findings, and their hashes matched the verification/commit input.
 This is verified bug-fix source, not a passed live usefulness comparison or
 authorization to activate the new flow.
+
+A final docs-only recheck subsequently failed in the unchanged synthetic test
+`unapproved native continuation packet passes only synthetic clients and process
+checks`: Python's owned-fake-process cleanup raised `PermissionError` while
+signaling the process group after its raw-file-cap canary. That named test
+passed in isolation, then the complete documentation check passed all 1,564
+tests without skips. The failure and rerun logs are retained; no process
+supervisor or test expectations were changed in this task.
