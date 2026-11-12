@@ -887,6 +887,9 @@ mod tests {
 
     #[test]
     fn profiles_preserve_auth_and_never_reuse_interactive_arguments() {
+        // Keep HOME stable from environment capture through both comparisons.
+        let home = tempfile::tempdir().unwrap();
+        let _home = crate::test_support::FakeHome::set(home.path());
         for id in ["codex", "claude-code"] {
             let mut definition = definition(id);
             definition.default_args = vec![
