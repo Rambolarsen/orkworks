@@ -78,6 +78,8 @@ test("personal inventory works with no open workspace and details require an inv
 test("coalesces same-scope symlink aliases without merging scopes", async (t) => {
   const f = await fixture(t);
   const original = await f.put(f.home, ".agents/skills/example");
+  // Recognized skills terminate traversal for both first visits and aliases.
+  await f.put(original, "resources/nested-skill");
   await mkdir(join(f.home, ".claude/skills"), { recursive: true });
   await symlink(original, join(f.home, ".claude/skills/example"), "dir");
   const result = await discoverSkills({
