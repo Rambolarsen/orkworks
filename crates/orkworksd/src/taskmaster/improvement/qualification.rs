@@ -1012,9 +1012,18 @@ fn run_app_arm(
     ledger: &mut Ledger,
     case: &str,
 ) -> Result<(), String> {
+    let pages = &capture
+        .evaluation
+        .knowledge
+        .as_ref()
+        .ok_or("guidance_unavailable")?
+        .pages;
+    let permitted_page_ids = pages.iter().map(|page| page.id.clone()).collect::<Vec<_>>();
+    let mut invalid_model_output_error = None;
     let mut invoke = |input: engine::Invocation<'_>| {
         let manifest = access::supplied_manifest(capture, input.evidence, input.selected_page_ids)?;
-        ledger.invoke(case, Arm::App, input.prompt, || {
+        let invocation_started = Instant::now();
+        let raw = ledger.invoke(case, Arm::App, input.prompt, || {
             verify_pinned_case(plan, &pinned["cases"][case], case)
                 .map_err(|_| "fixture_identity_changed".to_owned())?;
             controlled_invoke(
@@ -1027,7 +1036,27 @@ fn run_app_arm(
                 input.prompt,
                 input.phase == engine::InvocationPhase::Final,
             )
-        })
+        })?;
+        let response_still_current = !entry.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+            && invocation_started.elapsed() < input.remaining
+            && input.evidence.revalidate().is_ok()
+            && !entry.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+            && invocation_started.elapsed() < input.remaining;
+        if !response_still_current {
+            return Ok(raw);
+        }
+        let validation = validate_app_output(
+            input.phase,
+            &raw,
+            input.evidence,
+            &permitted_page_ids,
+            input.selected_page_ids,
+            &capture.rubric,
+        );
+        if let Err(error) = validation {
+            invalid_model_output_error = Some(error);
+        }
+        Ok(raw)
     };
     let investigation = engine::investigate_from(
         started,
@@ -1043,6 +1072,7 @@ fn run_app_arm(
         &mut invoke,
         || entry.cancelled.load(std::sync::atomic::Ordering::SeqCst),
     );
+    drop(invoke);
     match investigation {
         Ok(value) => {
             let bytes =
@@ -1054,17 +1084,76 @@ fn run_app_arm(
             )
         }
         Err(error) => {
-            if error.contains("Invalid improvement") {
-                ledger.fail_last(case, Arm::App, "invalid_model_output")?;
-            }
+            let invalid_model_output = settle_app_decode_failure(
+                ledger,
+                case,
+                invalid_model_output_error.as_deref(),
+                &error,
+            )?;
+            let category = app_failure_category(invalid_model_output_error.as_deref(), &error);
             write_arm_result(
                 &ledger.artifact_root,
                 case,
                 Arm::App,
-                json!({"state":"failed","failureCategory":safe_error(&error)}),
+                json!({"state":"failed","failureCategory":category}),
             )?;
-            Err(error)
+            if invalid_model_output {
+                Err("invalid_model_output".into())
+            } else {
+                Err(error)
+            }
         }
+    }
+}
+
+fn validate_app_output(
+    phase: engine::InvocationPhase,
+    raw: &str,
+    evidence: &ProgressiveEvidence,
+    permitted_page_ids: &[String],
+    selected_page_ids: &[String],
+    rubric: &ReadinessRubric,
+) -> Result<(), String> {
+    match phase {
+        engine::InvocationPhase::Evidence => {
+            InvestigationStep::decode(raw, evidence.catalog().len(), permitted_page_ids).map(|_| ())
+        }
+        engine::InvocationPhase::Final => {
+            let fact_hashes = evidence
+                .facts()
+                .iter()
+                .map(|fact| fact.sha256.clone())
+                .collect::<Vec<_>>();
+            crate::taskmaster::improvement::model::FinalResult::decode(
+                raw,
+                &fact_hashes,
+                selected_page_ids,
+                rubric,
+            )
+            .map(|_| ())
+        }
+    }
+}
+
+fn settle_app_decode_failure(
+    ledger: &mut Ledger,
+    case: &str,
+    decoder_error: Option<&str>,
+    engine_error: &str,
+) -> Result<bool, String> {
+    if decoder_error == Some(engine_error) {
+        ledger.fail_last(case, Arm::App, "invalid_model_output")?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+fn app_failure_category(decoder_error: Option<&str>, error: &str) -> &'static str {
+    if decoder_error == Some(error) {
+        "invalid_model_output"
+    } else {
+        safe_error(error)
     }
 }
 
@@ -1260,6 +1349,7 @@ fn baseline_prompt(
         "repositoryCatalog":evidence.catalog().iter().enumerate().map(|(i,path)|json!({"id":i,"path":path})).collect::<Vec<_>>(),
         "coverage":{"catalogComplete":evidence.catalog_complete(),"instructionCoverageComplete":evidence.instruction_coverage_complete()},
         "knowledgePages":selected_pages,
+        "knowledgeCatalog":pages.iter().map(|page|json!({"id":page.id,"title":page.title,"type":page.page_type,"relatedIds":page.related_ids})).collect::<Vec<_>>(),
         "readRefusals":refusals,
     }).to_string();
     if prompt.len() > CALL_PROMPT_LIMIT {
@@ -1302,7 +1392,7 @@ fn write_arm_result(root: &Path, case: &str, arm: Arm, value: Value) -> Result<(
 }
 
 fn safe_error(error: &str) -> &'static str {
-    if error.contains("Invalid improvement") {
+    if error == "invalid_model_output" {
         "invalid_model_output"
     } else if error.contains("deadline") || error.contains("time limit") {
         "deadline_or_budget"
@@ -1436,6 +1526,186 @@ mod tests {
                 "bundleSha256":plan.expected_bundle_sha256,"manifestSha256":plan.expected_manifest_sha256
             }}
         })
+    }
+
+    fn app_final_rubric() -> ReadinessRubric {
+        use crate::taskmaster::readiness_rubric::CONCEPT_IDS;
+        serde_json::from_value(json!({
+            "id":"brain-agent-readiness","revision":1,
+            "concepts":CONCEPT_IDS.iter().map(|id|json!({
+                "conceptId":id,"pageId":"playbooks/rubric.md","pageSha256":"b".repeat(64),
+                "levels":["Implicit","Discoverable","Usable","Integrated","Adaptive"]
+            })).collect::<Vec<_>>()
+        }))
+        .unwrap()
+    }
+
+    fn app_final_response(fact_hash: &str) -> Value {
+        use crate::taskmaster::readiness_rubric::CONCEPT_IDS;
+        json!({
+            "version":1,"summary":"A bounded improvement is supported by the inspected evidence.",
+            "concepts":CONCEPT_IDS.iter().map(|id|json!({
+                "conceptId":id,"maturity":2,"confidence":"medium","repositoryFactIds":[0],
+                "rubricPageId":"playbooks/rubric.md","rationale":"Documented workflow evidence",
+                "limits":["Behavior remains unverified"],"nextTransition":"Evidence of workflow integration",
+                "unassessedReason":null
+            })).collect::<Vec<_>>(),
+            "opportunities":[{
+                "id":"bounded-step","targetSurface":"instructions","title":"Bounded step",
+                "summary":"The current instructions omit a bounded workflow step.",
+                "mechanism":"The inspected instructions end before explaining the workflow.",
+                "benefit":"A bounded step would make the process easier to follow.",
+                "evidenceStrength":"supported_hypothesis","effort":"low","risk":"low",
+                "reversibility":"high","repositoryFactHashes":[fact_hash],
+                "knowledgePageIds":["playbooks/rubric.md"],
+                "validation":"Whether readers follow the new step remains unverified.",
+                "rollback":"The prior instructions would be restored."
+            }],
+            "preferredOpportunityId":"bounded-step","noProposalReason":null,
+            "limitations":["Behavior remains unverified"]
+        })
+    }
+
+    #[test]
+    fn app_decoder_failures_retain_raw_output_and_mark_ledger_and_arm_invalid() {
+        let dir = tempdir().unwrap();
+        let rubric = app_final_rubric();
+        fs::write(
+            dir.path().join("README.md"),
+            "A bounded workflow fixture.\n",
+        )
+        .unwrap();
+        let evidence = ProgressiveEvidence::collect(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "2026-11-12T00:00:00Z",
+        )
+        .unwrap();
+        let fact_hash = evidence.facts()[0].sha256.clone();
+        let selected_pages = vec!["playbooks/rubric.md".into()];
+        let permitted_pages = selected_pages.clone();
+        let mut final_cases = vec!["{".to_owned()];
+        for mutation in ["citation", "preferred", "readiness"] {
+            let mut response = app_final_response(&fact_hash);
+            match mutation {
+                "citation" => {
+                    response["opportunities"][0]["knowledgePageIds"] = json!(["not-selected"])
+                }
+                "preferred" => response["preferredOpportunityId"] = json!("invented"),
+                _ => {
+                    response["concepts"][0]["maturity"] = json!(9);
+                }
+            }
+            final_cases.push(response.to_string());
+        }
+
+        let cases = std::iter::once((engine::InvocationPhase::Evidence, "not JSON".to_owned()))
+            .chain(
+                final_cases
+                    .into_iter()
+                    .map(|raw| (engine::InvocationPhase::Final, raw)),
+            )
+            .collect::<Vec<_>>();
+        let mut ledger = ledger_fixture(&dir.path().join("ledger.json"), &dir.path().join("out"));
+        for (index, (phase, raw)) in cases.into_iter().enumerate() {
+            let case = format!("case-{index}");
+            let captured_raw = ledger
+                .invoke(
+                    &case,
+                    Arm::App,
+                    r#"{"repositoryFacts":[],"knowledgePages":[]}"#,
+                    || Ok(raw.clone()),
+                )
+                .unwrap();
+            assert_eq!(captured_raw, raw);
+            let validation = validate_app_output(
+                phase,
+                &captured_raw,
+                &evidence,
+                &permitted_pages,
+                &selected_pages,
+                &rubric,
+            );
+            assert!(validation.is_err());
+            let decoder_error = validation.as_ref().unwrap_err().clone();
+            assert_eq!(ledger.value["outputs"][index]["state"], "completed");
+            assert!(settle_app_decode_failure(
+                &mut ledger,
+                &case,
+                Some(&decoder_error),
+                &decoder_error,
+            )
+            .unwrap());
+            let category = app_failure_category(Some(&decoder_error), &decoder_error);
+            write_arm_result(
+                &ledger.artifact_root,
+                &case,
+                Arm::App,
+                json!({"state":"failed","failureCategory":category}),
+            )
+            .unwrap();
+
+            let output = &ledger.value["outputs"][index];
+            assert_eq!(output["state"], "failed");
+            assert_eq!(output["failureCategory"], "invalid_model_output");
+            assert_eq!(
+                fs::read_to_string(
+                    dir.path()
+                        .join(format!("out/{case}/app/call-01.output.txt"))
+                )
+                .unwrap(),
+                raw
+            );
+            let arm: Value =
+                read_json(&ledger.artifact_root.join(&case).join("app.result.json")).unwrap();
+            assert_eq!(arm["failureCategory"], "invalid_model_output");
+        }
+        assert_eq!(
+            app_failure_category(
+                Some("Invalid improvement result JSON"),
+                "Improvement investigation deadline reached"
+            ),
+            "deadline_or_budget"
+        );
+    }
+
+    #[test]
+    fn engine_deadline_cancel_or_evidence_failure_does_not_relabel_a_decoder_response() {
+        let dir = tempdir().unwrap();
+        let mut ledger = ledger_fixture(&dir.path().join("ledger.json"), &dir.path().join("out"));
+        for (index, engine_error) in [
+            "Improvement investigation deadline reached",
+            "Improvement investigation cancelled",
+            "Repository evidence changed",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let case = format!("case-{index}");
+            let raw = ledger
+                .invoke(
+                    &case,
+                    Arm::App,
+                    r#"{"repositoryFacts":[],"knowledgePages":[]}"#,
+                    || Ok("not JSON".into()),
+                )
+                .unwrap();
+            let decoder_error = InvestigationStep::decode(&raw, 0, &[]).unwrap_err();
+            assert_eq!(ledger.value["outputs"][index]["state"], "completed");
+            assert!(!settle_app_decode_failure(
+                &mut ledger,
+                &case,
+                Some(&decoder_error),
+                engine_error,
+            )
+            .unwrap());
+            assert_eq!(
+                ledger.value["outputs"][index]["state"], "completed",
+                "the later engine error `{engine_error}` must settle this as a non-decoder failure"
+            );
+            assert_eq!(ledger.value["outputs"][index]["failureCategory"], "none");
+        }
     }
 
     #[test]
@@ -1724,10 +1994,38 @@ mod tests {
             sha256: "a".repeat(64),
             related_ids: Vec::new(),
         };
+        let catalog_only_page = crate::taskmaster::runtime::KnowledgePage {
+            id: "principles/catalog-only.md".into(),
+            title: "Catalog-only guidance".into(),
+            page_type: "principle".into(),
+            status: "active".into(),
+            content: "This content must not be supplied until selected.".into(),
+            sha256: "b".repeat(64),
+            related_ids: vec![page.id.clone()],
+        };
+        let pages = [page.clone(), catalog_only_page.clone()];
         let selected = vec![page.id.clone()];
-        let rendered =
-            baseline_prompt(&evidence, &rubric, &[page.clone()], &selected, &[], false).unwrap();
+        let rendered = baseline_prompt(&evidence, &rubric, &pages, &selected, &[], false).unwrap();
         let prompt: Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(prompt["knowledgePages"].as_array().unwrap().len(), 1);
+        assert_eq!(prompt["knowledgePages"][0]["id"], page.id);
+        assert_eq!(prompt["knowledgeCatalog"][0]["id"], page.id);
+        assert_eq!(prompt["knowledgeCatalog"][1]["id"], catalog_only_page.id);
+        assert_eq!(
+            prompt["knowledgeCatalog"][1]["title"],
+            catalog_only_page.title
+        );
+        assert_eq!(
+            prompt["knowledgeCatalog"][1]["type"],
+            catalog_only_page.page_type
+        );
+        assert_eq!(prompt["knowledgeCatalog"][1]["relatedIds"][0], page.id);
+        assert!(prompt["knowledgeCatalog"][1].get("content").is_none());
+        assert!(prompt["knowledgePages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|page| page["id"] != catalog_only_page.id));
         assert!(prompt["stepRules"].as_str().is_some_and(|rules| {
             rules.contains("finish true")
                 && rules.contains("repositoryReads")

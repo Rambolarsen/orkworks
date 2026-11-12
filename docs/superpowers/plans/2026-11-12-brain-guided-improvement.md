@@ -470,7 +470,14 @@ prevents counting that result as a validated negative pass.
 All five baseline second responses set `finish: true` while requesting knowledge
 pages. The decoder correctly rejected that combination. The baseline prompt
 omitted the explicit empty-request completion rule present in the app prompt,
-so these failures do not show that direct Brain advice is poor. There are no
+so these failures do not show that direct Brain advice is poor. PR review also
+found that the baseline omitted the full signed guidance catalog available to
+the app, further preventing an equivalent discovery comparison. Two rejected
+app finals retained transport-completed per-call ledger rows because semantic
+validation errors were recognized through a narrow message-prefix check; the
+arm result files correctly recorded failure. Source corrections supply the same
+catalog and classify production decoding failures explicitly. The original
+27-call ledger and outputs remain unchanged. There are no
 valid baseline preferred opportunities to compare; the paired-comparison gate
 is **unevaluable**, not passed by default. Independent adjudication accepts the
 two valid positives and the satisfied negative, but does **not** qualify
@@ -510,3 +517,22 @@ warning recommends public onboarding review because a release input changed;
 public user instructions remain accurate while the new flow is disabled. The
 canonical architecture and publication guide now distinguish signed starter
 availability from the unpassed usefulness gate and published installers.
+
+### PR review cycle 1
+
+PR #1733 review identified the missing baseline discovery catalog and the
+semantic-rejection ledger label described above. The corrected baseline exposes
+the same signed page metadata as the app while retaining content only for
+selected pages. Both app response phases use the production decoders for audit
+classification; the callback stages a decoder error and updates the ledger only
+after the engine settles with that exact error. Cancellation, deadline and
+evidence errors retain precedence. This avoids rewriting a transport-completed
+response as invalid when an intervening input or lifecycle check wins.
+
+Twelve deterministic qualification tests pass, including raw-output preservation,
+malformed evidence/final responses, semantic citation/preferred/readiness errors,
+catalog-only discovery and post-invocation settlement overrides. New regressions
+failed before their fixes and passed afterward. The revised qualification-module
+SHA-256 is `1f0494d3ccffca2ef970b6725ea0cdbc66be0cb0643d4c352aa84048719ac308`.
+The original live trial ledger is byte-identical at 27 reserved/completed calls.
+No new live inference or activation occurred.
