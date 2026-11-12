@@ -236,6 +236,15 @@ async fn sql_observer_pipeline_snapshot_cannot_move_to_a_rebound_application_own
 
 #[tokio::test]
 async fn sql_observer_pipeline_read_stall_cannot_adopt_a_replacement_tracker() {
+    // The read-stall barrier requires an uncontended initial capture to reach SQL.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_read_stall_cannot_adopt_a_replacement_tracker"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
