@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, renameSync, rmSync, symlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import fsExt from "fs-ext";

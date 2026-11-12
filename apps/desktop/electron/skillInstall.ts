@@ -11,7 +11,7 @@ import {
   rm,
 } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join, delimiter, isAbsolute, basename, resolve } from "node:path";
+import { join, delimiter, isAbsolute, basename } from "node:path";
 import { tmpdir } from "node:os";
 import * as yaml from "js-yaml";
 import {
