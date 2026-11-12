@@ -417,7 +417,7 @@ fn absolute_deadline_includes_collection_and_denies_provider_dispatch_after_expi
         ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
     let (_, rubric) = final_fixture();
     let mut calls = 0;
-    let mut invoke = |_: &str, _: Duration| {
+    let mut invoke = |_: super::engine::Invocation<'_>| {
         calls += 1;
         Ok(String::new())
     };
@@ -542,4 +542,190 @@ fn guidance_and_range_count_limits_are_enforced_before_provider_or_partial_admis
     )
     .is_err());
     assert_eq!(calls, 0);
+}
+
+#[test]
+fn dispatch_receives_trusted_evidence_pages_and_code_owned_phase() {
+    let dir = repository();
+    let evidence =
+        ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+    let (mut value, rubric) = final_fixture();
+    let mut calls = 0;
+    let mut invoke = |input: super::engine::Invocation<'_>| {
+        calls += 1;
+        assert_eq!(
+            input.selected_page_ids,
+            &["playbooks/rubric.md".to_string()]
+        );
+        assert!(!input.evidence.facts().is_empty());
+        assert!(input.remaining <= Duration::from_secs(480));
+        if calls == 1 {
+            assert_eq!(input.phase, super::engine::InvocationPhase::Evidence);
+            Ok(r#"{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true}"#.into())
+        } else {
+            assert_eq!(input.phase, super::engine::InvocationPhase::Final);
+            value["opportunities"][0]["repositoryFactHashes"] =
+                serde_json::json!([input.evidence.facts()[0].sha256]);
+            Ok(value.to_string())
+        }
+    };
+    let result = super::engine::investigate_from(
+        Instant::now(),
+        evidence,
+        &rubric,
+        &[guidance_fixture()],
+        "playbooks/rubric.md",
+        &mut invoke,
+        || false,
+    )
+    .unwrap();
+    assert!(result.result.preferred().is_some());
+    assert_eq!(calls, 2);
+}
+
+#[test]
+fn mandatory_rubric_pages_are_supplied_before_the_first_exchange() {
+    use super::engine::{investigate_from, Invocation, InvocationPhase};
+    let dir = repository();
+    let evidence =
+        ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+    let (mut value, rubric) = final_fixture();
+    value["opportunities"][0]["repositoryFactHashes"] =
+        serde_json::json!([evidence.facts()[0].sha256]);
+    let rubric_page = guidance_fixture();
+    let mut entry = rubric_page.clone();
+    entry.id = "playbooks/taskmaster-improvement.md".into();
+    entry.content = "Use the complete linked rubric before assessing.".into();
+    let mut calls = 0;
+    let result = investigate_from(
+        Instant::now(),
+        evidence,
+        &rubric,
+        &[entry.clone(), rubric_page.clone()],
+        &entry.id,
+        &mut |input: Invocation<'_>| {
+            calls += 1;
+            assert_eq!(
+                input.selected_page_ids,
+                &[entry.id.clone(), rubric_page.id.clone()]
+            );
+            assert!(input.prompt.contains(&rubric_page.content));
+            if input.phase == InvocationPhase::Evidence {
+                Ok(
+                    r#"{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true}"#
+                        .into(),
+                )
+            } else {
+                Ok(value.to_string())
+            }
+        },
+        || false,
+    )
+    .unwrap();
+    assert_eq!(calls, 2);
+    assert_eq!(result.supplied_page_ids.len(), 2);
+}
+
+#[test]
+fn missing_or_oversized_mandatory_rubric_prevents_any_dispatch() {
+    let dir = repository();
+    let (_, rubric) = final_fixture();
+    let mut entry = guidance_fixture();
+    entry.id = "playbooks/taskmaster-improvement.md".into();
+    for oversized in [false, true] {
+        let evidence =
+            ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        let mut pages = vec![entry.clone()];
+        if oversized {
+            let mut page = guidance_fixture();
+            page.content = "a".repeat(32 * 1024);
+            pages.push(page);
+        }
+        let mut calls = 0;
+        assert!(super::engine::investigate(
+            evidence,
+            &rubric,
+            &pages,
+            &entry.id,
+            &mut |_, _| {
+                calls += 1;
+                Ok(String::new())
+            },
+            || false
+        )
+        .is_err());
+        assert_eq!(calls, 0);
+    }
+}
+
+#[test]
+fn cancellation_guard_stops_startup_and_later_range_reads() {
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    let dir = repository();
+    std::fs::write(
+        dir.path().join("package.json"),
+        r#"{"scripts":{"test":"node --test"}}"#,
+    )
+    .unwrap();
+    let total = Arc::new(AtomicUsize::new(0));
+    let calls = total.clone();
+    ProgressiveEvidence::collect_controlled(
+        dir.path(),
+        ContextLevel::SourceCode,
+        &[],
+        "now",
+        move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(total.load(Ordering::SeqCst) > 3);
+    // Cancel at each preparation/read boundary, including after preparation has begun.
+    for cutoff in 1..=total.load(Ordering::SeqCst) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let result = ProgressiveEvidence::collect_controlled(
+            dir.path(),
+            ContextLevel::SourceCode,
+            &[],
+            "now",
+            move || {
+                if observed.fetch_add(1, Ordering::SeqCst) + 1 >= cutoff {
+                    Err("cancelled".into())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(matches!(result, Err(ref error) if error == "cancelled"));
+        assert_eq!(calls.load(Ordering::SeqCst), cutoff);
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let flag = cancelled.clone();
+    let mut evidence = ProgressiveEvidence::collect_controlled(
+        dir.path(),
+        ContextLevel::SourceCode,
+        &[],
+        "now",
+        move || {
+            if flag.load(Ordering::SeqCst) {
+                Err("cancelled".into())
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+    let id = evidence
+        .catalog()
+        .iter()
+        .position(|p| p == "src/feature.rs")
+        .unwrap();
+    cancelled.store(true, Ordering::SeqCst);
+    assert_eq!(evidence.read(id, 9000, 24).unwrap_err(), "cancelled");
+    assert_eq!(evidence.revalidate().unwrap_err(), "cancelled");
 }

@@ -177,19 +177,38 @@ impl PreparedCustomInference {
     /// The caller keeps its dispatch guard through spawn and child setup, then
     /// releases it before the runner waits for process output.
     pub(crate) fn run_with_spawn_and_prepare(
-        mut self,
+        self,
         spawn: impl FnOnce(
             &mut Command,
             &mut dyn FnMut(&mut std::process::Child) -> std::io::Result<()>,
         )
             -> Result<std::io::Result<std::process::Child>, ProviderOperationError>,
     ) -> Result<String, ProviderOperationError> {
+        self.run_with_spawn_and_prepare_controlled(spawn, None)
+    }
+
+    pub(crate) fn run_with_spawn_and_prepare_controlled(
+        mut self,
+        spawn: impl FnOnce(
+            &mut Command,
+            &mut dyn FnMut(&mut std::process::Child) -> std::io::Result<()>,
+        )
+            -> Result<std::io::Result<std::process::Child>, ProviderOperationError>,
+        control: Option<&super::InferenceControl>,
+    ) -> Result<String, ProviderOperationError> {
+        if super::stopped(control) {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::Timeout,
+                message: "custom inference cancelled or timed out".into(),
+            });
+        }
         let outcome = super::ProcessRunner.run_prepared_with_spawn(
             "custom-inference",
             &mut self.command,
             &self.stdin,
             self.timeout_secs,
             true,
+            control,
             spawn,
         )?;
         let result = match outcome {
@@ -228,6 +247,60 @@ mod tests {
             value["reasoningEffortArgs"] = json!(["--effort={effort}"]);
         }
         serde_json::from_value(value).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn controlled_custom_keeps_prompt_file_until_process_is_settled() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        use std::time::{Duration, Instant};
+        let executable = std::env::current_exe().unwrap().canonicalize().unwrap();
+        let mut prepared = prepare(
+            &capability(true, false),
+            &executable,
+            "chosen",
+            None,
+            "private fixture".into(),
+        )
+        .unwrap();
+        let file = prepared._prompt_file.as_ref().unwrap().path().to_path_buf();
+        let marker = tempfile::tempdir().unwrap();
+        let ready = marker.path().join("ready");
+        prepared.command = Command::new("sh");
+        prepared
+            .command
+            .arg("-c")
+            .arg("touch \"$1\"; exec sleep 30")
+            .arg("sh")
+            .arg(&ready);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let control = super::super::InferenceControl::new(
+            Instant::now() + Duration::from_secs(10),
+            cancelled.clone(),
+        );
+        let worker = std::thread::spawn(move || {
+            prepared.run_with_spawn_and_prepare_controlled(
+                |command, prepare| {
+                    Ok(command.spawn().and_then(|mut child| {
+                        prepare(&mut child)?;
+                        Ok(child)
+                    }))
+                },
+                Some(&control),
+            )
+        });
+        let limit = Instant::now() + Duration::from_secs(3);
+        while !ready.exists() && Instant::now() < limit {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(ready.exists());
+        assert!(file.exists());
+        cancelled.store(true, Ordering::Release);
+        assert!(worker.join().unwrap().is_err());
+        assert!(!file.exists());
     }
 
     #[test]

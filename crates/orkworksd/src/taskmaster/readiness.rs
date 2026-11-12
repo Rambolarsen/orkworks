@@ -72,7 +72,7 @@ fn identity(
     let manifest = Manifest {
         version: 1,
         purpose: "readiness".into(),
-        collector: repository.manifest(),
+        collector: Collector::Readiness(repository.manifest()),
         observations_digest: hash(&observations)?,
     };
     let versions = json!({"collector":super::assessment_context::READINESS_COLLECTOR_VERSION,"discoverySchema":2,"finalSchema":1,"prompt":PROMPT_VERSION,"scoring":1});
@@ -128,7 +128,13 @@ pub(crate) fn revalidate_linked_snapshot(
         &evaluation.settings.excluded_paths,
         &now(),
     )?
-    .restore(&data.identity.input_manifest.collector)?;
+    .restore(
+        data.identity
+            .input_manifest
+            .collector
+            .readiness()
+            .ok_or("Linked snapshot uses a different collector")?,
+    )?;
     let rubric = evaluation
         .readiness_rubric
         .as_ref()
@@ -871,14 +877,19 @@ pub(crate) fn status(state: &Arc<crate::AppState>, runtime_root: PathBuf) -> Sta
     } else {
         "unknown"
     };
-    if let Some(data) = latest.and_then(|s| s.data.as_ref()) {
+    if let Some(data) = latest
+        .and_then(|s| s.data.as_ref())
+        .filter(|data| data.identity.input_manifest.collector.readiness().is_some())
+    {
         if let Ok(mut c) = capture(state, &runtime) {
             if c.path == path && c.instance == instance {
-                match c
-                    .repository
-                    .clone()
-                    .restore_for_readiness(&data.identity.input_manifest.collector)
-                {
+                match c.repository.clone().restore_for_readiness(
+                    data.identity
+                        .input_manifest
+                        .collector
+                        .readiness()
+                        .expect("readiness collector"),
+                ) {
                     Ok(restored) => {
                         c.repository = restored;
                         if let Ok(new) = identity(
@@ -1491,7 +1502,9 @@ mod integration_tests {
             .unwrap()
             .identity
             .input_manifest
-            .collector;
+            .collector
+            .readiness()
+            .unwrap();
         assert_eq!(manifest.requested_file_ids.len(), 5);
         assert_eq!(manifest.selection_omissions.len(), 3);
         assert_eq!(manifest.files.iter().map(|f| f.bytes).sum::<usize>(), 65536);
@@ -2121,8 +2134,18 @@ mod integration_tests {
             let mut old = original.clone();
             old.id = uuid::Uuid::new_v4().to_string();
             let data = old.data.as_mut().unwrap();
-            data.identity.input_manifest.collector.collector_version = collector;
-            data.identity.input_manifest.collector.prompt_version = prompt.into();
+            data.identity
+                .input_manifest
+                .collector
+                .readiness_mut()
+                .unwrap()
+                .collector_version = collector;
+            data.identity
+                .input_manifest
+                .collector
+                .readiness_mut()
+                .unwrap()
+                .prompt_version = prompt.into();
             data.identity.versions["prompt"] = json!(prompt);
             data.identity.versions["discoverySchema"] = json!(discovery);
             data.identity.versions["collector"] = json!(collector);

@@ -9,16 +9,17 @@ const ids=['context-discovery','progressive-disclosure','instruction-scoping','a
 const snapshot=()=>({id:'one',startedAt:'2026-10-25T00:00:00.000Z',completedAt:'2026-10-25T00:00:00.000Z',redacted:false,data:{workspacePath:'/repo',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Observed guidance',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Workflow evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}});
 const status=(snapshots=[])=>({workspacePath:'/repo',run:null,snapshots,freshness:'current',retentionLimit:100,reasonCode:null});
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
-function nodes(tree){if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return[];return[tree,...nodes(tree.props?.children)];}
+function nodes(tree){if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return[];return[tree,...nodes(typeof tree.type==='function'?tree.type(tree.props):tree.props?.children)];}
 async function fixture(t,initial,props={}){
  const queue=[Promise.resolve(initial)];let tick;
- const prior=globalThis.window;globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{getReadinessStatus:()=>queue.shift(),requestReadinessAssessment:async()=>({outcome:'unavailable',runId:null,reasonCode:null})}};t.after(()=>globalThis.window=prior);
+ let improvementStatus={workspacePath:'/repo',available:false,reasonCode:'not_qualified',run:null};
+ const prior=globalThis.window;globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{getReadinessStatus:()=>queue.shift(),getImprovementStatus:async()=>improvementStatus,requestImprovement:async()=>({outcome:'unavailable',runId:null,reasonCode:'not_qualified'}),cancelImprovement:async()=>({outcome:'cancel_requested',runId:'improvement',reasonCode:null}),requestReadinessAssessment:async()=>({outcome:'unavailable',runId:null,reasonCode:null})}};t.after(()=>globalThis.window=prior);
  let stateIndex=0,effectIndex=0;const values=[],deps=[],effects=[];
  const hooks={...React,useRef:initial=>hooks.useState({current:initial})[0],useState(initial){const i=stateIndex++;if(!(i in values))values[i]=initial;return[values[i],next=>values[i]=typeof next==='function'?next(values[i]):next];},useEffect(callback,next){const i=effectIndex++;if(!deps[i]||next.some((x,j)=>x!==deps[i][j]))effects.push(callback);deps[i]=next;}};
  const module={exports:{}};new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='react'?hooks:require(id),module,module.exports);
- const onBusyChange=()=>{};const render=()=>{stateIndex=0;effectIndex=0;return module.exports.default({workspacePath:'/repo',disabled:false,onBusyChange,...props});};
+ const onBusyChange=()=>{};const render=(nextProps={})=>{stateIndex=0;effectIndex=0;return module.exports.default({workspacePath:'/repo',disabled:false,onBusyChange,...props,...nextProps});};
  const settle=async()=>{while(effects.length)effects.shift()();await new Promise(setImmediate);};render();await settle();
- return{render,settle,queue,tick:()=>tick(),summary:()=>nodes(render()).find(node=>node.props?.snapshot)?.props.snapshot};
+ return{render,settle,queue,tick:()=>tick(),summary:()=>nodes(render()).find(node=>node.props?.snapshot)?.props.snapshot,setImprovementStatus:value=>improvementStatus=value};
 }
 test('older responses cannot restore a score after a newer redacted history',async t=>{
  const view=await fixture(t,status());const old=deferred(),newer=deferred();view.queue.push(old.promise,newer.promise);view.tick();view.tick();
@@ -53,6 +54,25 @@ test('combined assessment is primary and scoring alone remains available',async 
  assert.equal(buttons[0].props.children,'Find next improvement');
  assert.ok(buttons.some(button=>button.props.children==='Check agent readiness'));
  assert.match(buttons[0].props.title,/four model calls/i);
+});
+
+test('qualified improvement alone becomes the primary action and discloses six calls',async t=>{
+ const view=await fixture(t,status());
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:null});
+ view.tick();await view.settle();
+ const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Find next improvement');
+ assert.match(button.props.title,/six model calls/i);
+ let starts=0;window.orkworks.requestImprovement=async()=>{starts++;return{outcome:'scheduled',runId:'run-1',reasonCode:null};};
+ button.props.onClick();await view.settle();assert.equal(starts,1);
+});
+
+test('an active improvement can be cancelled without calling the legacy assessment',async t=>{
+ const view=await fixture(t,status());
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'improvement',state:'running',phase:'assessing',startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});
+ view.tick();await view.settle();
+ let cancelled=0;window.orkworks.cancelImprovement=async id=>{cancelled++;assert.equal(id,'improvement');return{outcome:'cancel_requested',runId:id,reasonCode:null};};
+ const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Cancel investigation');
+ assert.ok(button);button.props.onClick();await view.settle();assert.equal(cancelled,1);
 });
 
 
@@ -285,4 +305,55 @@ for (const [errorCode, guidance, irrelevant] of [
  const recovery = nodes(notice).find(n => n.type === 'p' && !n.props.className);
  assert.match(displayedText(recovery), guidance);
  assert.doesNotMatch(displayedText(recovery), irrelevant);
+});
+
+
+test('preferred improvement renders its cited repository and Brain evidence',async t=>{
+ const view=await fixture(t,status());
+ const hash='a'.repeat(64);
+ const report={summary:'One supported opportunity.',concepts:ids.map(conceptId=>({conceptId,maturity:null,confidence:null,repositoryFactHashes:[],rubricPageId:'rubric',rationale:'Limited evidence',limits:[],nextTransition:'Evidence of stronger coverage',unassessedReason:'Insufficient evidence'})),opportunities:[{id:'entry-link',targetSurface:'instructions',title:'Scoped entry point',summary:'Link scoped instructions.',mechanism:'The entry point lacks the scoped link.',benefit:'Scoped constraints become discoverable.',evidenceStrength:'supported_hypothesis',effort:'low',risk:'low',reversibility:'high',repositoryFactHashes:[hash],knowledgePageIds:['concepts/context-discovery.md'],validation:'Link resolution remains unverified.',rollback:'Restore the previous entry point.'}],preferredOpportunityId:'entry-link',noProposalReason:null,limitations:[],coverage:0,overallScore:null,recommendationId:null,historySnapshotId:null,historyError:null,repositoryEvidence:[{path:'AGENTS.md',offset:0,fileSize:24,sha256:hash,text:'Repository entry facts.',complete:false}],knowledgeEvidence:[{pageId:'concepts/context-discovery.md',title:'Context discovery',status:'active',bundleVersion:'brain-test',sha256:'b'.repeat(64),excerpt:'Scoped instructions need a discoverable entry point.'}]};
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'evidence-run',state:'succeeded',phase:null,startedAt:'2026-11-12T10:00:00Z',completedAt:'2026-11-12T10:01:00Z',errorCode:null,report}});
+ view.tick();await view.settle();
+ const text=displayedText(view.render());
+ assert.match(text,/AGENTS.md/);
+ assert.match(text,/Context discovery/);
+ assert.match(text,/Insufficient evidence/);
+ assert.match(text,/Repository entry facts/);
+ assert.match(text,/concepts\/context-discovery.md/);
+ assert.match(text,/Scoped instructions need a discoverable entry point/);
+});
+
+
+test('pending recommendation publication keeps all assessment actions busy',async t=>{
+ const busy=[];const view=await fixture(t,status(),{onBusyChange:value=>busy.push(value)});
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'pending',state:'pending_recommendation',phase:null,startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});
+ view.tick();await view.settle();const tree=view.render();await view.settle();
+ assert.equal(busy.at(-1),true);
+ assert.ok(nodes(tree).filter(node=>node.type==='button').every(button=>button.props.disabled));
+ assert.match(displayedText(tree),/Saving.*recommendation/i);
+});
+
+test('a completed improvement surfaces its linked recommendation once',async t=>{
+ const surfaced=[];const view=await fixture(t,status(),{onSuggestion:id=>surfaced.push(id)});
+ const report={...snapshot().data,opportunities:[],preferredOpportunityId:null,noProposalReason:'No supported proposal.',limitations:[],recommendationId:'recommendation-1',historySnapshotId:null,historyError:null};
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'completed',state:'succeeded',phase:null,startedAt:'2026-11-12T10:00:00Z',completedAt:'2026-11-12T10:01:00Z',errorCode:null,report}});
+ view.tick();await view.settle();view.render();await view.settle();view.render();await view.settle();
+ assert.deepEqual(surfaced,['recommendation-1']);
+});
+
+test('older improvement reads cannot restore evidence after a newer redaction',async t=>{
+ const view=await fixture(t,status());const older=deferred(),newer=deferred();let calls=0;
+ window.orkworks.getImprovementStatus=()=>++calls===1?older.promise:newer.promise;
+ view.tick();view.tick();newer.resolve({workspacePath:'/repo',available:false,reasonCode:'access_denied',run:null});await view.settle();
+ older.resolve({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'stale',state:'running',phase:'assessing',startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});await view.settle();
+ assert.doesNotMatch(displayedText(view.render()),/Assessing opportunities/);
+});
+
+
+test('workspace switch synchronously hides the former improvement report before effects',async t=>{
+ const view=await fixture(t,status());
+ const report={...snapshot().data,summary:'Private former workspace assessment',opportunities:[],preferredOpportunityId:null,noProposalReason:'Private former workspace reason',limitations:[],recommendationId:null,historySnapshotId:null,historyError:null};
+ view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'former',state:'succeeded',phase:null,startedAt:'2026-11-12T10:00:00Z',completedAt:'2026-11-12T10:01:00Z',errorCode:null,report}});
+ view.tick();await view.settle();assert.match(displayedText(view.render()),/Private former workspace/);
+ assert.doesNotMatch(displayedText(view.render({workspacePath:'/other'})),/Private former workspace/);
 });

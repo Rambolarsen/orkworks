@@ -507,6 +507,16 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             get(http::readiness_handlers::get_status),
         )
         .route(
+            "/taskmaster/improvement",
+            get(http::improvement_handlers::status)
+                .post(http::improvement_handlers::start)
+                .layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/taskmaster/improvement/cancel",
+            post(http::improvement_handlers::cancel).layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
             "/taskmaster/audit/recommendations",
             post(run_recommendation_audit),
         )

@@ -30,8 +30,24 @@ pub(crate) struct InvestigationResult {
     pub refusals: Vec<ReadRefusal>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InvocationPhase {
+    Evidence,
+    Final,
+}
+
+/// Immutable sidecar-owned input identities; prompt prose never grants dispatch authority.
+pub(crate) struct Invocation<'a> {
+    pub prompt: &'a str,
+    pub remaining: Duration,
+    pub evidence: &'a ProgressiveEvidence,
+    pub selected_page_ids: &'a [String],
+    pub phase: InvocationPhase,
+}
+
 /// Data-only engine: this never authenticates a provider, enables a capability or publishes.
 /// `invoke` must enforce the supplied remaining deadline and captured runtime authority.
+#[cfg(test)]
 pub(crate) fn investigate(
     evidence: ProgressiveEvidence,
     rubric: &ReadinessRubric,
@@ -46,7 +62,7 @@ pub(crate) fn investigate(
         rubric,
         pages,
         entry_point,
-        invoke,
+        &mut |input: Invocation<'_>| invoke(input.prompt, input.remaining),
         cancelled,
     )
 }
@@ -59,12 +75,15 @@ pub(crate) fn investigate_from(
     rubric: &ReadinessRubric,
     pages: &[KnowledgePage],
     entry_point: &str,
-    invoke: &mut impl FnMut(&str, Duration) -> Result<String, String>,
+    invoke: &mut impl FnMut(Invocation<'_>) -> Result<String, String>,
     cancelled: impl Fn() -> bool,
 ) -> Result<InvestigationResult, String> {
     let mut budget = CallBudget::new(started);
     let mut selected = Vec::<String>::new();
     add_page(&mut selected, pages, entry_point)?;
+    for concept in &rubric.concepts {
+        add_page(&mut selected, pages, &concept.page_id)?;
+    }
     let permitted = pages.iter().map(|page| page.id.clone()).collect::<Vec<_>>();
     let mut refusals = Vec::new();
     let mut finish = false;
@@ -79,7 +98,17 @@ pub(crate) fn investigate_from(
         let final_call = finish || budget.final_due();
         let prompt = prompt(&evidence, rubric, pages, &selected, &refusals, final_call)?;
         budget.reserve(Instant::now(), final_call)?;
-        let output = invoke(&prompt, budget.remaining(Instant::now()))?;
+        let output = invoke(Invocation {
+            prompt: &prompt,
+            remaining: budget.remaining(Instant::now()),
+            evidence: &evidence,
+            selected_page_ids: &selected,
+            phase: if final_call {
+                InvocationPhase::Final
+            } else {
+                InvocationPhase::Evidence
+            },
+        })?;
         if cancelled() {
             return Err("Improvement investigation cancelled".into());
         }

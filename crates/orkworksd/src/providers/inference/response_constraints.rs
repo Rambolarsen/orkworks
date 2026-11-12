@@ -25,6 +25,34 @@ fn nullable(object: Value) -> Value {
 
 fn schema(shape: NativeResponseShape) -> Value {
     match shape {
+        NativeResponseShape::ImprovementEvidenceV1 => json!({
+            "type":"object","additionalProperties":false,
+            "required":["version","repositoryReads","knowledgePageIds","finish"],
+            "properties":{
+                "version":{"type":"integer","enum":[1]},
+                "repositoryReads":{"type":"array","items":{"type":"object","additionalProperties":false,
+                    "required":["fileId","offset","length"],"properties":{"fileId":{"type":"integer"},"offset":{"type":"integer"},"length":{"type":"integer"}}}},
+                "knowledgePageIds":references(),"finish":{"type":"boolean"}
+            }
+        }),
+        NativeResponseShape::ImprovementFinalV1 => {
+            let readiness = schema(NativeResponseShape::ReadinessV1);
+            let ranking = json!({"type":"string","enum":["low","medium","high"]});
+            json!({"type":"object","additionalProperties":false,
+                "required":["version","summary","concepts","opportunities","preferredOpportunityId","noProposalReason","limitations"],
+                "properties":{
+                    "version":{"type":"integer","enum":[1]},"summary":prose(),
+                    "concepts":readiness["properties"]["concepts"],
+                    "opportunities":{"type":"array","items":{"type":"object","additionalProperties":false,
+                        "required":["id","targetSurface","title","summary","mechanism","benefit","evidenceStrength","effort","risk","reversibility","repositoryFactHashes","knowledgePageIds","validation","rollback"],
+                        "properties":{"id":{"type":"string"},"targetSurface":target_surface(),"title":title(),"summary":prose(),"mechanism":prose(),"benefit":prose(),
+                            "evidenceStrength":{"type":"string","enum":["observed_problem","supported_hypothesis","investigation_needed"]},
+                            "effort":ranking,"risk":ranking,"reversibility":ranking,
+                            "repositoryFactHashes":references(),"knowledgePageIds":references(),"validation":prose(),"rollback":prose()}}},
+                    "preferredOpportunityId":nullable(json!({"type":"string"})),"noProposalReason":nullable(prose()),"limitations":{"type":"array","items":prose()}
+                }
+            })
+        }
         NativeResponseShape::ReadinessInvestigationV1 => json!({
             "type":"object","additionalProperties":false,
             "required":["version","conceptPageIds","requestedFileIds"],
@@ -104,6 +132,31 @@ pub(super) fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn improvement_constraints_cover_both_strict_protocol_phases() {
+        let evidence = schema(NativeResponseShape::ImprovementEvidenceV1);
+        assert_eq!(
+            evidence["required"],
+            json!(["version", "repositoryReads", "knowledgePageIds", "finish"])
+        );
+        assert_eq!(evidence["additionalProperties"], false);
+        assert_eq!(
+            evidence["properties"]["repositoryReads"]["items"]["additionalProperties"],
+            false
+        );
+        let final_shape = schema(NativeResponseShape::ImprovementFinalV1);
+        assert_eq!(final_shape["additionalProperties"], false);
+        assert_eq!(
+            final_shape["properties"]["opportunities"]["items"]["additionalProperties"],
+            false
+        );
+        assert!(final_shape["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("concepts")));
+        assert!(serde_json::to_vec(&final_shape).unwrap().len() <= 8192);
+    }
+
     #[test]
     fn readiness_constraints_keep_unassessed_confidence_null() {
         let constraint = schema(NativeResponseShape::ReadinessV1);

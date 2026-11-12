@@ -90,35 +90,35 @@ design approval is needed for decisions within that contract.
 
 ## Task 2: runtime, report publication and privacy
 
-- [ ] Add private runtime and store modules using captured evaluation identity
+- [x] Add private runtime and store modules using captured evaluation identity
   and existing analysis lease. Register code-owned native response shapes;
   custom/Claude/Ollama output still goes through strict application decoding.
-- [ ] Before wiring a route, implement new report/provenance/history codecs,
+- [x] Before wiring a route, implement new report/provenance/history codecs,
   range restoration, complete input identity and every access/deletion owner.
   Prove serialized maximum bounds and old-reader fail-closed behavior.
-- [ ] Test with deterministic provider fixtures: multiple evidence rounds without
+- [x] Test with deterministic provider fixtures: multiple evidence rounds without
   Peon, final ratings and proposal from shared facts, early finish and all six
   calls, deadline/cancel/changed inputs, denied reads, malformed output, provider
   failure, no useful opportunity and missing signed capability. No fallback.
-- [ ] Test pending publication/live reconciliation/restart, duplicate dismissal,
+- [x] Test pending publication/live reconciliation/restart, duplicate dismissal,
   settings reduction across unopened workspaces, stale list/get/accept/handoff,
   unknown versions and optional history-publication failure. No inference replay.
-- [ ] Check: focused runtime/store/privacy and existing assessment/readiness
+- [x] Check: focused runtime/store/privacy and existing assessment/readiness
   integration suites pass with production admission still disabled.
 
 ## Task 3: explicit desktop workflow and qualification gate
 
-- [ ] Add narrow authenticated start/status/cancel transport and independent
+- [x] Add narrow authenticated start/status/cancel transport and independent
   main/preload/renderer contract copies; keep the electron/src import boundary.
-- [ ] Present the preferred next step, brief ranked alternatives, assessment and
+- [x] Present the preferred next step, brief ranked alternatives, assessment and
   limits in Recommendations. Wire one run to the primary action only when its
   supported signed capability and qualification are available. Preserve existing
   standalone readiness/history and background analysis. Show useful unavailable,
   partial, no-result, interrupted and failure states without mixing old scores.
-- [ ] Verify real routing and desktop fixtures: no background inference from a
+- [x] Verify real routing and desktop fixtures: no background inference from a
   status/history read; stale workspace responses ignored; explicit handoff labels;
   cancellation and disabled/unavailable knowledge retain a usable old flow.
-- [ ] Run `bash scripts/verify-repo.sh`, scoped Rust build/test/fmt and desktop
+- [x] Run `bash scripts/verify-repo.sh`, scoped Rust build/test/fmt and desktop
   checks; fresh `/code-review low` of current code diff before merge. Update public
   behavior claims only for delivered source behavior, never infer installer state.
 
@@ -126,7 +126,7 @@ design approval is needed for decisions within that contract.
 
 - [ ] Track the required reviewed signed entry point/export/starter with Brain's
   publication owner. This repository task does not edit Brain or publish keys.
-- [ ] Preserve current production routing until the compatible signed capability
+- [x] Preserve current production routing until the compatible signed capability
   is delivered and paired usefulness qualification passes.
 - [ ] Before live trials, obtain an explicit finite call/cost budget. Use the
   design's fixed three-positive/two-negative corpus, same model/effort/knowledge
@@ -259,3 +259,158 @@ publication, migration, merge or production activation occurred. The original
 PR #1690 two-hour lifecycle budget expires at 06:47 UTC; hand off rather than
 silently reset it. Continue with the remaining real runtime/transport seam and
 current-tree verification/review in a fresh session, following #1694.
+
+### Integration review findings retained for continuation
+
+The read-only follow-up review requested two changes before integrating/merging
+this working-tree delta: add explicit small `DefaultBodyLimit` layers to the new
+POST start/cancel routes and test oversized bodies; render cited repository and
+Brain evidence excerpts/identities in the preferred-result UI. These remain
+unresolved at handoff. The reviewer checked the signed-proof, privacy/provenance,
+legacy fallback, typed intent and store-bound correction without further findings.
+Do not mark the integrated working tree review-complete or merge it yet.
+
+## Explicit continuation — 2026-11-12 12:00 UTC
+
+The owner explicitly instructed "keep going" after the bounded handoff. Continue
+the same approved task within a fresh bounded two-hour window, through 14:00 UTC;
+this is owner-directed continuation, not an unattended budget reset. The integrated
+verifier completed successfully. Both retained review findings now have passing
+regressions: a one-KiB route body limit and visible cited repository/Brain evidence.
+
+Use two isolated backend writers. Runtime owner edits Taskmaster improvement
+runtime/access/store/history, response schemas and HTTP. Provider-control owner
+edits providers.rs, providers/custom_inference.rs, providers/inference.rs and
+taskmaster/runtime/inference.rs. Frozen control seam:
+`providers::InferenceControl::new(deadline, Arc<AtomicBool>)`, cloneable, with
+`remaining()` and `is_cancelled()`; native
+`invoke_native_taskmaster_prompt_controlled` takes the existing response-shape
+invocation arguments plus `&InferenceControl` last; custom
+`invoke_custom_inference_controlled` extends the existing custom dispatch-gate
+invocation likewise. Existing callers retain old behavior. Controlled calls
+return after actual owned child/request and pipe cleanup, retaining the caller’s
+analysis lease through delayed physical cleanup. Signed publication and live-trial
+budget gates remain. The parent owns desktop/review fixes and integration.
+
+Bulk syncing was rejected by automatic approval review to protect uncommitted
+work. Preserve the retained handoff and apply only explicitly compared changes;
+never overwrite an entire existing source tree to update a baseline.
+
+
+## Continuation verification, 12:39 UTC
+
+The completed controlled-provider task passed a separate medium code review with
+no required changes. Seven controlled-call tests and the existing provider suite
+passed in the provider worktree; Windows job-object execution remains a CI check.
+The four owned provider files were integrated only after comparing each target
+against its known base; no bulk source-tree replacement was performed.
+
+The desktop task now includes explicit pending-publication busy state, individual
+assessment rows and their citations, preferred-opportunity repository/Brain
+excerpts, linked-recommendation refresh, UTF-8 range arithmetic and a standalone
+read-only investigation handoff. The backend independently enforces investigation
+scope rather than trusting arbitrary prompt overrides. Desktop review identified
+a synchronous workspace-switch rendering race; the boundary fix passed re-review.
+The affected 114 desktop tests and TypeScript checks pass. No final integrated
+repository-verification claim is made for the still-active runtime work.
+
+Concrete local, unsigned prerequisites are prepared outside the repository:
+`/private/tmp/orkworks-brain-improvement-publication-candidate/` contains a public
+playbook page proposal and publication-owner instructions. All related IDs resolve
+against the packaged public starter; entry plus mandatory rubric content is
+15,991 UTF-8 bytes. No Brain content or signed starter was modified or published.
+`/private/tmp/orkworks-brain-improvement-qualification-corpus/` contains the fixed
+three-positive/two-negative inert fixtures and separate adjudication criteria.
+No live provider call, independent coding harness or usefulness trial occurred.
+These artifacts do not satisfy the publication or qualification activation gate.
+
+The runtime owner is completing recommendation-consumer currentness, pending
+recovery, global/unopened-workspace privacy, later-range identity and history
+codec tests. Production admission remains disabled while those tasks and the
+external activation prerequisites are incomplete.
+
+
+Documentation checks for the current continuation pass: OKF metadata/indexes and
+1,297 documentation validation tests, documentation currency and worktree
+currency. The currency script recommends public onboarding and architecture
+review because code/API surfaces changed. Public onboarding is intentionally
+unchanged while the replacement remains disabled; the architecture's accepted
+design section states that existing manual behavior remains until qualification.
+The domain reference now defines the new attempt states and explicit read-only
+investigation intent. No published-installer behavior is claimed.
+
+
+## Final integration and review, 12:57 UTC
+
+The frozen backend handoff is integrated through an explicit 21-file manifest,
+with unchanged-parent hash checks and per-file backups. The owning branch was
+rebased onto `origin/main` at `6fc39980`; upstream provider-test stabilization
+was preserved. Parent-owned core tests and route limits were retained.
+
+Backend focused evidence: 29 improvement tests, 16 assessment-access tests, two
+readiness-store tests, one authenticated HTTP test and one investigation-handoff
+test passed. The core now supplies every distinct required rubric page before
+the first model call; 22 core regressions pass, including no dispatch for missing
+or oversized mandatory guidance. Final backend coverage includes a real controlled
+HTTP transport against a local mock Ollama endpoint, a barrier-controlled custom
+authority/cancel race, exact pending recovery, changed inputs, global/unopened
+redaction, no-proposal rubric citations, history failure and dismissal dedupe.
+
+An audit caught and corrected a custom-dispatch lock inversion before handoff.
+The intended order is runtime authority, per-run dispatch mutex, then workspace;
+registry access never spans those guards. Durable pending-marker persistence is
+the cancellation cutoff after provider cleanup. This boundary is included in the
+fresh final review rather than inferred from passing transport tests.
+
+The complete repository verifier is running against the integrated current code.
+Two fresh medium-effort code reviews cover runtime/privacy/history and
+provider/API/desktop integration, respectively. Medium is justified by the
+cross-component concurrency and protocol change and more than 500 changed lines.
+The frozen code identities are retained locally for matching the reviewed code
+to the eventual commit. Source remains disabled pending external activation gates.
+
+
+### Final-review corrections
+
+Both fresh medium-effort reviews are complete. Integration review required a
+bounded streaming response reader in Electron rather than applying the byte cap
+after `response.text()`. The transport now stops and cancels before EOF on
+oversize, and checks sidecar generation during reads. A pre-existing security
+fixture was updated from a text-only response double to an actual stream; its
+fetch/body generation-change assertions still pass. The affected 130 desktop
+regressions and Electron type check pass. Re-review found no remaining integration
+finding.
+
+Runtime review required current-report joins for terminal recommendations as
+well as active ones, and cancellation/deadline checks during initial collection.
+Terminal projection now fails closed without the current report; normal dismissal
+watermarks remain compatible and duplicate advice stays suppressed. An ephemeral
+read guard covers canonical seed preparation, range opens/reads and revalidation.
+Runtime passes its original absolute deadline and shared cancellation flag. The
+failure-settlement cutoff also shares the per-run dispatch mutex with cancel.
+Focused regressions passed, including every collection guard boundary and later
+reads; re-review found both findings resolved with no concrete residual finding.
+
+The first complete run passed 3,530 Rust tests (19 ignored), then caught the old
+text-only sidecar-generation fixture during desktop tests. That fixture is now
+corrected and passing. The definitive complete verifier is running after all
+source fixes; the earlier partial run is not completion evidence for the final
+code. No live usefulness qualification or activation occurred.
+
+
+## Verified source completion, 13:18 UTC
+
+The definitive `bash scripts/verify-repo.sh` completed successfully after every
+review correction: Rust build/format and 3,532 tests passed (19 ignored), Rust
+integration tests passed, 31 OpenCode reporter tests passed, desktop type check,
+native ABI verification, 1,743 desktop tests (five skipped) and desktop build
+passed, and 1,438 documentation tests plus docs build passed. Git diff,
+documentation currency and worktree currency checks passed. Existing unrelated
+compiler warnings were reviewed; no changed claim requires an installer claim.
+
+Both current-code medium reviews are complete with all required findings resolved.
+The reviewed code/test identities match the final verifier input. Tasks 1–3 are
+complete as disabled source implementation; this does not satisfy Task 4 or fix
+the currently installed primary flow. The external signed-publication and
+separately budgeted paired-usefulness gates remain open in #1703 and #1694.
+No private Brain reads, signed publication, live model call or activation occurred.

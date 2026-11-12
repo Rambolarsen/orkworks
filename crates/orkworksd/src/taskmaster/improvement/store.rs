@@ -52,7 +52,7 @@ impl Manifest {
     pub(crate) fn fingerprint(&self) -> Result<String, String> {
         crate::taskmaster::readiness_store::hash(self)
     }
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<(), String> {
         fn hash(s: &str) -> bool {
             s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
         }
@@ -118,6 +118,103 @@ pub(crate) struct Report {
     pub recommendation_id: Option<String>,
     pub history_snapshot_id: Option<String>,
     pub history_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication_limitation: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublicRange<'a> {
+    #[serde(flatten)]
+    fact: &'a RangeFact,
+    complete: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublicReport<'a> {
+    summary: &'a str,
+    concepts: Vec<crate::taskmaster::readiness_store::StoredRow>,
+    opportunities: &'a [super::model::Opportunity],
+    preferred_opportunity_id: &'a Option<String>,
+    no_proposal_reason: &'a Option<String>,
+    limitations: Vec<&'a str>,
+    coverage: usize,
+    overall_score: Option<u8>,
+    recommendation_id: &'a Option<String>,
+    history_snapshot_id: &'a Option<String>,
+    history_error: &'a Option<String>,
+    repository_evidence: Vec<PublicRange<'a>>,
+    knowledge_evidence: &'a [KnowledgeEvidence],
+}
+impl Report {
+    pub(crate) fn public(&self) -> Result<PublicReport<'_>, String> {
+        let concepts = self
+            .result
+            .concepts
+            .iter()
+            .map(|row| {
+                Ok(crate::taskmaster::readiness_store::StoredRow {
+                    concept_id: row.concept_id.clone(),
+                    maturity: row.maturity,
+                    confidence: row.confidence.clone(),
+                    repository_fact_hashes: row
+                        .repository_fact_ids
+                        .iter()
+                        .map(|id| {
+                            self.manifest
+                                .ranges
+                                .get(*id)
+                                .map(|range| range.sha256.clone())
+                                .ok_or("Improvement row citation unavailable")
+                        })
+                        .collect::<Result<_, _>>()?,
+                    rubric_page_id: row.rubric_page_id.clone(),
+                    rationale: row.rationale.clone(),
+                    limits: row.limits.clone(),
+                    next_transition: row.next_transition.clone(),
+                    unassessed_reason: row.unassessed_reason.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let (coverage, _, overall_score) = self.result.readiness().totals();
+        Ok(PublicReport {
+            summary: &self.result.summary,
+            concepts,
+            opportunities: &self.result.opportunities,
+            preferred_opportunity_id: &self.result.preferred_opportunity_id,
+            no_proposal_reason: &self.result.no_proposal_reason,
+            limitations: self
+                .result
+                .limitations
+                .iter()
+                .map(String::as_str)
+                .chain(self.publication_limitation.as_deref())
+                .collect(),
+            coverage,
+            overall_score,
+            recommendation_id: &self.recommendation_id,
+            history_snapshot_id: &self.history_snapshot_id,
+            history_error: &self.history_error,
+            repository_evidence: self
+                .repository_evidence
+                .iter()
+                .map(|fact| PublicRange {
+                    fact,
+                    complete: fact.complete(),
+                })
+                .collect(),
+            knowledge_evidence: &self.knowledge_evidence,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Phase {
+    CollectingEvidence,
+    ReadingEvidence,
+    Assessing,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -126,6 +223,8 @@ pub(crate) struct Record {
     pub format_version: u8,
     pub id: String,
     pub state: RunState,
+    #[serde(default)]
+    pub phase: Option<Phase>,
     pub started_at: String,
     pub completed_at: Option<String>,
     pub report: Option<Report>,
@@ -138,6 +237,7 @@ impl Record {
             format_version: 1,
             id: id.into(),
             state: RunState::Queued,
+            phase: Some(Phase::CollectingEvidence),
             started_at: started.into(),
             completed_at: None,
             report: None,
@@ -150,6 +250,7 @@ impl Record {
         self.pending_recommendation = None;
         self.error_code = Some("access_changed".into());
         self.state = RunState::AccessRedacted;
+        self.phase = None;
     }
     fn validate(&self) -> Result<(), String> {
         if self.format_version != 1
@@ -159,24 +260,76 @@ impl Record {
                 .id
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            || self.error_code.as_deref().is_some_and(|code| {
+                !matches!(
+                    code,
+                    "access_changed"
+                        | "cancelled"
+                        | "inputs_changed"
+                        | "deadline"
+                        | "investigation_failed"
+                        | "interrupted"
+                )
+            })
+            || self.started_at.is_empty()
+            || self.started_at.len() > 40
+            || self.started_at.chars().any(char::is_control)
             || self
-                .error_code
+                .completed_at
                 .as_ref()
-                .is_some_and(|s| s.len() > 256 || s.chars().any(char::is_control))
-            || (self.state == RunState::Succeeded
-                && (self.report.is_none() || self.pending_recommendation.is_some()))
-            || (self.state == RunState::PendingRecommendation
-                && (self.report.is_none() || self.pending_recommendation.is_none()))
-            || (matches!(
-                self.state,
-                RunState::Queued | RunState::Running | RunState::AccessRedacted
-            ) && (self.report.is_some() || self.pending_recommendation.is_some()))
+                .is_some_and(|s| s.len() > 40 || s.chars().any(char::is_control))
+            || match self.state {
+                RunState::Queued | RunState::Running => {
+                    self.phase.is_none()
+                        || self.completed_at.is_some()
+                        || self.error_code.is_some()
+                        || self.report.is_some()
+                        || self.pending_recommendation.is_some()
+                }
+                RunState::PendingRecommendation => {
+                    self.phase.is_some()
+                        || self.completed_at.is_none()
+                        || self.error_code.is_some()
+                        || self.report.is_none()
+                        || self.pending_recommendation.is_none()
+                }
+                RunState::Succeeded => {
+                    self.phase.is_some()
+                        || self.completed_at.is_none()
+                        || self.error_code.is_some()
+                        || self.report.is_none()
+                        || self.pending_recommendation.is_some()
+                }
+                RunState::Failed | RunState::Interrupted => {
+                    self.phase.is_some()
+                        || self.completed_at.is_none()
+                        || self.error_code.is_none()
+                        || self.report.is_some()
+                        || self.pending_recommendation.is_some()
+                }
+                RunState::AccessRedacted => {
+                    self.phase.is_some()
+                        || self.report.is_some()
+                        || self.pending_recommendation.is_some()
+                        || self.error_code.as_deref() != Some("access_changed")
+                }
+            }
         {
             return Err("Invalid improvement report state".into());
         }
         if let Some(report) = &self.report {
             report.manifest.validate()?;
-            if report.repository_evidence.len() > 32 || report.knowledge_evidence.len() > 16 {
+            if report
+                .publication_limitation
+                .as_deref()
+                .is_some_and(|s| s != "An existing recommendation prevented a new card.")
+                || report
+                    .history_error
+                    .as_deref()
+                    .is_some_and(|s| !matches!(s, "history_pending" | "history_unavailable"))
+                || report.repository_evidence.len() > 32
+                || report.knowledge_evidence.len() > 16
+            {
                 return Err("Improvement cited evidence exceeds limits".into());
             }
             for fact in &report.repository_evidence {
@@ -196,14 +349,62 @@ impl Record {
                     return Err("Improvement cited page identity mismatch".into());
                 }
             }
+            if report.recommendation_id.is_some() && report.result.preferred().is_none() {
+                return Err("Improvement recommendation lacks a preferred opportunity".into());
+            }
             if let Some(pending) = &self.pending_recommendation {
-                if report.recommendation_id.as_deref() != Some(&pending.id) {
+                if !super::publication::join_valid(report, &self.id, pending) {
                     return Err("Improvement pending publication identity mismatch".into());
                 }
             }
         }
         Ok(())
     }
+}
+
+/// Persist the pending marker before publishing a recommendation. A failure
+/// keeps the exact pending value available for idempotent recovery.
+pub(crate) fn publish_with(
+    record: &mut Record,
+    mut save: impl FnMut(&Record) -> Result<(), String>,
+    upsert: impl FnMut(&Recommendation) -> Result<(), String>,
+) -> Result<(), String> {
+    if record.pending_recommendation.is_some() {
+        let mut pending = record.clone();
+        pending.state = RunState::PendingRecommendation;
+        pending.phase = None;
+        save(&pending)?;
+        *record = pending;
+        return recover_with(record, save, upsert);
+    }
+    let mut completed = record.clone();
+    completed.state = RunState::Succeeded;
+    completed.phase = None;
+    save(&completed)?;
+    *record = completed;
+    Ok(())
+}
+
+pub(crate) fn recover_with(
+    record: &mut Record,
+    mut save: impl FnMut(&Record) -> Result<(), String>,
+    mut upsert: impl FnMut(&Recommendation) -> Result<(), String>,
+) -> Result<(), String> {
+    if record.state != RunState::PendingRecommendation {
+        return Err("Improvement publication is not pending".into());
+    }
+    let recommendation = record
+        .pending_recommendation
+        .as_ref()
+        .ok_or("Improvement recommendation is missing")?;
+    upsert(recommendation)?;
+    let mut completed = record.clone();
+    completed.pending_recommendation = None;
+    completed.state = RunState::Succeeded;
+    completed.phase = None;
+    save(&completed)?;
+    *record = completed;
+    Ok(())
 }
 
 pub(crate) struct ReportStore {

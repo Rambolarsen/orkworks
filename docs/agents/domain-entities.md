@@ -426,6 +426,34 @@ without replaying inference; pending publication uses the existing recoverable
 recommendation transaction. See [the assessment architecture](architecture.md)
 and [ADR 0086](../adr/0086-repository-led-taskmaster-assessment.md).
 
+### Brain-guided improvement investigation
+
+The accepted [Brain-guided design](../superpowers/specs/2026-11-12-brain-guided-improvement-design.md)
+and [ADR 0114](../adr/0114-brain-guided-improvement-investigation.md) define a
+separate manual improvement attempt. One final result contains fourteen nullable
+readiness rows, up to five opportunities, a preferred opportunity or explicit
+no-proposal reason, exact cited repository ranges, signed guidance and limits.
+Unknown ratings remain unknown; only complete coverage permits the existing
+equal-weight score. Observations are optional evidence rather than an admission
+gate. Production activation requires compatible signed guidance and paired
+usefulness qualification; the existing primary action remains in use meanwhile.
+
+The version-1 workspace-local improvement record is separate from legacy
+assessment storage. Attempt states are queued, running, pending recommendation,
+succeeded, failed, interrupted and access redacted. Running phases describe
+collecting evidence, reading evidence and assessing. Pending recommendation means
+publication can recover from the saved final result without repeating inference.
+A cancellation request does not release ownership before provider cleanup settles.
+
+An improvement-derived recommendation retains normal explicit acceptance and
+adds optional `assessment.improvementReference` provenance with `version: 1` and
+`intent: implementation | investigation`. An investigation handoff requests
+read-only findings; it does not authorize a speculative implementation. Legacy
+recommendations without this reference retain their existing Fix with AI scope.
+Report and recommendation identities bind the same selected opportunity and
+input evidence. Access narrowing redacts the complete source-derived result;
+stale or missing origin identity cannot authorize recommendation actions.
+
 ### Recommendation audit vocabulary
 
 The recommendation audit adds a third `RecommendationType` discriminant,

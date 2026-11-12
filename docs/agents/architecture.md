@@ -2277,10 +2277,43 @@ activation remain separate gates; no installed behavior or latency gain is claim
 ## Brain-guided manual improvement investigation design
 
 [ADR 0114](../adr/0114-brain-guided-improvement-investigation.md) and
-[#1686's proposed design](../superpowers/specs/2026-11-12-brain-guided-improvement-design.md)
+[#1686's accepted design](../superpowers/specs/2026-11-12-brain-guided-improvement-design.md)
 replace the primary combined manual action with progressive sidecar-brokered
 repository/knowledge reads and one final assessment/recommendation result after
 implementation and qualification. The owner approved the concrete contract on
 2026-11-12; #1694 tracks implementation. Existing manual actions and runtime limits
 remain until the replacement is qualified. Inference and handoff authority do not
 expand.
+
+
+The source implementation lives in `taskmaster/improvement/`. Its data-only
+engine shares the canonical safe repository collector, selects the signed entry
+point and mandatory rubric pages before dispatch, and brokers later permitted
+ranges and guidance pages under the finite budget. One validated final result
+owns the readiness rows and preferred opportunity; a low score does not generate
+advice by itself. Observations are optional and no Peon run is required.
+
+The runtime captures input authority, retains the existing analysis lease through
+actual provider cleanup, and uses controlled native/custom transports with the
+whole-run deadline. Authority checks precede dispatch and publication; saved
+range/catalog/guidance/settings/provider/recommendation identities also fence
+report reads and recommendation actions. Cancellation before the durable pending
+marker prevents publication. After that marker, recovery owns publication of the
+exact saved result and never repeats inference. Provider cleanup precedes that
+cutoff; an unsettled invocation does not release the run's ownership.
+
+Authenticated `GET/POST /taskmaster/improvement` and
+`POST /taskmaster/improvement/cancel` have narrow Electron preload methods.
+Renderer state is synchronously bound to the selected workspace and status reads
+do not start inference. The separate bounded improvement record retains cited
+snapshots and input identities rather than prompts or transcripts. Optional
+linked readiness history uses a versioned improvement collector; legacy history
+freshness remains unknown for that purpose while the improvement report has its
+own currentness validation. A history write failure is separate from the report.
+
+Production qualification is a code-owned disabled gate, with no environment or
+HTTP override. The packaged public starter does not yet include the required
+`taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
+tracks publication. The desktop retains the existing primary action whenever the
+replacement is unavailable. Neither local transport tests nor this source
+implementation establish usefulness qualification or published-installer behavior.

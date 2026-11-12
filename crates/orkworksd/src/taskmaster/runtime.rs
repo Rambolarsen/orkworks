@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 mod access;
-mod assessment;
+pub(super) mod assessment;
 mod inference;
 #[cfg(test)]
 mod knowledge_tests;

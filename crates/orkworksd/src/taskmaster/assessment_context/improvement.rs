@@ -6,6 +6,7 @@ use std::{
     collections::HashSet,
     io::{Read, Seek, SeekFrom},
     path::Path,
+    sync::Arc,
 };
 
 const MAX_FILES: usize = 32;
@@ -58,6 +59,7 @@ impl From<&RangeFact> for RangeIdentity {
 pub(crate) struct ProgressiveEvidence {
     context: RepositoryContext,
     facts: Vec<RangeFact>,
+    check: Arc<dyn Fn() -> Result<(), String> + Send + Sync>,
 }
 impl ProgressiveEvidence {
     pub(crate) fn collect(
@@ -66,11 +68,28 @@ impl ProgressiveEvidence {
         excluded: &[String],
         observed_at: &str,
     ) -> Result<Self, String> {
-        // Metadata-only catalog discovery preserves the existing no-unselected-content policy.
-        let context = RepositoryContext::collect_for_readiness(root, level, excluded, observed_at)?;
+        Self::collect_controlled(root, level, excluded, observed_at, || Ok(()))
+    }
+    pub(crate) fn collect_controlled(
+        root: &Path,
+        level: ContextLevel,
+        excluded: &[String],
+        observed_at: &str,
+        check: impl Fn() -> Result<(), String> + Send + Sync + 'static,
+    ) -> Result<Self, String> {
+        // The same ephemeral guard follows all seed, range and revalidation reads.
+        let check = Arc::new(check);
+        let context = RepositoryContext::collect_for_readiness_controlled(
+            root,
+            level,
+            excluded,
+            observed_at,
+            check.as_ref(),
+        )?;
         let mut result = Self {
             context,
             facts: Vec::new(),
+            check,
         };
         // Initial reads count in the same range/file/byte accounting as follow-ups.
         for seed in result.context.manifest.files.clone() {
@@ -201,6 +220,7 @@ impl ProgressiveEvidence {
         Ok(())
     }
     fn read_range(&self, path: &str, offset: u64, length: usize) -> Result<RangeFact, String> {
+        (self.check)()?;
         let mut file = open_evidence_file(
             &self.context.root,
             path,
@@ -219,6 +239,7 @@ impl ProgressiveEvidence {
             .checked_add((offset - inspection_start) as usize)
             .and_then(|n| n.checked_add(32))
             .ok_or("Invalid improvement range")?;
+        (self.check)()?;
         file.seek(SeekFrom::Start(inspection_start))
             .map_err(|_| "Improvement evidence cannot be read")?;
         let mut inspected = Vec::new();
@@ -255,11 +276,12 @@ impl ProgressiveEvidence {
         Ok(fact)
     }
     pub(crate) fn revalidate(&self) -> Result<(), String> {
-        let current = RepositoryContext::collect_for_readiness(
+        let current = RepositoryContext::collect_for_readiness_controlled(
             &self.context.root,
             self.context.level,
             &self.context.excluded,
             &self.context.observed_at,
+            self.check.as_ref(),
         )?;
         if current.manifest != self.context.manifest {
             return Err("Improvement repository inputs changed".into());

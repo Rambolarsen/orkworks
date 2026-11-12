@@ -1006,8 +1006,12 @@ function App() {
       )}
       {fixRecommendation && (
         <FixWithAiDialog
-          initialPrompt={fixRecommendation.completionPacket?.action.prompt ?? buildFixPromptDraft(fixRecommendation)}
-          promptReadOnly={Boolean(fixRecommendation.completionPacket)}
+          initialPrompt={fixRecommendation.assessment?.improvementReference?.version === 1 && fixRecommendation.assessment.improvementReference.intent === "investigation"
+            ? buildFixPromptDraft(fixRecommendation)
+            : fixRecommendation.completionPacket?.action.prompt ?? buildFixPromptDraft(fixRecommendation)}
+          promptReadOnly={Boolean(fixRecommendation.completionPacket) || fixRecommendation.assessment?.improvementReference?.intent === "investigation"}
+          title={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Investigate with AI" : "Fix with AI"}
+          confirmLabel={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Start investigation" : "Send to session"}
           onConfirm={handleConfirmFixWithAi}
           onCancel={() => setFixRecommendation(null)}
         />

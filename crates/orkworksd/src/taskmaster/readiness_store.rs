@@ -53,11 +53,47 @@ impl GitIdentity {
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub(crate) enum Collector {
+    Readiness(InputManifest),
+    Improvement(ImprovementHistoryInput),
+}
+impl Collector {
+    pub(crate) fn readiness(&self) -> Option<&InputManifest> {
+        match self {
+            Self::Readiness(value) => Some(value),
+            Self::Improvement(_) => None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn readiness_mut(&mut self) -> Option<&mut InputManifest> {
+        match self {
+            Self::Readiness(value) => Some(value),
+            Self::Improvement(_) => None,
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ImprovementHistoryInput {
+    pub version: u8,
+    pub manifest: super::improvement::store::Manifest,
+    pub excerpts: Vec<ImprovementHistoryExcerpt>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ImprovementHistoryExcerpt {
+    pub path: String,
+    pub sha256: String,
+    pub excerpt_sha256: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Manifest {
     pub version: u8,
     pub purpose: String,
-    pub collector: InputManifest,
+    pub collector: Collector,
     pub observations_digest: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -440,18 +476,25 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
             .map(|fact| {
                 let expected = fact_id(&fact.fact)?;
                 if fact.fact_id != expected
-                    || !data
-                        .identity
-                        .input_manifest
-                        .collector
-                        .files
-                        .iter()
-                        .any(|file| {
+                    || !match &data.identity.input_manifest.collector {
+                        Collector::Readiness(collector) => collector.files.iter().any(|file| {
                             file.path == fact.fact.path
                                 && file.sha256 == fact.fact.sha256
                                 && file.excerpt_digest
                                     == hex::encode(Sha256::digest(fact.fact.excerpt.as_bytes()))
-                        })
+                        }),
+                        Collector::Improvement(collector) => {
+                            collector.excerpts.iter().any(|excerpt| {
+                                excerpt.path == fact.fact.path
+                                    && excerpt.sha256 == fact.fact.sha256
+                                    && excerpt.excerpt_sha256
+                                        == hex::encode(Sha256::digest(fact.fact.excerpt.as_bytes()))
+                                    && collector.manifest.ranges.iter().any(|range| {
+                                        range.path == excerpt.path && range.sha256 == excerpt.sha256
+                                    })
+                            })
+                        }
+                    }
                 {
                     return Err("Invalid saved readiness evidence identity".into());
                 }
@@ -503,9 +546,41 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
 }
 impl SnapshotData {
     fn input_manifest_invalid(&self) -> bool {
-        self.identity.input_manifest.version != 1
-            || self.identity.input_manifest.purpose != "readiness"
-            || self.identity.input_manifest.collector.validate().is_err()
+        if self.identity.input_manifest.version != 1 {
+            return true;
+        }
+        match &self.identity.input_manifest.collector {
+            Collector::Readiness(collector) => {
+                self.identity.input_manifest.purpose != "readiness" || collector.validate().is_err()
+            }
+            Collector::Improvement(collector) => {
+                self.identity.input_manifest.purpose != "brain-improvement-v1"
+                    || collector.version != 1
+                    || collector.manifest.validate().is_err()
+                    || collector.excerpts.len() > 32
+                    || collector.manifest.context_level != self.identity.context_level
+                    || collector.manifest.excluded_paths != self.identity.excluded_paths
+                    || collector.manifest.workspace_path != self.identity.workspace_path
+                    || collector.manifest.rubric_digest != self.identity.rubric_digest
+                    || collector.manifest.fingerprint().ok().as_deref()
+                        != Some(self.identity.input_fingerprint.as_str())
+                    || collector.excerpts.len() != self.repository_evidence.len()
+                    || collector
+                        .excerpts
+                        .iter()
+                        .map(|entry| (&entry.path, &entry.sha256))
+                        .collect::<HashSet<_>>()
+                        .len()
+                        != collector.excerpts.len()
+                    || collector.excerpts.iter().any(|entry| {
+                        entry.excerpt_sha256.len() != 64
+                            || !entry.excerpt_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                            || !collector.manifest.ranges.iter().any(|range| {
+                                range.path == entry.path && range.sha256 == entry.sha256
+                            })
+                    })
+            }
+        }
     }
 }
 

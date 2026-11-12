@@ -7,6 +7,42 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use std::time::{Duration, Instant};
 
+/// Absolute deadline and caller-owned cancellation for a single inference run.
+#[derive(Clone)]
+pub(crate) struct InferenceControl {
+    deadline: Instant,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
+}
+impl InferenceControl {
+    pub(crate) fn new(deadline: Instant, cancelled: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self {
+            deadline,
+            cancelled,
+        }
+    }
+    pub(crate) fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+    }
+    fn stopped(&self) -> bool {
+        self.is_cancelled() || self.remaining().is_zero()
+    }
+}
+fn stopped(control: Option<&InferenceControl>) -> bool {
+    control.is_some_and(InferenceControl::stopped)
+}
+fn control_failure() -> InvocationResult {
+    InvocationResult {
+        launch_failure: false,
+        success: false,
+        exit_code: None,
+        stdout: String::new(),
+        stderr: "timed out or cancelled".into(),
+    }
+}
+
 pub(crate) type ProviderDispatchGate<'a> =
     dyn FnMut(&mut dyn FnMut() -> std::io::Result<()>) -> Option<std::io::Result<()>> + 'a;
 
@@ -743,6 +779,36 @@ trait ProviderRunner: Send + Sync {
         }
         self.run_prepared(id, command, prompt, timeout_secs, model)
     }
+    fn run_prepared_controlled(
+        &self,
+        _id: &str,
+        _command: &mut Command,
+        _prompt: &str,
+        _timeout_secs: u64,
+        _model: Option<&str>,
+        _gate: &mut ProviderDispatchGate<'_>,
+        _control: &InferenceControl,
+    ) -> InvocationResult {
+        InvocationResult {
+            stderr: "unsupported controlled inference runner".into(),
+            ..control_failure()
+        }
+    }
+    fn run_connection_controlled(
+        &self,
+        _id: &str,
+        _prompt: &str,
+        _timeout_secs: u64,
+        _model: Option<&str>,
+        _connection: Option<&str>,
+        _gate: &mut ProviderDispatchGate<'_>,
+        _control: &InferenceControl,
+    ) -> InvocationResult {
+        InvocationResult {
+            stderr: "unsupported controlled inference runner".into(),
+            ..control_failure()
+        }
+    }
     fn run(
         &self,
         id: &str,
@@ -831,6 +897,51 @@ impl ProviderRunner for CompositeRunner {
             gate,
         )
     }
+    fn run_prepared_controlled(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+        control: &InferenceControl,
+    ) -> InvocationResult {
+        self.process.run_prepared_controlled(
+            id,
+            command,
+            prompt,
+            timeout_secs,
+            model,
+            gate,
+            control,
+        )
+    }
+    fn run_connection_controlled(
+        &self,
+        id: &str,
+        prompt: &str,
+        timeout_secs: u64,
+        model: Option<&str>,
+        connection: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+        control: &InferenceControl,
+    ) -> InvocationResult {
+        if id != "ollama" {
+            return control_failure();
+        }
+        self.http.run_at_with_dispatch_gate(
+            id,
+            "",
+            &[],
+            prompt,
+            timeout_secs,
+            model,
+            connection,
+            Some(gate),
+            Some(control),
+        )
+    }
     fn run(
         &self,
         id: &str,
@@ -892,6 +1003,7 @@ impl ProviderRunner for CompositeRunner {
                 model,
                 connection,
                 Some(gate),
+                None,
             ),
             _ => ProviderRunner::run_prepared_with_dispatch_gate(
                 &self.process,
@@ -917,6 +1029,26 @@ fn remaining_until(deadline: std::time::Instant) -> Duration {
     deadline.saturating_duration_since(std::time::Instant::now())
 }
 
+// Keep the group leader unreaped while output pipes remain open. Its PID cannot
+// be reused during cancellation, so group termination still targets this child.
+#[cfg(unix)]
+fn child_exited_unreaped(child: &std::process::Child) -> std::io::Result<bool> {
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            child.id() as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+        )
+    };
+    if rc == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(unsafe { info.si_pid() } != 0)
+    }
+}
+
 fn join_until(thread: std::thread::JoinHandle<()>, deadline: std::time::Instant) -> bool {
     while !thread.is_finished() {
         let remaining = remaining_until(deadline);
@@ -932,6 +1064,224 @@ fn join_until(thread: std::thread::JoinHandle<()>, deadline: std::time::Instant)
 fn process_cleanup_does_not_join_a_pipe_thread_past_its_deadline() {
     let thread = std::thread::spawn(|| std::thread::sleep(Duration::from_millis(100)));
     assert!(!join_until(thread, std::time::Instant::now()));
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_process_does_not_spawn_after_cancellation() {
+    use std::sync::atomic::AtomicBool;
+    let marker = tempfile::tempdir().unwrap();
+    let path = marker.path().join("spawned");
+    let mut command = Command::new("sh");
+    command.arg("-c").arg("touch \"$1\"").arg("sh").arg(&path);
+    let control = InferenceControl::new(
+        std::time::Instant::now() + Duration::from_secs(5),
+        Arc::new(AtomicBool::new(true)),
+    );
+    let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+    let result = ProviderRunner::run_prepared_controlled(
+        &ProcessRunner,
+        "test",
+        &mut command,
+        "",
+        5,
+        None,
+        &mut gate,
+        &control,
+    );
+    assert!(!result.success);
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_process_interrupts_child_wait_and_backpressured_stdin() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for prompt in [String::new(), "x".repeat(4 * 1024 * 1024)] {
+        let marker = tempfile::tempdir().unwrap();
+        let path = marker.path().join("started");
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let control =
+            InferenceControl::new(Instant::now() + Duration::from_secs(10), cancelled.clone());
+        let path_for_child = path.clone();
+        let worker = std::thread::spawn(move || {
+            let mut command = Command::new("sh");
+            command
+                .arg("-c")
+                .arg("echo $$ > \"$1\"; exec sleep 30")
+                .arg("sh")
+                .arg(path_for_child);
+            let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+            ProcessRunner.run_prepared_controlled(
+                "test",
+                &mut command,
+                &prompt,
+                30,
+                None,
+                &mut gate,
+                &control,
+            )
+        });
+        let limit = Instant::now() + Duration::from_secs(3);
+        while !path.exists() && Instant::now() < limit {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pid: libc::pid_t = loop {
+            if let Ok(value) = std::fs::read_to_string(&path) {
+                if let Ok(pid) = value.trim().parse() {
+                    break pid;
+                }
+            }
+            assert!(Instant::now() < limit);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        cancelled.store(true, Ordering::Release);
+        let started = Instant::now();
+        assert!(!worker.join().unwrap().success);
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_process_interrupts_inherited_output_pipes_and_deadline() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "sleep 30 & exit 0"]);
+    let control = InferenceControl::new(
+        Instant::now() + Duration::from_millis(150),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+    let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+    let started = Instant::now();
+    let result = ProcessRunner.run_prepared_controlled(
+        "test",
+        &mut command,
+        "",
+        30,
+        None,
+        &mut gate,
+        &control,
+    );
+    assert!(!result.success);
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+#[cfg(unix)]
+#[test]
+fn controlled_process_retains_caller_until_inherited_pipe_closes() {
+    let mut command = Command::new("python3");
+    command.args([
+        "-c",
+        "import os,time
+pid=os.fork()
+if pid == 0:
+ os.setsid()
+ time.sleep(1.5)
+ os._exit(0)
+time.sleep(0.1)
+os._exit(0)",
+    ]);
+    let control = InferenceControl::new(
+        Instant::now() + Duration::from_millis(300),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+    let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+    let started = Instant::now();
+    let result = ProcessRunner.run_prepared_controlled(
+        "test",
+        &mut command,
+        "",
+        10,
+        None,
+        &mut gate,
+        &control,
+    );
+    assert!(!result.success);
+    assert!(started.elapsed() >= Duration::from_secs(1));
+}
+
+#[test]
+fn controlled_http_cancels_body_wait_and_respects_dispatch_gate() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let runner = HttpRunner {
+        settings: Arc::new(RwLock::new(ProviderSettingsPayload::default())),
+    };
+    let control = InferenceControl::new(
+        Instant::now() + Duration::from_secs(5),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let mut denied = |_start: &mut dyn FnMut() -> std::io::Result<()>| None;
+    assert!(
+        !runner
+            .run_at_with_dispatch_gate(
+                "ollama",
+                "",
+                &[],
+                "prompt",
+                5,
+                Some("model"),
+                Some(&url),
+                Some(&mut denied),
+                Some(&control)
+            )
+            .success
+    );
+    listener.set_nonblocking(true).unwrap();
+    assert!(matches!(listener.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+    listener.set_nonblocking(false).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 4096];
+        let _ = stream.read(&mut request).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+            .unwrap();
+        tx.send(()).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut b = [0; 1];
+        let _ = stream.read(&mut b);
+    });
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let flag = cancelled.clone();
+    let cancel = std::thread::spawn(move || {
+        rx.recv_timeout(Duration::from_secs(3)).unwrap();
+        flag.store(true, Ordering::Release);
+    });
+    let control = InferenceControl::new(Instant::now() + Duration::from_secs(5), cancelled);
+    let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+    let started = Instant::now();
+    assert!(
+        !runner
+            .run_at_with_dispatch_gate(
+                "ollama",
+                "",
+                &[],
+                "prompt",
+                5,
+                Some("model"),
+                Some(&url),
+                Some(&mut gate),
+                Some(&control)
+            )
+            .success
+    );
+    assert!(started.elapsed() < Duration::from_secs(3));
+    cancel.join().unwrap();
+    server.join().unwrap();
 }
 
 #[cfg(unix)]
@@ -960,6 +1310,26 @@ fn process_runner_preserves_nonzero_exit_code_when_output_capture_fails() {
 }
 
 impl ProviderRunner for ProcessRunner {
+    fn run_prepared_controlled(
+        &self,
+        id: &str,
+        command: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        _model: Option<&str>,
+        gate: &mut ProviderDispatchGate<'_>,
+        control: &InferenceControl,
+    ) -> InvocationResult {
+        self.run_prepared_with_control_and_gate(
+            id,
+            command,
+            prompt,
+            timeout_secs,
+            false,
+            gate,
+            Some(control),
+        )
+    }
     fn run(
         &self,
         id: &str,
@@ -1027,6 +1397,30 @@ impl ProcessRunner {
         strict_stdout: bool,
         gate: &mut ProviderDispatchGate<'_>,
     ) -> InvocationResult {
+        self.run_prepared_with_control_and_gate(
+            id,
+            cmd,
+            prompt,
+            timeout_secs,
+            strict_stdout,
+            gate,
+            None,
+        )
+    }
+
+    fn run_prepared_with_control_and_gate(
+        &self,
+        id: &str,
+        cmd: &mut Command,
+        prompt: &str,
+        timeout_secs: u64,
+        strict_stdout: bool,
+        gate: &mut ProviderDispatchGate<'_>,
+        control: Option<&InferenceControl>,
+    ) -> InvocationResult {
+        if stopped(control) {
+            return control_failure();
+        }
         let mut launch_failure = false;
         let outcome = self.run_prepared_with_spawn(
             id,
@@ -1034,9 +1428,16 @@ impl ProcessRunner {
             prompt,
             timeout_secs,
             strict_stdout,
+            control,
             |command, prepare_child| {
                 let mut child = None;
                 let mut spawn = || {
+                    if stopped(control) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::Interrupted,
+                            "cancelled",
+                        ));
+                    }
                     let spawn_result = command.spawn();
                     launch_failure = matches!(
                         &spawn_result,
@@ -1106,6 +1507,7 @@ impl ProcessRunner {
                 prompt,
                 timeout_secs,
                 strict_stdout,
+                None,
                 |cmd, prepare_child| {
                     let spawn_result = cmd.spawn();
                     launch_failure = matches!(
@@ -1137,6 +1539,7 @@ impl ProcessRunner {
         prompt: &str,
         timeout_secs: u64,
         strict_stdout: bool,
+        control: Option<&InferenceControl>,
         spawn: impl FnOnce(
             &mut Command,
             &mut dyn FnMut(&mut std::process::Child) -> std::io::Result<()>,
@@ -1172,11 +1575,15 @@ impl ProcessRunner {
             if let Err(error) = job.attach_and_resume(child) {
                 let _ = job.terminate();
                 let _ = child.kill();
-                let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
-                while matches!(child.try_wait(), Ok(None))
-                    && !remaining_until(cleanup_deadline).is_zero()
-                {
-                    std::thread::sleep(Duration::from_millis(10));
+                if control.is_some() {
+                    let _ = child.wait();
+                } else {
+                    let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
+                    while matches!(child.try_wait(), Ok(None))
+                        && !remaining_until(cleanup_deadline).is_zero()
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
                 }
                 return Err(error);
             }
@@ -1204,6 +1611,7 @@ impl ProcessRunner {
             prompt,
             timeout_secs,
             strict_stdout,
+            control,
             #[cfg(windows)]
             job,
         ))
@@ -1216,19 +1624,16 @@ impl ProcessRunner {
         prompt: &str,
         timeout_secs: u64,
         strict_stdout: bool,
+        control: Option<&InferenceControl>,
         #[cfg(windows)] job: windows_process::ProcessJob,
     ) -> ProcessOutcome {
         #[cfg(unix)]
         let pid = child.id();
         let terminate_child = |child: &mut std::process::Child| {
             #[cfg(unix)]
-            // macOS has no pidfd-style primitive that can atomically target a
-            // process group by identity. The group is created exclusively for
-            // this child, and the kill happens immediately while this
-            // invocation still owns the Child. Using child.kill() alone would
-            // leave descendants holding stdout/stderr pipes open, so the
-            // theoretical PGID-reuse window is not actionable without a
-            // supervisor process that would change this runner's semantics.
+            // Controlled calls keep the group leader unreaped through pipe
+            // collection, reserving its identity until this tree is terminated.
+            // Legacy calls retain their existing process-group cleanup behavior.
             let _ = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
             #[cfg(windows)]
             {
@@ -1239,17 +1644,22 @@ impl ProcessRunner {
             }
             #[cfg(not(any(unix, windows)))]
             let _ = child.kill();
-            let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
-            while matches!(child.try_wait(), Ok(None))
-                && !remaining_until(cleanup_deadline).is_zero()
-            {
-                std::thread::sleep(Duration::from_millis(10));
+            if control.is_some() {
+                let _ = child.wait();
+            } else {
+                let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(1);
+                while matches!(child.try_wait(), Ok(None))
+                    && !remaining_until(cleanup_deadline).is_zero()
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
             }
         };
 
         let deadline = std::time::Instant::now()
             .checked_add(Duration::from_secs(timeout_secs))
             .unwrap_or_else(std::time::Instant::now);
+        let deadline = control.map_or(deadline, |control| deadline.min(control.deadline));
 
         if let Some(mut stdin) = child.stdin.take() {
             let prompt = prompt.as_bytes().to_vec();
@@ -1260,28 +1670,58 @@ impl ProcessRunner {
                 let _ = tx.send(result);
             });
 
-            match rx.recv_timeout(remaining_until(deadline)) {
+            let write_result = loop {
+                if control.is_some() && (stopped(control) || remaining_until(deadline).is_zero()) {
+                    break Err(std::sync::mpsc::RecvTimeoutError::Timeout);
+                }
+                let wait = if control.is_some() {
+                    remaining_until(deadline).min(Duration::from_millis(10))
+                } else {
+                    remaining_until(deadline)
+                };
+                match rx.recv_timeout(wait) {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                        if !stopped(control) && !remaining_until(deadline).is_zero() =>
+                    {
+                        continue
+                    }
+                    result => break result,
+                }
+            };
+            match write_result {
                 Ok(Ok(())) => {
-                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    if control.is_some() {
+                        let _ = thread.join();
+                    } else {
+                        join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    }
                 }
                 Ok(Err(e)) => {
                     let exit_status_deadline = std::time::Instant::now()
                         + PROMPT_WRITE_EXIT_GRACE.min(remaining_until(deadline));
-                    let exit_code = loop {
-                        match child.try_wait() {
-                            Ok(Some(status)) => break status.code().filter(|code| *code != 0),
-                            Ok(None) => {
-                                let remaining = remaining_until(exit_status_deadline);
-                                if remaining.is_zero() {
-                                    break None;
+                    let exit_code = if control.is_some() {
+                        None
+                    } else {
+                        loop {
+                            match child.try_wait() {
+                                Ok(Some(status)) => break status.code().filter(|code| *code != 0),
+                                Ok(None) => {
+                                    let remaining = remaining_until(exit_status_deadline);
+                                    if remaining.is_zero() {
+                                        break None;
+                                    }
+                                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
                                 }
-                                std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                                Err(_) => break None,
                             }
-                            Err(_) => break None,
                         }
                     };
                     terminate_child(&mut child);
-                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    if control.is_some() {
+                        let _ = thread.join();
+                    } else {
+                        join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    }
                     tracing::warn!(provider = %id, error = %e, "peon: failed to write prompt");
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
@@ -1293,7 +1733,11 @@ impl ProcessRunner {
                 }
                 Err(_) => {
                     terminate_child(&mut child);
-                    join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    if control.is_some() {
+                        let _ = thread.join();
+                    } else {
+                        join_until(thread, std::time::Instant::now() + Duration::from_secs(1));
+                    }
                     tracing::warn!(provider = %id, "peon: prompt write timed out");
                     return ProcessOutcome::TimedOut;
                 }
@@ -1319,19 +1763,35 @@ impl ProcessRunner {
              stderr_thread: Option<std::thread::JoinHandle<()>>| {
                 let deadline = std::time::Instant::now() + Duration::from_secs(1);
                 if let Some(thread) = stdout_thread {
-                    join_until(thread, deadline);
+                    if control.is_some() {
+                        let _ = thread.join();
+                    } else {
+                        join_until(thread, deadline);
+                    }
                 }
                 if let Some(thread) = stderr_thread {
-                    join_until(thread, deadline);
+                    if control.is_some() {
+                        let _ = thread.join();
+                    } else {
+                        join_until(thread, deadline);
+                    }
                 }
             };
 
         let status = loop {
-            match child.try_wait() {
+            #[cfg(unix)]
+            let observed = if control.is_some() {
+                child_exited_unreaped(&child).map(|exited| if exited { Some(None) } else { None })
+            } else {
+                child.try_wait().map(|status| status.map(Some))
+            };
+            #[cfg(not(unix))]
+            let observed = child.try_wait().map(|status| status.map(Some));
+            match observed {
                 Ok(Some(status)) => break status,
                 Ok(None) => {
                     let remaining = remaining_until(deadline);
-                    if remaining.is_zero() {
+                    if remaining.is_zero() || stopped(control) {
                         terminate_child(&mut child);
                         join_capture_threads(stdout_thread, stderr_thread);
                         tracing::warn!(provider = %id, "peon: provider timed out");
@@ -1340,7 +1800,16 @@ impl ProcessRunner {
                     std::thread::sleep(remaining.min(Duration::from_millis(10)));
                 }
                 Err(e) => {
-                    terminate_child(&mut child);
+                    // If another owner has reaped the child, its process-group
+                    // identity is no longer reserved and must not be signalled.
+                    #[cfg(unix)]
+                    let still_owned =
+                        !(control.is_some() && e.raw_os_error() == Some(libc::ECHILD));
+                    #[cfg(not(unix))]
+                    let still_owned = true;
+                    if still_owned {
+                        terminate_child(&mut child);
+                    }
                     join_capture_threads(stdout_thread, stderr_thread);
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
@@ -1356,7 +1825,24 @@ impl ProcessRunner {
         let mut stdout = None;
         let mut stderr = None;
         while stdout.is_none() || stderr.is_none() {
-            match rx.recv_timeout(remaining_until(deadline)) {
+            let wait = if control.is_some() {
+                remaining_until(deadline).min(Duration::from_millis(10))
+            } else {
+                remaining_until(deadline)
+            };
+            if control.is_some() && (stopped(control) || remaining_until(deadline).is_zero()) {
+                terminate_child(&mut child);
+                join_capture_threads(stdout_thread, stderr_thread);
+                return ProcessOutcome::TimedOut;
+            }
+            match rx.recv_timeout(wait) {
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    if control.is_some()
+                        && !stopped(control)
+                        && !remaining_until(deadline).is_zero() =>
+                {
+                    continue
+                }
                 Ok((is_stdout, Ok(bytes))) => {
                     if is_stdout {
                         stdout = Some(bytes);
@@ -1371,7 +1857,10 @@ impl ProcessRunner {
                     return ProcessOutcome::Finished(InvocationResult {
                         launch_failure: false,
                         success: false,
-                        exit_code: status.code().filter(|code| *code != 0),
+                        exit_code: status
+                            .as_ref()
+                            .and_then(|status| status.code())
+                            .filter(|code| *code != 0),
                         stdout: String::new(),
                         stderr: message,
                     });
@@ -1386,6 +1875,21 @@ impl ProcessRunner {
         }
 
         join_capture_threads(stdout_thread, stderr_thread);
+        let status = match status {
+            Some(status) => status,
+            None => match child.wait() {
+                Ok(status) => status,
+                Err(error) => {
+                    return ProcessOutcome::Finished(InvocationResult {
+                        launch_failure: false,
+                        success: false,
+                        exit_code: None,
+                        stdout: String::new(),
+                        stderr: error.to_string(),
+                    })
+                }
+            },
+        };
 
         let stdout = stdout.unwrap_or_default();
         let stdout = if strict_stdout {
@@ -1429,12 +1933,19 @@ fn poll_http_send_with_dispatch_gate<F>(
     mut send_fut: std::pin::Pin<&mut F>,
     cx: &mut std::task::Context<'_>,
     gate: &mut ProviderDispatchGate<'_>,
+    control: Option<&InferenceControl>,
 ) -> std::task::Poll<Result<reqwest::Response, HttpReadError>>
 where
     F: Future<Output = Result<reqwest::Response, reqwest::Error>> + ?Sized,
 {
     let mut polled = None;
     let mut start = || {
+        if stopped(control) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            ));
+        }
         polled = Some(send_fut.as_mut().poll(cx));
         Ok(())
     };
@@ -1473,7 +1984,7 @@ pub(crate) fn poll_http_send_for_test<F>(
 where
     F: Future<Output = Result<reqwest::Response, reqwest::Error>> + ?Sized,
 {
-    poll_http_send_with_dispatch_gate(send_fut, cx, gate).map_err(|_| ())
+    poll_http_send_with_dispatch_gate(send_fut, cx, gate, None).map_err(|_| ())
 }
 
 async fn read_http_body_limited(mut response: reqwest::Response) -> Result<Vec<u8>, HttpReadError> {
@@ -1543,6 +2054,7 @@ impl HttpRunner {
             model,
             connection,
             None,
+            None,
         )
     }
 
@@ -1556,7 +2068,11 @@ impl HttpRunner {
         model: Option<&str>,
         connection: Option<&str>,
         mut dispatch_gate: Option<&mut ProviderDispatchGate<'_>>,
+        control: Option<&InferenceControl>,
     ) -> InvocationResult {
+        if stopped(control) {
+            return control_failure();
+        }
         let base_url = match id {
             "ollama" => connection
                 .map(str::to_owned)
@@ -1596,20 +2112,33 @@ impl HttpRunner {
 
         let mut send_fut = Box::pin(client.post(&url).json(&body).send());
         let request_fut = std::future::poll_fn(|cx| {
+            if stopped(control) {
+                return std::task::Poll::Ready(Err(HttpReadError::DispatchRejected));
+            }
             if let Some(gate) = dispatch_gate.as_deref_mut() {
-                poll_http_send_with_dispatch_gate(send_fut.as_mut(), cx, gate)
+                poll_http_send_with_dispatch_gate(send_fut.as_mut(), cx, gate, control)
             } else {
                 send_fut.as_mut().poll(cx).map_err(HttpReadError::Request)
             }
         });
         let (status, response_body) = match block_on_http(async {
-            tokio::time::timeout(Duration::from_secs(timeout_secs), async {
-                let response = request_fut.await?;
-                let status = response.status();
-                let body = read_http_body_limited(response).await?;
-                Ok::<_, HttpReadError>((status, body))
-            })
-            .await
+            let duration = control.map_or(Duration::from_secs(timeout_secs), |c| {
+                c.remaining().min(Duration::from_secs(timeout_secs))
+            });
+            tokio::time::timeout(duration, async {
+                let request = async {
+                    let response = request_fut.await?;
+                    let status = response.status();
+                    let body = read_http_body_limited(response).await?;
+                    Ok::<_, HttpReadError>((status, body))
+                };
+                if let Some(control) = control {
+                    tokio::select! {
+                        result = request => result,
+                        _ = async { while !control.is_cancelled() { tokio::time::sleep(Duration::from_millis(10)).await; } } => Err(HttpReadError::DispatchRejected),
+                    }
+                } else { request.await }
+            }).await
         }) {
             Ok(Ok(result)) => result,
             Ok(Err(HttpReadError::OutputExceeded)) => {
@@ -2206,6 +2735,7 @@ impl ProviderManager {
             prompt,
             None,
             None,
+            None,
         )
     }
 
@@ -2273,6 +2803,30 @@ impl ProviderManager {
             prompt,
             Some(dispatch_gate),
             response_shape,
+            None,
+        )
+    }
+
+    pub(crate) fn invoke_native_taskmaster_prompt_controlled(
+        &self,
+        profile: native_inference::NativeProfile,
+        model: &str,
+        reasoning_effort: Option<&str>,
+        ollama_base_url: Option<&str>,
+        prompt: String,
+        response_shape: Option<native_inference::NativeResponseShape>,
+        dispatch_gate: &mut ProviderDispatchGate<'_>,
+        control: &InferenceControl,
+    ) -> Result<String, ProviderOperationError> {
+        self.invoke_taskmaster_definition(
+            &profile.definition(),
+            model,
+            reasoning_effort,
+            ollama_base_url,
+            prompt,
+            Some(dispatch_gate),
+            response_shape,
+            Some(control),
         )
     }
 
@@ -2285,7 +2839,14 @@ impl ProviderManager {
         prompt: String,
         mut dispatch_gate: Option<&mut ProviderDispatchGate<'_>>,
         response_shape: Option<native_inference::NativeResponseShape>,
+        control: Option<&InferenceControl>,
     ) -> Result<String, ProviderOperationError> {
+        if stopped(control) {
+            return Err(ProviderOperationError {
+                code: ProviderOperationErrorCode::Timeout,
+                message: "inference cancelled or timed out".into(),
+            });
+        }
         let provider = definition.id.as_str();
         if response_shape.is_some() && provider != "codex" {
             return Err(ProviderOperationError {
@@ -2307,8 +2868,21 @@ impl ProviderManager {
                 prompt,
                 response_shape,
             )?;
-            invocation.check_version(self.runner.as_ref(), provider)?;
-            let result = if let Some(gate) = dispatch_gate.as_deref_mut() {
+            invocation.check_version_controlled(self.runner.as_ref(), provider, control)?;
+            let result = if let Some(control) = control {
+                let gate = dispatch_gate
+                    .as_deref_mut()
+                    .expect("controlled inference requires a dispatch gate");
+                self.runner.run_prepared_controlled(
+                    provider,
+                    &mut invocation.command,
+                    &invocation.stdin,
+                    definition.timeout_secs,
+                    Some(model),
+                    gate,
+                    control,
+                )
+            } else if let Some(gate) = dispatch_gate.as_deref_mut() {
                 self.runner.run_prepared_with_dispatch_gate(
                     provider,
                     &mut invocation.command,
@@ -2351,7 +2925,20 @@ impl ProviderManager {
                 message,
             })?
             .unwrap_or_else(|| "http://127.0.0.1:11434".into());
-        let result = if let Some(gate) = dispatch_gate.as_deref_mut() {
+        let result = if let Some(control) = control {
+            let gate = dispatch_gate
+                .as_deref_mut()
+                .expect("controlled inference requires a dispatch gate");
+            self.runner.run_connection_controlled(
+                provider,
+                &prompt,
+                definition.timeout_secs,
+                Some(model),
+                Some(&base_url),
+                gate,
+                control,
+            )
+        } else if let Some(gate) = dispatch_gate.as_deref_mut() {
             self.runner.run_with_connection_and_dispatch_gate(
                 provider,
                 "",
@@ -5055,12 +5642,12 @@ exit 17
         };
 
         assert!(matches!(
-            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate),
+            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate, None),
             std::task::Poll::Pending
         ));
         allowed.set(false);
         assert!(matches!(
-            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate),
+            poll_http_send_with_dispatch_gate(send.as_mut(), &mut context, &mut gate, None),
             std::task::Poll::Ready(Err(HttpReadError::DispatchRejected))
         ));
         assert_eq!(gate_calls, 2);
