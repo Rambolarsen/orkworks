@@ -132,3 +132,4 @@ Capability research, validation results, and evidence fixtures.
 - [Offline terminal authority and receipt components](terminal-authority-components.md) — Conditional scope ordering, local pending and exact receipt-v2 membership/byte oracles; no complete publication or native proof.
 - [Terminal producer, history and consumer closure](terminal-producer-history-consumer-contract.md) — Gate 2 producer, report-ledger initialization and complete consumer/index gaps; written investigation only.
 - [Offline fresh report-ledger creation witnesses](report-ledger-initialization.md) — Independent conditional creation/proof/byte checks for fresh workspace/run ledgers; no admitted report or terminal history.
+- [First research-report producer and publication contract](first-report-producer-contract.md) — Required original research-source, live-version, history and complete effect joins; separates direct-execution and format-3/4 evidence limits.
