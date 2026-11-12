@@ -547,7 +547,7 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
                         )
                     });
                 !matches!(pair[1], "a" | "an" | "the" | "sure")
-                    && !((descriptive_complement || causative_make_description(text, words, index))
+                    && !((descriptive_complement || causative_make_description(text, index))
                         && !is_recipe_target(pair[1])
                         && !is_recipe_introduction(words, index)
                         && !contains_embedded_literal_command(&text.to_ascii_lowercase()))
@@ -569,35 +569,54 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
 // Make recipe. Resolve the exact token's clause so a later descriptive sentence
 // cannot exempt an earlier invocation. Literal syntax and recipe targets still
 // pass through the caller's command checks.
-fn causative_make_description(text: &str, all_words: &[&str], word_index: usize) -> bool {
-    if all_words[..word_index].iter().any(|word| {
-        matches!(
-            *word,
-            "you" | "your" | "we" | "our" | "i" | "reader" | "user" | "agent" | "assistant"
-        )
-    }) {
-        return false;
-    }
+fn causative_make_description(text: &str, word_index: usize) -> bool {
     let lower = text.to_ascii_lowercase();
+    let reader_reference = |words: &[&str]| {
+        words.iter().any(|word| {
+            matches!(
+                *word,
+                "you" | "your" | "we" | "our" | "i" | "reader" | "user" | "agent" | "assistant"
+            )
+        })
+    };
     let mut preceding_words = 0;
-    for clause in lower.split(['.', '!', '?', ':', ';', ',', '|', '`']) {
+    let mut reader_in_sentence = false;
+    let mut clauses = lower
+        .split_inclusive(['.', '!', '?', ':', ';', ',', '|', '`'])
+        .peekable();
+    while let Some(raw_clause) = clauses.next() {
+        // A sentence boundary releases unrelated reader context. Keep commas
+        // and unspaced punctuation (including decimals/ellipsis) in scope.
+        let sentence_end = raw_clause.ends_with(['.', '!', '?'])
+            && clauses
+                .peek()
+                .is_none_or(|next| next.starts_with(|ch: char| ch.is_ascii_whitespace()));
+        let clause = raw_clause.trim_end_matches(['.', '!', '?', ':', ';', ',', '|', '`']);
         let words = clause
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .filter(|word| !word.is_empty())
             .collect::<Vec<_>>();
         if word_index >= preceding_words + words.len() {
             preceding_words += words.len();
+            reader_in_sentence |= reader_reference(&words);
+            if sentence_end {
+                reader_in_sentence = false;
+            }
             continue;
         }
         let index = word_index - preceding_words;
-        // Identifier punctuation is invocation syntax, not a plain noun phrase.
+        if reader_in_sentence || reader_reference(&words[..index]) {
+            return false;
+        }
         if !clause
             .split_whitespace()
             .all(|word| word.bytes().all(|byte| byte.is_ascii_alphanumeric()))
         {
             return false;
         }
-        if index == 0
+        // Require an explicit subject before the modal; a new sentence must
+        // not turn a reader-directed fragment into a descriptive exemption.
+        if index < 2
             || !matches!(
                 words[index - 1],
                 "would" | "could" | "should" | "will" | "can"
@@ -1220,6 +1239,8 @@ mod tests {
             "Preserved CI failure status would make automated test feedback more actionable and prevent failure suppression from appearing equivalent to a reliable signal.",
             "Clearer guidance could make automated feedback more actionable.",
             "The correction would make verification feedback more reliable.",
+            "We believe this reduces noise. The correction would make verification feedback more reliable.",
+            "The agent receives the finding. The correction would make verification feedback more reliable.",
         ] {
             assert!(validate_prose(text, 500, true).is_ok(), "description rejected: {text}");
         }
@@ -1239,6 +1260,9 @@ mod tests {
             "The command would make automated test feedback more actionable.",
             "You could make automated test feedback more actionable.",
             "You, could make automated test feedback more actionable.",
+            "You. Could make automated feedback more actionable.",
+            "You...could make automated feedback more actionable.",
+            "Could make automated feedback more actionable.",
             "Clearer guidance could make automated feedback more actionable; rm output.",
             "The change would make automated test feedback more actionable with rm -rf /.",
             "The change would make automated test feedback more actionable && pnpm test.",

@@ -652,3 +652,15 @@ cleanup failure tracked in [#1741](https://github.com/Rambolarsen/orkworks/issue
 All 1,564 documentation tests subsequently passed with concurrency one and no
 skips; the site build is checked separately. No unrelated supervisor source,
 assertion or limit was changed, and the failed full-run log remains retained.
+
+### Prose-fix PR review cycle 2
+
+The custom review identified a remaining false rejection when an unrelated
+previous sentence mentions a reader or agent. The new regression first failed
+on that exact example. Reader detection now follows the current sentence while
+preserving rejection across commas, unspaced ellipses and subjectless modal
+fragments. The bounded feedback grammar and command guards remain intact.
+Twenty validator tests and 51 improvement tests pass (two live entries ignored);
+the fresh manual medium review approved the frozen source without findings.
+No new model calls, historical trial results or activation state changed.
+Current-head CI and automated review results are recorded in PR #1740.
