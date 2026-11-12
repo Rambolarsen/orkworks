@@ -1451,7 +1451,9 @@ if (process.versions.electron) {
           await outsideClick();
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'outside click preserves pinned Details');
           assert.ok(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width') < mainWidth);
-          assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor'), await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'));
+          const pinnedBackground = await evaluate('getComputedStyle(document.querySelector("[data-shell-region=inspector]")).backgroundColor');
+          assert.match(pinnedBackground,/^rgb\(/,'pinned inspector is fully opaque');
+          assert.notEqual(pinnedBackground,await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'),'pinned inspector remains distinct from the shared canvas');
           await assertCornerControls();
           if (process.env.ORKWORKS_CAPTURE_INSPECTOR) {
             const {writeFileSync}=await import('node:fs');
@@ -1905,41 +1907,29 @@ if (process.versions.electron) {
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
         } else if (scenario === 'region-focus') {
-          // Removing the shell's focus styling must fail even though DOM focus still moves.
-          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(selector)}));return s.borderTopStyle!=='none'&&parseFloat(s.borderTopWidth)>=2&&s.borderTopColor!=='rgba(0, 0, 0, 0)'})()`);
+          // Focus stays visible at the heading without framing the whole canvas.
+          const headings = {
+            '[data-shell-region=sessions]': '.shell-sessions-header h2',
+            '.shell-main': '.shell-context h1',
+            '[data-shell-region=inspector]': '[data-shell-region=inspector] > header h2',
+          };
+          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(headings[selector])}),'::before');return parseFloat(s.width)>0&&parseFloat(s.width)<=6&&s.backgroundColor!=='rgba(0, 0, 0, 0)'})()`);
           const assertFocusedRegion = async expected => {
             for (const selector of ['[data-shell-region=sessions]', '.shell-main', '[data-shell-region=inspector]']) {
               if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
                 assert.equal(await cue(selector), selector===expected, `visible region focus: ${selector}`);
+                assert.equal(await evaluate(`parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(selector)})).borderTopWidth)`),0,'focus never frames a whole region');
               }
             }
           };
           const before = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
+          assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'),await evaluate('getComputedStyle(document.querySelector("[data-shell-region=terminal]")).backgroundColor'),'sidebar and terminal share one canvas');
           await evaluate('document.getElementById("sessions-list").focus()');
           await assertFocusedRegion('[data-shell-region=sessions]');
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
           await assertFocusedRegion('.shell-main');
           assert.deepEqual(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()'),before,'focus cue does not resize terminal');
-          // Wait for compositing, then check painted pixels: terminal children can hide an ancestor outline.
-          const assertPaintedCue = async selector => {
-            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-            const region = await evaluate(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().toJSON()`);
-            const painted = await win.webContents.capturePage();
-            const size = painted.getSize(1);
-            const bitmap = painted.toBitmap({scaleFactor:1});
-            const viewport = await evaluate('({width:innerWidth,height:innerHeight})');
-            const pixel = (x,y) => {
-              const offset=(Math.floor(y*size.height/viewport.height)*size.width+Math.floor(x*size.width/viewport.width))*4;
-              return [...bitmap.subarray(offset,offset+3)];
-            };
-            const top = pixel(region.x+region.width/2,region.y+1);
-            assert.notDeepEqual(top,pixel(region.x+region.width/2,region.y+5),'focus cue contrasts with content');
-            assert.deepEqual(pixel(region.x+1,region.y+region.height/2),top,'content cannot cover the left focus edge');
-            assert.deepEqual(pixel(region.right-1,region.y+region.height/2),top,'content cannot cover the right focus edge');
-            assert.deepEqual(pixel(region.x+region.width/2,region.bottom-1),top,'bottom focus edge remains visible');
-          };
-          await assertPaintedCue('.shell-main');
 
           await click('details');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
@@ -1964,7 +1954,6 @@ if (process.versions.electron) {
           await evaluate('document.querySelector("[data-shell-settings]").focus();const sidebar=document.querySelector("[data-shell-region=sessions]");sidebar.scrollTop=sidebar.scrollHeight');
           assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions]").scrollTop>0'),'short sidebar actually scrolls');
           await assertFocusedRegion('[data-shell-region=sessions]');
-          await assertPaintedCue('[data-shell-region=sessions]');
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
