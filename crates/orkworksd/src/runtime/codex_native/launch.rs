@@ -1480,10 +1480,35 @@ esac
             "invalidated/replaced probe retained eligibility"
         );
     }
+    #[cfg(target_os = "macos")]
+    async fn prepare_version_fixture(executable: &Path) {
+        // First execution of a new script inode can outlast the probe's
+        // deadline under concurrent native startup. Prepare version-policy
+        // fixtures first; later writes preserve the same inode.
+        std::fs::write(executable, "#!/bin/sh\nexit 0\n").unwrap();
+        crate::test_support::make_test_executable(executable);
+        let mut command = Command::new(executable);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let owner = OwnedProcess::spawn(command).unwrap();
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while owner.is_alive() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("synthetic version executable preparation timed out");
+        assert_eq!(owner.exit_state(), Some(true));
+    }
+
     #[tokio::test]
     async fn native_cache_never_reuses_integration_outputs_or_replaced_executable_identity() {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("codex");
+        #[cfg(target_os = "macos")]
+        prepare_version_fixture(&executable).await;
         let cache = VersionProbeCache::new();
         std::fs::write(&executable, "#!/bin/sh\nprintf 'codex-cli 0.160.0\\n'\n").unwrap();
         crate::test_support::make_test_executable(&executable);
@@ -1645,27 +1670,7 @@ while True:
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("codex");
         #[cfg(target_os = "macos")]
-        {
-            // First execution of a new script inode can outlast the probe's
-            // deadline under concurrent native startup. Prepare this parsing
-            // fixture before the matrix; later writes preserve the same inode.
-            std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
-            crate::test_support::make_test_executable(&executable);
-            let mut command = Command::new(&executable);
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            let owner = OwnedProcess::spawn(command).unwrap();
-            tokio::time::timeout(Duration::from_secs(30), async {
-                while owner.is_alive() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .expect("synthetic version executable preparation timed out");
-            assert_eq!(owner.exit_state(), Some(true));
-        }
+        prepare_version_fixture(&executable).await;
         for (body, expected) in [
             ("printf 'codex-cli 0.160.0\\n'", Some("0.160.0")),
             ("printf 'warning codex-cli 0.160.0\\n'", None),
