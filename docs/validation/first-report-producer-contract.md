@@ -278,3 +278,14 @@ under the existing scoped acceptance. Actual capture/admission/model delivery an
 tool mapping remain unqualified, as do the original source chain and all current
 control/catalog/consumer/atomic-publication obligations above. Gate 2 remains
 Investigate and #1689 remains open.
+
+## Original research-source chain component continuation
+
+The [source-chain packet](research-chain-components.md) supplies independent
+synthetic original plan/approval/reservation/allocation/attachment/assignment
+bytes, exact expected/frozen identity joins and research source-domain denials.
+It embeds the startup packet unchanged. Prepared input, symbolic commit links,
+native events and legal command history remain unqualified. Next written closure
+is prepared input/current controls with exact original-versus-live version and
+source-owner effect ownership; complete catalog/accounting/consumer/atomic
+publication closure still follows. #1689 remains open and Gate 2 Investigate.

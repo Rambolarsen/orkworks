@@ -441,3 +441,14 @@ unverified common capability artifacts and exact retained-input composition.
 It qualifies neither original plan/approval/launch sources nor native delivery,
 prepared input, current controls, storage catalog/accounting or report consumers.
 No accepted protocol/domain or original component artifact is changed.
+
+## Original-source chain component continuation
+
+The [research source-chain packet](../../validation/research-chain-components.md)
+continues that scoped acceptance with original plan/approval/reservation/
+allocation/attachment/assignment source-shape joins and research source domains.
+Its prepared-input and CommitRef bindings are explicitly unqualified; they do
+not select missing codecs, event history or a storage format. Metadata width
+examples and declared source-body measurements are not command/proof/ledger/
+catalog or consumer qualification. Current controls, actual source-owner/native
+events and atomic first-report publication remain gated.
