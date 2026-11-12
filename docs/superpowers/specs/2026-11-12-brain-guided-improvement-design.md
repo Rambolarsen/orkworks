@@ -4,7 +4,7 @@ title: Brain-guided next improvement
 description: Proposed manual investigation that returns a useful next agentic-development improvement and an assessment from shared evidence.
 tags: [orkworks, taskmaster, brain, readiness, recommendations]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Brain-guided next improvement
@@ -20,10 +20,13 @@ repository, ranks supported opportunities and explains one preferred change.
 An assessment explains that choice. A numeric score is secondary and is not a
 prerequisite for receiving useful advice.
 
-The owner approved this direction in the 2026-11-12 conversation. The concrete
-bounded investigation, result/persistence changes and usage limits below are
-proposed for review, not already approved runtime behavior. This document is a
-design deliverable; it changes no running app or installed knowledge.
+The owner approved the direction and then this concrete design in the
+2026-11-12 conversation ("go ahead" after review of draft PR #1690). The bounded
+investigation, result/persistence changes and usage limits below are approved for
+implementation. Runtime activation still requires the signed playbook dependency,
+compatibility checks and usefulness qualification. Approval itself changes no
+running app or installed knowledge. Implementation is tracked in
+[#1694](https://github.com/Rambolarsen/orkworks/issues/1694).
 
 ## Evidence and current mismatch
 
@@ -127,14 +130,14 @@ instructions are applicability context, never new execution authority.
 
 ## Explicit finite limits
 
-These are proposed defaults for this manual purpose, not changes to background
+These are approved defaults for this manual purpose, not changes to background
 analysis or existing standalone scoring:
 
 | Resource | Proposed ceiling |
 | --- | --- |
 | Provider calls | Six total, with the final call reserved for the result |
 | Evidence rounds | At most five, up to eight requests per response |
-| Repository catalog | Existing 2,000-path/depth-five bound, with incompleteness reported |
+| Repository catalog | Existing 2,000-path/depth-five traversal; at most 512 model-facing entries/16 KiB, with incompleteness reported |
 | Repository evidence | 32 distinct files, 32 returned ranges, 64 KiB aggregate returned text |
 | One returned range | At most 8 KiB; later ranges may inspect beyond the original prefix |
 | Signed guidance | 16 distinct pages, 32 KiB total text supplied |

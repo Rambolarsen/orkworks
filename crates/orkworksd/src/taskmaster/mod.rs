@@ -22,6 +22,8 @@ pub(crate) mod coordinator_store;
 mod coordinator_tests;
 pub(crate) mod evaluator;
 pub(crate) mod hierarchy_storage;
+#[allow(dead_code)] // Disabled until the signed playbook and usefulness gates pass.
+pub(crate) mod improvement;
 pub(crate) mod inference_approval;
 pub(crate) mod inference_trust;
 #[allow(dead_code)]

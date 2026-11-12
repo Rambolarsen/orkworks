@@ -3,13 +3,13 @@ type: Architecture Decision
 title: Brain-guided manual improvement investigation
 description: Proposed bounded progressive evidence collection with a shared assessment and preferred next improvement.
 tags: [orkworks, architecture, taskmaster, brain, readiness]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Brain-guided manual improvement investigation
 
-- Status: proposed; product direction approved on 2026-11-12, concrete contract pending.
+- Status: accepted; owner approved the concrete design on 2026-11-12 ("go ahead").
 - Decider: repository owner.
 - Date: 2026-11-12.
 - Tracking: [#1686](https://github.com/Rambolarsen/orkworks/issues/1686).
@@ -23,7 +23,7 @@ pipelines share neither final judgment nor an iterative investigation. Short
 excerpts, one follow-up selection and strict response requirements are verified
 constraints; their causal role in the exact reported 48-point run is unverified.
 
-## Proposed decision
+## Decision
 
 Replace only the primary manual combined action with a sidecar-owned investigation
 following a reviewed signed adaptation of Brain's next-step playbook. Reuse
@@ -39,13 +39,14 @@ qualification. No native model tools, shell, edits, new coding sessions, private
 Brain reads or implicit implementation authority are introduced. Both implementation
 and investigation handoffs require explicit user action.
 
-If accepted, this replaces ADRs [0096](0096-readiness-workflow-suggestions.md),
+For the new primary manual implementation, this replaces ADRs [0096](0096-readiness-workflow-suggestions.md),
 [0099](0099-readiness-evidence-before-candidates.md) and
 [0100](0100-score-directed-readiness-improvements.md) only for the primary manual
 combined action's call sequence, evidence selection and score/proposal coupling.
 Existing standalone actions/history, background analysis and recommendation lifecycle
-remain. Those ADRs remain accepted until this proposed replacement is approved;
-merging this document alone does not supersede them or authorize runtime changes.
+remain. Those ADRs continue to govern the existing flow until the replacement is
+implemented and qualified. This acceptance authorizes the new implementation,
+not activation before its publication and usefulness gates.
 
 ## Consequences
 

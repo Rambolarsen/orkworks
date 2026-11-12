@@ -1,4 +1,5 @@
 //! Repository-owned evidence selection for manual assessment only.
+pub(crate) mod improvement;
 use super::{context, runtime::ContextLevel, RepositoryEvidence};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -910,7 +911,12 @@ fn read_prefix(
         .take(MAX_PREFIX as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| "Assessment evidence cannot be read")?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| "Assessment evidence is not text")?;
+    validate_evidence_text(&bytes)?;
+    Ok(bytes)
+}
+
+fn validate_evidence_text(bytes: &[u8]) -> Result<(), String> {
+    let text = std::str::from_utf8(bytes).map_err(|_| "Assessment evidence is not text")?;
     let lower = text.to_ascii_lowercase();
     if [
         "private_key",
@@ -925,7 +931,7 @@ fn read_prefix(
     {
         return Err("Assessment evidence contains sensitive data".into());
     }
-    Ok(bytes)
+    Ok(())
 }
 
 #[cfg(test)]

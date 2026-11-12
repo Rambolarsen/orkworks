@@ -17,7 +17,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0114](./0114-brain-guided-improvement-investigation.md) | Brain-guided manual improvement investigation | proposed |
+| [0114](./0114-brain-guided-improvement-investigation.md) | Brain-guided manual improvement investigation | accepted; implementation/activation pending |
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
 | [0002](./0002-electron-react-typescript-desktop.md) | Electron + React + TypeScript desktop shell | superseded by [0078](./0078-fixed-desktop-shell-and-central-navigation.md) |
 | [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS | accepted |
