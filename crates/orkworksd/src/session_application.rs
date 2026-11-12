@@ -2608,13 +2608,13 @@ impl SessionApplication {
             });
         // Codex's identity grant is prepared before PTY delivery. Other
         // harnesses retain the existing post-delivery label-refresh block.
-        if let Some((harness, native_session_id)) = harness_identity {
-            if harness != "codex" {
-                if let Some(native_session_id) = native_session_id.as_deref() {
-                    crate::codex_session_store::block_native_label_refresh(id, native_session_id);
-                } else {
-                    crate::codex_session_store::clear_native_label_refresh_block(id);
-                }
+        if let Some((_, native_session_id)) =
+            harness_identity.filter(|(harness, _)| harness != "codex")
+        {
+            if let Some(native_session_id) = native_session_id.as_deref() {
+                crate::codex_session_store::block_native_label_refresh(id, native_session_id);
+            } else {
+                crate::codex_session_store::clear_native_label_refresh_block(id);
             }
         }
         crate::codex_session_store::invalidate_label_refresh_generation(id);
@@ -14425,6 +14425,57 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
+    fn reset_session_topic_preserves_codex_grants_and_updates_other_native_blocks() {
+        for (harness_id, native_id, keeps_previous, blocks_current) in [
+            ("codex", Some("current-native"), true, false),
+            ("claude-code", Some("current-native"), false, true),
+            ("copilot", None, false, false),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = format!("reset-native-block-{harness_id}");
+            let mut meta = crate::test_support::test_session_metadata(
+                &id,
+                "Old topic",
+                &root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.harness = harness_id.into();
+            meta.resume = native_id.map(|native_id| harness::ResumeMemory {
+                state: harness::ResumeState::Available,
+                preferred_strategy: harness::ResumeStrategy::Exact,
+                harness_session_id: Some(native_id.into()),
+                latest_fallback: false,
+                last_seen_at: None,
+            });
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&meta);
+            crate::codex_session_store::block_native_label_refresh(&id, "previous-native");
+
+            assert!(SessionApplication::new(state).reset_session_topic(&id));
+            assert_eq!(
+                crate::codex_session_store::native_label_refresh_is_blocked(&id, "previous-native"),
+                keeps_previous,
+                "{harness_id}: previous block",
+            );
+            assert_eq!(
+                crate::codex_session_store::native_label_refresh_is_blocked(&id, "current-native"),
+                blocks_current,
+                "{harness_id}: current block",
+            );
+            crate::codex_session_store::clear_native_label_refresh_block(&id);
+        }
+    }
+
+    #[test]
     fn reset_session_topic_clears_queued_label_work_and_resets_both_copies() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -14546,7 +14597,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write()
             .unwrap()
             .insert(live_only_id.into(), 7);
+        crate::codex_session_store::block_native_label_refresh(live_only_id, "retained-native");
         assert!(SessionApplication::new(state.clone()).reset_session_topic(live_only_id));
+        assert!(crate::codex_session_store::native_label_refresh_is_blocked(
+            live_only_id,
+            "retained-native",
+        ));
+        crate::codex_session_store::clear_native_label_refresh_block(live_only_id);
         assert_eq!(
             state.sessions.lock().unwrap()[live_only_id].info.label,
             crate::session_types::placeholder_label(live_only_id)
