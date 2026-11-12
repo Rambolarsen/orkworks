@@ -40,17 +40,24 @@ def embedded_references(root):
     """
     referenced = set()
     resolved_root = root.resolve()
-    for source in (root / 'crates').rglob('*.rs'):
-        if any(part in GENERATED for part in source.relative_to(root).parts):
-            continue
-        try:
-            text = source.read_text(encoding='utf-8')
-        except (OSError, UnicodeDecodeError):
-            continue
-        for match in INCLUDE_PATTERN.finditer(text):
-            target = (source.parent / match.group(1)).resolve()
-            if target.is_file() and target.is_relative_to(resolved_root):
-                referenced.add(target.relative_to(resolved_root).as_posix())
+    if not (root / 'crates').is_dir():
+        return referenced
+
+    def traversal_error(error):
+        if not isinstance(error, PermissionError):
+            raise error
+
+    for directory, directories, _ in os.walk(root / 'crates', onerror=traversal_error):
+        directories[:] = [name for name in directories if name not in GENERATED]
+        for source in Path(directory).glob('*.rs'):
+            try:
+                text = source.read_text(encoding='utf-8')
+            except (OSError, UnicodeDecodeError):
+                continue
+            for match in INCLUDE_PATTERN.finditer(text):
+                target = (source.parent / match.group(1)).resolve()
+                if target.is_file() and target.is_relative_to(resolved_root):
+                    referenced.add(target.relative_to(resolved_root).as_posix())
     return referenced
 SCANNER_VERSION = '5.0.1'
 
