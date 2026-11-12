@@ -259,3 +259,13 @@ plan approval and original reservation/allocation/attachment identities are prop
 for scoped review. No source component fixture precedes acceptance. Prepared-input/
 current-control/catalog/consumer/atomic publisher closures above remain open;
 this is no complete producer or Gate 2 qualification.
+
+## Accepted capture/scope component evidence — 2026-11-12
+
+The owner has accepted the four immutable research-source choices for offline
+source-component fixtures only. The [first bounded packet](research-capture-scope-components.md)
+checks captures, questions, excerpts and immutable task scope against supplied
+synthetic bindings. It does not close configuration/startup, original approval/
+launch sources, prepared input, current controls, report consumers, accounting,
+catalog or atomic first-report publication. #1689 remains open and Gate 2 remains
+Investigate. All earlier source/control/report vectors retain their original bytes.

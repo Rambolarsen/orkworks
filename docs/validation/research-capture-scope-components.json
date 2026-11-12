@@ -1,0 +1,144 @@
+{
+  "captures": [
+    {
+      "captureDigest": "8e426ac32911667581639b15fb296a8159f9f5b1f57e0433b128c468f7c5669e",
+      "content": "Aé🙂Z\n",
+      "contentDigest": "d550a8a1b46b9a0adbe4b9fab2e850f5a8fbe20f8f4d0e2aa9a9a1efea41f56f",
+      "path": "src/note-a.txt",
+      "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "schemaVersion": 1,
+      "sizeBytes": 9,
+      "sourceId": "source-a",
+      "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "task": {
+        "planId": "p",
+        "planRevision": 1,
+        "runId": "r",
+        "taskId": "t",
+        "workspaceId": "w"
+      }
+    },
+    {
+      "captureDigest": "f8e1ce6e01cf6593bcbc735d1df3737693eea371c966bc7304b8282667e25fb7",
+      "content": "Retained data only.\n",
+      "contentDigest": "7fe7f5c58dacb7120ca9b5ed2c97fdede3d857f8c02495c9cb4b3c96a5173edd",
+      "path": "src/note-b.txt",
+      "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "schemaVersion": 1,
+      "sizeBytes": 20,
+      "sourceId": "source-b",
+      "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "task": {
+        "planId": "p",
+        "planRevision": 1,
+        "runId": "r",
+        "taskId": "t",
+        "workspaceId": "w"
+      }
+    }
+  ],
+  "context": {
+    "baseCommit": "cccccccccccccccccccccccccccccccccccccccc",
+    "objectFormat": "sha1",
+    "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "task": {
+      "planId": "p",
+      "planRevision": 1,
+      "runId": "r",
+      "taskId": "t",
+      "workspaceId": "w"
+    }
+  },
+  "scope": {
+    "captures": [
+      {
+        "captureDigest": "8e426ac32911667581639b15fb296a8159f9f5b1f57e0433b128c468f7c5669e",
+        "sourceId": "source-a",
+        "task": {
+          "planId": "p",
+          "planRevision": 1,
+          "runId": "r",
+          "taskId": "t",
+          "workspaceId": "w"
+        }
+      },
+      {
+        "captureDigest": "f8e1ce6e01cf6593bcbc735d1df3737693eea371c966bc7304b8282667e25fb7",
+        "sourceId": "source-b",
+        "task": {
+          "planId": "p",
+          "planRevision": 1,
+          "runId": "r",
+          "taskId": "t",
+          "workspaceId": "w"
+        }
+      }
+    ],
+    "excerpts": [
+      {
+        "lengthBytes": 6,
+        "reference": {
+          "excerptDigest": "7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9",
+          "id": "e-a",
+          "kind": "file",
+          "location": "bytes:1-7",
+          "path": "src/note-a.txt",
+          "revision": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        "sourceId": "source-a",
+        "startByte": 1
+      },
+      {
+        "lengthBytes": 8,
+        "reference": {
+          "excerptDigest": "2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539",
+          "id": "e-b",
+          "kind": "file",
+          "location": "bytes:0-8",
+          "path": "src/note-b.txt",
+          "revision": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        "sourceId": "source-b",
+        "startByte": 0
+      }
+    ],
+    "questions": [
+      {
+        "expectedEvidence": "A byte-exact excerpt.",
+        "knownInputs": "Synthetic text only.",
+        "questionId": "q-a",
+        "questionText": "What is retained?",
+        "sourceIds": [
+          "source-a"
+        ],
+        "stoppingConditions": "Stop after the retained input.",
+        "uncertainty": "Native origin is unverified."
+      },
+      {
+        "expectedEvidence": "A byte-exact excerpt.",
+        "knownInputs": "Synthetic text only.",
+        "questionId": "q-b",
+        "questionText": "What is retained?",
+        "sourceIds": [
+          "source-b"
+        ],
+        "stoppingConditions": "Stop after the retained input.",
+        "uncertainty": "Native origin is unverified."
+      }
+    ],
+    "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "schemaVersion": 1,
+    "scopeDigest": "722b305ab369355f4427b95f2c3258976d7316ea93db8770acf66d254a865b9a",
+    "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "task": {
+      "planId": "p",
+      "planRevision": 1,
+      "runId": "r",
+      "taskId": "t",
+      "workspaceId": "w"
+    }
+  }
+}

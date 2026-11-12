@@ -418,3 +418,17 @@ shared-pool accounting. Prepared-input, actual capture/approval/native origin,
 tool mapping, catalog/index/control and publication obligations remain explicitly
 unqualified. The reviews performed no fixture/runtime/native execution and do
 not accept the author's new source choices on the owner's behalf.
+
+## Scoped owner acceptance and first component packet
+
+On 2026-11-12 the owner answered “go ahead” to the explicit request to accept
+the four choices above **for offline source-component fixtures only**. This
+records that acceptance; it does not select a storage format or authorize
+runtime/native execution, research controls, adapters or publication.
+
+The first bounded packet covers ResearchCaptureV1, ResearchQuestionV1,
+ResearchExcerptV1 and ResearchScopeV1 only. Configuration/startup, plan/approval,
+reservation/allocation/attachment/assignment, shared-pool accounting and report
+consumers remain outside that packet's qualification. The accepted choices for
+those sources need no repeat acceptance within this scope; their evidence is
+still required. See the [capture/scope component evidence](../../validation/research-capture-scope-components.md).
