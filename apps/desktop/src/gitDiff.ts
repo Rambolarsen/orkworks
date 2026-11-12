@@ -20,15 +20,23 @@ export function parseGitPatch(patch: string): DiffLine[] {
       return {kind: "hunk", text, oldLine: null, newLine: null};
     }
     if (text.startsWith("diff --git ")) { oldLine = null; newLine = null; }
-    const kind = oldLine === null && newLine === null && (text.startsWith("+++") || text.startsWith("---")) ? "metadata"
-      : text.startsWith("+") ? "addition" : text.startsWith("-") ? "deletion"
-      : text.startsWith(" ") ? "context" : "metadata";
-    const row: DiffLine = {kind, text: kind === "metadata" ? text : text.slice(1),
-      oldLine: kind === "context" || kind === "deletion" ? oldLine : null,
-      newLine: kind === "context" || kind === "addition" ? newLine : null};
-    if (row.oldLine !== null) oldLine = row.oldLine + 1;
-    if (row.newLine !== null) newLine = row.newLine + 1;
-    return row;
+    if (oldLine === null && newLine === null && (text.startsWith("+++") || text.startsWith("---"))) {
+      return {kind: "metadata", text, oldLine: null, newLine: null};
+    }
+    switch (text[0]) {
+      case " ":
+        return {kind: "context", text: text.slice(1),
+          oldLine: oldLine === null ? null : oldLine++,
+          newLine: newLine === null ? null : newLine++};
+      case "+":
+        return {kind: "addition", text: text.slice(1), oldLine: null,
+          newLine: newLine === null ? null : newLine++};
+      case "-":
+        return {kind: "deletion", text: text.slice(1),
+          oldLine: oldLine === null ? null : oldLine++, newLine: null};
+      default:
+        return {kind: "metadata", text, oldLine: null, newLine: null};
+    }
   });
 }
 
