@@ -105,6 +105,15 @@ async fn sql_observer_pipeline_discards_a_hook_obsolete_rpc_result() {
 
 #[tokio::test]
 async fn sql_observer_pipeline_discards_all_obsolete_rpc_contexts_before_reduction() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_discards_all_obsolete_rpc_contexts_before_reduction"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for change in [
         "input",
@@ -359,6 +368,15 @@ async fn sql_observer_pipeline_cancelled_metadata_read_never_publishes_a_tick() 
 
 #[tokio::test]
 async fn sql_observer_pipeline_discards_rpc_when_durable_native_identity_changes() {
+    // Snapshot setup and ownership assertions require an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::sql_tests::isolated_test(format!(
+        "{module}::sql_observer_pipeline_discards_rpc_when_durable_native_identity_changes"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _effect, _commands) = fixture_with_root("root").await;
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
