@@ -447,7 +447,6 @@ export default function ApplicationShell(props: Props) {
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
         <div className="shell-sidebar-top">{workspaceNavigation}</div>
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
-          <span className="shell-focus-indicator" data-shell-focus="sessions" aria-hidden="true">Keyboard focus</span>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
         <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
@@ -478,9 +477,7 @@ export default function ApplicationShell(props: Props) {
             <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
             <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
-          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><div className="shell-context-scope-row"><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span>
-            {showTerminal && <span className="shell-focus-indicator" data-shell-focus="terminal" aria-hidden="true">Keyboard focus</span>}
-          </div></div>
+          <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header

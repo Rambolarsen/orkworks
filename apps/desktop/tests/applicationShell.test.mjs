@@ -1907,17 +1907,17 @@ if (process.versions.electron) {
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
         } else if (scenario === 'region-focus') {
-          // Label the actual keyboard destination, rather than any focused toolbar control.
+          // Highlight the actual keyboard destination, rather than any focused toolbar control.
           const assertFocusedRegion = async expected => {
             const cues = await evaluate(`(()=>{
-              const visible = selector => {
-                const label = document.querySelector(selector);
-                return !!label && getComputedStyle(label).visibility === 'visible';
+              const highlighted = selector => {
+                const header = document.querySelector(selector);
+                return !!header && getComputedStyle(header).boxShadow !== 'none';
               };
               const inspector = document.querySelector('[data-shell-region=inspector] > header h2');
               return {
-                sessions: visible('[data-shell-focus=sessions]'),
-                terminal: visible('[data-shell-focus=terminal]'),
+                sessions: highlighted('.shell-sessions-header'),
+                terminal: highlighted('.shell-toolbar'),
                 inspector: !!inspector && getComputedStyle(inspector,'::before').backgroundColor !== 'rgba(0, 0, 0, 0)',
                 framed: [...document.querySelectorAll('[data-shell-region=sessions], .shell-main, [data-shell-region=inspector]')].some(region => parseFloat(getComputedStyle(region).borderTopWidth) > 0),
               };
@@ -1930,7 +1930,7 @@ if (process.versions.electron) {
             const {writeFileSync}=await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_FOCUS+'-'+label+'.png',(await win.webContents.capturePage()).toPNG());
           };
-          assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-shell-focus]")].map(label=>label.textContent)'),['Keyboard focus','Keyboard focus'],'focus has an explicit visible label');
+          assert.equal(await evaluate('document.querySelector(".shell-layout").textContent.includes("Keyboard focus")'),false,'focus cues add no explanatory text');
           const before = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
           assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'),await evaluate('getComputedStyle(document.querySelector("[data-shell-region=terminal]")).backgroundColor'),'sidebar and terminal share one canvas');
           await evaluate('document.getElementById("sessions-list").focus()');
@@ -1941,21 +1941,6 @@ if (process.versions.electron) {
           await assertFocusedRegion('terminal');
           await captureFocus('terminal');
           assert.deepEqual(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()'),before,'focus cue does not resize terminal');
-
-          for (const width of [1000,800,640]) {
-            await win.setContentSize(width,700);
-            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-            const collisions = await evaluate(`(()=>{
-              const label=document.querySelector('[data-shell-focus=terminal]').getBoundingClientRect();
-              return [...document.querySelectorAll('.shell-toolbar button, .shell-toolbar summary')].filter(control=>{
-                const box=control.getBoundingClientRect();
-                return box.width>0 && box.height>0 && label.left<box.right && label.right>box.left && label.top<box.bottom && label.bottom>box.top;
-              }).map(control=>control.textContent);
-            })()`);
-            assert.deepEqual(collisions,[],'focus label does not overlap controls at '+width+'px');
-          }
-          await win.setContentSize(1280,700);
-          await evaluate('fixture.runtime().terminal.focus()');
 
           await evaluate('document.querySelector("[data-shell-command=details]").focus()');
           await assertFocusedRegion(null);
