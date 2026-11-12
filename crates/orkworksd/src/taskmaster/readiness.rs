@@ -2375,11 +2375,14 @@ mod integration_tests {
         let response = schedule_with_runtime(f.state.clone(), runtime.clone());
         assert_eq!(response.outcome, "scheduled");
         let store = ReadinessStore::new(&f.workspace_root());
+        // A terminal record can be visible before worker cleanup releases the
+        // shared analysis lease. Wait for both before admitting another run.
         for _ in 0..3000 {
             if store
                 .run()
                 .unwrap()
                 .is_some_and(|r| !matches!(r.state, RunState::Queued | RunState::Running))
+                && runtime.try_analysis_lease().unwrap().is_some()
             {
                 break;
             }
