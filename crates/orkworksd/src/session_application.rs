@@ -5107,35 +5107,35 @@ impl SessionApplication {
                 handle.info.harness_id.as_deref() == Some(disabled_harness)
                     || handle.info.harness.as_deref() == Some(disabled_harness)
             }) {
-                if let Some((_, generation)) =
+                let Some((_, generation)) =
                     crate::runtime::prompt_authority::registry().generation_for_launch(session_id)
-                {
-                    let active = crate::runtime::prompt_authority::registry().is_active(session_id);
-                    let preserve_user_tuple = workspace
-                        .metadata
-                        .read_session(session_id)
-                        .is_some_and(|metadata| metadata.attention_source() == "user");
-                    crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
-                    if active && !preserve_user_tuple {
-                        let clear_result =
-                            workspace.metadata.clear_prompt_authority_tuple(session_id);
-                        if !matches!(
-                            clear_result,
-                            metadata::AttentionMergeResult::Accepted
-                                | metadata::AttentionMergeResult::Ignored
-                        ) {
-                            handle.runtime.prompt_tuple_clear_pending = true;
-                            revocation_persistence_failed = true;
-                            retry_ids.push(session_id.clone());
-                        }
-                        handle.runtime.attention_owner.accepted_write();
-                        handle.info.observed_status = None;
-                        handle.info.attention = None;
-                        handle.info.needs_user_input = None;
-                        handle.info.detected_question = None;
-                        handle.info.suggested_options = None;
-                        handle.runtime.active_prompt_kind = None;
+                else {
+                    continue;
+                };
+                let active = crate::runtime::prompt_authority::registry().is_active(session_id);
+                let preserve_user_tuple = workspace
+                    .metadata
+                    .read_session(session_id)
+                    .is_some_and(|metadata| metadata.attention_source() == "user");
+                crate::runtime::prompt_authority::registry().revoke(session_id, &generation);
+                if active && !preserve_user_tuple {
+                    let clear_result = workspace.metadata.clear_prompt_authority_tuple(session_id);
+                    if !matches!(
+                        clear_result,
+                        metadata::AttentionMergeResult::Accepted
+                            | metadata::AttentionMergeResult::Ignored
+                    ) {
+                        handle.runtime.prompt_tuple_clear_pending = true;
+                        revocation_persistence_failed = true;
+                        retry_ids.push(session_id.clone());
                     }
+                    handle.runtime.attention_owner.accepted_write();
+                    handle.info.observed_status = None;
+                    handle.info.attention = None;
+                    handle.info.needs_user_input = None;
+                    handle.info.detected_question = None;
+                    handle.info.suggested_options = None;
+                    handle.runtime.active_prompt_kind = None;
                 }
             }
         }
@@ -13638,6 +13638,16 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     fn set_active_harnesses_application_preserves_active_session() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "active-harness-unregistered-session";
+        let mut handle = attention_test_handle(id, root.path());
+        handle.info.harness = Some("copilot".into());
+        handle.info.harness_id = Some("copilot".into());
+        handle.info.metadata_source = Some("peon".into());
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.attention = Some("needs_you".into());
+        let before = serde_json::to_value(&handle.info).unwrap();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::prompt_authority::registry().remove(id);
         state
             .workspace
             .lock()
@@ -13648,7 +13658,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_workspace_memory(&metadata::WorkspaceMemory {
                 last_active_session_id: Some("active-session".into()),
                 last_active_at: Some("before-time".into()),
-                active_harness_ids: vec!["before".into()],
+                active_harness_ids: vec!["copilot".into()],
                 active_harness_revision: 0,
             });
 
@@ -13672,6 +13682,11 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         assert_eq!(memory.active_harness_ids, vec!["aider", "claude-code"]);
         assert_ne!(memory.last_active_at.as_deref(), Some("before-time"));
         assert!(memory.last_active_at.is_some());
+        assert_eq!(
+            serde_json::to_value(&state.sessions.lock().unwrap()[id].info).unwrap(),
+            before,
+            "disabling a tool must retain attention without launch authority",
+        );
     }
 
     #[test]
