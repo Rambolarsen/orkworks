@@ -383,7 +383,8 @@ fn contains_imperative_command(text: &str) -> bool {
             let inventory = text.trim().trim_end_matches('.');
             if index == 0
                 && words.len() == 2
-                && pair == ["issue", "breakdown"]
+                && pair[0] == "issue"
+                && matches!(pair[1], "breakdown" | "history")
                 && inventory.starts_with("no ")
                 && (inventory.ends_with(" is supplied") || inventory.ends_with(" are supplied"))
                 && !contains_embedded_literal_command(text)
@@ -546,7 +547,7 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
                         )
                     });
                 !matches!(pair[1], "a" | "an" | "the" | "sure")
-                    && !(descriptive_complement
+                    && !((descriptive_complement || causative_make_description(text, words, index))
                         && !is_recipe_target(pair[1])
                         && !is_recipe_introduction(words, index)
                         && !contains_embedded_literal_command(&text.to_ascii_lowercase()))
@@ -562,6 +563,46 @@ fn contains_tool_invocation(text: &str, words: &[&str]) -> bool {
             }
             _ => false,
         })
+}
+
+// A modal causative with an adjective complement describes an effect, not a
+// Make recipe. Resolve the exact token's clause so a later descriptive sentence
+// cannot exempt an earlier invocation. Literal syntax and recipe targets still
+// pass through the caller's command checks.
+fn causative_make_description(text: &str, all_words: &[&str], word_index: usize) -> bool {
+    if all_words[..word_index].iter().any(|word| {
+        matches!(
+            *word,
+            "you" | "your" | "we" | "our" | "i" | "reader" | "user" | "agent" | "assistant"
+        )
+    }) {
+        return false;
+    }
+    let lower = text.to_ascii_lowercase();
+    let mut preceding_words = 0;
+    for clause in lower.split(['.', '!', '?', ':', ';', ',', '|', '`']) {
+        let words = clause
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        if word_index >= preceding_words + words.len() {
+            preceding_words += words.len();
+            continue;
+        }
+        let index = word_index - preceding_words;
+        return index > 0
+            && matches!(
+                words[index - 1],
+                "would" | "could" | "should" | "will" | "can"
+            )
+            && words.get(index + 2..).is_some_and(|tail| {
+                tail.windows(2).take(6).any(|pair| {
+                    matches!(pair[0], "more" | "less")
+                        && matches!(pair[1], "actionable" | "reliable")
+                })
+            });
+    }
+    false
 }
 
 fn is_copula(word: &str) -> bool {
@@ -859,7 +900,16 @@ mod tests {
             true
         )
         .is_ok());
+        assert!(validate_prose(
+            "No outcomes log, issue history, or correction records are supplied.",
+            500,
+            true
+        )
+        .is_ok());
         for text in [
+            "Issue history.",
+            "No outcomes log, issue history now, or correction records are supplied.",
+            "No outcomes log, issue history, or correction records are supplied; run pnpm test.",
             "Issue breakdown.",
             "No task workflow, issue breakdown now, or change history is supplied.",
             "No task workflow, issue pnpm test, or change history is supplied.",
@@ -1131,6 +1181,34 @@ mod tests {
                 validate_prose(text, 500, true).is_err(),
                 "command accepted: {text}"
             );
+        }
+    }
+
+    #[test]
+    fn causative_make_benefits_are_prose_without_recipe_or_reader_instructions() {
+        for text in [
+            "Preserved CI failure status would make automated test feedback more actionable and prevent failure suppression from appearing equivalent to a reliable signal.",
+            "Clearer guidance could make automated feedback more actionable.",
+            "The correction would make verification feedback more reliable.",
+        ] {
+            assert!(validate_prose(text, 500, true).is_ok(), "description rejected: {text}");
+        }
+        for text in [
+            "The CI script would make deploy.",
+            "The CI script would make unknown_target.",
+            "The CI would make. Feedback is more actionable.",
+            "The CI would make unknown_target. Feedback is more actionable.",
+            "The script would make unknown_target. The correction would make automated feedback more actionable.",
+            "The command would make automated test feedback more actionable.",
+            "You could make automated test feedback more actionable.",
+            "You, could make automated test feedback more actionable.",
+            "Clearer guidance could make automated feedback more actionable; rm output.",
+            "The change would make automated test feedback more actionable with rm -rf /.",
+            "The change would make automated test feedback more actionable && pnpm test.",
+            "The change would make automated test feedback more actionable with 'unknowncli frobnicate'.",
+            "The workflow would make automated feedback more actionable. All tests passed.",
+        ] {
+            assert!(validate_prose(text, 500, true).is_err(), "instruction accepted: {text}");
         }
     }
 
