@@ -2528,6 +2528,9 @@ html, body, #root {
 .shell-main > .shell-region { flex: 1; }
 .shell-region { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-0); }
 .shell-region--inspector { background: var(--surface-1); }
+.shell-layout:not([data-mode="compact"]) :is(.shell-region--sessions, .shell-sidebar-rail) {
+  border-right: 1px solid var(--border-subtle);
+}
 .shell-inspector-host { display: contents; }
 .shell-inspector-host--overlay { position: absolute; inset-block: 0; right: 0; z-index: 4; display: flex; box-shadow: var(--shadow-modal); }
 .shell-inspector-host--overlay > .shell-region-separator { flex: 0 0 6px; }
