@@ -1,7 +1,7 @@
 {
   "captures": [
     {
-      "captureDigest": "8e426ac32911667581639b15fb296a8159f9f5b1f57e0433b128c468f7c5669e",
+      "captureDigest": "8dc69023474701f3d2631f7420d10638fdee124a0767e475c63f60fcbfd964e7",
       "content": "Aé🙂Z\n",
       "contentDigest": "d550a8a1b46b9a0adbe4b9fab2e850f5a8fbe20f8f4d0e2aa9a9a1efea41f56f",
       "path": "src/note-a.txt",
@@ -14,13 +14,13 @@
       "task": {
         "planId": "p",
         "planRevision": 1,
-        "runId": "r",
+        "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
         "taskId": "t",
         "workspaceId": "w"
       }
     },
     {
-      "captureDigest": "f8e1ce6e01cf6593bcbc735d1df3737693eea371c966bc7304b8282667e25fb7",
+      "captureDigest": "8070665e064a25a27463f791c5b1e71460a58b59516c886c0cdc1cd39c8914b4",
       "content": "Retained data only.\n",
       "contentDigest": "7fe7f5c58dacb7120ca9b5ed2c97fdede3d857f8c02495c9cb4b3c96a5173edd",
       "path": "src/note-b.txt",
@@ -33,7 +33,7 @@
       "task": {
         "planId": "p",
         "planRevision": 1,
-        "runId": "r",
+        "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
         "taskId": "t",
         "workspaceId": "w"
       }
@@ -47,7 +47,7 @@
     "task": {
       "planId": "p",
       "planRevision": 1,
-      "runId": "r",
+      "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
       "taskId": "t",
       "workspaceId": "w"
     }
@@ -55,23 +55,23 @@
   "scope": {
     "captures": [
       {
-        "captureDigest": "8e426ac32911667581639b15fb296a8159f9f5b1f57e0433b128c468f7c5669e",
+        "captureDigest": "8dc69023474701f3d2631f7420d10638fdee124a0767e475c63f60fcbfd964e7",
         "sourceId": "source-a",
         "task": {
           "planId": "p",
           "planRevision": 1,
-          "runId": "r",
+          "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
           "taskId": "t",
           "workspaceId": "w"
         }
       },
       {
-        "captureDigest": "f8e1ce6e01cf6593bcbc735d1df3737693eea371c966bc7304b8282667e25fb7",
+        "captureDigest": "8070665e064a25a27463f791c5b1e71460a58b59516c886c0cdc1cd39c8914b4",
         "sourceId": "source-b",
         "task": {
           "planId": "p",
           "planRevision": 1,
-          "runId": "r",
+          "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
           "taskId": "t",
           "workspaceId": "w"
         }
@@ -131,12 +131,12 @@
     ],
     "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "schemaVersion": 1,
-    "scopeDigest": "722b305ab369355f4427b95f2c3258976d7316ea93db8770acf66d254a865b9a",
+    "scopeDigest": "0c966cdd22389f4929d6b871515c5b98127e3981f4731e10c790f799ca6a3492",
     "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "task": {
       "planId": "p",
       "planRevision": 1,
-      "runId": "r",
+      "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
       "taskId": "t",
       "workspaceId": "w"
     }

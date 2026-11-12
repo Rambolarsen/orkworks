@@ -21,7 +21,7 @@ def seal(value, field, domain):
 
 
 def packet():
-    task = dict(workspaceId='w', runId='r', planId='p', planRevision=1, taskId='t')
+    task = dict(workspaceId='w', runId='d' * 64 + '-1', planId='p', planRevision=1, taskId='t')
     bindings = dict(task=task, repositoryBindingDigest='a' * 64, sourceWorktreeBindingDigest='b' * 64)
     context = dict(**bindings, baseCommit='c' * 40, objectFormat='sha1')
     captures, excerpts, questions = [], [], []

@@ -38,6 +38,8 @@ function sorted(xs) {
 function task(x) {
   exact(x,'workspaceId runId planId planRevision taskId');
   for(const k of ['workspaceId','runId','planId','taskId'])id(x[k]);
+  const run=/^[0-9a-f]{64}-([1-9][0-9]{0,18})$/.exec(x.runId);
+  assert(run && BigInt(run[1])<=9223372036854775807n,'run identity');
   integer(x.planRevision,1,64);
 }
 function bindings(x,context) {

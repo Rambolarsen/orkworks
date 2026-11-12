@@ -51,8 +51,8 @@ The retained packet measures:
 | Quantity | UTF-8 bytes |
 | --- | ---: |
 | Raw capture occurrences | 29 |
-| Complete canonical capture bodies, summed | 1,200 |
-| Complete canonical scope body | 1,864 |
+| Complete canonical capture bodies, summed | 1,330 |
+| Complete canonical scope body | 2,059 |
 
 The first excerpt selects bytes 1–7 of `Aé🙂Z` plus a trailing LF in the capture:
 the six selected bytes are exactly `é🙂`. The second selects bytes 0–8 of
@@ -69,6 +69,9 @@ Checks distinguish raw UTF-8 from complete canonical JSON bytes. Tests cover
 1 KiB complete file reference versus one byte over; and 32 KiB scope versus one
 byte over. The 512 KiB capture-body check remains independent even though this
 closed grammar's raw/leaf bounds constrain the reachable maximum below it.
+The 16-capture and 64 KiB per-capture limits make aggregate overflow unreachable
+with an otherwise valid collection. The 1 MiB exact maximum is tested; a distinct
+aggregate-overflow denial path is not qualified by the seventeenth-capture case.
 Equal contents under separate source IDs remain separately measured occurrences.
 
 Other denials cover unknown fields, invalid IDs/digests/revisions, cross-task or
@@ -88,7 +91,7 @@ exposed the expected missing canonical rejection and missing retained occurrence
 The final checks and fresh review evidence belong to the PR; these local
 red/green observations do not establish any runtime behavior.
 
-The Node 22 docs build passed all 1,376 tests (79 in this packet), metadata/index
+The Node 22 docs build passed all 1,383 tests (86 in this packet), metadata/index
 checks and rendered-page/dead-link validation. Separate temporary-copy mutations
 removing the excerpt path join, exact byte locator and containing scope cap each
 made the expected denial tests fail. The owned checker was not mutated during
@@ -96,6 +99,16 @@ review. All 529 prior non-Markdown validation artifacts compare byte-for-byte to
 the inspection base, and prior contract prose is preserved with appended routing.
 The existing VitePress circular/large-chunk warnings concern unchanged bundler
 configuration and do not alter this source-component evidence.
+
+Two fresh read-only Luna reviews checked correctness and evidence completeness.
+The correctness review found that the initial synthetic run ID did not satisfy
+the reused TaskKey's admission-epoch/positive-sequence grammar. The checker,
+Python oracle and helper now enforce/use that grammar, with six denials first
+observed failing and a positive signed-64-bit maximum sequence case. This proves
+syntax only; original admission is still an unqualified producer assumption.
+The completeness review prompted the explicit unreachable aggregate-overflow
+limit above. These dispositions do not extend qualification beyond the four
+component types.
 
 ## Producer, history and consumer limits
 

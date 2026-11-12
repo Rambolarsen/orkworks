@@ -16,7 +16,7 @@ const canonical = x => {
 };
 const sha=x=>createHash('sha256').update(x).digest('hex');
 function seal(x,field,domain){delete x[field];x[field]=sha(domain+'\n'+canonical(x));}
-const task={workspaceId:'w',runId:'r',planId:'p',planRevision:1,taskId:'t'};
+const task={workspaceId:'w',runId:'d'.repeat(64)+'-1',planId:'p',planRevision:1,taskId:'t'};
 function example(content='Aé🙂Z\n'){
   const context={task:structuredClone(task),repositoryBindingDigest:'a'.repeat(64),sourceWorktreeBindingDigest:'b'.repeat(64),baseCommit:'c'.repeat(40),objectFormat:'sha1'};
   const c={schemaVersion:1,task:structuredClone(task),sourceId:'source-a',repositoryBindingDigest:context.repositoryBindingDigest,sourceWorktreeBindingDigest:context.sourceWorktreeBindingDigest,path:'src/note.txt',revision:context.baseCommit,content,sizeBytes:Buffer.byteLength(content),contentDigest:sha(content)};
@@ -121,7 +121,7 @@ test('retained oracle regenerates byte-for-byte without validator code',()=>{
   const wire=execFileSync('python3',[fileURLToPath(new URL('generate-research-capture-scope.py',import.meta.url))]);
   assert.deepEqual(wire,readFileSync(new URL('research-capture-scope-components.json',import.meta.url)));
   // Independently measured from the Python packet, including JSON framing.
-  const p=JSON.parse(wire);assert.deepEqual(check(p),{rawCaptureBytes:29,captureBodyBytes:1200,scopeBodyBytes:1864});
+  const p=JSON.parse(wire);assert.deepEqual(check(p),{rawCaptureBytes:29,captureBodyBytes:1330,scopeBodyBytes:2059});
 });
 test('generator paths with spaces and percent signs produce identical UTF-8 LF bytes',()=>{
   const dir=mkdtempSync(join(tmpdir(),'research source % '));
@@ -185,4 +185,15 @@ test('32 KiB whole scope fits and one more byte denies before any truncation',()
 });
 test('registered SHA-256 object format binds a full 64-digit base revision',()=>{
   const p=example();p.context.objectFormat='sha256';p.context.baseCommit='c'.repeat(64);p.captures[0].revision=p.context.baseCommit;reseal(p);assert.doesNotThrow(()=>check(p));
+});
+function rebindRun(p,runId){
+  for(const holder of [p.context,p.scope,...p.captures,...p.scope.captures])holder.task.runId=runId;
+  reseal(p);
+}
+for(const runId of ['r','d'.repeat(64)+'-0','d'.repeat(64)+'-01','d'.repeat(64)+'-9223372036854775808','d'.repeat(63)+'-1','D'.repeat(64)+'-1'])
+  test(`rejects invalid run identity ${runId}`,()=>{
+    const p=example();rebindRun(p,runId);assert.throws(()=>check(p),/run identity/);
+  });
+test('maximum canonical positive run sequence fits without Number precision loss',()=>{
+  const p=example();rebindRun(p,'d'.repeat(64)+'-9223372036854775807');assert.doesNotThrow(()=>check(p));
 });
