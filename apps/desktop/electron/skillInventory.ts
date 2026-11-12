@@ -108,16 +108,15 @@ async function codexPluginRoots(codexHome: string, diagnostics: string[]) {
         const packagePath = join(pluginPath, version.name);
         try {
           let manifest: Record<string, any>;
-          let portable = true;
           try {
             manifest = record(JSON.parse(await boundedText(join(packagePath, "plugin.json"))));
+            manifest.skills = "./skills"; // Portable packages use the fixed skills root.
           } catch (error) {
             if (!missing(error)) throw error;
-            portable = false;
             manifest = record(JSON.parse(await boundedText(join(packagePath, ".codex-plugin/plugin.json"))));
           }
           if (manifest.name !== plugin.name) throw new Error("Plugin identity does not match cache directory.");
-          const source = portable ? "./skills" : manifest.skills;
+          const source = manifest.skills;
           if (source === undefined) continue; // A plugin can contain only tools.
           if (typeof source !== "string" || !source.startsWith("./"))
             throw new Error("Unsupported skill directory; expected a package-relative path.");
