@@ -337,3 +337,13 @@ complete catalog/initializer and first-report publication effects open. Source
 choices need scoped acceptance before component fixtures; existing accepted
 protocols/caps/artifacts are preserved. Gate 2 remains Investigate; no runtime/
 native execution, storage conversion or executable plan is supplied.
+
+## Accepted source-component subset — 2026-11-12
+
+Scoped owner acceptance now permits offline fixtures for the four immutable
+research-source choices. The [capture/scope packet](../../validation/research-capture-scope-components.md)
+qualifies only synthetic capture/question/excerpt/scope components against supplied
+bindings. Full configuration/startup, original source chain, prepared input,
+current controls, complete accounting/catalog/consumer indexes and atomic
+first-report effects still require their own evidence. #1689 remains open;
+Gate 2 remains Investigate. No runtime/native execution is enabled.

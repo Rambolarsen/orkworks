@@ -1,0 +1,144 @@
+{
+  "captures": [
+    {
+      "captureDigest": "8dc69023474701f3d2631f7420d10638fdee124a0767e475c63f60fcbfd964e7",
+      "content": "Aé🙂Z\n",
+      "contentDigest": "d550a8a1b46b9a0adbe4b9fab2e850f5a8fbe20f8f4d0e2aa9a9a1efea41f56f",
+      "path": "src/note-a.txt",
+      "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "schemaVersion": 1,
+      "sizeBytes": 9,
+      "sourceId": "source-a",
+      "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "task": {
+        "planId": "p",
+        "planRevision": 1,
+        "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+        "taskId": "t",
+        "workspaceId": "w"
+      }
+    },
+    {
+      "captureDigest": "8070665e064a25a27463f791c5b1e71460a58b59516c886c0cdc1cd39c8914b4",
+      "content": "Retained data only.\n",
+      "contentDigest": "7fe7f5c58dacb7120ca9b5ed2c97fdede3d857f8c02495c9cb4b3c96a5173edd",
+      "path": "src/note-b.txt",
+      "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "cccccccccccccccccccccccccccccccccccccccc",
+      "schemaVersion": 1,
+      "sizeBytes": 20,
+      "sourceId": "source-b",
+      "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "task": {
+        "planId": "p",
+        "planRevision": 1,
+        "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+        "taskId": "t",
+        "workspaceId": "w"
+      }
+    }
+  ],
+  "context": {
+    "baseCommit": "cccccccccccccccccccccccccccccccccccccccc",
+    "objectFormat": "sha1",
+    "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "task": {
+      "planId": "p",
+      "planRevision": 1,
+      "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+      "taskId": "t",
+      "workspaceId": "w"
+    }
+  },
+  "scope": {
+    "captures": [
+      {
+        "captureDigest": "8dc69023474701f3d2631f7420d10638fdee124a0767e475c63f60fcbfd964e7",
+        "sourceId": "source-a",
+        "task": {
+          "planId": "p",
+          "planRevision": 1,
+          "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+          "taskId": "t",
+          "workspaceId": "w"
+        }
+      },
+      {
+        "captureDigest": "8070665e064a25a27463f791c5b1e71460a58b59516c886c0cdc1cd39c8914b4",
+        "sourceId": "source-b",
+        "task": {
+          "planId": "p",
+          "planRevision": 1,
+          "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+          "taskId": "t",
+          "workspaceId": "w"
+        }
+      }
+    ],
+    "excerpts": [
+      {
+        "lengthBytes": 6,
+        "reference": {
+          "excerptDigest": "7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9",
+          "id": "e-a",
+          "kind": "file",
+          "location": "bytes:1-7",
+          "path": "src/note-a.txt",
+          "revision": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        "sourceId": "source-a",
+        "startByte": 1
+      },
+      {
+        "lengthBytes": 8,
+        "reference": {
+          "excerptDigest": "2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539",
+          "id": "e-b",
+          "kind": "file",
+          "location": "bytes:0-8",
+          "path": "src/note-b.txt",
+          "revision": "cccccccccccccccccccccccccccccccccccccccc"
+        },
+        "sourceId": "source-b",
+        "startByte": 0
+      }
+    ],
+    "questions": [
+      {
+        "expectedEvidence": "A byte-exact excerpt.",
+        "knownInputs": "Synthetic text only.",
+        "questionId": "q-a",
+        "questionText": "What is retained?",
+        "sourceIds": [
+          "source-a"
+        ],
+        "stoppingConditions": "Stop after the retained input.",
+        "uncertainty": "Native origin is unverified."
+      },
+      {
+        "expectedEvidence": "A byte-exact excerpt.",
+        "knownInputs": "Synthetic text only.",
+        "questionId": "q-b",
+        "questionText": "What is retained?",
+        "sourceIds": [
+          "source-b"
+        ],
+        "stoppingConditions": "Stop after the retained input.",
+        "uncertainty": "Native origin is unverified."
+      }
+    ],
+    "repositoryBindingDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "schemaVersion": 1,
+    "scopeDigest": "0c966cdd22389f4929d6b871515c5b98127e3981f4731e10c790f799ca6a3492",
+    "sourceWorktreeBindingDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "task": {
+      "planId": "p",
+      "planRevision": 1,
+      "runId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd-1",
+      "taskId": "t",
+      "workspaceId": "w"
+    }
+  }
+}
