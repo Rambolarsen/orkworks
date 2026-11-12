@@ -534,6 +534,15 @@ async fn sql_label_stalled_execution_keeps_real_pty_input_and_title_publication_
 
 #[tokio::test]
 async fn sql_label_busy_publication_retries_without_rewriting_an_identical_title() {
+    // Only this case's deliberate publication lock may contend with its retry.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_busy_publication_retries_without_rewriting_an_identical_title"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
     automatic(&store).await;
