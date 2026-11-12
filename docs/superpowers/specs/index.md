@@ -317,3 +317,5 @@ Dated design records; these do not establish current product behavior.
 
 - [Terminal UI authority protocol](2026-11-10-terminal-ui-authority-protocol-design.md) — Proposed bounded scope closure, exact admission and receipt-v2 authority metadata under the accepted cutoff.
 - [Fresh report-retention ledger initialization](2026-11-11-report-retention-initialization-design.md) — Scoped-accepted fresh workspace/run zero ledgers and offline creation evidence; no old-store adoption or broader Gate 2 qualification.
+
+- [Brain-guided next improvement](2026-11-12-brain-guided-improvement-design.md) — Proposed manual progressive investigation with shared assessment, ranked opportunities and one preferred next step.

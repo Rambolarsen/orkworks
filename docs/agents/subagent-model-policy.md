@@ -8,10 +8,27 @@ status: stable
 
 # Subagent Model Policy
 
-This project defaults to the Luna model tier for delegated implementation and
-review work. In the current Codex environment, that tier is exposed as
-gpt-5.6-luna; if a requested Luna alias is unavailable, use the closest
-available Luna model and state the substitution.
+This project defaults to `gpt-6-luna` for delegated implementation and review
+work. Resolve model IDs against the current session's supplied tool inventory
+before dispatch; do not assume an older alias is still available. If the named
+Luna model is unavailable, use an available Luna model and state the substitution.
+If no Luna model is available, report that limitation before selecting a stronger
+model under the escalation rule below.
+
+The 2026-11-12 Codex tool inventory exposes these current choices:
+
+| Purpose | Model ID |
+| --- | --- |
+| Default delegated implementation and review | `gpt-6-luna` |
+| Authorized stronger general-purpose work | `gpt-6.1-sol` |
+| Authorized stronger coding work | `gpt-6.1-terra` |
+| Authorized demanding reasoning work | `gpt-6-astra` |
+
+These are dispatch IDs verified in this session, not a pricing comparison or a
+claim that every harness/account supports them. An explicit model override must
+follow the current tool's context-inheritance requirements. In particular, the
+current Codex collaboration tool requires `fork_turns: "none"` when overriding
+the model; provide the task context explicitly.
 
 Use Luna for:
 
@@ -31,4 +48,6 @@ available, and before starting the next major implementation milestone. Compare
 task quality, review findings, turnaround time, and cost, then update the
 default model name and exception rules here if the evidence supports a change.
 
-Last reviewed: 2026-08-25.
+Last reviewed: 2026-11-12. Model IDs were checked against the supplied Codex
+collaboration tool inventory. Two focused design reviews completed on
+`gpt-6-luna`; no cross-model cost or quality benchmark was performed.

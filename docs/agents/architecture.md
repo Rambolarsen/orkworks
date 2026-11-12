@@ -2273,3 +2273,13 @@ admission: captured cleanup rereads the exact pending job and retains the
 runtime/lane/reservation/lease through file work and SQL progress.
 Producer fencing, safe finalization, qualified startup, backup/migration and SQL
 activation remain separate gates; no installed behavior or latency gain is claimed.
+
+## Proposed Brain-guided manual improvement investigation
+
+[ADR 0114](../adr/0114-brain-guided-improvement-investigation.md) and
+[#1686's proposed design](../superpowers/specs/2026-11-12-brain-guided-improvement-design.md)
+replace the primary combined manual action with progressive sidecar-brokered
+repository/knowledge reads and one final assessment/recommendation result if
+accepted and qualified. The direction is owner-approved; the concrete contract
+remains proposed. Existing inference authority, manual actions and runtime limits
+remain unchanged until scoped approval, implementation and usefulness evidence.

@@ -153,3 +153,5 @@ Decision records and their original rationale and consequences.
 - [Pair native enforcement](0112-pair-native-enforcement.md) — Accepted Windows VFS/router direction for further envelope qualification; implementation and execution remain gated.
 
 - [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.
+
+- [Brain-guided manual improvement investigation](0114-brain-guided-improvement-investigation.md) — Proposed bounded iterative repository/knowledge reads and shared assessment/result for the primary manual action.

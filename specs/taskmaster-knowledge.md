@@ -521,3 +521,16 @@ The owner approved concrete protocol/storage and runtime implementation on
 2026-10-25; exact public rubric export review remains required before publication.
 This proposal does not change the accepted single-improvement assessment above
 or establish runtime/installer availability.
+
+## Proposed Brain-guided manual improvement replacement (#1686)
+
+The owner approved the product direction on 2026-11-12: the primary manual action
+should follow Brain's next-improvement workflow, derive advice and assessment
+from shared evidence, and work without observations. The
+[concrete proposed design](../docs/superpowers/specs/2026-11-12-brain-guided-improvement-design.md)
+and [ADR 0114](../docs/adr/0114-brain-guided-improvement-investigation.md)
+define progressive sidecar-mediated reads, a six-call ceiling, a shared final
+assessment and preferred next step, and paired usefulness qualification.
+The concrete architecture remains proposed; existing call/evidence limits,
+standalone actions, privacy and explicit handoff authority remain in force.
+No runtime activation or knowledge publication follows from this routing entry.
