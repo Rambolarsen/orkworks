@@ -2580,7 +2580,7 @@ html, body, #root {
 .shell-sidebar-navigation { display: flex; flex-direction: column; gap: var(--space-1); }
 .shell-sidebar-navigation button { width: 100%; text-align: left; overflow-wrap: anywhere; }
 .shell-sidebar-navigation button svg, .shell-sidebar-footer button svg { flex-shrink: 0; color: var(--text-muted); }
-.shell-sessions-header { min-height: 34px; border-bottom: none; padding-bottom: 0; background: var(--surface-0); }
+.shell-sessions-header { min-height: 34px; border-bottom: none; padding-block: var(--space-1); background: var(--surface-0); }
 .shell-sidebar-footer { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); padding: var(--space-2); }
 .shell-connection { display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-1); font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 .shell-connection > span { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--state-warn); }
