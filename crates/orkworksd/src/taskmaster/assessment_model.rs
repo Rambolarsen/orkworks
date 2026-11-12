@@ -590,17 +590,47 @@ fn causative_make_description(text: &str, all_words: &[&str], word_index: usize)
             continue;
         }
         let index = word_index - preceding_words;
-        return index > 0
-            && matches!(
+        // Identifier punctuation is invocation syntax, not a plain noun phrase.
+        if !clause
+            .split_whitespace()
+            .all(|word| word.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+        {
+            return false;
+        }
+        if index == 0
+            || !matches!(
                 words[index - 1],
                 "would" | "could" | "should" | "will" | "can"
             )
-            && words.get(index + 2..).is_some_and(|tail| {
-                tail.windows(2).take(6).any(|pair| {
-                    matches!(pair[0], "more" | "less")
-                        && matches!(pair[1], "actionable" | "reliable")
+        {
+            return false;
+        }
+        let object = &words[index + 1..];
+        // The adjective must follow a bounded feedback noun phrase directly.
+        // A purpose phrase or conjunction cannot borrow a later benefit.
+        return (1..=4).any(|length| {
+            let Some(noun) = object.get(..length) else {
+                return false;
+            };
+            noun.last() == Some(&"feedback")
+                && noun[..length - 1].iter().all(|word| {
+                    matches!(
+                        *word,
+                        "automated"
+                            | "test"
+                            | "verification"
+                            | "validation"
+                            | "review"
+                            | "regression"
+                    )
                 })
-            });
+                && object
+                    .get(length)
+                    .is_some_and(|word| matches!(*word, "more" | "less"))
+                && object
+                    .get(length + 1)
+                    .is_some_and(|word| matches!(*word, "actionable" | "reliable"))
+        });
     }
     false
 }
@@ -1196,6 +1226,13 @@ mod tests {
         for text in [
             "The CI script would make deploy.",
             "The CI script would make unknown_target.",
+            "The CI should make upload_artifacts for more reliable delivery.",
+            "The CI would make unknown_target but feedback is more actionable.",
+            "The CI would make unknown target but feedback is more actionable.",
+            "The CI should make feedback for more reliable delivery.",
+            "The CI would make automated feedback and review feedback more reliable.",
+            "The CI could make automated_feedback more reliable.",
+            "The CI could make automated-feedback more reliable.",
             "The CI would make. Feedback is more actionable.",
             "The CI would make unknown_target. Feedback is more actionable.",
             "The script would make unknown_target. The correction would make automated feedback more actionable.",

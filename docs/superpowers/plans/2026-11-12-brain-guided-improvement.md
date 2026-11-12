@@ -580,8 +580,8 @@ The satisfied case has no captured model text; its provider/policy category is
 retained without claiming a more precise cause.
 
 The bounded fix extends the existing negated-inventory grammar to `issue
-history` and recognizes modal causatives with an adjective complement in the
-same clause. Known recipe targets, literal executable syntax, addressed-reader
+history` and recognizes a bounded feedback noun phrase followed immediately by
+its adjective complement in a modal causative clause. Known recipe targets, literal executable syntax, addressed-reader
 instructions, shell operators and completed-verification claims remain denied.
 Regressions include the actual phrases, a complete grounded opportunity,
 unknown/known recipes, cross-sentence false exemptions and reader directives
@@ -626,3 +626,29 @@ signaling the process group after its raw-file-cap canary. That named test
 passed in isolation, then the complete documentation check passed all 1,564
 tests without skips. The failure and rerun logs are retained; no process
 supervisor or test expectations were changed in this task.
+
+### Prose-fix PR review cycle 1
+
+PR #1740 review found that the initial nearby-adjective search could exempt an
+unknown Make target followed by a purpose phrase or conjunction. The reported
+examples reproduced as failing rejection tests. The revised grammar recognizes
+only a short plain-ASCII feedback noun phrase with known modifiers and an
+immediately following `more`/`less` plus `actionable`/`reliable` complement.
+Identifiers, purpose phrases and conjunctions cannot borrow a later benefit.
+Known recipes, literal syntax, addressed-reader wording and verification claims
+retain their rejection paths. Twenty validator tests and 51 improvement tests
+pass; the fresh manual medium security re-review approved the tightened source.
+No live inference, historical result or activation state changed.
+
+The exact saved entry-command and CI finals also decode successfully under this
+tightened grammar without new inference. The temporary replay was removed and
+all reviewed source hashes matched. The final full-verification and current-head
+review results are retained in [PR #1740](https://github.com/Rambolarsen/orkworks/pull/1740)
+before merge.
+
+The tightened-source verifier rerun passed Rust, integration, reporter, desktop
+and native/type checks, then encountered the same unchanged macOS synthetic
+cleanup failure tracked in [#1741](https://github.com/Rambolarsen/orkworks/issues/1741).
+All 1,564 documentation tests subsequently passed with concurrency one and no
+skips; the site build is checked separately. No unrelated supervisor source,
+assertion or limit was changed, and the failed full-run log remains retained.
