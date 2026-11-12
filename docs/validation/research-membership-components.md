@@ -153,6 +153,15 @@ caught by targeted tests. A further mutation silently truncating discovery at
 checks. Existing VitePress circular/large-chunk warnings concern unchanged
 bundler configuration and require no edit for this packet.
 
+One bounded review round used two fresh read-only Luna reviewers. Correctness
+found no material join issue. Evidence review identified that the two packaging
+byte totals above had been independently measured but were not asserted by the
+retained checker/tests. The author added canonical UTF-8 measurements and literal
+Python-derived assertions after first observing their failure against the prior
+checker. The change adds reproducible measurements, not a quota or publication
+claim. Neither reviewer executed code; the author applied this correction after
+the single review round. Hosted review covers the final committed head separately.
+
 Use pinned Node 22 from the repository root:
 
 ```bash

@@ -137,5 +137,6 @@ export function validateResearchMembership(p,prefix){
   same(p.effectComparison,comparison(prefix,e),'local value comparison');
   same(p.prospectiveOwnerAssumption,[{collection:e.rk,task:e.t}],'supplied one-local-collection sample');
   const discovery=measureDiscoveryTrace(p.discoveryTrace,p.discoveryAssumption);
-  return {classification:'conditional-research-membership-components-only',entries,occurrences,localChanges:p.effectComparison.changes.length,discovery};
+  return {classification:'conditional-research-membership-components-only',entries,occurrences,localChanges:p.effectComparison.changes.length,
+    forwardBytes:expected.reduce((n,g)=>n+size(g.entries),0),comparisonBytes:size(p.effectComparison),discovery};
 }

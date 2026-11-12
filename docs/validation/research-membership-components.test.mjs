@@ -42,7 +42,7 @@ test('independent reverse reconstruction preserves the finite packet',()=>{
 });
 test('independent Python counts and conditional trace measurements agree',()=>{
   assert.deepEqual(validateResearchMembership(packet(),prefix()),{
-    classification:'conditional-research-membership-components-only',entries:41,occurrences:176,localChanges:4,
+    classification:'conditional-research-membership-components-only',entries:41,occurrences:176,localChanges:4,forwardBytes:72528,comparisonBytes:14706,
     discovery:{classification:'conditional-discovery-trace-only',observations:3,canonicalBytes:2362},
   });
 });
