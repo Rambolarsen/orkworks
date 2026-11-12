@@ -1931,9 +1931,15 @@ mod tests {
         )
         .unwrap();
 
-        for session_index in 0..MAX_WORKSPACE_OBSERVATIONS {
+        // Count retention is about records, not thousands of segment opens.
+        // Pack unrelated records within the normal per-session segment bound.
+        let mut segments: HashMap<String, String> = HashMap::new();
+        for observation_index in 0..MAX_WORKSPACE_OBSERVATIONS {
             sequence += 1;
-            let session_id = format!("unrelated-session-{session_index}");
+            let session_id = format!(
+                "unrelated-session-{}",
+                observation_index / MAX_SEGMENT_OBSERVATIONS
+            );
             let observation = WorkflowObservation {
                 id: uuid::Uuid::new_v4().to_string(),
                 sequence,
@@ -1953,11 +1959,12 @@ mod tests {
                 idempotency_key_hash: format!("key-hash-{sequence}"),
                 payload_hash: format!("payload-hash-{sequence}"),
             };
-            fs::write(
-                ndjson_dir.join(format!("{session_id}.ndjson")),
-                format!("{}\n", serialize_observation_line(&stored).unwrap()),
-            )
-            .unwrap();
+            let segment = segments.entry(session_id).or_default();
+            segment.push_str(&serialize_observation_line(&stored).unwrap());
+            segment.push('\n');
+        }
+        for (session_id, contents) in segments {
+            fs::write(ndjson_dir.join(format!("{session_id}.ndjson")), contents).unwrap();
         }
         fs::write(ndjson_dir.join("sequence"), sequence.to_string()).unwrap();
 
