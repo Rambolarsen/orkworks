@@ -559,3 +559,12 @@ packet's original revision-one plan bindings. Exact replacements and full
 transaction witnesses remain unavailable until their owning joins are closed.
 Gate C/D, current authority, native identity/publication, complete consumers,
 compatibility/runtime activation and the independent artifact gates remain open.
+
+## Separate research-prefix proposal
+
+The [research input/control prefix](2026-11-12-research-input-control-prefix-design.md)
+proposes separate research families and decision/state variants. It reuses only
+explicit common field shapes/bounds and version/coalescing/one-attempt invariants;
+it does not widen this accepted direct-execution codec, set researchNeeded true
+inside it, or import its stores. New research choices need scoped acceptance
+before their own dependent components; no runtime/native activation follows.

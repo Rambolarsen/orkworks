@@ -1631,3 +1631,15 @@ protocols, child cutoffs and terminal UI exception remain unchanged. New source,
 logical tool/delivery and shared source-pool choices await scoped owner acceptance
 before component fixtures. Research controls, prepared inputs, consumer/indexes,
 catalog/initializer and atomic first publication remain open; no runtime/native work.
+
+## Research input/control prefix proposed — 2026-11-12
+
+The [prepared-input/current-control proposal](2026-11-12-research-input-control-prefix-design.md)
+continues #1689 after the immutable source-component packets. It proposes exact
+research input/decision variants, stale assessment after report collection, one
+current run/version owner, original-versus-live task controls, prospective
+collection/expectation membership and named source-owner effect boundaries.
+These are new choices for scoped written review, not acceptance inferred from
+the source fixtures or this merge. Existing logical/report/direct-execution
+contracts remain unchanged. Complete consumer/catalog/bridge/cutoff and broader
+control/terminal history remain gated; no runtime/native execution is supplied.
