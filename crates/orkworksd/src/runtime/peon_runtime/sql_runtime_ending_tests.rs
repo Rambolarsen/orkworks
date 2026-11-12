@@ -100,6 +100,15 @@ fn files(state: &Arc<AppState>) -> crate::metadata::MetadataStore {
 }
 #[tokio::test]
 async fn runtime_ending_sql_completion_preserves_typed_stages_without_json_reads_or_writes() {
+    // Exact lifecycle outcomes require an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_completion_preserves_typed_stages_without_json_reads_or_writes"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
     let generation = ending(&writes, &state).await;
@@ -115,10 +124,13 @@ async fn runtime_ending_sql_completion_preserves_typed_stages_without_json_reads
     };
     let result = result.unwrap();
     assert!(matches!(result.replay, WriteResult::Written));
-    assert!(matches!(
-        result.metadata,
-        MetadataResult::Completed(Outcome::Committed)
-    ));
+    assert!(
+        matches!(
+            result.metadata,
+            MetadataResult::Completed(Outcome::Committed)
+        ),
+        "unexpected completion stages: {result:?}"
+    );
     assert!(matches!(result.event, WriteResult::Written));
     assert_eq!(
         store.get(ID.into()).await.unwrap().unwrap()["status"],
@@ -272,6 +284,15 @@ async fn runtime_ending_sql_capture_rejects_wrong_application_generation_and_pha
 }
 #[tokio::test]
 async fn runtime_ending_sql_original_capture_rejects_replacements_across_wait() {
+    // Exact lifecycle outcomes require an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_original_capture_rejects_replacements_across_wait"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     for change in [
         "workspace",
