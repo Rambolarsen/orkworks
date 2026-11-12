@@ -153,3 +153,12 @@ current-control, catalog/accounting/index and atomic first-report effect closure
 in the [first-report investigation](first-report-producer-contract.md). #1689 and
 #1089 remain open. Existing report/request/head/receipt/configuration protocols
 remain unchanged. No adapter, model probe or executable runtime plan is supplied.
+
+## Original-source component continuation
+
+The [research source-chain packet](research-chain-components.md) adds synthetic
+original plan/approval/reservation/allocation/attachment/assignment joins under
+the existing scoped acceptance. It embeds this startup packet unchanged and
+labels prepared-input/commit bindings as unqualified assumptions. Actual native
+origin, legal event history, prepared-input/current-control codecs, storage
+publication/accounting/catalog and report consumers remain unqualified.
