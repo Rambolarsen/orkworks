@@ -1907,34 +1907,63 @@ if (process.versions.electron) {
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
         } else if (scenario === 'region-focus') {
-          // Focus stays visible at the heading without framing the whole canvas.
-          const headings = {
-            '[data-shell-region=sessions]': '.shell-sessions-header h2',
-            '.shell-main': '.shell-context h1',
-            '[data-shell-region=inspector]': '[data-shell-region=inspector] > header h2',
-          };
-          const cue = selector => evaluate(`(()=>{const s=getComputedStyle(document.querySelector(${JSON.stringify(headings[selector])}),'::before');return parseFloat(s.width)>0&&parseFloat(s.width)<=6&&s.backgroundColor!=='rgba(0, 0, 0, 0)'})()`);
+          // Label the actual keyboard destination, rather than any focused toolbar control.
           const assertFocusedRegion = async expected => {
-            for (const selector of ['[data-shell-region=sessions]', '.shell-main', '[data-shell-region=inspector]']) {
-              if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) {
-                assert.equal(await cue(selector), selector===expected, `visible region focus: ${selector}`);
-                assert.equal(await evaluate(`parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(selector)})).borderTopWidth)`),0,'focus never frames a whole region');
-              }
-            }
+            const cues = await evaluate(`(()=>{
+              const visible = selector => {
+                const label = document.querySelector(selector);
+                return !!label && getComputedStyle(label).visibility === 'visible';
+              };
+              const inspector = document.querySelector('[data-shell-region=inspector] > header h2');
+              return {
+                sessions: visible('[data-shell-focus=sessions]'),
+                terminal: visible('[data-shell-focus=terminal]'),
+                inspector: !!inspector && getComputedStyle(inspector,'::before').backgroundColor !== 'rgba(0, 0, 0, 0)',
+                framed: [...document.querySelectorAll('[data-shell-region=sessions], .shell-main, [data-shell-region=inspector]')].some(region => parseFloat(getComputedStyle(region).borderTopWidth) > 0),
+              };
+            })()`);
+            assert.deepEqual(cues,{sessions:expected==='sessions',terminal:expected==='terminal',inspector:expected==='inspector',framed:false},'visible keyboard destination without an enclosing frame');
           };
+          const captureFocus = async label => {
+            if (!process.env.ORKWORKS_CAPTURE_FOCUS) return;
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const {writeFileSync}=await import('node:fs');
+            writeFileSync(process.env.ORKWORKS_CAPTURE_FOCUS+'-'+label+'.png',(await win.webContents.capturePage()).toPNG());
+          };
+          assert.deepEqual(await evaluate('[...document.querySelectorAll("[data-shell-focus]")].map(label=>label.textContent)'),['Keyboard focus','Keyboard focus'],'focus has an explicit visible label');
           const before = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
           assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'),await evaluate('getComputedStyle(document.querySelector("[data-shell-region=terminal]")).backgroundColor'),'sidebar and terminal share one canvas');
           await evaluate('document.getElementById("sessions-list").focus()');
-          await assertFocusedRegion('[data-shell-region=sessions]');
+          await assertFocusedRegion('sessions');
+          await captureFocus('sessions');
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
-          await assertFocusedRegion('.shell-main');
+          await assertFocusedRegion('terminal');
+          await captureFocus('terminal');
           assert.deepEqual(await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()'),before,'focus cue does not resize terminal');
+
+          for (const width of [1000,800,640]) {
+            await win.setContentSize(width,700);
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const collisions = await evaluate(`(()=>{
+              const label=document.querySelector('[data-shell-focus=terminal]').getBoundingClientRect();
+              return [...document.querySelectorAll('.shell-toolbar button, .shell-toolbar summary')].filter(control=>{
+                const box=control.getBoundingClientRect();
+                return box.width>0 && box.height>0 && label.left<box.right && label.right>box.left && label.top<box.bottom && label.bottom>box.top;
+              }).map(control=>control.textContent);
+            })()`);
+            assert.deepEqual(collisions,[],'focus label does not overlap controls at '+width+'px');
+          }
+          await win.setContentSize(1280,700);
+          await evaluate('fixture.runtime().terminal.focus()');
+
+          await evaluate('document.querySelector("[data-shell-command=details]").focus()');
+          await assertFocusedRegion(null);
 
           await click('details');
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
           await evaluate('document.querySelector("[data-shell-region=inspector] [data-shell-page-heading]").focus()');
-          await assertFocusedRegion('[data-shell-region=inspector]');
+          await assertFocusedRegion('inspector');
           await evaluate('document.activeElement.blur()');
           await assertFocusedRegion(null);
           assert.equal(await evaluate('fixture.activeSessionId'),'coding','focus changes preserve session selection');
@@ -1944,16 +1973,21 @@ if (process.versions.electron) {
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await waitFor('document.querySelector("[data-shell-region=utility]")');
           await evaluate('document.querySelector("[data-shell-region=utility] [data-shell-page-heading]").focus()');
-          await assertFocusedRegion('.shell-main');
+          await assertFocusedRegion(null);
           await click('sessions');
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
-          await assertFocusedRegion('[data-shell-region=sessions]');
+          await assertFocusedRegion('sessions');
           await win.setContentSize(1280,360);
           await evaluate('document.getElementById("root").style.height="calc(100vh - 38px)"');
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
           await evaluate('document.querySelector("[data-shell-settings]").focus();const sidebar=document.querySelector("[data-shell-region=sessions]");sidebar.scrollTop=sidebar.scrollHeight');
           assert.ok(await evaluate('document.querySelector("[data-shell-region=sessions]").scrollTop>0'),'short sidebar actually scrolls');
-          await assertFocusedRegion('[data-shell-region=sessions]');
+          await assertFocusedRegion(null);
+          await evaluate('document.getElementById("sessions-list").focus();const sidebar=document.querySelector("[data-shell-region=sessions]");sidebar.scrollTop=sidebar.scrollHeight');
+          await assertFocusedRegion('sessions');
+          const shortHeader = await evaluate('(()=>{const sidebar=document.querySelector("[data-shell-region=sessions]").getBoundingClientRect();const header=document.querySelector(".shell-sessions-header").getBoundingClientRect();return {top:header.top,bottom:header.bottom,regionTop:sidebar.top,regionBottom:sidebar.bottom}})()');
+          assert.ok(shortHeader.top>=shortHeader.regionTop && shortHeader.bottom<=shortHeader.regionBottom,'Sessions focus cue stays in the visible short sidebar');
+          await captureFocus('sessions-short');
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');

@@ -2521,6 +2521,9 @@ html, body, #root {
 .review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-heading > button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
 .shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.shell-context:has([data-shell-focus]) { min-width: min(200px, 100%); }
+.shell-context-heading { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.shell-context-heading > h1 { flex: 1; min-width: 0; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
 .shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -2536,10 +2539,29 @@ html, body, #root {
 .shell-inspector-host--overlay > .shell-region-separator { flex: 0 0 6px; }
 .shell-inspector-host--overlay > .shell-region--inspector { flex: 1; background: color-mix(in srgb, var(--surface-1) 96%, transparent); }
 .shell-inspector-host--overlay .recommendations-panel { background: transparent; }
-/* Keep focus at the heading, leaving the shared canvas edges quiet. The dot's
-   space is always reserved; focused controls retain their own visible outline. */
-.shell-sessions-header h2::before,
-.shell-context h1::before,
+/* Name the keyboard destination in a stationary header. Reserve the label's
+   space so focus never changes the content size; controls retain their outlines. */
+.shell-focus-indicator {
+  flex-shrink: 0;
+  visibility: hidden;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-focus) 14%, var(--surface-0));
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.shell-region--sessions:has(#sessions-list:focus-within) > .shell-sessions-header,
+.shell-main:has([data-shell-region="terminal"] .terminal-container:focus-within) > .shell-toolbar {
+  background: color-mix(in srgb, var(--accent-focus) 8%, var(--surface-0));
+  box-shadow: inset 0 -2px 0 var(--accent-focus);
+}
+.shell-region--sessions:has(#sessions-list:focus-within) [data-shell-focus="sessions"],
+.shell-main:has([data-shell-region="terminal"] .terminal-container:focus-within) [data-shell-focus="terminal"] {
+  visibility: visible;
+}
+/* The inspector keeps its compact region cue. */
 .shell-region--inspector > .shell-region-header h2::before {
   content: "";
   display: inline-block;
@@ -2550,8 +2572,6 @@ html, body, #root {
   vertical-align: middle;
   background: transparent;
 }
-.shell-region--sessions:focus-within .shell-sessions-header h2::before,
-.shell-main:focus-within .shell-context h1::before,
 .shell-region--inspector:focus-within > .shell-region-header h2::before {
   background: var(--accent-focus);
 }
@@ -2578,7 +2598,7 @@ html, body, #root {
 .shell-sidebar-navigation { display: flex; flex-direction: column; gap: var(--space-1); }
 .shell-sidebar-navigation button { width: 100%; text-align: left; overflow-wrap: anywhere; }
 .shell-sidebar-navigation button svg, .shell-sidebar-footer button svg { flex-shrink: 0; color: var(--text-muted); }
-.shell-sessions-header { min-height: 34px; border-bottom: none; padding-bottom: 0; }
+.shell-sessions-header { min-height: 34px; border-bottom: none; padding-bottom: 0; background: var(--surface-0); }
 .shell-sidebar-footer { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); padding: var(--space-2); }
 .shell-connection { display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-1); font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 .shell-connection > span { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--state-warn); }
