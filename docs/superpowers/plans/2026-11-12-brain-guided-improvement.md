@@ -536,3 +536,131 @@ failed before their fixes and passed afterward. The revised qualification-module
 SHA-256 is `1f0494d3ccffca2ef970b6725ea0cdbc66be0cb0643d4c352aa84048719ac308`.
 The original live trial ledger is byte-identical at 27 reserved/completed calls.
 No new live inference or activation occurred.
+
+
+## Corrected comparison and prose rejection diagnosis, 20:00 UTC
+
+The owner answered “keep going” to the explicit request for a fresh five-pair
+comparison capped at sixty calls. The second cohort used a separate corpus and
+ledger, preserved the first attempt, and kept Codex `gpt-6-luna` / medium, the
+actual signed `brain-4` proof, identical pinned fixture revisions/file hashes,
+and the same per-arm limits. Source was `04de3bb57610466eadf546395be1b0bc54b3d14c`;
+the compiled runner hash was
+`1f0494d3ccffca2ef970b6725ea0cdbc66be0cb0643d4c352aa84048719ac308`.
+The twelve deterministic runner tests and zero-call signed-input preflight
+passed before dispatch. This run finished incomplete at **35 reserved and 35
+completed calls of 60**, with no retries or switches.
+
+| Fixed case | App / baseline calls | App result | Baseline adjudication |
+| --- | --- | --- | --- |
+| Behavioral assertions | 3 / 4 | Valid useful result-sensitive test assertion | Same useful preferred improvement; no loss |
+| Entry command | 3 / 4 | Rejected by prose validator despite valid citations | Final contained evidence-protocol JSON, not advice |
+| CI failure status | 3 / 4 | Rejected by prose validator despite valid citations | Final contained evidence-protocol JSON, not advice |
+| Already satisfied | 3 / 3 | `provider_or_policy_failure`, no final text | Final requested more evidence, not advice |
+| Restricted tests | 4 / 4 | Valid bounded investigation of tracked-test availability and CI discovery | Validation-map expansion is redundant or lower value; app investigation is better supported |
+
+All five baseline transports returned nonempty final text, but independent
+adjudication found three final responses were still evidence requests/finish
+objects. Transport completion does not establish valid advice. The restricted
+app result explicitly kept excluded test contents unknown and proposed an
+investigation before a fix; it did not infer absent tests or bypass access.
+The satisfied-negative failure emitted no invented gap, but cannot certify a
+negative pass. No valid baseline-preferred loss was found; the one-of-three
+positive result and incomplete comparison still block activation.
+
+Offline replay through the production decoder identified the precise rejection
+fields. The entry-command response's readiness limit said “No outcomes log,
+issue history, or correction records are supplied.” Comma splitting treated
+`issue history` as an imperative. The CI response's benefit said that preserved
+status “would make automated test feedback more actionable”; the tool-token
+check interpreted the causative verb as a Make recipe. These are descriptive
+statements, not executable instructions or performed-verification claims. Both
+responses' fact hashes and page IDs were present in their saved final prompts.
+The satisfied case has no captured model text; its provider/policy category is
+retained without claiming a more precise cause.
+
+The bounded fix extends the existing negated-inventory grammar to `issue
+history` and recognizes a bounded feedback noun phrase followed immediately by
+its adjective complement in a modal causative clause. Known recipe targets, literal executable syntax, addressed-reader
+instructions, shell operators and completed-verification claims remain denied.
+Regressions include the actual phrases, a complete grounded opportunity,
+unknown/known recipes, cross-sentence false exemptions and reader directives
+across punctuation. The final baseline prompt no longer carries evidence-step
+schemas/examples, and a typed evidence response is explicitly rejected as final
+advice after its raw text is retained. No new live trial has tested these fixes.
+
+The second ledger SHA-256 is
+`e72059051fd50e3935de85b64735a66865b9789331bca9ba9ec767491f819054`;
+the original first-run ledger remains byte-identical at 27 calls. Neither
+replay nor post-trial corrections reclassify the historical attempts as passes.
+Production qualification remains false and #1694 remains open.
+
+Exact offline replay after the grammar correction accepts both immutable saved
+final responses and retains their original preferred opportunities. This proves
+the decoder false-positive fix without new model calls; it does not turn the
+historical live failures into qualification passes. The temporary diagnostic
+was removed. All twenty assessment-validator tests and 51 improvement tests
+passed (two live entries ignored), and a fresh security-focused manual medium
+review approved the source diff without findings. Reviewed source hashes match
+the restored tree; full repository verification follows.
+
+### Verified prose-fix source, 20:31 UTC
+
+The complete repository verifier passed on the frozen corrected source: 3,547
+Rust tests (21 ignored), integration tests, 31 reporter tests, 1,743 desktop
+tests (five skipped), native/type checks and desktop build, and 1,564 docs tests
+plus docs build. Git diff, documentation currency and worktree currency checks
+passed. The public-onboarding currency suggestion was reviewed: these bounded
+text/phase fixes add no setup steps, the new flow stays disabled, and source
+claims remain distinct from installed releases. Both trial ledgers are unchanged.
+
+The security-focused manual medium review approved all three changed source
+files without findings, and their hashes matched the verification/commit input.
+This is verified bug-fix source, not a passed live usefulness comparison or
+authorization to activate the new flow.
+
+A final docs-only recheck subsequently failed in the unchanged synthetic test
+`unapproved native continuation packet passes only synthetic clients and process
+checks`: Python's owned-fake-process cleanup raised `PermissionError` while
+signaling the process group after its raw-file-cap canary. That named test
+passed in isolation, then the complete documentation check passed all 1,564
+tests without skips. The failure and rerun logs are retained; no process
+supervisor or test expectations were changed in this task.
+
+### Prose-fix PR review cycle 1
+
+PR #1740 review found that the initial nearby-adjective search could exempt an
+unknown Make target followed by a purpose phrase or conjunction. The reported
+examples reproduced as failing rejection tests. The revised grammar recognizes
+only a short plain-ASCII feedback noun phrase with known modifiers and an
+immediately following `more`/`less` plus `actionable`/`reliable` complement.
+Identifiers, purpose phrases and conjunctions cannot borrow a later benefit.
+Known recipes, literal syntax, addressed-reader wording and verification claims
+retain their rejection paths. Twenty validator tests and 51 improvement tests
+pass; the fresh manual medium security re-review approved the tightened source.
+No live inference, historical result or activation state changed.
+
+The exact saved entry-command and CI finals also decode successfully under this
+tightened grammar without new inference. The temporary replay was removed and
+all reviewed source hashes matched. The final full-verification and current-head
+review results are retained in [PR #1740](https://github.com/Rambolarsen/orkworks/pull/1740)
+before merge.
+
+The tightened-source verifier rerun passed Rust, integration, reporter, desktop
+and native/type checks, then encountered the same unchanged macOS synthetic
+cleanup failure tracked in [#1741](https://github.com/Rambolarsen/orkworks/issues/1741).
+All 1,564 documentation tests subsequently passed with concurrency one and no
+skips; the site build is checked separately. No unrelated supervisor source,
+assertion or limit was changed, and the failed full-run log remains retained.
+
+### Prose-fix PR review cycle 2
+
+The custom review identified a remaining false rejection when an unrelated
+previous sentence mentions a reader or agent. The new regression first failed
+on that exact example. Reader detection now follows the current sentence while
+preserving rejection across commas, unspaced ellipses and subjectless modal
+fragments. The bounded feedback grammar and command guards remain intact.
+Twenty validator tests and 51 improvement tests pass (two live entries ignored);
+the fresh manual medium review approved the frozen source without findings.
+No new model calls, historical trial results or activation state changed.
+Current-head CI and automated review results are recorded in PR #1740.

@@ -752,3 +752,25 @@ fn cancellation_guard_stops_startup_and_later_range_reads() {
     assert_eq!(evidence.read(id, 9000, 24).unwrap_err(), "cancelled");
     assert_eq!(evidence.revalidate().unwrap_err(), "cancelled");
 }
+
+#[test]
+fn descriptive_readiness_inventory_and_benefit_preserve_a_grounded_opportunity() {
+    let (mut value, rubric) = final_fixture();
+    let row = value["concepts"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|row| row["conceptId"] == "feedback-loops")
+        .unwrap();
+    row["limits"] =
+        serde_json::json!(["No outcomes log, issue history, or correction records are supplied."]);
+    value["opportunities"][0]["benefit"]=serde_json::json!("Preserved CI failure status would make automated test feedback more actionable and prevent failure suppression from appearing equivalent to a reliable signal.");
+    let result = super::model::FinalResult::decode(
+        &value.to_string(),
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric,
+    )
+    .unwrap();
+    assert_eq!(result.preferred().unwrap().id, "scoped-guidance");
+}

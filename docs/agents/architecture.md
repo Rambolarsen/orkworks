@@ -2314,10 +2314,11 @@ own currentness validation. A history write failure is separate from the report.
 Production qualification is a code-owned disabled gate, with no environment or
 HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication and consumer integration. The first five-pair usefulness trial
-remains unqualified: two positive app results were valid, two app results were
-rejected and all controlled baselines failed their evidence protocol. The
-baseline prompt omitted a completion rule; post-trial prompt corrections have
-not received a new live qualification. The desktop retains the existing primary
+tracks publication and consumer integration. Two five-pair usefulness attempts
+remain unqualified. The corrected run accepted one positive app result, rejected
+two benign descriptive finals and had one provider/policy failure; three baseline
+finals repeated evidence-protocol JSON. Post-trial fixes distinguish descriptive
+prose from executable syntax and separate the baseline response phases. These
+fixes have not received a new live qualification. The desktop retains the existing primary
 action whenever the replacement is unavailable. Neither local transport tests nor this source
 implementation establish usefulness qualification or published-installer behavior.

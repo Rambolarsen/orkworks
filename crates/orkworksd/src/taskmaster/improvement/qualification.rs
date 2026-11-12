@@ -1261,6 +1261,10 @@ fn run_baseline_arm(
 }
 
 fn require_baseline_advice(ledger: &mut Ledger, case: &str, raw: &str) -> Result<(), String> {
+    if serde_json::from_str::<InvestigationStep>(raw).is_ok() {
+        ledger.fail_last(case, Arm::Baseline, "invalid_model_output")?;
+        return Err("invalid_model_output".into());
+    }
     if raw.trim().is_empty() {
         ledger.fail_last(case, Arm::Baseline, "empty_model_output")?;
         return Err("empty_model_output".into());
@@ -1334,7 +1338,7 @@ fn baseline_prompt(
         .iter()
         .filter(|page| selected.contains(&page.id))
         .collect::<Vec<_>>();
-    let prompt = json!({
+    let mut prompt = json!({
         "protocol":"controlled-brain-improvement-baseline-v1",
         "phase":if final_call {"advice"} else {"evidence"},
         "request":"Use Brain to suggest the next improvement towards agentic development.",
@@ -1342,7 +1346,7 @@ fn baseline_prompt(
         "stepSchema":{"version":1,"repositoryReads":[{"fileId":0,"offset":0,"length":8192}],"knowledgePageIds":["signed page ID"],"finish":false},
         "stepRules":"Exactly these four fields and version 1. Set finish true with both repositoryReads and knowledgePageIds empty to request the final advice call. Set finish false only when requesting at least one item. Use at most eight total distinct requests across both lists; file IDs must be in the supplied repository catalog, and page IDs must be in the supplied signed guidance catalog. Each read length is 1..8192 bytes and offsets plus lengths must not overflow; selected text endpoints must be valid UTF-8. Unknown fields, paths, commands and unlisted IDs are invalid. Malformed or rejected evidence output is not retried.",
         "finishExample":{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true},
-        "finalInstruction":"Return plain advice, not a structured assessment and not the app's final JSON schema.",
+        "finalInstruction":"The evidence phase is closed. Return plain advice, not a structured assessment and not the app's final JSON schema. Do not return evidence requests or finish markers.",
         "limits":{"calls":MAX_CALLS,"repositoryFiles":32,"repositoryRanges":32,"repositoryBytes":65536,"rangeBytes":8192,"guidancePages":16,"guidanceBytes":32768},
         "rubric":rubric,
         "repositoryFacts":evidence.facts().iter().enumerate().map(|(i,f)|json!({"id":i,"path":f.path,"offset":f.offset,"fileSize":f.file_size,"complete":f.complete(),"sha256":f.sha256,"text":f.text})).collect::<Vec<_>>(),
@@ -1351,7 +1355,17 @@ fn baseline_prompt(
         "knowledgePages":selected_pages,
         "knowledgeCatalog":pages.iter().map(|page|json!({"id":page.id,"title":page.title,"type":page.page_type,"relatedIds":page.related_ids})).collect::<Vec<_>>(),
         "readRefusals":refusals,
-    }).to_string();
+    });
+    if let Some(fields) = prompt.as_object_mut() {
+        if final_call {
+            for field in ["stepSchema", "stepRules", "finishExample"] {
+                fields.remove(field);
+            }
+        } else {
+            fields.remove("finalInstruction");
+        }
+    }
+    let prompt = prompt.to_string();
     if prompt.len() > CALL_PROMPT_LIMIT {
         return Err("prompt_exceeds_limit".into());
     }
@@ -1768,6 +1782,40 @@ mod tests {
     }
 
     #[test]
+    fn evidence_protocol_is_not_final_baseline_advice() {
+        for raw in [
+            r#"{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true}"#,
+            r#"{"version":1,"repositoryReads":[],"knowledgePageIds":["concepts/verification.md"],"finish":false}"#,
+        ] {
+            let dir = tempdir().unwrap();
+            let mut ledger =
+                ledger_fixture(&dir.path().join("ledger.json"), &dir.path().join("out"));
+            let retained = ledger
+                .invoke(
+                    "case-a",
+                    Arm::Baseline,
+                    r#"{"repositoryFacts":[],"knowledgePages":[]}"#,
+                    || Ok(raw.into()),
+                )
+                .unwrap();
+            assert!(require_baseline_advice(&mut ledger, "case-a", &retained).is_err());
+            assert_eq!(ledger.value["outputs"][0]["state"], "failed");
+            assert_eq!(
+                ledger.value["outputs"][0]["failureCategory"],
+                "invalid_model_output"
+            );
+            assert_eq!(
+                fs::read_to_string(
+                    dir.path()
+                        .join("out/case-a/controlled-baseline/call-01.output.txt")
+                )
+                .unwrap(),
+                raw
+            );
+        }
+    }
+
+    #[test]
     fn empty_baseline_final_is_retained_but_marked_failed() {
         let dir = tempdir().unwrap();
         let mut ledger = ledger_fixture(&dir.path().join("ledger.json"), &dir.path().join("out"));
@@ -2033,6 +2081,19 @@ mod tests {
                 && rules.contains("finish false")
                 && rules.contains("not retried")
         }));
+        let final_prompt: Value = serde_json::from_str(
+            &baseline_prompt(&evidence, &rubric, &pages, &selected, &[], true).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(final_prompt["phase"], "advice");
+        for key in ["stepSchema", "stepRules", "finishExample"] {
+            assert!(
+                final_prompt.get(key).is_none(),
+                "advice exposes evidence contract: {key}"
+            );
+        }
+        assert!(final_prompt["finalInstruction"].is_string());
+        assert_eq!(final_prompt["knowledgePages"].as_array().unwrap().len(), 1);
         let allowed_pages = vec![page.id];
         let finish = prompt["finishExample"].clone();
         let decoded = InvestigationStep::decode(
