@@ -319,4 +319,4 @@ Dated design records; these do not establish current product behavior.
 - [Fresh report-retention ledger initialization](2026-11-11-report-retention-initialization-design.md) — Scoped-accepted fresh workspace/run zero ledgers and offline creation evidence; no old-store adoption or broader Gate 2 qualification.
 
 - [Brain-guided next improvement](2026-11-12-brain-guided-improvement-design.md) — Proposed manual progressive investigation with shared assessment, ranked opportunities and one preferred next step.
-- [Research prepared input and current-control prefix](2026-11-12-research-input-control-prefix-design.md) — Proposed research input/stale-assessment, live-versus-frozen controls, positive collection ownership and source-owner effect boundaries; written review only.
+- [Research prepared input and current-control prefix](2026-11-12-research-input-control-prefix-design.md) — Research input/stale-assessment, live-versus-frozen controls, positive collection ownership and source-owner effect boundaries; scoped acceptance for offline prefix components only.
