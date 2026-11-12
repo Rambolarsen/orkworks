@@ -249,3 +249,13 @@ identified exact record-family/owner/index/read/write mapping as the next source
 contract's central obligation; the author made that requirement explicit above.
 No fixture, native process or runtime was executed by either reviewer. Review
 qualifies this written investigation only, not the missing research producer.
+
+## Immutable research-source proposal — 2026-11-12
+
+The [research source-codec proposal](../superpowers/specs/2026-11-12-research-source-codecs-design.md)
+under #1689 supplies concrete new immutable source grammar, distinct from the
+accepted direct-execution variants. Captures/questions/excerpts, scope/configuration/
+plan approval and original reservation/allocation/attachment identities are proposed
+for scoped review. No source component fixture precedes acceptance. Prepared-input/
+current-control/catalog/consumer/atomic publisher closures above remain open;
+this is no complete producer or Gate 2 qualification.

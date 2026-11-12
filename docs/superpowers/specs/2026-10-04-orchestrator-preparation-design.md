@@ -1620,3 +1620,14 @@ not captured R2 context, a frozen reservation version or a terminal row.
 source/control/catalog and effect-map prerequisite. Existing #742 logical
 lifecycle acceptance stands; no general lifecycle reapproval, dependent fixture,
 runtime/native execution or storage-format conversion is requested or supplied.
+
+## Immutable research source grammar proposed — 2026-11-12
+
+The [single-task retained-file source proposal](2026-11-12-research-source-codecs-design.md)
+makes #1689's immutable grammar concrete: captures/questions/excerpts/scope, exact
+research configuration and approval, plus original expected/frozen reservation,
+allocation/attachment and assignment records. Existing report/head/request/receipt
+protocols, child cutoffs and terminal UI exception remain unchanged. New source,
+logical tool/delivery and shared source-pool choices await scoped owner acceptance
+before component fixtures. Research controls, prepared inputs, consumer/indexes,
+catalog/initializer and atomic first publication remain open; no runtime/native work.

@@ -326,3 +326,14 @@ source/control/catalog and complete first-report effect closure. No new codec,
 cutoff, fixture or conversion is selected. The accepted fresh-ledger seam remains
 closed within its scope; real report/terminal producers and complete consumers
 remain unqualified. Gate 2 stays Investigate; no runtime/native execution.
+
+## Immutable research-source proposal — 2026-11-12
+
+The [new source-codec proposal](../specs/2026-11-12-research-source-codecs-design.md)
+under #1689 selects a proposed single-task retained-file grammar with exact
+question/capture/scope, configuration/approval and original launch-source bindings.
+It leaves research current controls, prepared inputs, collection/consumer indexes,
+complete catalog/initializer and first-report publication effects open. Source
+choices need scoped acceptance before component fixtures; existing accepted
+protocols/caps/artifacts are preserved. Gate 2 remains Investigate; no runtime/
+native execution, storage conversion or executable plan is supplied.
