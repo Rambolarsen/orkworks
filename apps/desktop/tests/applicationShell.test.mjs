@@ -1930,11 +1930,20 @@ if (process.versions.electron) {
             const {writeFileSync}=await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_FOCUS+'-'+label+'.png',(await win.webContents.capturePage()).toPNG());
           };
+          const assertSessionsHeadingCentered = async () => {
+            const offset = await evaluate(`(()=>{
+              const header=document.querySelector('.shell-sessions-header').getBoundingClientRect();
+              const heading=document.querySelector('.shell-sessions-header h2').getBoundingClientRect();
+              return (heading.top+heading.bottom-header.top-header.bottom)/2;
+            })()`);
+            assert.ok(Math.abs(offset)<=1,'Sessions heading is vertically centered in its focus background; offset: '+offset+'px');
+          };
           assert.equal(await evaluate('document.querySelector(".shell-layout").textContent.includes("Keyboard focus")'),false,'focus cues add no explanatory text');
           const before = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().toJSON()');
           assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-shell-region=sessions]")).backgroundColor'),await evaluate('getComputedStyle(document.querySelector("[data-shell-region=terminal]")).backgroundColor'),'sidebar and terminal share one canvas');
           await evaluate('document.getElementById("sessions-list").focus()');
           await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
           await captureFocus('sessions');
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}))');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
@@ -1962,6 +1971,7 @@ if (process.versions.electron) {
           await click('sessions');
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
           await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
           await win.setContentSize(1280,360);
           await evaluate('document.getElementById("root").style.height="calc(100vh - 38px)"');
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
@@ -1970,6 +1980,7 @@ if (process.versions.electron) {
           await assertFocusedRegion(null);
           await evaluate('document.getElementById("sessions-list").focus();const sidebar=document.querySelector("[data-shell-region=sessions]");sidebar.scrollTop=sidebar.scrollHeight');
           await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
           const shortHeader = await evaluate('(()=>{const sidebar=document.querySelector("[data-shell-region=sessions]").getBoundingClientRect();const header=document.querySelector(".shell-sessions-header").getBoundingClientRect();return {top:header.top,bottom:header.bottom,regionTop:sidebar.top,regionBottom:sidebar.bottom}})()');
           assert.ok(shortHeader.top>=shortHeader.regionTop && shortHeader.bottom<=shortHeader.regionBottom,'Sessions focus cue stays in the visible short sidebar');
           await captureFocus('sessions-short');
