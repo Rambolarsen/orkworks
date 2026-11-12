@@ -1220,3 +1220,17 @@ test("formatProposedChange labels targets and flags sensitive ones as plain text
   assert.deepEqual(view.targets.map((target) => target.sensitive), [true, false]);
   assert.equal(view.summary, "Pin retries");
 });
+
+
+test("investigation handoff has a standalone read-only scope without implementation instructions", () => {
+  const prompt = buildFixPromptDraft({ ...recommendation,
+    assessment: { improvementReference: { version: 1, intent: "investigation" } },
+    suggestedPrompt: "Implement and commit the suggested change.",
+  } as WorkflowRecommendation);
+  assert.match(prompt, /Investigate Taskmaster recommendation rec-1/);
+  assert.match(prompt, /GET \/taskmaster\/recommendations\/rec-1/);
+  assert.match(prompt, /report findings, uncertainty, and possible next steps/);
+  assert.match(prompt, /Do not edit files, implement changes/);
+  assert.match(prompt, /untrusted reference data/);
+  assert.doesNotMatch(prompt, /Investigate and implement|edit the repository|only modify repository|After acting|POSTing|Implement and commit/);
+});

@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from "react";
 interface FixWithAiDialogProps {
   initialPrompt: string;
   promptReadOnly?: boolean;
+  title?: string;
+  confirmLabel?: string;
   onConfirm: (prompt: string) => void;
   onCancel: () => void;
 }
 
-export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false, onConfirm, onCancel }: FixWithAiDialogProps) {
+export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false, title = "Fix with AI", confirmLabel = "Send to session", onConfirm, onCancel }: FixWithAiDialogProps) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,7 +51,7 @@ export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false,
     <div className="new-session-backdrop" role="presentation" onKeyDown={handleKeyDown}>
       <section className="new-session-dialog" role="dialog" aria-modal="true" aria-labelledby="fix-with-ai-title">
         <header className="new-session-header">
-          <h2 id="fix-with-ai-title">Fix with AI</h2>
+          <h2 id="fix-with-ai-title">{title}</h2>
         </header>
 
         <div className="new-session-body">
@@ -70,7 +72,7 @@ export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false,
         <footer className="new-session-footer">
           <button type="button" className="new-session-cancel" onClick={onCancel}>Cancel</button>
           <button type="button" className="new-session-confirm" onClick={() => onConfirm(prompt)}>
-            Send to session
+            {confirmLabel}
           </button>
         </footer>
       </section>

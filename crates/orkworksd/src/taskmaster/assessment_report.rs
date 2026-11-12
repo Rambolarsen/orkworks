@@ -315,6 +315,7 @@ pub(super) mod tests {
     pub(crate) fn proposal() -> (AssessmentRecord, Recommendation) {
         let mut recommendation = Recommendation {
             assessment: Some(AssessmentProvenance {
+                improvement_reference: None,
                 sql_sources: None,
                 readiness_reference: None,
                 access_redacted: false,

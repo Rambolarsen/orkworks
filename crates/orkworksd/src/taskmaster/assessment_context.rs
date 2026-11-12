@@ -1,4 +1,5 @@
 //! Repository-owned evidence selection for manual assessment only.
+pub(crate) mod improvement;
 use super::{context, runtime::ContextLevel, RepositoryEvidence};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -224,7 +225,17 @@ impl RepositoryContext {
         excluded: &[String],
         observed_at: &str,
     ) -> Result<Self, String> {
-        let mut context = Self::collect_internal(workspace, level, excluded, observed_at, true)?;
+        Self::collect_for_readiness_controlled(workspace, level, excluded, observed_at, &|| Ok(()))
+    }
+    pub(crate) fn collect_for_readiness_controlled(
+        workspace: &Path,
+        level: ContextLevel,
+        excluded: &[String],
+        observed_at: &str,
+        check: &dyn Fn() -> Result<(), String>,
+    ) -> Result<Self, String> {
+        let mut context =
+            Self::collect_internal(workspace, level, excluded, observed_at, true, check)?;
         context.manifest.purpose = Some("readiness".into());
         context.manifest.collector_version = READINESS_COLLECTOR_VERSION;
         context.manifest.prompt_version = super::readiness::PROMPT_VERSION.into();
@@ -236,7 +247,7 @@ impl RepositoryContext {
         excluded: &[String],
         observed_at: &str,
     ) -> Result<Self, String> {
-        Self::collect_internal(workspace, level, excluded, observed_at, false)
+        Self::collect_internal(workspace, level, excluded, observed_at, false, &|| Ok(()))
     }
     fn collect_internal(
         workspace: &Path,
@@ -244,7 +255,9 @@ impl RepositoryContext {
         excluded: &[String],
         observed_at: &str,
         readiness: bool,
+        check: &dyn Fn() -> Result<(), String>,
     ) -> Result<Self, String> {
+        check()?;
         if level == ContextLevel::SessionObservations {
             return Err("Repository assessment requires workflow context access".into());
         }
@@ -262,6 +275,7 @@ impl RepositoryContext {
         let mut remaining = 2000;
         let mut complete = true;
         let mut coverage = context::TraversalCoverage::default();
+        check()?;
         context::collect_paths(
             &root,
             &root,
@@ -282,6 +296,7 @@ impl RepositoryContext {
         let mut unavailable_inputs = false;
         complete &= remaining > 0;
         for path in paths {
+            check()?;
             let Some(relative) = path
                 .strip_prefix(&root)
                 .ok()
@@ -404,6 +419,7 @@ impl RepositoryContext {
                 if result.prefixes.contains_key(&path) {
                     continue;
                 }
+                check()?;
                 match read_prefix(&result.root, &path, level, excluded) {
                     Ok(bytes) => pending.push((path, bytes)),
                     Err(_) => {
@@ -910,7 +926,12 @@ fn read_prefix(
         .take(MAX_PREFIX as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| "Assessment evidence cannot be read")?;
-    let text = std::str::from_utf8(&bytes).map_err(|_| "Assessment evidence is not text")?;
+    validate_evidence_text(&bytes)?;
+    Ok(bytes)
+}
+
+fn validate_evidence_text(bytes: &[u8]) -> Result<(), String> {
+    let text = std::str::from_utf8(bytes).map_err(|_| "Assessment evidence is not text")?;
     let lower = text.to_ascii_lowercase();
     if [
         "private_key",
@@ -925,7 +946,7 @@ fn read_prefix(
     {
         return Err("Assessment evidence contains sensitive data".into());
     }
-    Ok(bytes)
+    Ok(())
 }
 
 #[cfg(test)]

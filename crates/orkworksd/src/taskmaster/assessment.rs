@@ -1864,7 +1864,7 @@ fn finish_unsuccessful_assessment(
     let _ = store.save(record);
 }
 
-fn upsert_assessment_recommendation(
+pub(super) fn upsert_assessment_recommendation(
     workspace: &crate::WorkspaceState,
     recommendation: &super::Recommendation,
 ) -> Result<(), String> {
@@ -1879,7 +1879,7 @@ fn upsert_assessment_recommendation(
     }
 }
 
-fn target_surface_key(value: super::TargetSurface) -> &'static str {
+pub(super) fn target_surface_key(value: super::TargetSurface) -> &'static str {
     match value {
         super::TargetSurface::Instructions => "instructions",
         super::TargetSurface::Skill => "skill",
@@ -1889,18 +1889,18 @@ fn target_surface_key(value: super::TargetSurface) -> &'static str {
     }
 }
 
-fn short_hash(value: &str) -> String {
+pub(super) fn short_hash(value: &str) -> String {
     hex::encode(&Sha256::digest(value.as_bytes())[..8])
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ProposalDedupeDecision {
+pub(super) enum ProposalDedupeDecision {
     Create,
     Successor(String),
     Suppress,
 }
 
-fn proposal_dedupe_decision(
+pub(super) fn proposal_dedupe_decision(
     existing: &[(super::RecommendationStatus, bool, &str, Option<&str>)],
 ) -> ProposalDedupeDecision {
     if existing.is_empty() {
@@ -1971,6 +1971,7 @@ fn build_assessment_recommendation(
         .expect("validated proposed assessment");
     Recommendation {
         assessment: Some(AssessmentProvenance {
+            improvement_reference: None,
             sql_sources: None,
             readiness_reference: snapshot.readiness_focus.as_ref().map(|focus| focus.cited_reference(&snapshot.evaluation, &response.knowledge_page_ids).expect("validated readiness citations")),
             id: assessment_id.into(),

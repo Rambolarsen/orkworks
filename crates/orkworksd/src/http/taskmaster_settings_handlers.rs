@@ -27,7 +27,7 @@ impl std::ops::Deref for SettingsStatus {
     }
 }
 
-fn workspace_path(state: &AppState) -> Option<std::path::PathBuf> {
+pub(super) fn workspace_path(state: &AppState) -> Option<std::path::PathBuf> {
     state
         .workspace
         .lock()

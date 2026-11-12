@@ -1386,7 +1386,22 @@ impl SessionApplication {
                     control_tx,
                     workspace: RecommendationDeliveryWorkspace::capture(workspace),
                 };
-                let prompt = if let Some(packet) = &recommendation.completion_packet {
+                let prompt = if crate::taskmaster::is_improvement_investigation(&recommendation) {
+                    if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
+                        return Err(RecommendationAcceptError::Conflict);
+                    }
+                    let prompt = crate::taskmaster::build_fix_prompt(&recommendation);
+                    workspace
+                        .recommendation_store
+                        .begin_execution(
+                            id,
+                            session_id.to_string(),
+                            chrono::Utc::now().to_rfc3339(),
+                        )
+                        .map_err(RecommendationAcceptError::Store)?
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    prompt
+                } else if let Some(packet) = &recommendation.completion_packet {
                     if prompt_override.is_some() {
                         return Err(RecommendationAcceptError::Conflict);
                     }
@@ -16774,6 +16789,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .unwrap();
             let mut recommendation = store.get(&recommendation_id).unwrap().unwrap();
             recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                improvement_reference: None,
                 sql_sources: None,
                 readiness_reference: None,
                 access_redacted: false,

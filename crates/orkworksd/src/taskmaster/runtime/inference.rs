@@ -330,6 +330,34 @@ impl TaskmasterRuntime {
         prompt: String,
         dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
     ) -> Result<String, ProviderOperationError> {
+        self.invoke_custom_inference_inner(harnesses, captured, prompt, dispatch_gate, None)
+    }
+
+    pub(crate) fn invoke_custom_inference_controlled(
+        &self,
+        harnesses: &HarnessStore,
+        captured: &CapturedInference,
+        prompt: String,
+        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
+        control: &crate::providers::InferenceControl,
+    ) -> Result<String, ProviderOperationError> {
+        self.invoke_custom_inference_inner(
+            harnesses,
+            captured,
+            prompt,
+            dispatch_gate,
+            Some(control),
+        )
+    }
+
+    fn invoke_custom_inference_inner(
+        &self,
+        harnesses: &HarnessStore,
+        captured: &CapturedInference,
+        prompt: String,
+        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
+        control: Option<&crate::providers::InferenceControl>,
+    ) -> Result<String, ProviderOperationError> {
         let stale = || ProviderOperationError {
             code: ProviderOperationErrorCode::StaleGeneration,
             message: "custom inference authorization or configuration changed".into(),
@@ -351,40 +379,52 @@ impl TaskmasterRuntime {
             selection.reasoning_effort.as_deref(),
             prompt,
         )?;
-        prepared.run_with_spawn_and_prepare(|command, prepare_child| {
-            let mut child = None;
-            let mut dispatched = false;
-            let current = self
-                .with_current_custom_inference(harnesses, captured, || {
-                    let mut spawn = || {
-                        child = Some(command.spawn().and_then(|mut child| {
-                            prepare_child(&mut child)?;
-                            Ok(child)
-                        }));
-                        child
-                            .as_ref()
-                            .expect("spawn result was recorded")
-                            .as_ref()
-                            .map(|_| ())
-                            .map_err(|error| std::io::Error::new(error.kind(), error.to_string()))
-                    };
-                    dispatched = dispatch_gate(&mut spawn).is_some();
-                })
-                .map_err(|_| ProviderOperationError {
-                    code: ProviderOperationErrorCode::VerificationRequired,
-                    message: "custom inference authorization could not be verified".into(),
-                })?;
-            if !current {
-                return Err(stale());
-            }
-            if !dispatched {
-                return Err(ProviderOperationError {
-                    code: ProviderOperationErrorCode::StaleGeneration,
-                    message: "workspace changed before custom inference was dispatched".into(),
-                });
-            }
-            child.ok_or_else(stale)
-        })
+        prepared.run_with_spawn_and_prepare_controlled(
+            |command, prepare_child| {
+                let mut child = None;
+                let mut dispatched = false;
+                let current = self
+                    .with_current_custom_inference(harnesses, captured, || {
+                        let mut spawn = || {
+                            if control.is_some_and(|c| c.is_cancelled() || c.remaining().is_zero())
+                            {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::Interrupted,
+                                    "cancelled",
+                                ));
+                            }
+                            child = Some(command.spawn().and_then(|mut child| {
+                                prepare_child(&mut child)?;
+                                Ok(child)
+                            }));
+                            child
+                                .as_ref()
+                                .expect("spawn result was recorded")
+                                .as_ref()
+                                .map(|_| ())
+                                .map_err(|error| {
+                                    std::io::Error::new(error.kind(), error.to_string())
+                                })
+                        };
+                        dispatched = dispatch_gate(&mut spawn).is_some();
+                    })
+                    .map_err(|_| ProviderOperationError {
+                        code: ProviderOperationErrorCode::VerificationRequired,
+                        message: "custom inference authorization could not be verified".into(),
+                    })?;
+                if !current {
+                    return Err(stale());
+                }
+                if !dispatched {
+                    return Err(ProviderOperationError {
+                        code: ProviderOperationErrorCode::StaleGeneration,
+                        message: "workspace changed before custom inference was dispatched".into(),
+                    });
+                }
+                child.ok_or_else(stale)
+            },
+            control,
+        )
     }
 
     /// Capture only an approved, currently selected custom definition. No process is run.

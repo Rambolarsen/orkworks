@@ -45,6 +45,9 @@ pub(crate) fn redact_recommendation(
             &settings.excluded_paths,
         )
     });
+    if provenance.improvement_reference.is_some() {
+        recommendation.knowledge_evidence.clear();
+    }
     recommendation.title = "Assessment evidence access changed".into();
     recommendation.summary = REDACTED_SUMMARY.into();
     recommendation.reason.clear();
@@ -122,6 +125,7 @@ pub(crate) fn reconcile_metadata(
     settings: &TaskmasterSettings,
 ) -> Result<(), String> {
     super::readiness_store::ReadinessStore::new(root).reconcile(settings)?;
+    super::improvement::store::ReportStore::new(root).reconcile(settings)?;
     let report_store = super::assessment_store::AssessmentStore::new(root);
     if let Some(mut record) = report_store.load::<AssessmentRecord>()? {
         let original = record.clone();
@@ -157,6 +161,11 @@ pub(crate) fn fence_recommendation(
     let Some(provenance) = recommendation.assessment.as_ref() else {
         return true;
     };
+    // Improvement reports have a distinct owner; a legacy assessment can never
+    // confer currentness on the new purpose. Until that owner is wired, fail closed.
+    if provenance.improvement_reference.is_some() {
+        return false;
+    }
     let pending = record.is_some_and(|record| {
         record.state == AssessmentState::PendingRecommendation
             && (record.id == provenance.id
@@ -249,7 +258,7 @@ pub(crate) fn ensure_mutable(
     Ok(())
 }
 
-fn reconcile_known_workspaces(
+pub(crate) fn reconcile_known_workspaces(
     metadata_root: &std::path::Path,
     settings: &TaskmasterSettings,
     active_metadata_root: Option<&std::path::Path>,
@@ -274,7 +283,8 @@ fn reconcile_known_workspaces(
             continue;
         }
         let Some(origin) = crate::workspace_runtime::read_origin_file(&root) else {
-            if root.join("assessment.json").exists()
+            if root.join(super::improvement::store::FILE).exists()
+                || root.join("assessment.json").exists()
                 || root.join("readiness-history.json").exists()
                 || root.join("readiness-run.json").exists()
             {
@@ -348,6 +358,7 @@ fn project_workspace(
     settings: Option<&TaskmasterSettings>,
     fingerprint: Option<&str>,
     mutating: bool,
+    improvement_id: Option<&str>,
 ) -> Result<Vec<Recommendation>, super::store::StoreError> {
     let record = super::assessment_store::AssessmentStore::new(&workspace.metadata.root_path())
         .load::<AssessmentRecord>();
@@ -363,7 +374,18 @@ fn project_workspace(
             .and_then(|record| record.as_ref())
             .and_then(|record| record.pending_recommendation.as_ref())
             .map(|pending| pending.id.as_str());
-        let allowed = if pending_id == Some(recommendation.id.as_str()) {
+        let improvement = recommendation
+            .assessment
+            .as_ref()
+            .is_some_and(|p| p.improvement_reference.is_some());
+        let allowed = if improvement {
+            settings.is_some()
+                && improvement_id == Some(recommendation.id.as_str())
+                && recommendation
+                    .assessment
+                    .as_ref()
+                    .is_some_and(|p| !p.access_redacted)
+        } else if pending_id == Some(recommendation.id.as_str()) {
             false
         } else if recommendation.assessment.is_some() && (record.is_err() || settings.is_none()) {
             false
@@ -415,8 +437,19 @@ pub(crate) fn with_recommendations<T, E>(
     store_error: fn(super::store::StoreError) -> E,
     action: impl FnOnce(&crate::WorkspaceState, Vec<Recommendation>) -> Result<T, E>,
 ) -> Result<Option<T>, E> {
+    let runtime = runtime_for(state);
+    with_recommendations_using_runtime(state, &runtime, mutating, store_error, action)
+}
+
+pub(crate) fn with_recommendations_using_runtime<T, E>(
+    state: &std::sync::Arc<crate::AppState>,
+    runtime: &super::runtime::TaskmasterRuntime,
+    mutating: bool,
+    store_error: fn(super::store::StoreError) -> E,
+    action: impl FnOnce(&crate::WorkspaceState, Vec<Recommendation>) -> Result<T, E>,
+) -> Result<Option<T>, E> {
     use super::store::StoreError;
-    let (path, instance, derived_id) = {
+    let (path, instance, derived_id, improvement_record) = {
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
             return Ok(None);
@@ -433,6 +466,11 @@ pub(crate) fn with_recommendations<T, E>(
         {
             return action(workspace, recommendations).map(Some);
         }
+        let improvement_record =
+            super::improvement::store::ReportStore::new(&workspace.metadata.root_path())
+                .load()
+                .ok()
+                .flatten();
         (
             workspace.path.clone(),
             workspace.workflow_observations.instance_id(),
@@ -441,15 +479,83 @@ pub(crate) fn with_recommendations<T, E>(
                 .flatten()
                 .and_then(|record| record.report)
                 .and_then(|report| report.recommendation_id),
+            improvement_record,
         )
     };
-    let runtime = runtime_for(state);
+    let mut action = Some(action);
+    if let Some(record) =
+        improvement_record.filter(|r| r.state == super::improvement::store::RunState::Succeeded)
+    {
+        if let Some(report) = record.report.as_ref() {
+            if let Some(id) = report.recommendation_id.as_deref() {
+                if let Ok(capture) = super::improvement::access::capture(state, runtime, Some(id)) {
+                    let legacy_available = runtime.assessment_knowledge_availability().is_ok();
+                    let mut result = None;
+                    let _ = super::improvement::access::guarded(
+                        state,
+                        runtime,
+                        &capture,
+                        Some(&report.manifest),
+                        Some(id),
+                        |workspace| {
+                            let saved = super::improvement::store::ReportStore::new(&capture.root)
+                                .load()?;
+                            if saved.as_ref() != Some(&record) {
+                                return Err("Improvement report changed".into());
+                            }
+                            super::improvement::publication::current_report(report, &capture)?;
+                            let recommendation = workspace
+                                .recommendation_store
+                                .get(id)
+                                .map_err(|_| "Recommendation unavailable")?
+                                .ok_or("Recommendation unavailable")?;
+                            if !super::improvement::publication::join_valid(
+                                report,
+                                &record.id,
+                                &recommendation,
+                            ) {
+                                return Err("Recommendation changed".into());
+                            }
+                            let fingerprint = legacy_available
+                                .then(|| {
+                                    super::assessment::capture_workspace_input(
+                                        workspace,
+                                        &capture.evaluation,
+                                        derived_id.as_deref(),
+                                    )
+                                    .ok()
+                                    .map(|input| input.fingerprint)
+                                })
+                                .flatten();
+                            let projected = project_workspace(
+                                workspace,
+                                Some(&capture.evaluation.settings),
+                                fingerprint.as_deref(),
+                                mutating,
+                                Some(id),
+                            );
+                            result =
+                                Some(projected.map_err(store_error).and_then(|recommendations| {
+                                    action.take().expect("single consumer action")(
+                                        workspace,
+                                        recommendations,
+                                    )
+                                }));
+                            Ok(())
+                        },
+                    );
+                    if let Some(result) = result {
+                        return result.map(Some);
+                    }
+                }
+            }
+        }
+    }
     let snapshot = super::assessment::capture_current_snapshot(
         state,
         runtime.root_path(),
         derived_id.as_deref(),
     );
-    let mut action = Some(action);
     let mut result = None;
     if let Ok(snapshot) = snapshot {
         let _ = runtime.with_current_evaluation(
@@ -476,6 +582,7 @@ pub(crate) fn with_recommendations<T, E>(
                     Some(&snapshot.evaluation.settings),
                     fingerprint.as_deref(),
                     mutating,
+                    None,
                 );
                 result = Some(projected.map_err(store_error).and_then(|recommendations| {
                     action.take().expect("single consumer action")(workspace, recommendations)
@@ -494,7 +601,7 @@ pub(crate) fn with_recommendations<T, E>(
             return None;
         };
         Some(
-            project_workspace(workspace, Some(settings), None, mutating)
+            project_workspace(workspace, Some(settings), None, mutating, None)
                 .map_err(store_error)
                 .and_then(|recommendations| {
                     action.take().expect("single consumer action")(workspace, recommendations)
@@ -973,6 +1080,191 @@ mod tests {
         assert_eq!(completed.status, RecommendationStatus::Completed);
         assert!(completed.assessment.unwrap().access_redacted);
         assert_eq!(completed.title, "Assessment evidence access changed");
+    }
+
+    #[test]
+    fn terminal_improvement_cards_require_their_current_report() {
+        use crate::taskmaster::{ImprovementIntent, ImprovementReference, RecommendationStatus};
+        let directory = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(directory.path());
+        let runtime = runtime_for(&state);
+        let (_, mut recommendation) = proposal();
+        recommendation
+            .assessment
+            .as_mut()
+            .unwrap()
+            .improvement_reference = Some(ImprovementReference {
+            version: 1,
+            intent: ImprovementIntent::Investigation,
+        });
+        for status in [
+            RecommendationStatus::Dismissed,
+            RecommendationStatus::Completed,
+        ] {
+            recommendation.status = status;
+            {
+                let lock = state.workspace.lock().unwrap();
+                lock.as_ref()
+                    .unwrap()
+                    .recommendation_store
+                    .put(&recommendation)
+                    .unwrap();
+                let current = project_workspace(
+                    lock.as_ref().unwrap(),
+                    Some(&TaskmasterSettings::default()),
+                    None,
+                    false,
+                    Some(&recommendation.id),
+                )
+                .unwrap();
+                assert_eq!(
+                    current.len(),
+                    1,
+                    "current terminal card should remain visible"
+                );
+            }
+            let visible = with_recommendations_using_runtime(
+                &state,
+                &runtime,
+                false,
+                |e| e,
+                |_, items| Ok(items),
+            )
+            .unwrap()
+            .unwrap();
+            assert!(
+                visible.is_empty(),
+                "terminal card without a current report must be hidden"
+            );
+        }
+    }
+
+    #[test]
+    fn improvement_provenance_never_acquires_legacy_assessment_freshness() {
+        let (mut record, recommendation) = proposal();
+        record.format_version = 2;
+        record.pending_recommendation = None;
+        let fingerprint = recommendation
+            .assessment
+            .as_ref()
+            .unwrap()
+            .input_fingerprint
+            .clone();
+        assert!(fence_recommendation(
+            &mut recommendation.clone(),
+            Some(&record),
+            Some(&fingerprint),
+            false
+        ));
+        let mut value = serde_json::to_value(&recommendation).unwrap();
+        let assessment = value.get_mut("assessment").unwrap();
+        assessment["improvementReference"] =
+            serde_json::json!({"version": 1, "intent": "investigation"});
+        let mut improvement: Recommendation = serde_json::from_value(value.clone()).unwrap();
+        let fingerprint = improvement
+            .assessment
+            .as_ref()
+            .unwrap()
+            .input_fingerprint
+            .clone();
+        assert!(!fence_recommendation(
+            &mut improvement,
+            Some(&record),
+            Some(&fingerprint),
+            false
+        ));
+        improvement
+            .knowledge_evidence
+            .push(super::super::KnowledgeEvidence {
+                page_id: "page".into(),
+                title: "title".into(),
+                status: "current".into(),
+                bundle_version: "v1".into(),
+                sha256: "hash".into(),
+                excerpt: "snapshot".into(),
+            });
+        redact_recommendation(
+            &mut improvement,
+            &TaskmasterSettings {
+                context_level: ContextLevel::SessionObservations,
+                ..TaskmasterSettings::default()
+            },
+        );
+        assert!(improvement.knowledge_evidence.is_empty());
+        value["assessment"]["improvementReference"]["version"] = serde_json::json!(2);
+        assert!(serde_json::from_value::<Recommendation>(value.clone()).is_err());
+        value["assessment"]["improvementReference"] =
+            serde_json::json!({"version": 1, "intent": "unknown"});
+        assert!(serde_json::from_value::<Recommendation>(value).is_err());
+    }
+
+    #[test]
+    fn improvement_reports_are_redacted_on_access_reduction_and_missing_origins_fail_closed() {
+        use super::super::improvement::{
+            model::FinalResult,
+            store::{Manifest, Record, Report, ReportStore, RunState},
+        };
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let metadata = root.path().join("known");
+        std::fs::create_dir(&metadata).unwrap();
+        crate::workspace_runtime::write_origin_file_if_absent(
+            &metadata,
+            &workspace.path().canonicalize().unwrap(),
+        );
+        let store = ReportStore::new(&metadata);
+        let mut record = Record::queued("run-1", "now");
+        record.state = RunState::Succeeded;
+        record.phase = None;
+        record.completed_at = Some("now".into());
+        record.report = Some(Report {
+            manifest: Manifest {
+                purpose: "brain-improvement-v1".into(),
+                workspace_path: workspace.path().display().to_string(),
+                workspace_instance: 1,
+                context_level: ContextLevel::SourceCode,
+                excluded_paths: vec![],
+                evaluation_key: "0".repeat(64),
+                rubric_digest: "0".repeat(64),
+                catalog_digest: "0".repeat(64),
+                ranges: vec![],
+                pages: vec![],
+                recommendation_digest: "0".repeat(64),
+            },
+            result: FinalResult {
+                version: 1,
+                summary: "private finding".into(),
+                concepts: vec![],
+                opportunities: vec![],
+                preferred_opportunity_id: None,
+                no_proposal_reason: None,
+                limitations: vec![],
+            },
+            repository_evidence: vec![],
+            knowledge_evidence: vec![],
+            recommendation_id: None,
+            history_snapshot_id: None,
+            history_error: None,
+            publication_limitation: None,
+        });
+        store.save(&record).unwrap();
+        let settings = TaskmasterSettings {
+            context_level: ContextLevel::SessionObservations,
+            ..TaskmasterSettings::default()
+        };
+        reconcile_known_workspaces(root.path(), &settings, None).unwrap();
+        let redacted = store.load().unwrap().unwrap();
+        assert_eq!(redacted.state, RunState::AccessRedacted);
+        assert!(redacted.report.is_none());
+        assert!(
+            !std::fs::read_to_string(metadata.join(super::super::improvement::store::FILE))
+                .unwrap()
+                .contains("private finding")
+        );
+        let unknown = root.path().join("unknown");
+        std::fs::create_dir(&unknown).unwrap();
+        std::fs::write(unknown.join(super::super::improvement::store::FILE), "{}").unwrap();
+        assert!(reconcile_known_workspaces(root.path(), &settings, None).is_err());
     }
 
     #[test]

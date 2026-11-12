@@ -11,6 +11,8 @@ pub(crate) enum NativeResponseShape {
     AssessmentV1,
     ReadinessDiscoveryV2,
     ReadinessV1,
+    ImprovementEvidenceV1,
+    ImprovementFinalV1,
 }
 
 pub(crate) const ASSESSMENT_RESPONSE_CONSTRAINT_VERSION: &str = "taskmaster-response-shapes-v1";

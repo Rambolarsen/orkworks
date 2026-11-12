@@ -6,7 +6,72 @@ use super::{
 };
 use std::path::Path;
 
+pub(crate) const IMPROVEMENT_CAPABILITY: &str = "taskmaster-improvement-v1";
+pub(crate) const IMPROVEMENT_ENTRY_PAGE_ID: &str = "playbooks/taskmaster-improvement.md";
+
 impl TaskmasterRuntime {
+    /// Captures the improvement evaluation only from a fresh signed capability
+    /// whose entry page explicitly links every rubric concept page.
+    pub(crate) fn improvement_evaluation_snapshot(
+        &self,
+        workspace: &Path,
+    ) -> Result<
+        (
+            EvaluationSnapshot,
+            crate::taskmaster::readiness_rubric::ReadinessRubric,
+        ),
+        String,
+    > {
+        let snapshot = self
+            .manual_evaluation_snapshot(workspace)
+            .ok_or("Taskmaster improvement configuration is unavailable")?;
+        let _guard = PersistenceGuard::acquire(&self.root)?;
+        let mut data = self
+            .data
+            .lock()
+            .map_err(|_| "Improvement guidance is unavailable")?;
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable
+            || data.ledger.generation != snapshot.generation
+            || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
+        {
+            return Err("Improvement configuration or guidance changed during capture".into());
+        }
+        let proof = data
+            .verified_knowledge
+            .as_ref()
+            .ok_or("Verified improvement guidance is unavailable")?;
+        let bundle = proof.bundle();
+        if bundle.format_version != 2
+            || !bundle
+                .capabilities
+                .iter()
+                .any(|id| id == IMPROVEMENT_CAPABILITY)
+        {
+            return Err("Complete verified improvement guidance is unavailable".into());
+        }
+        let rubric = bundle
+            .readiness_rubric
+            .clone()
+            .ok_or("Improvement rubric is missing")?;
+        rubric.validate(&bundle.pages)?;
+        let entry = bundle
+            .pages
+            .iter()
+            .find(|page| page.id == IMPROVEMENT_ENTRY_PAGE_ID)
+            .ok_or("Improvement entry page is missing")?;
+        if rubric
+            .concepts
+            .iter()
+            .any(|concept| !entry.related_ids.contains(&concept.page_id))
+        {
+            return Err("Improvement entry page does not link every rubric concept".into());
+        }
+        let mut snapshot = snapshot;
+        snapshot.readiness_rubric = Some(rubric.clone());
+        Ok((snapshot, rubric))
+    }
+
     pub(crate) fn readiness_evaluation_snapshot(
         &self,
         workspace: &Path,

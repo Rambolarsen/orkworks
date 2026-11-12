@@ -363,3 +363,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Direct terminal writer outcomes implementation](2026-11-09-terminal-write-outcomes.md) — Accepted bounded actual writer/driver refactor and offline tests; application owner activation remains gated.
 
 - [Retained writer reporting bridge implementation](2026-11-09-writer-reporting-bridge.md) — Accepted checkpoint and optional reporter transfer task with production reporting absent and physical qualification gated.
+
+- [Brain-guided manual improvement investigation](2026-11-12-brain-guided-improvement.md) — Active implementation scope for approved progressive investigation, shared result and gated usefulness qualification.

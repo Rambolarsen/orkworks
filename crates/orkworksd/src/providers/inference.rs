@@ -538,6 +538,15 @@ impl PreparedInference {
         runner: &dyn super::ProviderRunner,
         id: &str,
     ) -> Result<(), ProviderOperationError> {
+        self.check_version_controlled(runner, id, None)
+    }
+
+    pub(super) fn check_version_controlled(
+        &self,
+        runner: &dyn super::ProviderRunner,
+        id: &str,
+        control: Option<&super::InferenceControl>,
+    ) -> Result<(), ProviderOperationError> {
         let mut probe = Command::new(self.command.get_program());
         probe.arg("--version").current_dir(self._directory.path());
         probe.env_clear();
@@ -548,7 +557,12 @@ impl PreparedInference {
                 probe.env_remove(key);
             }
         }
-        let result = runner.run_prepared(id, &mut probe, "", 5, None);
+        let result = if let Some(control) = control {
+            let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
+            runner.run_prepared_controlled(id, &mut probe, "", 5, None, &mut gate, control)
+        } else {
+            runner.run_prepared(id, &mut probe, "", 5, None)
+        };
         if !result.success {
             let exit_detail = result
                 .exit_code
@@ -655,6 +669,33 @@ mod tests {
     use crate::providers::{
         ProcessRunner, ProviderManager, ProviderRunner, ProviderSettingsPayload,
     };
+
+    #[cfg(unix)]
+    #[test]
+    fn controlled_version_probe_obeys_absolute_deadline() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{atomic::AtomicBool, Arc};
+        use std::time::{Duration, Instant};
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("version-probe");
+        std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let prepared = PreparedInference {
+            command: Command::new(script),
+            stdin: String::new(),
+            profile: Profile::Codex,
+            _directory: directory,
+        };
+        let control = crate::providers::InferenceControl::new(
+            Instant::now() + Duration::from_millis(150),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let start = Instant::now();
+        assert!(prepared
+            .check_version_controlled(&ProcessRunner, "codex", Some(&control))
+            .is_err());
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
 
     // Pure command construction tests never inspect the developer's CLI config.
     fn prepare(

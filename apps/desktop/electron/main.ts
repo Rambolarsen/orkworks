@@ -629,6 +629,32 @@ app.whenReady().then(async () => {
   async function readinessRequest(resource: "readiness" | "assess-readiness" | "assess-and-suggest"): Promise<Record<string, unknown>> {
     return withReadyBackendGeneration(async (port, token) => taskmasterRequest(port, token, resource));
   }
+  async function improvementStatusRequest(): Promise<Record<string, unknown>> {
+    return withReadyBackendGeneration(async (port, token, signal) => taskmasterRequest(port, token, "improvement", undefined, fetch, undefined, signal));
+  }
+  async function improvementAdmissionRequest(): Promise<Record<string, unknown>> {
+    return withReadyBackendGeneration(async (port, token, signal) => {
+      const value = await taskmasterRequest(port, token, "start-improvement", undefined, fetch, undefined, signal);
+      if (!['scheduled', 'already_running', 'unavailable'].includes(value.outcome as string)
+        || !(value.runId === null || typeof value.runId === 'string' && /^[A-Za-z0-9-]{1,128}$/.test(value.runId))
+        || !(value.reasonCode === null || typeof value.reasonCode === 'string' && value.reasonCode.length <= 128)) {
+        throw new Error('Invalid improvement admission response');
+      }
+      return { outcome: value.outcome, runId: value.runId ?? null, reasonCode: value.reasonCode ?? null };
+    });
+  }
+  async function improvementCancellationRequest(runId: unknown): Promise<Record<string, unknown>> {
+    if (typeof runId !== 'string' || !/^[A-Za-z0-9-]{1,128}$/.test(runId)) throw new Error('Invalid improvement run ID');
+    return withReadyBackendGeneration(async (port, token, signal) => {
+      const value = await taskmasterRequest(port, token, 'cancel-improvement', { runId }, fetch, undefined, signal);
+      if (!['cancel_requested', 'not_running', 'unavailable'].includes(value.outcome as string)
+        || !(value.runId === null || value.runId === runId)
+        || !(value.reasonCode === null || typeof value.reasonCode === 'string' && value.reasonCode.length <= 128)) {
+        throw new Error('Invalid improvement cancellation response');
+      }
+      return { outcome: value.outcome, runId: value.runId ?? null, reasonCode: value.reasonCode ?? null };
+    });
+  }
   async function readTaskmasterRunStatus(): Promise<Record<string, unknown>> {
     const generation = backendGeneration;
     const port = await restoration.getReadiness();
@@ -1543,6 +1569,9 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
   ipcMain.handle("get-readiness-status", () => readinessRequest("readiness"));
+  ipcMain.handle("get-improvement-status", () => improvementStatusRequest());
+  ipcMain.handle("request-improvement", () => improvementAdmissionRequest());
+  ipcMain.handle("cancel-improvement", (_event, runId: unknown) => improvementCancellationRequest(runId));
   ipcMain.handle("assess-repository-readiness", () => readinessRequest("assess-readiness"));
   ipcMain.handle("assess-and-suggest", () => readinessRequest("assess-and-suggest"));
   ipcMain.handle("get-taskmaster-run-status", () => readTaskmasterRunStatus());

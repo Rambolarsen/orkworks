@@ -25,15 +25,39 @@ function validateEvidenceAdmission(value: Record<string, unknown>): void {
 export type TaskmasterAssessmentPhase = "discovering" | "reading_evidence" | "assessing";
 const assessmentPhases: readonly TaskmasterAssessmentPhase[] = ["discovering", "reading_evidence", "assessing"];
 
+async function boundedResponseText(response: Response, limit: number, assertCurrent: () => void): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let complete = false;
+  try {
+    while (true) {
+      assertCurrent();
+      const { done, value } = await reader.read();
+      assertCurrent();
+      if (done) { complete = true; break; }
+      if (value.byteLength > limit - size) throw new Error("Taskmaster response too large");
+      size += value.byteLength;
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks, size).toString("utf8");
+  } finally {
+    if (!complete) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 /** Narrow privileged transport: renderer input never selects a URL or authority. */
 export async function taskmasterRequest(
-  port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow" | "readiness" | "assess-readiness" | "assess-and-suggest", payload?: unknown,
+  port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow" | "readiness" | "assess-readiness" | "assess-and-suggest" | "improvement" | "start-improvement" | "cancel-improvement", payload?: unknown,
   fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch,
   assertCurrent: () => void = () => {},
+  requestSignal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   assertCurrent();
   if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) throw new Error("Taskmaster backend unavailable");
-  if ((resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "readiness") && payload !== undefined) throw new Error("Workflow assessment does not accept a request body");
+  if ((resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "readiness" || resource === "improvement" || resource === "start-improvement") && payload !== undefined) throw new Error("Workflow assessment does not accept a request body");
   const body = payload === undefined ? undefined : JSON.stringify(payload);
   const limit = resource === "knowledge" ? 6 * 1024 * 1024 : resource === "inference" ? 8 * 1024 : 64 * 1024;
   if (body && Buffer.byteLength(body) > limit) throw new Error("Taskmaster request too large");
@@ -43,20 +67,22 @@ export async function taskmasterRequest(
       : resource === "readiness" ? "/taskmaster/readiness"
       : resource === "assess-and-suggest" ? "/taskmaster/assess-and-suggest"
       : resource === "assess-readiness" ? "/taskmaster/assess-readiness"
+      : resource === "improvement" ? "/taskmaster/improvement"
+      : resource === "start-improvement" ? "/taskmaster/improvement"
+      : resource === "cancel-improvement" ? "/taskmaster/improvement/cancel"
       : `/settings/taskmaster/${resource}`;
   const response = await fetcher(`http://127.0.0.1:${port}${path}`, {
-    method: resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || body !== undefined ? "POST" : "GET",
+    method: resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "start-improvement" || resource === "cancel-improvement" || body !== undefined ? "POST" : "GET",
     headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
-    body, signal: AbortSignal.timeout(resource === "models" ? 45_000 : 15_000),
+    body, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(resource === "models" ? 45_000 : 15_000)]) : AbortSignal.timeout(resource === "models" ? 45_000 : 15_000),
   });
-  assertCurrent();
-  const responseText = await response.text();
   assertCurrent();
   const responseLimit = resource === "readiness" ? 8 * 1024 * 1024 + 128 * 1024
     : resource === "knowledge" ? 2 * 1024 * 1024
     : resource === "models" ? 256 * 1024
-      : resource === "run-status" ? 128 * 1024 : 64 * 1024;
-  if (Buffer.byteLength(responseText) > responseLimit) throw new Error("Taskmaster response too large");
+      : resource === "run-status" || resource === "improvement" ? 256 * 1024 : 64 * 1024;
+  const responseText = await boundedResponseText(response, responseLimit, assertCurrent);
+  assertCurrent();
   let result: unknown;
   try { result = JSON.parse(responseText); }
   catch { throw new Error("Invalid Taskmaster response"); }

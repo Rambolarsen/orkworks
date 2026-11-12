@@ -40,6 +40,7 @@ import CleanupAuditBlock from "./CleanupAuditBlock";
 import RecommendationEvidence from "./RecommendationEvidence";
 import TaskmasterAssessmentSummary from "./TaskmasterAssessmentSummary";
 import RecommendationMenu from "./RecommendationMenu";
+import { improvementHandoffLabel, readImprovementIntent } from "../improvement";
 
 interface RecommendationsPanelProps {
   recommendationSource?: ActionsRecommendationSnapshot;
@@ -127,6 +128,8 @@ function RecommendationCard({
   focused?: boolean;
 }) {
   const improvement = recommendation.workflowImprovement;
+  const intent = readImprovementIntent(recommendation.assessment);
+  const unsupportedIntent = intent === null;
   const origin = recommendationOrigin(recommendation.dedupeKey);
   const isCleanup = recommendation.type === "cleanup";
   return (
@@ -152,6 +155,12 @@ function RecommendationCard({
         </span>
         <span className="recommendation-updated">Updated {recommendation.updatedAt}</span>
       </div>
+      {intent === "investigation" ? (
+        <>
+          <p className="recommendation-proposal">Investigation only. Use Investigate with AI to report findings; do not implement changes.</p>
+          <RecommendationEvidence recommendation={recommendation} onSelectSession={onSelectSession} />
+        </>
+      ) : <>
       <p className="recommendation-proposal">{improvement.proposedImprovement}</p>
       <p className="recommendation-reason">{recommendation.reason.join(" ")}</p>
       {isCleanup
@@ -161,6 +170,7 @@ function RecommendationCard({
             improvement={improvement}
             onSelectSession={onSelectSession}
            />}
+      </>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       {recommendation.status === "proposed" && (
         <div className="recommendation-actions">
@@ -177,11 +187,11 @@ function RecommendationCard({
             <button
               className="recommendation-fix"
               type="button"
-              disabled={dismissing || !canFixWithAi}
-              title={canFixWithAi ? undefined : "Open a session to send this fix to"}
+              disabled={dismissing || !canFixWithAi || unsupportedIntent}
+              title={unsupportedIntent ? "This recommendation uses an unsupported improvement intent" : canFixWithAi ? undefined : "Open a session to send this fix to"}
               onClick={() => onFixWithAi?.(recommendation)}
             >
-              Fix with AI
+              {unsupportedIntent ? "Unsupported recommendation" : improvementHandoffLabel(intent ?? undefined)}
             </button>
           )}
           <button className="recommendation-dismiss" type="button" disabled={dismissing || cleanupRunning} onClick={() => onDismiss(recommendation.id)}>
