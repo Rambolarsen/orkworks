@@ -496,3 +496,23 @@ handoff now explicitly permits only offline documentation fixtures and forbids
 even dormant Rust/Electron module or reducer implementation. These clarifications
 add no runtime authority and do not accept the new choices on the owner's behalf.
 No reviewer executed a fixture, Rust, native process or application runtime.
+
+## Scoped owner acceptance and first prefix-component packet
+
+The owner answered “keep going” to the explicit request to accept the four
+prefix choices for **offline component fixtures only**. This records that scoped
+acceptance. It authorizes none of the proposed Rust/Electron modules, reducers,
+factories, publication, ordinary-storage bridge, cutoff, catalog, native work or
+executable implementation planning.
+
+The first bounded packet covers input-2/input-3 provenance and source-domain joins,
+research runtime-source examples, and normal current-control/collection views
+before and after a supplied report selection. Report/head and commit origins
+remain labelled assumptions; the views are not a store or legal event history.
+Broader states, source-owner indexes/currentness, full accounting, actual authority
+and all activation gates above remain unqualified. Earlier packet bytes stay
+unchanged; the new packet builds its own input-2-bound synthetic source chain.
+
+The [first offline prefix packet](../../validation/research-prefix-components.md)
+records the scoped component evidence and the still-unqualified producer/history/
+consumer obligations. It does not implement the proposed product modules.

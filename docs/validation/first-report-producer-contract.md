@@ -302,3 +302,15 @@ Report-induced input revisions retain the old parent decision as stale.
 All new choices await scoped review. Complete consumer/index/catalog, actual
 ordinary/native bridge, report cutoff and first-report transaction/history
 qualification remain open; earlier protocol/artifact bytes are preserved.
+
+## First offline prepared-input and current-control component packet
+
+The owner accepted the four [prefix choices](../superpowers/specs/2026-11-12-research-input-control-prefix-design.md#scoped-owner-acceptance-and-first-prefix-component-packet)
+for offline fixtures only. The [new bounded packet](research-prefix-components.md)
+builds a separate input-2-bound synthetic chain, retains parent assessment and
+child invalidation origins in separate immutable rows, and compares four finite
+current-control/collection views. Its report/head and CommitRefs remain supplied
+assumptions. Earlier artifacts remain unchanged. This does not close legal event
+history, actual currentness/authority, consumer/index completeness, shared resource
+accounting, report cutoff, ordinary-session bridge or atomic publication. Gate 2
+remains Investigate; no runtime/native work or executable product plan follows.

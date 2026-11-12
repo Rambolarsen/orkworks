@@ -90,3 +90,5 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independent original research source-chain oracle bytes.
 /docs/validation/research-chain-components.json text eol=lf
+
+/docs/validation/research-prefix-components.json text eol=lf

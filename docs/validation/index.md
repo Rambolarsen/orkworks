@@ -136,3 +136,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline research capture and scope components](research-capture-scope-components.md) — Accepted source-only synthetic capture/question/excerpt/scope joins, independent bytes and denial boundaries; no producer, store or report-consumer qualification.
 - [Offline research configuration and startup components](research-startup-components.md) — Complete synthetic v3 research configuration, unverified retained evidence and exact composed startup; no original launch history or native delivery qualification.
 - [Offline original research source chain](research-chain-components.md) — Synthetic original plan/approval/reservation/allocation/attachment/assignment joins and source domains; no actual event history, control or storage publication qualification.
+
+- [Offline research input and current-control prefix](research-prefix-components.md) — Separate assessment/event origins, input-2-bound synthetic sources and finite current-control/collection views; no transaction or publication qualification.
