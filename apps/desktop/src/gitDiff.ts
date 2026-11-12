@@ -55,13 +55,12 @@ export function splitDiffRows(lines: DiffLine[]): SplitDiffRow[] {
   for (const line of lines) {
     if (line.kind === "deletion") { removed.push(line); continue; }
     if (line.kind === "addition") { added.push(line); continue; }
-    if (line.kind === "metadata" && line.text.startsWith("\\ No newline at end of file")) {
-      const pending = added.at(-1) ?? removed.at(-1);
-      if (pending) { notes.set(pending, line.text); continue; }
-      const previous = result.at(-1);
-      if (previous?.left?.kind === "context") {
-        previous.leftNote = line.text; previous.rightNote = line.text; continue;
-      }
+    const isNewlineNote = line.kind === "metadata" && line.text.startsWith("\\ No newline at end of file");
+    const pending = added.at(-1) ?? removed.at(-1);
+    if (isNewlineNote && pending) { notes.set(pending, line.text); continue; }
+    const previous = result.at(-1);
+    if (isNewlineNote && previous?.left?.kind === "context") {
+      previous.leftNote = line.text; previous.rightNote = line.text; continue;
     }
     flush();
     result.push(line.kind === "context" ? {left: line, right: line} : {left: null, right: null, full: line});
