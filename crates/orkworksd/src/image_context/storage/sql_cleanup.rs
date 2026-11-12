@@ -330,8 +330,37 @@ mod tests {
         let cleanup = bind_sql_cleanup(root.path(), ID, &lease).unwrap();
         (root, lease, path, cleanup)
     }
-    #[test]
-    fn sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs() {
+    #[tokio::test]
+    async fn sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs() {
+        // Other tests can fork while a guard is live, retaining its flock until
+        // exec despite CLOEXEC. Create this fixture's FDs only in its own child.
+        const CHILD: &str = "ORKWORKS_IMAGE_SYNC_TEST_CASE";
+        let module = module_path!().split_once("::").unwrap().1;
+        let test = format!(
+            "{module}::sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs"
+        );
+        let marker = format!("isolated image sync case: {test}");
+        if std::env::var(CHILD).as_deref() != Ok(test.as_str()) {
+            let output = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                tokio::process::Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", &test, "--nocapture"])
+                    .env(CHILD, &test)
+                    .kill_on_drop(true)
+                    .output(),
+            )
+            .await
+            .expect("isolated image sync case timed out")
+            .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains(&marker),
+                "isolated image sync case did not pass\n{stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        println!("{marker}");
         for fail_at in 1..=4 {
             let (root, lease, path, cleanup) = fixture();
             let calls = std::cell::Cell::new(0);
