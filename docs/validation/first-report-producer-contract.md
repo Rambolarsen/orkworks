@@ -351,3 +351,15 @@ be cast into research preparation evidence. No format number/domain, physical
 catalog, ordinary-lineage extension, initializer code or full-state/history
 fixture is selected. Gate 2 remains Investigate; original artifact bytes and
 accepted protocols remain unchanged.
+
+## Offline research initializer values and charges
+
+The owner accepted the two [initializer choices](../superpowers/specs/2026-11-13-research-initialization-catalog-design.md#scoped-owner-acceptance-and-offline-initializer-components)
+for offline components only. The [value/charge packet](research-initialization-components.md)
+compares fourteen workspace resource values, thirteen fresh admission resource
+values, initial research current control, exact occurrence projections and
+conditional logical counts. Origin/header/proof entries are unqualified labels;
+there is no new header, manifest, row/change hash, complete store or legal
+creation/publication history. The catalog/version, research original authority/
+ordinary lineage and broader Gate 2 obligations remain open. Accepted protocols
+and earlier artifact bytes are preserved; no runtime/native work follows.

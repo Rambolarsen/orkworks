@@ -1,0 +1,2642 @@
+{
+  "classification": "offline-research-initialization-components-only",
+  "baselineSha256": "5a459c96c2561b43f9cf7a8c6607f09d4fc118a8ad8edcf6fd545acd6131ab34",
+  "unqualifiedOrigins": {
+    "initialize": {
+      "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "commitSequence": "1",
+      "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+    },
+    "captured": {
+      "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "commitSequence": "2",
+      "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+    },
+    "draft": {
+      "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "commitSequence": "3",
+      "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+    },
+    "admission": {
+      "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "commitSequence": "4",
+      "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+    }
+  },
+  "workspaceInitialization": [
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "assignment-record-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "child-control-retained-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "child-source-retained-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "evaluation-artifact-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "evaluation-artifact-read-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-retained-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-run-count"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "report-retained-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "reporting-receipt-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "result-payload-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-lineage-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-pending-count"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-row-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-row-count"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "1",
+          "changeDigest": "d20da884995ee00fb6c7ec39d0c54efcff3ea76fc1a993fcc27520af73efd31d"
+        }
+      }
+    }
+  ],
+  "capturedWorkspacePeers": [
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "assignment-record-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "child-control-retained-bytes"
+      },
+      "value": {
+        "used": "2048",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "child-source-retained-bytes"
+      },
+      "value": {
+        "used": "16384",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "evaluation-artifact-bytes"
+      },
+      "value": {
+        "used": "4096",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "evaluation-artifact-read-bytes"
+      },
+      "value": {
+        "used": "8192",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-retained-bytes"
+      },
+      "value": {
+        "used": "40439",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-run-count"
+      },
+      "value": {
+        "used": "2",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "report-retained-bytes"
+      },
+      "value": {
+        "used": "8192",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "reporting-receipt-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "result-payload-bytes"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-lineage-bytes"
+      },
+      "value": {
+        "used": "863",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-pending-count"
+      },
+      "value": {
+        "used": "0",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-row-bytes"
+      },
+      "value": {
+        "used": "1301",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "summary-row-count"
+      },
+      "value": {
+        "used": "1",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+        }
+      }
+    }
+  ],
+  "draftRunResources": [
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "run",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+        },
+        "resource": "preparation-retained-bytes"
+      },
+      "value": {
+        "used": "19259",
+        "reserved": "0",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+        }
+      }
+    }
+  ],
+  "preparationChargeFacts": [
+    {
+      "table": "parent_attachments",
+      "key": "target-effect-parent",
+      "beforeBytes": 0,
+      "afterBytes": 376
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-0",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 1188,
+      "afterBytes": 1188
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 600,
+      "afterBytes": 600
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-2",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 520,
+      "afterBytes": 520
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-3",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 355,
+      "afterBytes": 355
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-4",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 355,
+      "afterBytes": 355
+    },
+    {
+      "table": "root_drafts",
+      "key": "workspace-1",
+      "beforeBytes": 16241,
+      "afterBytes": 0
+    },
+    {
+      "table": "root_preparations",
+      "key": {
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 0,
+      "afterBytes": 17143
+    },
+    {
+      "table": "run_states",
+      "key": {
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      },
+      "beforeBytes": 0,
+      "afterBytes": 1204
+    }
+  ],
+  "draftLocations": [
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-0",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-2",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-3",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-4",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "run",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+        },
+        "resource": "preparation-retained-bytes"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-retained-bytes"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-run-count"
+      }
+    },
+    {
+      "table": "root_drafts",
+      "key": "workspace-1"
+    }
+  ],
+  "cancelLocations": [
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-0",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-2",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-3",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "preparation_artifacts",
+      "key": {
+        "referenceId": "artifact-4",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+        "workspaceId": "workspace-1"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "run",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+        },
+        "resource": "preparation-retained-bytes"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-retained-bytes"
+      }
+    },
+    {
+      "table": "quota_usage",
+      "key": {
+        "owner": {
+          "kind": "workspace",
+          "workspaceId": "workspace-1"
+        },
+        "resource": "preparation-run-count"
+      }
+    },
+    {
+      "table": "root_drafts",
+      "key": "workspace-1"
+    }
+  ],
+  "retryLocations": [],
+  "unqualifiedControls": [
+    "header replacement",
+    "new proof"
+  ],
+  "admissions": [
+    {
+      "id": "initialized",
+      "initialControl": {
+        "table": "research_run_controls",
+        "key": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+        },
+        "value": {
+          "schemaVersion": 1,
+          "body": {
+            "schemaVersion": 1,
+            "profile": "single-task-retained-file-research-prefix-v1",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+            "parentSessionId": "target-effect-parent",
+            "runDefinitionDigest": "f28fab869230271f8bf952b8a473758b314852d5dc69acdb84099f74c7003d7c",
+            "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d",
+            "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+            "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+            "runVersion": 1,
+            "state": "assessing",
+            "currentInput": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+              "preparationRevision": 1,
+              "inputRevision": 1,
+              "inputDigest": "afdcaa5b172aa946a7aa917cd9737c56256e7e1f46cbb5b313997fdf8e4b8070"
+            },
+            "planReferences": [],
+            "currentPlan": null,
+            "pendingPlan": null,
+            "parentRuntime": null,
+            "blockers": [],
+            "stageContinueRequired": false,
+            "pendingClarification": null,
+            "pauseReason": null,
+            "resumeTarget": null
+          },
+          "lastCommit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "4",
+            "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+          }
+        }
+      },
+      "newResourceRows": [
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-control-retained-bytes"
+          },
+          "value": {
+            "used": "1202",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-source-retained-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "report-retained-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        }
+      ],
+      "runPreparationAfter": {
+        "table": "quota_usage",
+        "key": {
+          "owner": {
+            "kind": "run",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          },
+          "resource": "preparation-retained-bytes"
+        },
+        "value": {
+          "used": "21741",
+          "reserved": "0",
+          "lastCommit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "4",
+            "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+          }
+        }
+      },
+      "workspaceAfter": [
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-control-retained-bytes"
+          },
+          "value": {
+            "used": "3250",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-source-retained-bytes"
+          },
+          "value": {
+            "used": "16384",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "4096",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "8192",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-retained-bytes"
+          },
+          "value": {
+            "used": "42921",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-run-count"
+          },
+          "value": {
+            "used": "2",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "3",
+              "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "report-retained-bytes"
+          },
+          "value": {
+            "used": "8192",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-lineage-bytes"
+          },
+          "value": {
+            "used": "1729",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-pending-count"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-bytes"
+          },
+          "value": {
+            "used": "2608",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-count"
+          },
+          "value": {
+            "used": "2",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        }
+      ],
+      "summaryChargeDeltas": {
+        "summary-row-bytes": 1307,
+        "summary-row-count": 1,
+        "summary-lineage-bytes": 866,
+        "summary-pending-count": 0
+      },
+      "logicalLocations": [
+        {
+          "table": "parent_attachments",
+          "key": "target-effect-parent"
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "assignment-record-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "reporting-receipt-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "result-payload-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "assignment-record-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-control-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-source-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "preparation-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "report-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "reporting-receipt-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "result-payload-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-control-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-lineage-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-count"
+          }
+        },
+        {
+          "table": "research_run_controls",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "root_drafts",
+          "key": "workspace-1"
+        },
+        {
+          "table": "root_preparations",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "run_states",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "summary_state",
+          "key": {
+            "kind": "root",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+            "rootAssignmentId": "target-effect-root",
+            "parentSessionId": "target-effect-parent",
+            "bootstrapId": "target-effect-bootstrap",
+            "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+          }
+        }
+      ]
+    },
+    {
+      "id": "never-initialized",
+      "initialControl": {
+        "table": "research_run_controls",
+        "key": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+        },
+        "value": {
+          "schemaVersion": 1,
+          "body": {
+            "schemaVersion": 1,
+            "profile": "single-task-retained-file-research-prefix-v1",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+            "parentSessionId": "target-effect-parent",
+            "runDefinitionDigest": "f28fab869230271f8bf952b8a473758b314852d5dc69acdb84099f74c7003d7c",
+            "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d",
+            "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+            "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+            "runVersion": 1,
+            "state": "assessing",
+            "currentInput": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+              "preparationRevision": 1,
+              "inputRevision": 1,
+              "inputDigest": "afdcaa5b172aa946a7aa917cd9737c56256e7e1f46cbb5b313997fdf8e4b8070"
+            },
+            "planReferences": [],
+            "currentPlan": null,
+            "pendingPlan": null,
+            "parentRuntime": null,
+            "blockers": [],
+            "stageContinueRequired": false,
+            "pendingClarification": null,
+            "pauseReason": null,
+            "resumeTarget": null
+          },
+          "lastCommit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "4",
+            "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+          }
+        }
+      },
+      "newResourceRows": [
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-control-retained-bytes"
+          },
+          "value": {
+            "used": "1202",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-source-retained-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "report-retained-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        }
+      ],
+      "runPreparationAfter": {
+        "table": "quota_usage",
+        "key": {
+          "owner": {
+            "kind": "run",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          },
+          "resource": "preparation-retained-bytes"
+        },
+        "value": {
+          "used": "21741",
+          "reserved": "0",
+          "lastCommit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "4",
+            "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+          }
+        }
+      },
+      "workspaceAfter": [
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "assignment-record-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-control-retained-bytes"
+          },
+          "value": {
+            "used": "3250",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-source-retained-bytes"
+          },
+          "value": {
+            "used": "16384",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "evaluation-artifact-bytes"
+          },
+          "value": {
+            "used": "4096",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          },
+          "value": {
+            "used": "8192",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-retained-bytes"
+          },
+          "value": {
+            "used": "42921",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "4",
+              "changeDigest": "3041de3a56a8b607f50033557ed2e35fa160b15124f52add917d5d3307ef1087"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-run-count"
+          },
+          "value": {
+            "used": "2",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "3",
+              "changeDigest": "6861212ad18299ac32ac58e920b079eb8daab2ac68bf9aaee83a1406a84b2c5a"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "report-retained-bytes"
+          },
+          "value": {
+            "used": "8192",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "reporting-receipt-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "result-payload-bytes"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-lineage-bytes"
+          },
+          "value": {
+            "used": "863",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-pending-count"
+          },
+          "value": {
+            "used": "0",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-bytes"
+          },
+          "value": {
+            "used": "1301",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "summary-row-count"
+          },
+          "value": {
+            "used": "1",
+            "reserved": "0",
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ff86fb572eb838c333969928d7d449b0d28cd589c753b48865eed7ea2dff082c"
+            }
+          }
+        }
+      ],
+      "summaryChargeDeltas": {
+        "summary-row-bytes": 0,
+        "summary-row-count": 0,
+        "summary-lineage-bytes": 0,
+        "summary-pending-count": 0
+      },
+      "logicalLocations": [
+        {
+          "table": "parent_attachments",
+          "key": "target-effect-parent"
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "assignment-record-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "reporting-receipt-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "assignment",
+              "assignmentIdentity": {
+                "kind": "root",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+                "rootAssignmentId": "target-effect-root",
+                "parentSessionId": "target-effect-parent",
+                "bootstrapId": "target-effect-bootstrap",
+                "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+              }
+            },
+            "resource": "result-payload-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "assignment-record-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-control-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "child-source-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "evaluation-artifact-read-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "preparation-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "report-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "reporting-receipt-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "run",
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+            },
+            "resource": "result-payload-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "child-control-retained-bytes"
+          }
+        },
+        {
+          "table": "quota_usage",
+          "key": {
+            "owner": {
+              "kind": "workspace",
+              "workspaceId": "workspace-1"
+            },
+            "resource": "preparation-retained-bytes"
+          }
+        },
+        {
+          "table": "research_run_controls",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "root_drafts",
+          "key": "workspace-1"
+        },
+        {
+          "table": "root_preparations",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "run_states",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2"
+          }
+        },
+        {
+          "table": "summary_state",
+          "key": {
+            "kind": "root",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2",
+            "rootAssignmentId": "target-effect-root",
+            "parentSessionId": "target-effect-parent",
+            "bootstrapId": "target-effect-bootstrap",
+            "bootstrapConfigurationDigest": "17451703f77051668d4320f618028ab30b6ba16e4c6ed4bb799130261dcce27d"
+          }
+        }
+      ]
+    }
+  ],
+  "assumptions": [
+    "owner coverage and freshness not proven",
+    "captured peer usage is hypothetical",
+    "original creation proofs not supplied"
+  ]
+}
