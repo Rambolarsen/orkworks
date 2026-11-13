@@ -774,3 +774,57 @@ fn descriptive_readiness_inventory_and_benefit_preserve_a_grounded_opportunity()
     .unwrap();
     assert_eq!(result.preferred().unwrap().id, "scoped-guidance");
 }
+
+#[test]
+fn inert_advice_retains_literal_commands_and_ordinary_inventory_in_every_text_field() {
+    let (mut value, rubric) = final_fixture();
+    let text="No task workflow, issue breakdown, or change history is included in the supplied evidence.";
+    value["summary"] =
+        serde_json::json!("CI describes `pnpm test || true`; this is reference data.");
+    value["concepts"][0]["rationale"] = serde_json::json!(text);
+    value["concepts"][0]["limits"] =
+        serde_json::json!(["The command `pnpm test` has not been executed."]);
+    value["opportunities"][0]["mechanism"] =
+        serde_json::json!("The configured command is `pnpm test || true`.");
+    value["opportunities"][0]["benefit"] =
+        serde_json::json!("A correction would make arbitrary feedback more actionable.");
+    let result = super::model::FinalResult::decode(
+        &value.to_string(),
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric,
+    )
+    .unwrap();
+    assert_eq!(result.concepts[0].rationale, text);
+    assert_eq!(
+        result.preferred().unwrap().mechanism,
+        "The configured command is `pnpm test || true`."
+    );
+    assert!(crate::taskmaster::readiness_model::decode(&serde_json::json!({"version":1,"summary":value["summary"],"concepts":value["concepts"]}).to_string(),1,&rubric).is_err(),"legacy readiness must retain its strict policy");
+}
+
+#[test]
+fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_the_field() {
+    let (value, rubric) = final_fixture();
+    for text in [
+        "Text \u{202e} guidance",
+        "Text \u{061c} guidance",
+        "Text \u{2069} guidance",
+        "Tests passed.",
+        "Text\nnext line",
+        "Text\u{1b}[31m",
+    ] {
+        let mut bad = value.clone();
+        bad["opportunities"][0]["benefit"] = serde_json::json!(text);
+        assert!(
+            super::model::FinalResult::decode(
+                &bad.to_string(),
+                &["a".repeat(64)],
+                &["playbooks/rubric.md".into()],
+                &rubric
+            )
+            .is_err(),
+            "accepted {text:?}"
+        );
+    }
+}

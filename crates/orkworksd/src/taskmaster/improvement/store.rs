@@ -56,7 +56,8 @@ impl Manifest {
         fn hash(s: &str) -> bool {
             s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
         }
-        if self.purpose != "brain-improvement-v1"
+        if crate::taskmaster::advice_text::TextPolicy::for_improvement_purpose(&self.purpose)
+            .is_err()
             || self.workspace_path.is_empty()
             || self.context_level == ContextLevel::SessionObservations
             || self.ranges.len() > 32
@@ -319,6 +320,24 @@ impl Record {
         }
         if let Some(report) = &self.report {
             report.manifest.validate()?;
+            let policy = crate::taskmaster::advice_text::TextPolicy::for_improvement_purpose(
+                &report.manifest.purpose,
+            )?;
+            report.result.validate_text(policy)?;
+            report.result.validate_citations(
+                &report
+                    .manifest
+                    .ranges
+                    .iter()
+                    .map(|r| r.sha256.clone())
+                    .collect::<Vec<_>>(),
+                &report
+                    .manifest
+                    .pages
+                    .iter()
+                    .map(|p| p.id.clone())
+                    .collect::<Vec<_>>(),
+            )?;
             if report
                 .publication_limitation
                 .as_deref()

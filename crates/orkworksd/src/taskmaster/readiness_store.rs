@@ -116,13 +116,16 @@ pub(crate) struct InputIdentity {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct StoredRow {
     pub concept_id: String,
+    #[serde(deserialize_with = "super::readiness_model::required_nullable")]
     pub maturity: Option<u8>,
+    #[serde(deserialize_with = "super::readiness_model::required_nullable")]
     pub confidence: Option<Confidence>,
     pub repository_fact_hashes: Vec<String>,
     pub rubric_page_id: String,
     pub rationale: String,
     pub limits: Vec<String>,
     pub next_transition: String,
+    #[serde(deserialize_with = "super::readiness_model::required_nullable")]
     pub unassessed_reason: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -452,6 +455,10 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
         {
             return Err("Invalid readiness snapshot data".into());
         }
+        let policy = data.text_policy()?;
+        if policy == super::advice_text::TextPolicy::InertAdvice {
+            policy.validate(&data.summary, 1000, true, false)?;
+        }
         let coverage = data
             .concepts
             .iter()
@@ -527,26 +534,57 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
             }
             match (&row.maturity, &row.confidence, &row.unassessed_reason) {
                 (Some(0..=4), Some(_), None) if !row.repository_fact_hashes.is_empty() => {}
-                (None, None, Some(reason)) => {
-                    super::assessment_model::validate_prose(reason, 500, true)?
-                }
+                (None, None, Some(reason)) => policy.validate(reason, 500, true, false)?,
                 _ => return Err("Invalid saved readiness score state".into()),
             }
-            super::assessment_model::validate_prose(&row.rationale, 500, true)?;
-            super::assessment_model::validate_prospective_prose(&row.next_transition, 500, false)?;
+            policy.validate(&row.rationale, 500, true, false)?;
+            policy.validate(&row.next_transition, 500, false, true)?;
             if row.limits.len() > 4 {
                 return Err("Invalid saved readiness limits".into());
             }
             for limit in &row.limits {
-                super::assessment_model::validate_prose(limit, 200, true)?;
+                policy.validate(limit, 200, true, false)?;
             }
         }
     }
     Ok(())
 }
 impl SnapshotData {
+    fn text_policy(&self) -> Result<super::advice_text::TextPolicy, String> {
+        use super::advice_text::TextPolicy;
+        match &self.identity.input_manifest.collector {
+            Collector::Readiness(_)
+                if self.identity.input_manifest.purpose == "readiness"
+                    && self.identity.versions.get("text").is_none() =>
+            {
+                Ok(TextPolicy::Legacy)
+            }
+            Collector::Improvement(input) => {
+                let purpose = &self.identity.input_manifest.purpose;
+                let expected = match (purpose.as_str(), input.version) {
+                    ("brain-improvement-v1", 1) => {
+                        serde_json::json!({"purpose":"brain-improvement-v1","collector":1,"schema":1})
+                    }
+                    ("brain-improvement-v2", 2) => {
+                        serde_json::json!({"purpose":"brain-improvement-v2","collector":2,"schema":1,"text":2})
+                    }
+                    _ => return Err("Unsupported improvement history identity".into()),
+                };
+                if input.manifest.purpose != *purpose
+                    || self.identity.versions != expected
+                    || self.identity.inference_identity
+                        != serde_json::json!({"evaluationKey":input.manifest.evaluation_key})
+                {
+                    return Err("Contradictory improvement history identity".into());
+                }
+                TextPolicy::for_improvement_purpose(purpose)
+            }
+            _ => Err("Unsupported readiness text identity".into()),
+        }
+    }
+
     fn input_manifest_invalid(&self) -> bool {
-        if self.identity.input_manifest.version != 1 {
+        if self.identity.input_manifest.version != 1 || self.text_policy().is_err() {
             return true;
         }
         match &self.identity.input_manifest.collector {
@@ -554,9 +592,8 @@ impl SnapshotData {
                 self.identity.input_manifest.purpose != "readiness" || collector.validate().is_err()
             }
             Collector::Improvement(collector) => {
-                self.identity.input_manifest.purpose != "brain-improvement-v1"
-                    || collector.version != 1
-                    || collector.manifest.validate().is_err()
+                collector.manifest.validate().is_err()
+                    || collector.manifest.workspace_instance != self.identity.workspace_instance
                     || collector.excerpts.len() > 32
                     || collector.manifest.context_level != self.identity.context_level
                     || collector.manifest.excluded_paths != self.identity.excluded_paths

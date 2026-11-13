@@ -37,7 +37,8 @@ import {
   acceptTaskmasterRecommendation,
   acceptCleanupRecommendation,
 } from "./api";
-import { buildCompletionPacketAcceptOptions, buildFixPromptDraft } from "./taskmaster";
+import { buildRecommendationAcceptOptions, buildFixPromptDraft } from "./taskmaster";
+import { readImprovementReference } from "./improvement";
 import { handleAcceptedFixWithAi } from "./taskmasterFixHandoff";
 import { disposeTerminal, getTerminal, pruneTerminals, getLiveTerminalCount, getLiveTerminalIds } from "./terminalStore";
 import { captureRendererHealth, type RendererHealthSample } from "./rendererHealthProbe";
@@ -628,6 +629,10 @@ function App() {
     if (!workspaceSessionController.isAdmissionEnabled()) return;
     const activeSession = sessions.find((session) => session.id === activeSessionId);
     if (!isSessionAlive(activeSession)) return;
+    try { buildFixPromptDraft(recommendation); } catch {
+      pushToast("error", "This recommendation uses an unsupported handoff.");
+      return;
+    }
     setFixRecommendation(recommendation);
   }, [activeSessionId, sessions, workspaceSessionController]);
 
@@ -670,18 +675,8 @@ function App() {
     try {
       if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
       if (!isCurrentHandoff()) return;
-      const packet = recommendation.completionPacket;
-      const acceptedRecommendation = await acceptTaskmasterRecommendation(recommendation.id, packet
-        ? { sessionId: activeSessionId, ...buildCompletionPacketAcceptOptions(packet) }
-        : {
-          sessionId: activeSessionId,
-          // build_fix_prompt's backend default ends in \r so it submits as
-          // typed text followed by Enter; since the dialog always sends an
-          // explicit override, that default never applies here, so \r must be
-          // added on this side too. The dialog draft omits it deliberately —
-          // the user shouldn't see or edit a raw carriage return.
-          prompt: `${prompt}\r`,
-        });
+      const acceptedRecommendation = await acceptTaskmasterRecommendation(recommendation.id,
+        buildRecommendationAcceptOptions(recommendation, activeSessionId, prompt));
       if (!isCurrentHandoff()) return;
       handleAcceptedFixWithAi(
         acceptedRecommendation,
@@ -1006,10 +1001,10 @@ function App() {
       )}
       {fixRecommendation && (
         <FixWithAiDialog
-          initialPrompt={fixRecommendation.assessment?.improvementReference?.version === 1 && fixRecommendation.assessment.improvementReference.intent === "investigation"
+          initialPrompt={readImprovementReference(fixRecommendation.assessment)?.version === 2 || (fixRecommendation.assessment?.improvementReference?.version === 1 && fixRecommendation.assessment.improvementReference.intent === "investigation")
             ? buildFixPromptDraft(fixRecommendation)
             : fixRecommendation.completionPacket?.action.prompt ?? buildFixPromptDraft(fixRecommendation)}
-          promptReadOnly={Boolean(fixRecommendation.completionPacket) || fixRecommendation.assessment?.improvementReference?.intent === "investigation"}
+          promptReadOnly={readImprovementReference(fixRecommendation.assessment)?.version === 2 || Boolean(fixRecommendation.completionPacket) || fixRecommendation.assessment?.improvementReference?.intent === "investigation"}
           title={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Investigate with AI" : "Fix with AI"}
           confirmLabel={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Start investigation" : "Send to session"}
           onConfirm={handleConfirmFixWithAi}

@@ -18,6 +18,7 @@ pub(crate) fn snapshot(
     record: &Record,
     report: &Report,
 ) -> Result<Snapshot, String> {
+    super::publication::current_report(report, capture)?;
     let id = record
         .id
         .strip_prefix("improvement-")
@@ -110,7 +111,7 @@ pub(crate) fn snapshot(
         })
         .collect();
     let input = ImprovementHistoryInput {
-        version: 1,
+        version: 2,
         manifest: report.manifest.clone(),
         excerpts,
     };
@@ -123,7 +124,7 @@ pub(crate) fn snapshot(
         },
         input_fingerprint: report.manifest.fingerprint()?,
         comparison_fingerprint: readiness_store::hash(&(
-            "brain-improvement-v1",
+            "brain-improvement-v2",
             &report.manifest.evaluation_key,
             &report.manifest.rubric_digest,
             report.manifest.context_level,
@@ -131,7 +132,7 @@ pub(crate) fn snapshot(
         ))?,
         input_manifest: Manifest {
             version: 1,
-            purpose: "brain-improvement-v1".into(),
+            purpose: "brain-improvement-v2".into(),
             collector: Collector::Improvement(input),
             observations_digest: readiness_store::hash(&Vec::<String>::new())?,
         },
@@ -139,7 +140,7 @@ pub(crate) fn snapshot(
         knowledge_identity: serde_json::to_value(&capture.evaluation.knowledge_identity)
             .map_err(|_| "Guidance identity unavailable")?,
         rubric_digest: report.manifest.rubric_digest.clone(),
-        versions: serde_json::json!({"purpose":"brain-improvement-v1","collector":1,"schema":1}),
+        versions: serde_json::json!({"purpose":"brain-improvement-v2","collector":2,"schema":1,"text":2}),
         context_level: report.manifest.context_level,
         excluded_paths: report.manifest.excluded_paths.clone(),
     };

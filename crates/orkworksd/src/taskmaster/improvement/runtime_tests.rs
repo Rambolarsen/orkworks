@@ -184,12 +184,12 @@ async fn qualified_investigation_publishes_one_shared_current_report_and_fences_
     let history_wire = serde_json::to_value(&history).unwrap();
     assert_eq!(
         history_wire["snapshots"][0]["data"]["inputManifest"]["purpose"],
-        "brain-improvement-v1"
+        "brain-improvement-v2"
     );
     let corrupt_root = tempfile::tempdir().unwrap();
     let mut unsupported = history_wire;
     unsupported["snapshots"][0]["data"]["inputManifest"]["collector"]["version"] =
-        serde_json::json!(2);
+        serde_json::json!(3);
     std::fs::write(
         corrupt_root.path().join("readiness-history.json"),
         unsupported.to_string(),
@@ -229,6 +229,20 @@ async fn qualified_investigation_publishes_one_shared_current_report_and_fences_
         pending.report.as_ref().unwrap(),
         &id,
         &dismissed
+    ));
+    let mut legacy_reference = visible[0].clone();
+    legacy_reference
+        .assessment
+        .as_mut()
+        .unwrap()
+        .improvement_reference
+        .as_mut()
+        .unwrap()
+        .version = 1;
+    assert!(!publication::join_valid(
+        pending.report.as_ref().unwrap(),
+        &id,
+        &legacy_reference
     ));
     let mut altered = visible[0].clone();
     altered.suggested_model = Some("unapproved-model".into());
@@ -722,4 +736,168 @@ async fn qualified_run_uses_controlled_http_transport_against_local_fixture() {
         assert!(Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+#[tokio::test]
+async fn inert_history_survives_reload_and_refuses_contradictory_producer_identities() {
+    let (_dir, state, runtime) = fixture();
+    let mut inner = preferred_invoke();
+    let invoke = Box::new(move |prompt: &str, remaining: Duration| {
+        let raw = inner(prompt, remaining)?;
+        let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        if value.get("opportunities").is_some() {
+            value["summary"] = serde_json::json!("The configured command is `pnpm test || true`.");
+            value["concepts"][0]["rationale"]=serde_json::json!("No task workflow, issue breakdown, or change history is included in the supplied evidence.");
+        }
+        Ok(value.to_string())
+    });
+    let admission = schedule_qualified(state.clone(), runtime.clone(), invoke);
+    assert_eq!(admission.outcome, "scheduled");
+    let root = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .root_path();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let record = ReportStore::new(&root).load().unwrap().unwrap();
+        if matches!(
+            record.state,
+            RunState::Succeeded | RunState::Failed | RunState::Interrupted
+        ) {
+            assert_eq!(record.state, RunState::Succeeded);
+            if runtime.try_analysis_lease().unwrap().is_none() {
+                assert!(Instant::now() < deadline);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                continue;
+            }
+            assert!(
+                record
+                    .report
+                    .as_ref()
+                    .unwrap()
+                    .history_snapshot_id
+                    .is_some(),
+                "history must retain accepted text after settlement"
+            );
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let store = crate::taskmaster::readiness_store::ReadinessStore::new(&root);
+    let history = store.history().unwrap();
+    assert_eq!(
+        history.snapshots[0].data.as_ref().unwrap().summary,
+        "The configured command is `pnpm test || true`."
+    );
+    let wire = serde_json::to_value(&history).unwrap();
+    assert_eq!(
+        wire["snapshots"][0]["data"]["inputManifest"]["purpose"],
+        "brain-improvement-v2"
+    );
+    // A legacy producer keeps its original strict row policy on restart.
+    let mut legacy = wire.clone();
+    let data = &mut legacy["snapshots"][0]["data"];
+    data["summary"] = serde_json::json!("Documented guidance remains unverified.");
+    data["concepts"][0]["rationale"] = serde_json::json!("Documented guidance");
+    data["inputManifest"]["purpose"] = serde_json::json!("brain-improvement-v1");
+    data["inputManifest"]["collector"]["version"] = serde_json::json!(1);
+    data["inputManifest"]["collector"]["manifest"]["purpose"] =
+        serde_json::json!("brain-improvement-v1");
+    data["inputFingerprint"] = serde_json::json!(crate::taskmaster::readiness_store::hash(
+        &data["inputManifest"]["collector"]["manifest"]
+    )
+    .unwrap());
+    data["versions"] =
+        serde_json::json!({"purpose":"brain-improvement-v1","collector":1,"schema":1});
+    let legacy_root = tempfile::tempdir().unwrap();
+    let legacy_file = legacy_root.path().join("readiness-history.json");
+    std::fs::write(&legacy_file, legacy.to_string()).unwrap();
+    assert!(
+        crate::taskmaster::readiness_store::ReadinessStore::new(legacy_root.path())
+            .history()
+            .is_ok()
+    );
+    legacy["snapshots"][0]["data"]["concepts"][0]["rationale"] =
+        serde_json::json!("Run pnpm test.");
+    std::fs::write(&legacy_file, legacy.to_string()).unwrap();
+    assert!(
+        crate::taskmaster::readiness_store::ReadinessStore::new(legacy_root.path())
+            .history()
+            .is_err()
+    );
+    for (pointer, replacement) in [
+        (
+            "/snapshots/0/data/inputManifest/purpose",
+            serde_json::json!("brain-improvement-v1"),
+        ),
+        (
+            "/snapshots/0/data/inputManifest/collector/version",
+            serde_json::json!(1),
+        ),
+        ("/snapshots/0/data/versions/text", serde_json::json!(3)),
+        (
+            "/snapshots/0/data/inputManifest/collector/manifest/purpose",
+            serde_json::json!("brain-improvement-v1"),
+        ),
+        (
+            "/snapshots/0/data/versions/purpose",
+            serde_json::json!("brain-improvement-v1"),
+        ),
+        ("/snapshots/0/data/versions/collector", serde_json::json!(1)),
+        ("/snapshots/0/data/versions/schema", serde_json::json!(2)),
+        (
+            "/snapshots/0/data/inferenceIdentity/evaluationKey",
+            serde_json::json!("f".repeat(64)),
+        ),
+    ] {
+        let mut bad = wire.clone();
+        *bad.pointer_mut(pointer).unwrap() = replacement;
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("readiness-history.json"), bad.to_string()).unwrap();
+        assert!(
+            crate::taskmaster::readiness_store::ReadinessStore::new(temp.path())
+                .history()
+                .is_err(),
+            "accepted contradictory {pointer}"
+        );
+    }
+    let path = root.join(crate::taskmaster::improvement::store::FILE);
+    let original = std::fs::read(&path).unwrap();
+    for case in 0..5 {
+        let mut corrupt: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        match case {
+            0 => {
+                corrupt["report"]["result"]["opportunities"][0]["repositoryFactHashes"] =
+                    serde_json::json!(["f".repeat(64)])
+            }
+            1 => {
+                corrupt["report"]["result"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("noProposalReason");
+            }
+            2 => {
+                corrupt["report"]["result"]["concepts"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("unassessedReason");
+            }
+            3 => corrupt["report"]["result"]["summary"] = serde_json::json!("Tests passed."),
+            _ => {
+                corrupt["report"]["result"]["concepts"][0]["repositoryFactIds"] =
+                    serde_json::json!([999])
+            }
+        }
+        std::fs::write(&path, corrupt.to_string()).unwrap();
+        assert!(
+            ReportStore::new(&root).load().is_err(),
+            "accepted corrupt saved result case {case}"
+        );
+    }
+    std::fs::write(path, original).unwrap();
 }

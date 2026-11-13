@@ -184,7 +184,7 @@ pub(crate) fn recommendation(
     Ok(Some(Recommendation {
         assessment: Some(AssessmentProvenance {
             improvement_reference: Some(ImprovementReference {
-                version: 1,
+                version: 2,
                 intent: if preferred.evidence_strength == EvidenceStrength::InvestigationNeeded {
                     ImprovementIntent::Investigation
                 } else {
@@ -246,6 +246,12 @@ pub(crate) fn recommendation(
 }
 
 pub(crate) fn current_report(report: &Report, capture: &Capture) -> Result<(), String> {
+    report.manifest.validate()?;
+    if report.manifest.purpose != "brain-improvement-v2"
+        || report.manifest.evaluation_key != capture.evaluation_key
+    {
+        return Err("Improvement producer changed".into());
+    }
     let facts = report
         .manifest
         .ranges
@@ -259,7 +265,15 @@ pub(crate) fn current_report(report: &Report, capture: &Capture) -> Result<(), S
         .map(|p| p.id.clone())
         .collect::<Vec<_>>();
     let text = serde_json::to_string(&report.result).map_err(|_| "Invalid improvement result")?;
-    super::model::FinalResult::decode(&text, &facts, &pages, &capture.rubric)?;
+    super::model::FinalResult::decode_with_policy(
+        &text,
+        &facts,
+        &pages,
+        &capture.rubric,
+        crate::taskmaster::advice_text::TextPolicy::for_improvement_purpose(
+            &report.manifest.purpose,
+        )?,
+    )?;
     for row in &report.result.concepts {
         if !report
             .knowledge_evidence
@@ -394,7 +408,12 @@ pub(crate) fn join_valid(report: &Report, run_id: &str, recommendation: &Recomme
     report.recommendation_id.as_deref() == Some(recommendation.id.as_str())
         && provenance.id == run_id
         && report.manifest.fingerprint().ok().as_deref() == Some(&provenance.input_fingerprint)
-        && reference.version == 1
+        && reference.version
+            == if report.manifest.purpose == "brain-improvement-v2" {
+                2
+            } else {
+                1
+            }
         && reference.intent == expected_intent
         && !provenance.access_redacted
         && provenance.context_level == report.manifest.context_level

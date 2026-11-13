@@ -4,7 +4,7 @@ title: Inert improvement text and fixed handoff instructions
 description: Proposed replacement for English command guessing in the new Brain improvement flow, paired with code-owned handoffs.
 tags: [orkworks, taskmaster, recommendations, validation, security]
 status: draft
-workflow_status: proposed
+workflow_status: approved
 ---
 
 # Inert improvement text and fixed handoff instructions
@@ -13,7 +13,7 @@ Tracking: [#1694](https://github.com/Rambolarsen/orkworks/issues/1694).
 Parent: [Brain-guided next improvement](2026-11-12-brain-guided-improvement-design.md).
 Evidence: [three qualification attempts](../plans/2026-11-12-brain-guided-improvement.md).
 
-## Decision awaiting owner approval
+## Approved decision
 
 Replace linguistic command guessing **only in the new Brain improvement flow**
 with bounded, single-line, inert text validation. Command mentions and literal
@@ -26,9 +26,9 @@ of claims that unperformed verification succeeded.
 This deliberately changes the parent design's command-payload rejection for this
 new output profile. It does not claim that every accepted sentence is true, safe
 to act upon, or useful. Structural validation, citations and explicit action
-approval remain independent requirements. This document is a proposal; the
-owner's “keep going” authorized contract design, not this unpresented policy
-change. Product implementation waits for approval of this complete description.
+approval remain independent requirements. The owner approved this complete description on 2026-11-13 by answering
+“keep going” to the explicit implementation-approval question for draft PR #1753.
+The approval covers this coordinated implementation; it does not activate it.
 No further live model calls or activation are authorized by this proposal.
 
 ## Why this change
@@ -104,7 +104,7 @@ The serialized identities have these exact meanings:
 | Surface | Policy-2 identity |
 | --- | --- |
 | Captured input/evaluation | The code-owned discriminator above, incorporated into the existing evaluation key |
-| Report range manifest and model result | Existing range-manifest version 1 and result version 1; neither selects a text policy |
+| Report range manifest and model result | Existing range-manifest shape and result version 1; the model result never selects a text policy |
 | History manifest | Existing envelope version 1, purpose `brain-improvement-v2`, `Collector::Improvement` |
 | Improvement history input wrapper | Version 2, containing the unchanged version-1 range manifest |
 | History identity versions | `purpose: brain-improvement-v2`, `collector: 2`, `schema: 1`, `text: 2` |

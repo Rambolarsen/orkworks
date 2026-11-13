@@ -13,13 +13,16 @@ pub(crate) struct ReadinessResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ReadinessRow {
     pub concept_id: String,
+    #[serde(deserialize_with = "required_nullable")]
     pub maturity: Option<u8>,
+    #[serde(deserialize_with = "required_nullable")]
     pub confidence: Option<Confidence>,
     pub repository_fact_ids: Vec<usize>,
     pub rubric_page_id: String,
     pub rationale: String,
     pub limits: Vec<String>,
     pub next_transition: String,
+    #[serde(deserialize_with = "required_nullable")]
     pub unassessed_reason: Option<String>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -48,6 +51,15 @@ impl ReadinessResponse {
         (coverage, Some(total), Some(((100 * total + 28) / 56) as u8))
     }
 }
+/// Required nullable properties must not silently default when reading persisted data.
+pub(crate) fn required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 fn parse<T: serde::de::DeserializeOwned>(output: &str) -> Result<T, String> {
     crate::harness::definition::parse_strict_json(output.as_bytes(), 64 * 1024)
         .map_err(|_| "Invalid readiness response shape".into())
@@ -56,6 +68,20 @@ pub(crate) fn decode(
     output: &str,
     fact_count: usize,
     rubric: &ReadinessRubric,
+) -> Result<ReadinessResponse, String> {
+    decode_with_policy(
+        output,
+        fact_count,
+        rubric,
+        super::advice_text::TextPolicy::Legacy,
+    )
+}
+
+pub(crate) fn decode_with_policy(
+    output: &str,
+    fact_count: usize,
+    rubric: &ReadinessRubric,
+    policy: super::advice_text::TextPolicy,
 ) -> Result<ReadinessResponse, String> {
     let value: serde_json::Value = parse(output)?;
     // Nullable properties are required, not implicitly absent Option defaults.
@@ -72,7 +98,7 @@ pub(crate) fn decode(
     if response.version != 1 || response.concepts.len() != 14 {
         return Err("Invalid readiness version or coverage".into());
     }
-    super::assessment_model::validate_prose(&response.summary, 1000, true)?;
+    policy.validate(&response.summary, 1000, true, false)?;
     for ((row, id), definition) in response
         .concepts
         .iter()
@@ -91,15 +117,13 @@ pub(crate) fn decode(
         }
         match (&row.maturity, &row.confidence, &row.unassessed_reason) {
             (Some(0..=4), Some(_), None) if !row.repository_fact_ids.is_empty() => {}
-            (None, None, Some(reason)) => {
-                super::assessment_model::validate_prose(reason, 500, true)?
-            }
+            (None, None, Some(reason)) => policy.validate(reason, 500, true, false)?,
             _ => return Err("Invalid readiness rating or unassessed reason".into()),
         }
-        super::assessment_model::validate_prose(&row.rationale, 500, true)?;
-        super::assessment_model::validate_prospective_prose(&row.next_transition, 500, false)?;
+        policy.validate(&row.rationale, 500, true, false)?;
+        policy.validate(&row.next_transition, 500, false, true)?;
         for limit in &row.limits {
-            super::assessment_model::validate_prose(limit, 200, true)?;
+            policy.validate(limit, 200, true, false)?;
         }
     }
     Ok(response)

@@ -365,3 +365,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Retained writer reporting bridge implementation](2026-11-09-writer-reporting-bridge.md) — Accepted checkpoint and optional reporter transfer task with production reporting absent and physical qualification gated.
 
 - [Brain-guided manual improvement investigation](2026-11-12-brain-guided-improvement.md) — Active implementation scope for approved progressive investigation, shared result and gated usefulness qualification.
+
+- [Inert improvement text implementation](2026-11-13-improvement-text-contract.md) — Approved contract implementation and coordinated validation evidence for #1694.

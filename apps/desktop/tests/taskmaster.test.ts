@@ -6,6 +6,7 @@ import type { CompletionPacket, WorkflowRecommendation } from "../src/api.ts";
 import { handleAcceptedFixWithAi } from "../src/taskmasterFixHandoff.ts";
 import {
   buildFixPromptDraft,
+  buildRecommendationAcceptOptions,
   buildCompletionPacketAcceptOptions,
   formatImpact,
   formatRecurrence,
@@ -519,40 +520,16 @@ test("rollup fix draft bounds every dynamic field inside one serialized referenc
   assert.doesNotMatch(serialized, /[\u0000-\u001f\u007f<>]/);
 });
 
-test("Fix with AI always presses Enter regardless of dialog edits", () => {
-  // Regression: the dialog's editable draft has no trailing \r (it shouldn't
-  // show one to the user), but the backend's build_fix_prompt convention
-  // ends every submitted prompt in \r so it's delivered as typed text
-  // followed by Enter. Since the desktop always sends an explicit prompt
-  // override, the backend's own \r-terminated default never applies — the
-  // frontend must append \r itself before sending, or nothing ever gets
-  // submitted to the target session.
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
-  assert.ok(handlerIndex >= 0, "expected a handleConfirmFixWithAi handler");
-  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
-
-  assert.match(handlerBlock, /prompt: `\$\{prompt\}\\r`/);
+test("legacy Fix with AI presses Enter after the edited dialog text", () => {
+  assert.deepEqual(buildRecommendationAcceptOptions(recommendation,"session-1","Edited task"),
+    {sessionId:"session-1",prompt:"Edited task\r"});
 });
 
-test("packet-backed Fix with AI binds acceptance to the packet revision and fingerprint", () => {
-  assert.deepEqual(buildCompletionPacketAcceptOptions(completionPacket), {
-    packetRevision: 1,
-    evidenceFingerprint: "a".repeat(64),
-    idempotencyKey: `packet-accept-1-${"a".repeat(64)}`,
+test("packet-backed Fix with AI binds acceptance to revision and fingerprint without a prompt", () => {
+  assert.deepEqual(buildRecommendationAcceptOptions({...recommendation,completionPacket},"session-1","ignored"), {
+    sessionId:"session-1",packetRevision:1,evidenceFingerprint:"a".repeat(64),
+    idempotencyKey:`packet-accept-1-${"a".repeat(64)}`,
   });
-
-  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const start = app.indexOf("const handleConfirmFixWithAi");
-  const end = app.indexOf("// Unread", start);
-  const handler = app.slice(start, end);
-  assert.match(handler, /const packet = recommendation\.completionPacket;/);
-  assert.match(handler, /buildCompletionPacketAcceptOptions\(packet\)/);
-  assert.match(handler, /prompt: `\$\{prompt\}\\r`/);
-
-  const dialog = readFileSync(new URL("../src/components/FixWithAiDialog.tsx", import.meta.url), "utf8");
-  assert.match(dialog, /promptReadOnly\?: boolean/);
-  assert.match(dialog, /readOnly=\{promptReadOnly\}/);
 });
 
 test("Fix with AI surfaces an error instead of silently closing when no session is active", () => {
@@ -1233,4 +1210,29 @@ test("investigation handoff has a standalone read-only scope without implementat
   assert.match(prompt, /Do not edit files, implement changes/);
   assert.match(prompt, /untrusted reference data/);
   assert.doesNotMatch(prompt, /Investigate and implement|edit the repository|only modify repository|After acting|POSTing|Implement and commit/);
+});
+
+
+test("version two handoff instructions never interpolate generated descriptions or evidence", () => {
+  for (const intent of ["implementation", "investigation"] as const) {
+    const item = { ...recommendation, assessment: { improvementReference: { version: 2, intent } },
+      title: "MODEL_TITLE", reason: ["MODEL_REASON"], suggestedPrompt: "MODEL_PROMPT",
+      workflowImprovement: { ...recommendation.workflowImprovement, proposedImprovement: "MODEL_CHANGE `rm -rf /`", expectedBenefit: "MODEL_BENEFIT" },
+      repositoryEvidence: [{ path: "MODEL_PATH", excerpt: "MODEL_EVIDENCE" }],
+    } as unknown as WorkflowRecommendation;
+    const prompt = buildFixPromptDraft(item);
+    assert.match(prompt, /GET \/taskmaster\/recommendations\/rec-1/);
+    assert.match(prompt, /untrusted reference data/);
+    assert.doesNotMatch(prompt, /MODEL_|rm -rf|Reference snapshots/);
+    if (intent === "investigation") assert.match(prompt, /Do not edit files/);
+    else assert.match(prompt, /working-on-recommendation/);
+  }
+});
+
+
+test("version two confirmation cannot send an override or use packet options", () => {
+  const item = {...recommendation,assessment:{improvementReference:{version:2,intent:"implementation"}}} as WorkflowRecommendation;
+  assert.deepEqual(buildRecommendationAcceptOptions(item,"session-1","OVERRIDE"),{sessionId:"session-1"});
+  assert.throws(()=>buildRecommendationAcceptOptions({...item,completionPacket},"session-1","OVERRIDE"),/Unsupported/);
+  assert.throws(()=>buildFixPromptDraft({...item,id:"rec-1/../other"}),/Unsupported/);
 });

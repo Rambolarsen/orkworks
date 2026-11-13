@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-const IDENTITY_VERSION: &str = "brain-improvement-v1:collector-1:prompt-1:response-1";
+const IDENTITY_VERSION: &str = "brain-improvement-v2:collector-1:prompt-2:response-1:text-2";
 
 #[derive(Clone)]
 pub(crate) struct Capture {
@@ -137,7 +137,7 @@ pub(crate) fn manifest(
         })
         .collect::<Result<Vec<_>, String>>()?;
     Ok(Manifest {
-        purpose: "brain-improvement-v1".into(),
+        purpose: "brain-improvement-v2".into(),
         workspace_path: capture.path.to_str().ok_or("Workspace unavailable")?.into(),
         workspace_instance: capture.instance,
         context_level: capture.evaluation.settings.context_level,
@@ -161,7 +161,7 @@ fn verify_inputs(
     pages: &[PageIdentity],
     recommendation_digest: &str,
 ) -> Result<ProgressiveEvidence, String> {
-    if manifest.purpose != "brain-improvement-v1"
+    if manifest.purpose != "brain-improvement-v2"
         || manifest.workspace_path != path.to_str().ok_or("Workspace unavailable")?
         || manifest.context_level != level
         || manifest.excluded_paths != excluded
