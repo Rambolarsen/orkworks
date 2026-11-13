@@ -2,10 +2,21 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
 if (process.versions.electron) {
+  const started = performance.now();
+  const progress = stage => console.error('[shell-fixture]', JSON.stringify({
+    scenario: process.env.ORKWORKS_SHELL_SCENARIO,
+    elapsedMs: Math.round(performance.now() - started), stage,
+  }));
+  progress('importing Electron');
   const { app, BrowserWindow } = await import('electron');
+  app.on('will-quit', () => progress('app will-quit'));
+  app.on('quit', (_event, code) => progress(`app quit: ${code}`));
+  process.on('exit', code => progress(`process exit: ${code}`));
   if (process.env.ORKWORKS_SHELL_PROFILE) app.setPath('userData', process.env.ORKWORKS_SHELL_PROFILE);
   app.disableHardwareAcceleration();
+  progress('waiting for app ready');
   app.whenReady().then(async () => {
+    progress('creating window');
     const win = new BrowserWindow({ show: false, width: 1280, height: 700 });
     win.webContents.on('console-message', event => {
       console.error('Renderer console:', event.message);
@@ -13,7 +24,8 @@ if (process.versions.electron) {
     win.webContents.on('render-process-gone', (_event, details) => {
       console.error('Renderer process gone:', details.reason, details.exitCode);
     });
-    const evaluate = async (source) => {
+    const evaluate = async (source, reportProgress = true) => {
+      if (reportProgress) progress(`evaluate: ${source.slice(0, 200)}`);
       // Sanitize results so DOM nodes never cross the executeJavaScript
       // serialization bridge: Electron 45 (Chromium 156) serializes expando
       // properties of returned nodes, and React-rendered nodes carry
@@ -24,14 +36,16 @@ if (process.versions.electron) {
       catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
     };
     const waitFor = async (source) => {
+      progress(`waitFor: ${source.slice(0, 200)}`);
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
-        if (await evaluate(source)) return;
+        if (await evaluate(source, false)) return;
         await new Promise(resolve => setTimeout(resolve, 10));
       }
       throw new Error(`Timed out: ${source}\n${await evaluate("document.body.innerText")}\n${JSON.stringify(await evaluate("window.fixture?.errors ?? []"))}`);
     };
     const fresh = async () => {
+      progress('loading fixture');
       await win.loadFile(process.env.ORKWORKS_SHELL_FIXTURE);
       await waitFor('window.fixture?.ready');
     };
@@ -2145,10 +2159,14 @@ if (process.versions.electron) {
       console.log('Fixed shell responsive destinations, resizing, zoom, and focus checks passed');
 
     } catch (error) {
+      console.error('Shell scenario failed:', error);
+      progress('capturing failure');
       try { await captureReplay('failure'); } catch (captureError) { console.error('Replay capture failed:', captureError); }
       throw error;
     } finally {
+      progress('destroying window');
       win.destroy();
+      progress('requesting app quit');
       app.quit();
     }
     app.quit();
@@ -2156,6 +2174,7 @@ if (process.versions.electron) {
 } else {
   const { default: test } = await import('node:test');
   const { spawnSync } = await import('node:child_process');
+  const { assertShellSubprocess } = await import('./fixtures/shellSubprocess.mjs');
   const { createRequire } = await import('node:module');
   const { mkdirSync, mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -2374,8 +2393,7 @@ if (process.versions.electron) {
         writeFileSync(join(replayArtifacts, 'subprocess.log'), [result.error?.stack, result.stdout, result.stderr].filter(Boolean).join('\n'));
         console.log('Replay artifacts:', replayArtifacts);
       }
-      assert.ifError(result.error);
-      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assertShellSubprocess(result);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

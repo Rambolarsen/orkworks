@@ -45,6 +45,11 @@ Run these commands from `apps/desktop/`. Linux desktop tests require Xvfb
 (`xvfb-run`) when no display is available; the Electron layout test starts its
 own virtual display. GitHub-hosted Ubuntu runners include Xvfb.
 
+Shell fixture failures include the captured child stdout/stderr, subprocess
+PID/status/signal and progress markers for startup, renderer operations and
+shutdown. A marker records the start of an operation; combine it with the
+process outcome when diagnosing a timeout. The existing deadlines still apply.
+
 ## Rendered historical replay fixture
 
 From the repository root, run the existing Electron runner's replay scenario:
