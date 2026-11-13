@@ -362,3 +362,23 @@ Existing VitePress circular/large-chunk warnings concern unchanged bundler
 configuration. Passing these checks or static reviews does not qualify a fresh
 store, original producer, physical catalog/index/proof, authority, ordinary/native
 behavior or the complete creation/publication history.
+
+## Scoped owner acceptance and offline initializer components
+
+The owner answered “keep going” to the explicit request to accept both choices
+for **offline initializer components only**. This accepts the fresh resource
+creation recipe and original-admission research current-control placement at
+that scope. It does not close the candidate catalog or research authorization,
+select a format/domain, or authorize a physical initializer or runtime work.
+
+The bounded component packet uses unchanged root source/projection examples to
+derive ledger keys/values, initial research control charges, initialized/never-
+initialized branches and logical row-location counts. All origins are labelled
+unqualified. Header/proof controls are labels only: there is no header value,
+manifest, row/change hash, complete store, publisher or legal history. Existing
+artifact bytes remain unchanged and all broader qualification gates above remain.
+
+The earlier pending wording is historical for these two accepted component
+choices only. The [offline initializer packet](../../validation/research-initialization-components.md)
+records finite values/charges and their explicit limits; catalog/authority/format
+and full-history qualification remain blocked.
