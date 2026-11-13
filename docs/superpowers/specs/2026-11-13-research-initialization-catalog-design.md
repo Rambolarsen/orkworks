@@ -382,3 +382,10 @@ The earlier pending wording is historical for these two accepted component
 choices only. The [offline initializer packet](../../validation/research-initialization-components.md)
 records finite values/charges and their explicit limits; catalog/authority/format
 and full-history qualification remain blocked.
+
+The [research original-preparation proposal](2026-11-13-research-preparation-authorization-design.md)
+now makes the separate research persistence policy, authorization family/intent/
+snapshots and unchanged ordinary-member source-resolution choices concrete for
+owner review. Its additional family would make the candidate union 51, still
+not a final catalog. Earlier initializer acceptance supplies none of those new
+policy/representation decisions; format, physical and native gates stay open.

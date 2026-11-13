@@ -363,3 +363,15 @@ there is no new header, manifest, row/change hash, complete store or legal
 creation/publication history. The catalog/version, research original authority/
 ordinary lineage and broader Gate 2 obligations remain open. Accepted protocols
 and earlier artifact bytes are preserved; no runtime/native work follows.
+
+## Research original-preparation authorization proposed
+
+The [written research preparation proposal](../superpowers/specs/2026-11-13-research-preparation-authorization-design.md)
+defines a new scoped late-saving/no-spawn policy, exact research intent/control
+snapshots and authorization family, and original-commit source-kind resolution
+through unchanged ordinary lineage bytes. These choices await scoped owner review;
+the accepted direct-execution authorization is not broadened implicitly. The
+candidate family count becomes 51 only conditionally and selects no format or
+actual publisher. Catalog/index/proof/source/ordinary/native and complete history
+qualification remain open. Gate 2 stays Investigate; accepted report/request/
+head/receipt protocols and earlier artifacts remain unchanged.
