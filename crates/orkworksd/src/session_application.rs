@@ -4108,20 +4108,21 @@ impl SessionApplication {
                 {
                     // The legacy single reference remains pinned, but a fresh
                     // report for the other branch slot is independent of it.
-                    if let Ok(relative_path) =
+                    let Ok(relative_path) =
                         normalize_reported_plan_path(&report_root, reported_path)
-                    {
-                        let reference = metadata::PlanReference {
-                            worktree_root: Some(report_root.to_string_lossy().into_owned()),
-                            relative_path,
-                            source: metadata::PlanSource::HookReported,
-                        };
-                        crate::branch_documents::publish(
-                            &workspace.metadata.branch_documents,
-                            &reference,
-                        )
-                        .map_err(std::io::Error::other)?;
-                    }
+                    else {
+                        return Ok(false);
+                    };
+                    let reference = metadata::PlanReference {
+                        worktree_root: Some(report_root.to_string_lossy().into_owned()),
+                        relative_path,
+                        source: metadata::PlanSource::HookReported,
+                    };
+                    crate::branch_documents::publish(
+                        &workspace.metadata.branch_documents,
+                        &reference,
+                    )
+                    .map_err(std::io::Error::other)?;
                     return Ok(false);
                 }
                 let relative =
@@ -10682,6 +10683,11 @@ mod tests {
     #[test]
     fn report_plan_path_application_preserves_selection_and_validates_session_state() {
         let root = tempfile::tempdir().unwrap();
+        git2::Repository::init(root.path()).unwrap();
+        let reported = "docs/superpowers/plans/hook-plan.md";
+        let plan = root.path().join(reported);
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, "# Hook plan\n").unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
@@ -10760,11 +10766,24 @@ mod tests {
             .metadata
             .write_session(&selected);
         application
-            .report_plan_path(
-                "selected-plan",
-                root.path().join("hook-plan.md").to_str().unwrap(),
-            )
+            .report_plan_path("selected-plan", "../outside.md")
             .unwrap();
+        application
+            .report_plan_path("selected-plan", plan.to_str().unwrap())
+            .unwrap();
+        let workspace_guard = state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_ref().unwrap();
+        let identity = crate::branch_documents::identity(root.path()).unwrap();
+        let documents = workspace.metadata.branch_documents.load(&identity).unwrap();
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].reference.relative_path, reported);
+        assert_eq!(
+            documents[0].reference.source,
+            metadata::PlanSource::HookReported
+        );
+        assert!(!documents[0].pinned);
+        assert!(workspace.metadata.read_events("selected-plan").is_empty());
+        drop(workspace_guard);
         assert_eq!(
             state
                 .workspace
