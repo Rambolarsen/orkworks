@@ -446,10 +446,16 @@ publication can recover from the saved final result without repeating inference.
 A cancellation request does not release ownership before provider cleanup settles.
 
 An improvement-derived recommendation retains normal explicit acceptance and
-adds optional `assessment.improvementReference` provenance with `version: 1` and
-`intent: implementation | investigation`. An investigation handoff requests
-read-only findings; it does not authorize a speculative implementation. Legacy
+adds optional `assessment.improvementReference` provenance with `version: 2` and
+`intent: implementation | investigation` for the new inert-text producer.
+Version 1 retains its legacy validation/handoff behavior; unknown versions are
+unsupported. Both version-2 handoffs use fixed ID-only instructions and reject
+client prompt overrides and completion packets. An investigation requests
+read-only findings, without speculative implementation authority. Legacy
 recommendations without this reference retain their existing Fix with AI scope.
+The [text-policy contract](../superpowers/specs/2026-11-13-improvement-text-contract.md)
+defines consistent producer, history and report identities; command-shaped
+advice stays reference data, never a typed executable action.
 Report and recommendation identities bind the same selected opportunity and
 input evidence. Access narrowing redacts the complete source-derived result;
 stale or missing origin identity cannot authorize recommendation actions.

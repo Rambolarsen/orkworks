@@ -1192,6 +1192,9 @@ mod tests {
         );
         assert!(improvement.knowledge_evidence.is_empty());
         value["assessment"]["improvementReference"]["version"] = serde_json::json!(2);
+        let mut inert = serde_json::from_value::<Recommendation>(value.clone()).unwrap();
+        assert!(!fence_recommendation(&mut inert, None, None, false));
+        value["assessment"]["improvementReference"]["version"] = serde_json::json!(3);
         assert!(serde_json::from_value::<Recommendation>(value.clone()).is_err());
         value["assessment"]["improvementReference"] =
             serde_json::json!({"version": 1, "intent": "unknown"});
@@ -1228,16 +1231,32 @@ mod tests {
                 rubric_digest: "0".repeat(64),
                 catalog_digest: "0".repeat(64),
                 ranges: vec![],
-                pages: vec![],
+                pages: vec![super::super::improvement::store::PageIdentity {
+                    id: "rubric".into(),
+                    sha256: "0".repeat(64),
+                }],
                 recommendation_digest: "0".repeat(64),
             },
             result: FinalResult {
                 version: 1,
                 summary: "private finding".into(),
-                concepts: vec![],
+                concepts: super::super::readiness_rubric::CONCEPT_IDS
+                    .iter()
+                    .map(|id| super::super::readiness_model::ReadinessRow {
+                        concept_id: (*id).into(),
+                        maturity: None,
+                        confidence: None,
+                        repository_fact_ids: vec![],
+                        rubric_page_id: "rubric".into(),
+                        rationale: "Private finding".into(),
+                        limits: vec![],
+                        next_transition: String::new(),
+                        unassessed_reason: Some("Evidence unavailable".into()),
+                    })
+                    .collect(),
                 opportunities: vec![],
                 preferred_opportunity_id: None,
-                no_proposal_reason: None,
+                no_proposal_reason: Some("Evidence unavailable".into()),
                 limitations: vec![],
             },
             repository_evidence: vec![],

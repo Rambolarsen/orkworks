@@ -22,7 +22,7 @@ fn saved_manifest_revalidates_every_range_catalog_guidance_and_recommendation_in
         sha256: "a".repeat(64),
     }];
     let manifest = Manifest {
-        purpose: "brain-improvement-v1".into(),
+        purpose: "brain-improvement-v2".into(),
         workspace_path: workspace.path().to_str().unwrap().into(),
         workspace_instance: 1,
         context_level: ContextLevel::SourceCode,

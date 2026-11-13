@@ -83,7 +83,7 @@ test('investigation provenance uses investigation wording and legacy provenance 
   assert.equal(improvementHandoffLabel(undefined), 'Fix with AI');
   assert.equal(readImprovementIntent({}), undefined);
   assert.equal(readImprovementIntent({ improvementReference: { version: 1, intent: 'investigation' } }), 'investigation');
-  assert.equal(readImprovementIntent({ improvementReference: { version: 2, intent: 'investigation' } }), null);
+  assert.equal(readImprovementIntent({ improvementReference: { version: 3, intent: 'investigation' } }), null);
   assert.equal(readImprovementIntent({ improvementReference: { version: 1, intent: 'unknown' } }), null);
 });
 
@@ -119,4 +119,20 @@ test('improvement transport stops and cancels an oversized response before EOF',
     async () => new Response(stream)), /response too large/);
   assert.equal(cancelled, true);
   assert.equal(pulls, 2);
+});
+
+
+test('version two provenance is recognized for both fixed handoff intents', () => {
+  for (const intent of ['implementation','investigation'] as const) {
+    assert.equal(readImprovementIntent({improvementReference:{version:2,intent}}),intent);
+  }
+  assert.equal(readImprovementIntent({improvementReference:{version:2,intent:'implementation',override:true}}),null);
+});
+
+
+test('public advice bounds count Unicode scalars like the sidecar', () => {
+  const report=emptyReport(); report.summary='🧠'.repeat(1000);
+  assert.doesNotThrow(()=>parseImprovementStatus(status({run:{...status().run,report}})));
+  report.summary+='🧠';
+  assert.throws(()=>parseImprovementStatus(status({run:{...status().run,report}})),/Invalid improvement/);
 });

@@ -129,18 +129,145 @@ pub(crate) struct FinalResult {
     pub summary: String,
     pub concepts: Vec<crate::taskmaster::readiness_model::ReadinessRow>,
     pub opportunities: Vec<Opportunity>,
+    #[serde(deserialize_with = "crate::taskmaster::readiness_model::required_nullable")]
     pub preferred_opportunity_id: Option<String>,
+    #[serde(deserialize_with = "crate::taskmaster::readiness_model::required_nullable")]
     pub no_proposal_reason: Option<String>,
     pub limitations: Vec<String>,
 }
 impl FinalResult {
+    pub(crate) fn validate_text(
+        &self,
+        policy: crate::taskmaster::advice_text::TextPolicy,
+    ) -> Result<(), String> {
+        if self.version != 1
+            || self.opportunities.len() > 5
+            || self.limitations.len() > 8
+            || self.concepts.len() != 14
+        {
+            return Err("Improvement result exceeds its bounds".into());
+        }
+        policy.validate(&self.summary, 1000, true, false)?;
+        for text in &self.limitations {
+            policy.validate(text, 500, true, false)?;
+        }
+        if let Some(text) = &self.no_proposal_reason {
+            policy.validate(text, 1000, true, false)?;
+        }
+        for row in &self.concepts {
+            policy.validate(&row.rationale, 500, true, false)?;
+            policy.validate(&row.next_transition, 500, false, true)?;
+            if row.limits.len() > 4 {
+                return Err("Invalid readiness limits".into());
+            }
+            for text in &row.limits {
+                policy.validate(text, 200, true, false)?;
+            }
+            if let Some(text) = &row.unassessed_reason {
+                policy.validate(text, 500, true, false)?;
+            }
+        }
+        for item in &self.opportunities {
+            policy.validate(&item.title, 240, true, false)?;
+            for text in [
+                &item.summary,
+                &item.mechanism,
+                &item.benefit,
+                &item.rollback,
+            ] {
+                policy.validate(text, 1000, true, true)?;
+            }
+            policy.validate(&item.validation, 500, true, true)?;
+        }
+        Ok(())
+    }
+
+    /// Persisted reports lack the full rubric, but every citation must still
+    /// belong to their captured manifest. Publication also checks the signed rubric.
+    pub(crate) fn validate_citations(
+        &self,
+        facts: &[String],
+        pages: &[String],
+    ) -> Result<(), String> {
+        use crate::taskmaster::readiness_rubric::CONCEPT_IDS;
+        if self.concepts.len() != CONCEPT_IDS.len() {
+            return Err("Invalid readiness coverage".into());
+        }
+        for (row, id) in self.concepts.iter().zip(CONCEPT_IDS) {
+            if row.concept_id != id
+                || !pages.contains(&row.rubric_page_id)
+                || row.repository_fact_ids.len() > 8
+                || row.repository_fact_ids.iter().any(|id| *id >= facts.len())
+                || row.repository_fact_ids.iter().collect::<HashSet<_>>().len()
+                    != row.repository_fact_ids.len()
+            {
+                return Err("Invalid readiness citations or concept".into());
+            }
+            match (&row.maturity, &row.confidence, &row.unassessed_reason) {
+                (Some(0..=4), Some(_), None) if !row.repository_fact_ids.is_empty() => {}
+                (None, None, Some(reason)) if !reason.trim().is_empty() => {}
+                _ => return Err("Invalid readiness rating or unassessed reason".into()),
+            }
+        }
+        let mut ids = HashSet::new();
+        for item in &self.opportunities {
+            if item.id.is_empty()
+                || item.id.len() > 64
+                || !item
+                    .id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+                || !ids.insert(item.id.as_str())
+                || item.repository_fact_hashes.is_empty()
+                || item.repository_fact_hashes.len() > 32
+                || item.knowledge_page_ids.is_empty()
+                || item.knowledge_page_ids.len() > 16
+                || item
+                    .repository_fact_hashes
+                    .iter()
+                    .any(|id| !facts.contains(id))
+                || item.knowledge_page_ids.iter().any(|id| !pages.contains(id))
+                || item
+                    .repository_fact_hashes
+                    .iter()
+                    .collect::<HashSet<_>>()
+                    .len()
+                    != item.repository_fact_hashes.len()
+                || item.knowledge_page_ids.iter().collect::<HashSet<_>>().len()
+                    != item.knowledge_page_ids.len()
+            {
+                return Err("Improvement opportunity has invalid identity or citations".into());
+            }
+        }
+        match (&self.preferred_opportunity_id, &self.no_proposal_reason) {
+            (Some(id), None) if ids.contains(id.as_str()) => Ok(()),
+            (None, Some(_)) => Ok(()),
+            _ => Err("Improvement preferred step or no-result reason is inconsistent".into()),
+        }
+    }
+
     pub(crate) fn decode(
         text: &str,
         facts: &[String],
         pages: &[String],
         rubric: &crate::taskmaster::readiness_rubric::ReadinessRubric,
     ) -> Result<Self, String> {
-        use crate::taskmaster::assessment_model::{validate_prose, validate_prospective_prose};
+        Self::decode_with_policy(
+            text,
+            facts,
+            pages,
+            rubric,
+            crate::taskmaster::advice_text::TextPolicy::InertAdvice,
+        )
+    }
+
+    pub(crate) fn decode_with_policy(
+        text: &str,
+        facts: &[String],
+        pages: &[String],
+        rubric: &crate::taskmaster::readiness_rubric::ReadinessRubric,
+        policy: crate::taskmaster::advice_text::TextPolicy,
+    ) -> Result<Self, String> {
         let value: serde_json::Value =
             crate::harness::definition::parse_strict_json(text.as_bytes(), 64 * 1024)
                 .map_err(|_| "Invalid improvement result JSON")?;
@@ -156,68 +283,16 @@ impl FinalResult {
         if result.version != 1 || result.opportunities.len() > 5 || result.limitations.len() > 8 {
             return Err("Improvement result exceeds its bounds".into());
         }
-        validate_prose(&result.summary, 1000, true)?;
-        for limit in &result.limitations {
-            validate_prose(limit, 500, true)?;
-        }
+        result.validate_text(policy)?;
+        result.validate_citations(facts, pages)?;
         let readiness =
             serde_json::json!({"version":1,"summary":result.summary,"concepts":value["concepts"]});
-        // Same returned fact indices and same signed rubric as the preferred opportunity.
-        crate::taskmaster::readiness_model::decode(&readiness.to_string(), facts.len(), rubric)?;
-        let mut ids = HashSet::new();
-        for opportunity in &result.opportunities {
-            if opportunity.id.is_empty()
-                || opportunity.id.len() > 64
-                || !opportunity
-                    .id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-                || !ids.insert(opportunity.id.as_str())
-                || opportunity.repository_fact_hashes.is_empty()
-                || opportunity.repository_fact_hashes.len() > 32
-                || opportunity.knowledge_page_ids.is_empty()
-                || opportunity.knowledge_page_ids.len() > 16
-                || opportunity
-                    .repository_fact_hashes
-                    .iter()
-                    .any(|id| !facts.contains(id))
-                || opportunity
-                    .knowledge_page_ids
-                    .iter()
-                    .any(|id| !pages.contains(id))
-                || opportunity
-                    .repository_fact_hashes
-                    .iter()
-                    .collect::<HashSet<_>>()
-                    .len()
-                    != opportunity.repository_fact_hashes.len()
-                || opportunity
-                    .knowledge_page_ids
-                    .iter()
-                    .collect::<HashSet<_>>()
-                    .len()
-                    != opportunity.knowledge_page_ids.len()
-            {
-                return Err("Improvement opportunity has invalid identity or citations".into());
-            }
-            validate_prose(&opportunity.title, 240, true)?;
-            for text in [
-                &opportunity.summary,
-                &opportunity.mechanism,
-                &opportunity.benefit,
-                &opportunity.rollback,
-            ] {
-                validate_prospective_prose(text, 1000, true)?;
-            }
-            validate_prospective_prose(&opportunity.validation, 500, true)?;
-        }
-        match (&result.preferred_opportunity_id, &result.no_proposal_reason) {
-            (Some(id), None) if ids.contains(id.as_str()) => {}
-            (None, Some(reason)) => validate_prose(reason, 1000, true)?,
-            _ => {
-                return Err("Improvement preferred step or no-result reason is inconsistent".into())
-            }
-        }
+        crate::taskmaster::readiness_model::decode_with_policy(
+            &readiness.to_string(),
+            facts.len(),
+            rubric,
+            policy,
+        )?;
         Ok(result)
     }
     pub(crate) fn readiness(&self) -> crate::taskmaster::readiness_model::ReadinessResponse {

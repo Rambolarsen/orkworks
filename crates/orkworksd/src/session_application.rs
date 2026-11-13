@@ -1295,6 +1295,7 @@ impl SessionApplication {
         crate::taskmaster::assessment_access::ensure_mutable(&existing)
             .map_err(RecommendationPacketError::Store)?;
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
+            || crate::taskmaster::is_inert_improvement(&existing)
             || existing.source_session_ids.len() != 1
             || existing.source_session_ids[0] != source_session_id
             || packet.source_session_id != source_session_id
@@ -1386,7 +1387,24 @@ impl SessionApplication {
                     control_tx,
                     workspace: RecommendationDeliveryWorkspace::capture(workspace),
                 };
-                let prompt = if crate::taskmaster::is_improvement_investigation(&recommendation) {
+                let fixed = crate::taskmaster::fixed_improvement_handoff(
+                    &recommendation,
+                    prompt_override.is_some(),
+                    packet_mutation.is_some(),
+                )
+                .map_err(|_| RecommendationAcceptError::Conflict)?;
+                let prompt = if let Some(prompt) = fixed {
+                    workspace
+                        .recommendation_store
+                        .begin_execution(
+                            id,
+                            session_id.to_string(),
+                            chrono::Utc::now().to_rfc3339(),
+                        )
+                        .map_err(RecommendationAcceptError::Store)?
+                        .ok_or(RecommendationAcceptError::Conflict)?;
+                    prompt
+                } else if crate::taskmaster::is_improvement_investigation(&recommendation) {
                     if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
                         return Err(RecommendationAcceptError::Conflict);
                     }
@@ -16717,6 +16735,73 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .read_events(id)
             .iter()
             .any(|event| event.event_type == "taskmaster_fix_requested"));
+    }
+
+    #[test]
+    fn inert_packet_reporting_refuses_before_mutation_and_keeps_legacy_packets() {
+        for version in [1, 2] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let id = proposed_recommendation_id(&state, "inert-packet");
+            let mut recommendation = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&id)
+                .unwrap()
+                .unwrap();
+            recommendation.source_session_ids = vec!["session-source".into()];
+            recommendation.assessment = Some(crate::taskmaster::AssessmentProvenance {
+                improvement_reference: Some(crate::taskmaster::ImprovementReference {
+                    version,
+                    intent: crate::taskmaster::ImprovementIntent::Implementation,
+                }),
+                sql_sources: None,
+                readiness_reference: None,
+                access_redacted: false,
+                id: "improvement-fixture".into(),
+                input_fingerprint: "a".repeat(64),
+                context_level: crate::taskmaster::runtime::ContextLevel::WorkflowContext,
+                excluded_paths: vec![],
+            });
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(&recommendation)
+                .unwrap();
+            let mut packet = crate::taskmaster::completion_tests::test_packet();
+            packet.subject.workspace_id = recommendation.workspace_id.clone();
+            packet.provenance.workspace_id = recommendation.workspace_id.clone();
+            packet.evidence_fingerprint = packet.computed_evidence_fingerprint();
+            let result = SessionApplication::new(state.clone()).report_completion_packet(
+                &recommendation.id,
+                "session-source",
+                packet,
+            );
+            if version == 2 {
+                assert!(matches!(result, Err(RecommendationPacketError::Conflict)));
+            } else {
+                assert!(result.unwrap().is_some());
+            }
+            let saved = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&recommendation.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved.completion_packet.is_some(), version == 1);
+        }
     }
 
     #[tokio::test]

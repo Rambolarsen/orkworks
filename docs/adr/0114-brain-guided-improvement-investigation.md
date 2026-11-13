@@ -60,3 +60,9 @@ require new tests and a coordinated desktop/sidecar delivery. A signed playbook
 capability is a separate publication dependency. Deterministic tests and transport
 success are insufficient: paired usefulness qualification is required before
 activation. Keep existing manual behavior until that evidence exists.
+
+## Text-policy amendment, 2026-11-13
+
+[ADR 0115](0115-inert-improvement-text-and-fixed-handoffs.md) replaces the new
+producer's command-text rejection with inert advice validation and fixed
+handoffs. The investigation decision and all activation gates remain accepted.

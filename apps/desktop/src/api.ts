@@ -794,7 +794,7 @@ export interface AssessmentProvenance {
   excludedPaths: string[];
   accessRedacted?: boolean;
   readinessReference?: ReadinessReference;
-  improvementReference?: { version: 1; intent: "implementation" | "investigation" };
+  improvementReference?: { version: 1 | 2; intent: "implementation" | "investigation" };
 }
 export interface WorkflowRecommendation {
   assessment?: AssessmentProvenance;

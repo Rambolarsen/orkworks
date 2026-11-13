@@ -186,14 +186,17 @@ Both recommendation and capability ratings come from one final validated respons
 against the same accumulated immutable facts and pinned guidance. Do not create a
 second independent proposal call after saving a score. Final structural validation
 checks supported enums, bounds, known citations and consistent preferred-candidate
-identity. Keep rejection of executable command payloads, unknown citations and
-claims of unperformed validation. Reuse the current command/prose validator in
-the first implementation, with positive ordinary-explanation fixtures and
-negative executable-instruction/false-verification fixtures. This design does
-not authorize weakening that validator. If it rejects an independently valid
-proposal, retain the sample and resolve the precise validation change in a
-separately reviewed contract before activation; do not bypass validation or
-report that sample as a successful suggestion.
+identity. The initial implementation reused the current command/prose validator
+and rejected executable-looking payloads and claims of unperformed validation.
+After retained ordinary-language failures, the owner approved the separate
+[inert text and fixed-handoff contract](2026-11-13-improvement-text-contract.md)
+on 2026-11-13, recorded in [ADR 0115](../../adr/0115-inert-improvement-text-and-fixed-handoffs.md).
+For the new version-2 producer, that amendment replaces linguistic command
+rejection with bounded inert data, while retaining structural/citation and
+performed-verification-claim checks and enforcing fixed server-owned handoffs.
+Legacy text policy is unchanged. Rejected historical samples remain failures;
+offline decoding never becomes a retroactive usefulness pass.
+
 
 Separate evidence strength (observed problem, supported improvement hypothesis,
 or investigation needed) from action authority. All suggestions remain advisory.

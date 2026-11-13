@@ -779,7 +779,7 @@ fn prospective_evidence_fragment(text: &str) -> bool {
     })
 }
 
-fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
+pub(super) fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
     const CHECKS: [&str; 11] = [
         "test",
         "tests",

@@ -1502,6 +1502,21 @@ fn validate_recommendation(recommendation: &Recommendation) -> Result<(), StoreE
     if let Some(reference) = recommendation
         .assessment
         .as_ref()
+        .and_then(|p| p.improvement_reference.as_ref())
+    {
+        if !matches!(reference.version, 1 | 2)
+            || (reference.version == 2
+                && (!super::canonical_improvement_id(&recommendation.id)
+                    || recommendation.completion_packet.is_some()))
+        {
+            return Err(StoreError::GraphInvariant(
+                "Unsupported improvement handoff identity or packet".into(),
+            ));
+        }
+    }
+    if let Some(reference) = recommendation
+        .assessment
+        .as_ref()
         .and_then(|a| a.readiness_reference.as_ref())
     {
         reference.validate().map_err(StoreError::GraphInvariant)?;

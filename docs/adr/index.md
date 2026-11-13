@@ -155,3 +155,5 @@ Decision records and their original rationale and consequences.
 - [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.
 
 - [Brain-guided manual improvement investigation](0114-brain-guided-improvement-investigation.md) — Proposed bounded iterative repository/knowledge reads and shared assessment/result for the primary manual action.
+
+- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Accepted new-producer text policy and canonical handoff authority; activation remains gated.

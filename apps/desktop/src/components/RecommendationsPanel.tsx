@@ -40,7 +40,7 @@ import CleanupAuditBlock from "./CleanupAuditBlock";
 import RecommendationEvidence from "./RecommendationEvidence";
 import TaskmasterAssessmentSummary from "./TaskmasterAssessmentSummary";
 import RecommendationMenu from "./RecommendationMenu";
-import { improvementHandoffLabel, readImprovementIntent } from "../improvement";
+import { improvementHandoffLabel, readImprovementIntent, readImprovementReference } from "../improvement";
 
 interface RecommendationsPanelProps {
   recommendationSource?: ActionsRecommendationSnapshot;
@@ -129,7 +129,7 @@ function RecommendationCard({
 }) {
   const improvement = recommendation.workflowImprovement;
   const intent = readImprovementIntent(recommendation.assessment);
-  const unsupportedIntent = intent === null;
+  const unsupportedIntent = intent === null || (readImprovementReference(recommendation.assessment)?.version === 2 && Boolean(recommendation.completionPacket));
   const origin = recommendationOrigin(recommendation.dedupeKey);
   const isCleanup = recommendation.type === "cleanup";
   return (

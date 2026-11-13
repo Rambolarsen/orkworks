@@ -2314,11 +2314,27 @@ own currentness validation. A history write failure is separate from the report.
 Production qualification is a code-owned disabled gate, with no environment or
 HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication and consumer integration. Two five-pair usefulness attempts
-remain unqualified. The corrected run accepted one positive app result, rejected
-two benign descriptive finals and had one provider/policy failure; three baseline
-finals repeated evidence-protocol JSON. Post-trial fixes distinguish descriptive
-prose from executable syntax and separate the baseline response phases. These
-fixes have not received a new live qualification. The desktop retains the existing primary
-action whenever the replacement is unavailable. Neither local transport tests nor this source
-implementation establish usefulness qualification or published-installer behavior.
+tracks publication and consumer integration. Three five-pair usefulness attempts
+remain unqualified; the third met the positive floor but missed valid CI advice
+after requesting nine evidence items against the stated eight-item limit. It also
+retained another benign-prose false rejection. The immutable trial evidence is
+recorded in the [implementation history](../superpowers/plans/2026-11-12-brain-guided-improvement.md).
+
+[ADR 0115](../adr/0115-inert-improvement-text-and-fixed-handoffs.md) and the
+[approved text contract](../superpowers/specs/2026-11-13-improvement-text-contract.md)
+define text policy 2 for the new producer. Bounded single-line command mentions
+are inert data, with control/bidi exclusions and existing verification-claim
+checks. Legacy readiness/assessment producers retain strict prose validation.
+The new evaluation identity, report purpose, history wrapper/versions and
+recommendation reference agree before policy selection. History and report
+reload reuse the same policy and retain structural/citation checks.
+
+Version-2 handoffs for both intents contain code-owned instructions and a
+validated recommendation ID, with no generated descriptions or excerpts.
+Desktop previews are read-only; confirmation submits only the selected session.
+The server rejects supplied prompt overrides and packet paths before execution
+reservation. This is not native coding-tool confinement: the receiving agent
+must inspect untrusted reference data under repository and owner controls.
+These coordinated source changes do not solve the nine-request model failure
+or qualify usefulness. The existing primary action remains active until the
+separate gates pass; no published-installer behavior is claimed.

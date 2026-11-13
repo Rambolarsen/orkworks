@@ -22,7 +22,7 @@ const obj = (v: unknown): Record<string, unknown> => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw Error('Invalid improvement response');
   return v as Record<string, unknown>;
 };
-const str = (v: unknown, n: number) => typeof v === 'string' && v.length <= n;
+const str = (v: unknown, n: number) => typeof v === 'string' && [...v].length <= n;
 const nullable = (v: unknown, n: number) => v === null || str(v,n);
 const hash = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/i.test(v);
 function parseOpportunity(value: unknown): ImprovementOpportunity {
@@ -79,12 +79,17 @@ export function canUseImprovementPrimary(value: ImprovementStatus | null): boole
 export function improvementHandoffLabel(intent: 'implementation'|'investigation'|undefined): string {
   return intent === 'investigation' ? 'Investigate with AI' : 'Fix with AI';
 }
-export function readImprovementIntent(assessment: unknown): 'implementation'|'investigation'|undefined|null {
+export type ImprovementReference = { version: 1 | 2; intent: 'implementation' | 'investigation' };
+export function readImprovementReference(assessment: unknown): ImprovementReference | undefined | null {
   if(assessment===undefined||assessment===null)return undefined;
   if(typeof assessment!=='object'||Array.isArray(assessment))return null;
   const provenance=(assessment as Record<string,unknown>).improvementReference;
   if(provenance===undefined)return undefined;
   if(!provenance||typeof provenance!=='object'||Array.isArray(provenance))return null;
   const value=provenance as Record<string,unknown>;
-  return Object.keys(value).sort().join(',')==='intent,version'&&value.version===1&&(value.intent==='implementation'||value.intent==='investigation')?value.intent:null;
+  return Object.keys(value).sort().join(',')==='intent,version'&&(value.version===1||value.version===2)&&(value.intent==='implementation'||value.intent==='investigation')?value as ImprovementReference:null;
+}
+export function readImprovementIntent(assessment: unknown): 'implementation'|'investigation'|undefined|null {
+  const reference=readImprovementReference(assessment);
+  return reference == null ? reference : reference.intent;
 }

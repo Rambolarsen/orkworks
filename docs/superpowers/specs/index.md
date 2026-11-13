@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Proposed text-policy and handoff contract for #1694; owner approval, implementation and activation remain gated.
+
 - [Responsive session refresh inspection](2026-11-10-session-refresh-lag-design.md) — Capture/inspect/recheck repair for terminal lag; source implementation authorized, live replacement owner-controlled.
 
 - [Checked SQL observation input owner](2026-11-09-sql-observation-input-owner.md) — Proposed bounded observation-only claim owner; whole-assessment authority and production routing remain gated.

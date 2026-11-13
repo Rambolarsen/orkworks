@@ -70,7 +70,33 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-replay') {
+      if (scenario === 'app-review-inert-improvement') {
+        for (const intent of ['implementation','investigation']) {
+          if(intent==='investigation')await fresh();
+          await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+          await evaluate('fixture.recommendation.assessment.improvementReference.intent='+JSON.stringify(intent));
+          await evaluate('fixture.menu({action:"focus",panelId:"recommendations"})');
+          await waitFor('document.querySelector(".recommendation-card")');
+          assert.equal(await evaluate('document.querySelector(".recommendation-card").textContent.includes(fixture.hostile)'),true);
+          assert.equal(await evaluate('!!document.querySelector("img[data-inert-probe]") || !!window.modelScriptRan'),false);
+          assert.deepEqual(await evaluate('fixture.accepted'),[]);
+          assert.deepEqual(await evaluate('fixture.input'),[]);
+          await evaluate('document.querySelector(".recommendation-fix").click()');
+          await waitFor('document.querySelector("#fix-with-ai-prompt")');
+          assert.equal(await evaluate('document.querySelector("#fix-with-ai-prompt").readOnly'),true);
+          const preview=await evaluate('document.querySelector("#fix-with-ai-prompt").value');
+          assert.match(preview,/GET \/taskmaster\/recommendations\/recommendation-inert/);
+          assert.doesNotMatch(preview,/MODEL_|data-inert-probe|pnpm test/);
+          if(intent==='investigation')assert.match(preview,/Do not edit files/);
+          assert.deepEqual(await evaluate('fixture.accepted'),[]);
+          await evaluate('document.querySelector("[role=dialog] .new-session-confirm").click()');
+          await waitFor('fixture.accepted.length===1');
+          assert.deepEqual(await evaluate('fixture.accepted'),[['recommendation-inert',{sessionId:'created'}]]);
+          assert.deepEqual(await evaluate('fixture.input'),[]);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
+        }
+        return;
+      } else if (scenario === 'app-review-replay') {
         // Real App -> TerminalPanel -> HistoricalTerminal -> xterm. Only the
         // backend/bridge/PTY boundary is synthetic, as in the other app flows.
         const snapshot = `(() => {
@@ -2180,7 +2206,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2299,6 +2325,23 @@ if (process.versions.electron) {
               throw new Error('Unexpected fixture request '+path);
             };
           }
+          if (${JSON.stringify(scenario)}==='app-review-inert-improvement') {
+            for(const session of fixture.sessionList){session.harnessId='codex';session.harness='Codex';}
+            fixture.hostile='<img data-inert-probe src=x onerror="window.modelScriptRan=true"> MODEL_DATA '+String.fromCharCode(96)+'pnpm test || true'+String.fromCharCode(96);
+            fixture.accepted=[];
+            fixture.recommendation={id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
+            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
+            window.orkworks.getImprovementStatus=async()=>({workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
+            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return {...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
+            const fetchBase=window.fetch;
+            window.fetch=async(url,options)=>{
+              const path=new URL(String(url)).pathname;
+              if(path==='/taskmaster/recommendations')return {ok:true,status:200,json:async()=>({recommendations:[fixture.recommendation],diagnostics:[]})};
+              if(path==='/taskmaster/recommendations/recommendation-inert')return {ok:true,status:200,json:async()=>fixture.recommendation};
+              return fetchBase(url,options);
+            };
+          }
           if (${JSON.stringify(scenario)}==='recommendations-inbox') {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
@@ -2370,7 +2413,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(scenario)) && args.path === './SessionDetailPanel') || (['inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(scenario)) && args.path === './SessionDetailPanel') || (['app-review-inert-improvement','inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 
