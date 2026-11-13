@@ -33,7 +33,8 @@ bash scripts/headless-replay.sh --engine docker
 The image build needs registry/package-download networking. The fixture itself
 runs with networking disabled. The build context includes only tracked fixture
 inputs from the current working files: manifests, overrides, patches, installer,
-renderer source, JSX tsconfig and the one shell test. Add new required inputs to
+renderer source, JSX tsconfig, the shell test and its subprocess assertion helper.
+Add new required inputs to
 the explicit allowlist; untracked files are excluded. Symlink inputs are refused,
 including links to private files. Repository-root/private files are not sent to
 the daemon. Credentials and ambient host environment are not injected into the

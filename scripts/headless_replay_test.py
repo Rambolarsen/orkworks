@@ -84,6 +84,8 @@ class ReplayTests(unittest.TestCase):
         files = ['Containerfile', 'apps/desktop/tsconfig.json', 'apps/desktop/package.json', 'apps/desktop/pnpm-lock.yaml',
                  'apps/desktop/pnpm-workspace.yaml', 'apps/desktop/scripts/setup-electron.mjs',
                  'apps/desktop/tests/applicationShell.test.mjs', 'apps/desktop/src/App.tsx',
+                 'apps/desktop/tests/fixtures/shellSubprocess.mjs',
+                 'apps/desktop/tests/fixtures/private.mjs',
                  'apps/desktop/src/.env', '.env']
         for name in files:
             p=self.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('sentinel' if '.env' in name else 'fixture')
@@ -123,6 +125,8 @@ class ReplayTests(unittest.TestCase):
         context=json.loads((self.state/'context').read_text())
         self.assertIn('apps/desktop/src/App.tsx',context)
         self.assertIn('apps/desktop/tsconfig.json',context)
+        self.assertIn('apps/desktop/tests/fixtures/shellSubprocess.mjs',context)
+        self.assertNotIn('apps/desktop/tests/fixtures/private.mjs',context)
         self.assertFalse(any('.env' in p or '.git' in p for p in context))
         self.assertFalse((self.out/'context').exists(),'private build context is removed')
 
