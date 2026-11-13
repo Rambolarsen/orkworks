@@ -768,6 +768,14 @@ async fn sql_trust_cancellation_during_mailbox_read_cannot_renew_clear_authority
 
 #[tokio::test]
 async fn sql_trust_receipt_overflow_cannot_renew_observations_after_clear() {
+    if super::super::sql_tests::isolated_test(format!(
+        "{}::sql_trust_receipt_overflow_cannot_renew_observations_after_clear",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _commands) = fixture(None).await;
     let root = observation_root(&state);
