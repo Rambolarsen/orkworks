@@ -1896,6 +1896,26 @@ mod integration_tests {
     {
         for change in ["evidence", "instance", "settings"] {
             let (f, runtime) = production_fixture("proposed");
+            #[cfg(target_os = "macos")]
+            {
+                // Prepare this synthetic executable before the runtime preflight;
+                // retain its real version check and dispatch assertions below.
+                let mut command = std::process::Command::new(f.dir.path().join("bin/codex"));
+                command.arg("--version");
+                let output = crate::probe_process::run(
+                    &mut command,
+                    crate::probe_process::ProbePolicy {
+                        max_bytes: 64,
+                        reject_overflow: true,
+                        require_success: true,
+                    },
+                    std::time::Duration::from_secs(30),
+                )
+                .await
+                .expect("synthetic readiness executable preparation timed out or failed");
+                assert_eq!(output.stdout, b"codex-cli 0.153.4\n");
+                assert!(output.stderr.is_empty());
+            }
             let root = f.workspace_root();
             let c = capture(&f.state, &runtime).unwrap();
             let lease = runtime.try_analysis_lease().unwrap().unwrap();
