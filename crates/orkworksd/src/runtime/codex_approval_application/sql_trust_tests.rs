@@ -316,6 +316,14 @@ async fn sql_trust_caller_abort_after_external_claim_keeps_the_definitive_file_r
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sql_trust_stalled_file_write_keeps_real_pty_input_available() {
+    if super::super::sql_tests::isolated_test(format!(
+        "{}::sql_trust_stalled_file_write_keeps_real_pty_input_available",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     use crate::runtime::session_runtime::RuntimeCommand;
     use std::io::{Read, Write};
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
@@ -686,6 +694,14 @@ async fn sql_trust_cancelled_mailbox_drain_retains_original_clear_authority_on_r
 
 #[tokio::test]
 async fn sql_trust_replaced_file_owner_under_the_same_lease_rejects_old_capture() {
+    if super::super::sql_tests::isolated_test(format!(
+        "{}::sql_trust_replaced_file_owner_under_the_same_lease_rejects_old_capture",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _commands) = fixture(None).await;
     let root = observation_root(&state);
@@ -768,6 +784,14 @@ async fn sql_trust_cancellation_during_mailbox_read_cannot_renew_clear_authority
 
 #[tokio::test]
 async fn sql_trust_receipt_overflow_cannot_renew_observations_after_clear() {
+    if super::super::sql_tests::isolated_test(format!(
+        "{}::sql_trust_receipt_overflow_cannot_renew_observations_after_clear",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (_dir, state, store, writes, _commands) = fixture(None).await;
     let root = observation_root(&state);
