@@ -7,6 +7,14 @@ fn observed(root: &str) -> NativeIdentityReport {
 #[tokio::test]
 async fn sql_trust_records_the_external_observation_without_session_json_or_metadata_side_effects()
 {
+    if super::super::sql_tests::isolated_test(format!(
+        "{}::sql_trust_records_the_external_observation_without_session_json_or_metadata_side_effects",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(None).await;
     let fingerprint = expected_fingerprint().unwrap();
