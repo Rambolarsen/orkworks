@@ -162,6 +162,13 @@ tests. Owned files were not mutated for those checks. Existing VitePress circula
 large-chunk warnings concern unchanged bundler configuration and require no edit
 for this packet. No passing check establishes actual source/store/authority proof.
 
+One bounded round used two fresh read-only Luna reviewers for correctness and
+evidence/completeness. Neither found a required correction. They checked the
+resource union, source/input/control joins, five retained artifact occurrences,
+projection/delta arithmetic, branch counts and explicit hypothetical/format/proof
+limits. Both reviews were static; neither ran code. Current-head hosted review
+and CI are recorded separately in the PR and qualify none of the open gates.
+
 Use pinned Node 22 from the repository root:
 
 ```bash
