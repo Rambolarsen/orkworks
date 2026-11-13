@@ -611,14 +611,14 @@ pub(super) async fn start(
     plan: NativeLaunchPlan,
     execution_env: &[(String, String)],
 ) -> Result<OwnedNativeRuntime, NativeError> {
-    start_with_port_hook(plan, execution_env, |_| {}).await
+    start_with_port_hook(plan, execution_env, drop).await
 }
-// Private injection seam for deterministic fixture port-race tests. Production
-// always supplies the no-op hook above; eligibility has no environment bypass.
-async fn start_with_port_hook<F: FnMut(&str)>(
+// Private seam for controlled port-competition fixtures. Production drops the
+// reservation before spawn; retaining it in a fixture is not listener provenance.
+async fn start_with_port_hook<F: FnMut(std::net::TcpListener)>(
     plan: NativeLaunchPlan,
     execution_env: &[(String, String)],
-    mut port_released: F,
+    mut port_reserved: F,
 ) -> Result<OwnedNativeRuntime, NativeError> {
     // Neither port reservation, child liveness nor initialize shape proves listener ownership.
     // #763 must establish the owned-listener handoff before any non-fixture bearer delivery.
@@ -657,8 +657,7 @@ async fn start_with_port_hook<F: FnMut(&str)>(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         plan.revalidate()?;
-        drop(reservation);
-        port_released(&endpoint);
+        port_reserved(reservation);
         let mut server = OwnedProcess::spawn(command)?;
         let readiness = async {
             loop {
@@ -1137,9 +1136,7 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
             start_with_port_hook(
                 unproven_plan(dir.path(), &cache),
                 &fixture_env(dir.path(), "hang"),
-                |endpoint| {
-                    let listener =
-                        std::net::TcpListener::bind(endpoint.trim_start_matches("ws://")).unwrap();
+                |listener| {
                     competitors.push(accepting_competitor(listener, received.clone()));
                 },
             ),
@@ -1226,8 +1223,7 @@ exec "$FIXTURE_TEST_EXE" --exact runtime::codex_native::launch::tests::native_se
         let cache = VersionProbeCache::new();
         let mut tasks = Vec::new();
         let mut ports = Vec::new();
-        let result=start_with_port_hook(fixture_plan(dir.path(),&cache,false),&fixture_env(dir.path(),"serve"),|endpoint| {
-            let listener=std::net::TcpListener::bind(endpoint.trim_start_matches("ws://")).unwrap();
+        let result=start_with_port_hook(fixture_plan(dir.path(),&cache,false),&fixture_env(dir.path(),"serve"),|listener| {
             ports.push(listener.local_addr().unwrap().port());listener.set_nonblocking(true).unwrap();
             let listener=tokio::net::TcpListener::from_std(listener).unwrap();
             tasks.push(tokio::spawn(async move {
