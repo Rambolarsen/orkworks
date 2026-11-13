@@ -374,3 +374,10 @@ witness. Earlier artifact bytes remain unchanged; broader gates above stay open.
 The [offline membership/effect packet](../../validation/research-membership-components.md)
 records bounded component evidence for this acceptance. Its supplied owner/header
 assumptions do not prove complete source/index coverage or legal publication.
+
+The [fresh initialization/catalog follow-up](2026-11-13-research-initialization-catalog-design.md)
+proposes the explicit creation resource union and initial current-run owner at
+root admission. It identifies the direct-execution-only preparation authorization
+as a research catalog blocker and does not assign a format from table counts.
+Its two new initializer choices require their own scoped review; earlier
+membership acceptance supplies no complete-store or runtime authorization.

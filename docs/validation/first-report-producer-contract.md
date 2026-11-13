@@ -338,3 +338,16 @@ request/head/receipt and supplied coverage/header assumptions qualify no global
 consumer completeness, legal event history, real CAS or publication. Full catalog/
 initializer/accounting/index/proof/cutoff/ordinary-bridge and runtime gates remain
 open. Gate 2 stays Investigate; earlier protocols and artifact bytes are preserved.
+
+## Fresh research initializer and catalog boundary proposed
+
+The [written initialization/catalog proposal](../superpowers/specs/2026-11-13-research-initialization-catalog-design.md)
+reconciles fourteen fresh workspace resource names, nine run names and five
+assignment names, and proposes the original root admission as the initial
+research current-control creation boundary. These new creation choices await
+scoped owner review. The additive fifty-family inventory is a candidate, not a
+complete catalog: direct-execution child authorization/control snapshots cannot
+be cast into research preparation evidence. No format number/domain, physical
+catalog, ordinary-lineage extension, initializer code or full-state/history
+fixture is selected. Gate 2 remains Investigate; original artifact bytes and
+accepted protocols remain unchanged.
