@@ -78,16 +78,21 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Sta
 mod tests {
     use super::*;
 
-    async fn prepare(script: &str, args: &[&str]) -> Result<Vec<String>, StartupError> {
+    fn help_fixture(script: &str, args: &[&str]) -> (tempfile::TempDir, CommandSpec) {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("codex-help-fixture");
         std::fs::write(&executable, format!("#!/bin/sh\n{script}\n")).unwrap();
         crate::test_support::make_test_executable(&executable);
-        let mut command = CommandSpec {
+        let command = CommandSpec {
             program: executable.display().to_string(),
             args: args.iter().map(|arg| (*arg).into()).collect(),
             cwd: dir.path().display().to_string(),
         };
+        (dir, command)
+    }
+
+    async fn prepare(script: &str, args: &[&str]) -> Result<Vec<String>, StartupError> {
+        let (_dir, mut command) = help_fixture(script, args);
         isolate_session(&mut command).await?;
         Ok(command.args)
     }
@@ -199,11 +204,31 @@ mod tests {
 
     #[tokio::test]
     async fn oversized_help_cannot_hide_an_isolation_option() {
+        let script = "head -c 65537 /dev/zero";
+        let (_dir, mut command) = help_fixture(script, &[]);
+        #[cfg(target_os = "macos")]
+        {
+            // Payload bounds need an executable fixture, independently of first
+            // script startup under load. Later writes preserve this same inode.
+            std::fs::write(&command.program, "#!/bin/sh\nexit 0\n").unwrap();
+            let mut preparation = std::process::Command::new(&command.program);
+            preparation.env_clear().current_dir(&command.cwd);
+            let output = crate::probe_process::run(
+                &mut preparation,
+                crate::probe_process::ProbePolicy {
+                    max_bytes: 1,
+                    reject_overflow: true,
+                    require_success: true,
+                },
+                Duration::from_secs(30),
+            )
+            .await
+            .expect("synthetic oversized-help fixture preparation failed");
+            assert!(output.stdout.is_empty() && output.stderr.is_empty());
+            std::fs::write(&command.program, format!("#!/bin/sh\n{script}\n")).unwrap();
+        }
         assert_eq!(
-            prepare("head -c 65537 /dev/zero", &[])
-                .await
-                .unwrap_err()
-                .code,
+            isolate_session(&mut command).await.unwrap_err().code,
             Some(Code::CodexHelpOversized)
         );
     }
