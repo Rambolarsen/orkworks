@@ -664,3 +664,71 @@ Twenty validator tests and 51 improvement tests pass (two live entries ignored);
 the fresh manual medium review approved the frozen source without findings.
 No new model calls, historical trial results or activation state changed.
 Current-head CI and automated review results are recorded in PR #1740.
+
+### Third comparison authorization, 2026-11-13
+
+The owner answered “keep going” to the explicit request for one fresh five-pair
+comparison capped at sixty live model calls. The new run is pinned to merged
+source `2c06a108916e555457a9ebc5e608fbfbc482fbb7`, with the same five fixture
+revisions, signed Brain 4 identity and Codex `gpt-6-luna` / medium selection.
+Each case receives at most one app arm and one controlled baseline arm, at most
+six calls each; no retries or model switches. A separate owner-local corpus
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-3` holds the new
+plan, zero-call ledger and eventual raw outputs. The two previous trial ledgers
+remain immutable. Production qualification stays false pending a valid
+independently adjudicated comparison. The parent owns execution and the report;
+one read-only independent adjudicator will judge both arms against the actual
+fixtures after collection, with no model calls through the live runner.
+
+### Third comparison result, 2026-11-13
+
+The once-per-case run finished at **28 reserved and completed calls of 60**,
+with no retries or switches. Its runner exited with `qualification_samples_failed`
+and retained all prompts, raw outputs and failures. Independent read-only
+adjudication returns **NOT ACTIVATION-QUALIFIED**. The two-of-three positive
+floor is met, but does not override the controlled paired-loss gate.
+
+| Case | App result | Controlled baseline and adjudication |
+| --- | --- | --- |
+| Behavioral assertions | Valid `assert-add-result` | Valid same test-oracle recommendation; matched |
+| Entry command | Valid `align-verification-guidance` | Valid same documented-command mismatch; matched |
+| CI failure masking | Invalid evidence selection; no final | Valid failure-signaling recommendation missed by app; activation blocker |
+| Already satisfied | Valid no-proposal | Baseline failed; no valid candidate, and no invented app gap |
+| Restricted evidence | Final rejected; raw README pointer receives no credit | Bounded test investigation is useful only through a separately authorized evidence path; exclusions must not be bypassed |
+
+The CI evidence response requested four repository ranges plus five Brain pages,
+exceeding the stated combined eight-request limit. An exact offline decoder
+replay confirms this is a correct bounded-protocol rejection. The restricted
+final had delivered opportunity citations, but an exact production-decoder replay
+and isolated prose check reject the harmless sentence “No task workflow, issue
+breakdown, or change history is included in the supplied evidence.” This is a
+confirmed prose false positive. Its raw README-pointer hypothesis does not assert
+that excluded tests are absent, but neither historical rejection nor a weak raw
+candidate can become a successful app alternative after the fact.
+
+The isolated temporary diagnostic was removed and all three reviewed source
+hashes match merged PR #1740. No production source, validator policy, authority,
+settings or activation state changed. The negative baseline failure and rejected
+restricted app final limit the comparison; the valid missed CI opportunity is
+already sufficient to block activation. The original user's score-48 workspace
+was not reproduced, and this report makes no installed-release claim.
+
+Owner-local evidence remains under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-3`: the plan,
+`pinned-inputs.json`, immutable `trial-ledger.json`, `trial-run/`,
+`decoder-diagnosis.json` and independent `adjudication.json`. The ledger SHA256 is
+`8a310a9c9f0b0bb4ea53b33ed5d87b78244fb226f59582f34711c0b1a0e32493`;
+`trial-run/run.json` SHA256 is
+`442347c8c0506954116408e33609b59a23e038d5cc42d069af28a66dbece35f6`.
+Both previous trial-ledger hashes remain unchanged. Thirteen qualification-runner
+tests and the actual signed-input preflight passed before live dispatch.
+
+The next useful step is a separately reviewed prose-validation contract, as
+required by the approved design's evidence/output section. Repeated harmless
+English rejections warrant reconsidering the linguistic command classifier
+before more phrase-specific exemptions or another paid cohort. That review must
+preserve structural bounds, citations, false-verification rejection and explicit
+handoff authority, state any intended change to command-payload rejection, and
+obtain owner approval before changing the security-sensitive policy. This report
+authorizes neither that policy change nor further live calls. Production
+qualification remains false; observation capture stays separate in #1077.
