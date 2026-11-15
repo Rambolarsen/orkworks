@@ -367,3 +367,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Brain-guided manual improvement investigation](2026-11-12-brain-guided-improvement.md) — Active implementation scope for approved progressive investigation, shared result and gated usefulness qualification.
 
 - [Inert improvement text implementation](2026-11-13-improvement-text-contract.md) — Approved contract implementation and coordinated validation evidence for #1694.
+
+- [Offline research authorization components](2026-11-15-research-authorization-components.md) — scoped intent, digest and ordinary-lineage component checks.
