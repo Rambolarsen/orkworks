@@ -129,3 +129,12 @@ test('width-only recovery run may fit its snapshot and still exceed lower comple
   assert(Buffer.byteLength(canonical({key:q.key,value:q.value}))<2097152);
   assert.throws(()=>validateContinuationWidths(q,Buffer.byteLength(canonical(q))),/job/);
 });
+
+test('all generated parent outcomes use the contract literal task statuses',()=>{
+  assert.deepEqual(JSON.parse(generate()).coordinations.map(x=>x.taskAfter.value.body.status),
+    ['reported_complete','reported_blocked','reported_failed']);
+});
+test('completed outcome rejects the unrecognized reported_completed status',()=>{
+  const p=packet();p.coordinations[0].taskAfter.value.body.status='reported_completed';
+  assert.throws(()=>validateResearchContinuation(p));
+});

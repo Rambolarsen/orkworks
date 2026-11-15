@@ -701,7 +701,7 @@
               "taskId": "prefix-task"
             },
             "taskVersion": 9,
-            "status": "reported_completed",
+            "status": "reported_complete",
             "reservation": {
               "task": {
                 "workspaceId": "workspace-1",

@@ -178,7 +178,7 @@ label was clarified: duplicate alternative case labels and duplicate stored
 recovery keys are separate tests. Both reviews were static, without executing
 native/runtime/model/database code or qualifying any open producer gate.
 
-All 48 new component tests pass; all 1,752 documentation tests, pinned Node 22
+All 50 new component tests pass; all 1,754 documentation tests, pinned Node 22
 VitePress build, metadata/index/dead links and 20 OKF regressions pass. Independent
 regeneration preserves exact UTF-8/LF bytes. Six temporary-copy guard removals
 were caught by their intended tests: turn body, turn domain, coordination domain,
@@ -195,3 +195,12 @@ owner and was left untouched. Task-worktree metadata reporting was unavailable
 (invalid session environment); work stayed in the isolated owned checkout and
 primary lockfile residue was untouched. Hosted exact-head review/CI supply no
 additional native/source/proof qualification and are recorded separately in the PR.
+
+Hosted review of the initial PR head caught a shared status-mapping mistake that
+the two static reviews missed: completed had been mapped to reported_completed
+instead of the contract's reported_complete. Two literal-contract regression tests
+failed before the fix. Both implementations now use explicit accepted mappings,
+and the JSON was regenerated. The only oracle-byte change is that task status;
+source digests and occurrence measurements are unchanged. Generator/checker
+agreement alone is not semantic contract proof. Final exact-head review and CI
+are recorded in the PR under substantial feedback cycle 1/3.

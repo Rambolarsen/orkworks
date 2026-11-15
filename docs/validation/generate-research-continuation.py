@@ -51,7 +51,7 @@ def packet():
         receipt=dict(schemaVersion=1,task=task,reservation=a['reservation'],childSessionId=P['childSessionId'],acceptedTaskVersion=9,commit=C)
         metadata=dict(table='research_coordination_receipts',key=task,value=dict(schemaVersion=1,request=request,requestDigest=d,receipt=receipt,lastCommit=C))
         coordinations.append(dict(id=outcome,gate=copy.deepcopy(turns[1]['gate']),row=metadata,taskBefore=copy.deepcopy(turns[1]['taskAfter']),
-            taskAfter=row('research_task_controls',task,task_body(9,'reported_'+outcome,dict(requestDigest=d)),label,4),runVersions=dict(before=11,after=12)))
+            taskAfter=row('research_task_controls',task,task_body(9,{'completed':'reported_complete','blocked':'reported_blocked','failed':'reported_failed'}[outcome],dict(requestDigest=d)),label,4),runVersions=dict(before=11,after=12)))
     recoveries=[]
     for kind in ['settle-no-child','confirm-original-allocation','confirm-original-attachment','observe-terminal']:
         label='recovery-'+kind

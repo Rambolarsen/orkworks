@@ -122,7 +122,7 @@ export function validateResearchContinuation(p){
     same(r.value.receipt,{schemaVersion:1,task:t,reservation:a.reservation,childSessionId:P.childSessionId,acceptedTaskVersion:9,commit:C},'original coordination receipt');
     same(r.value.lastCommit,C,'original coordination origin');
     same(x.taskBefore,p.turns[1].taskAfter,'outcome needs original readiness');
-    same(x.taskAfter,taskRow(9,'reported_'+outcome,label,4,{requestDigest:d}),'original task outcome digest/version');
+    same(x.taskAfter,taskRow(9,({completed:'reported_complete',blocked:'reported_blocked',failed:'reported_failed'})[outcome],label,4,{requestDigest:d}),'original task outcome digest/version');
     same(x.runVersions,{before:11,after:12},'coalesced result run version sample');
     validateContinuationWidths(r,bytes(r));
   }
