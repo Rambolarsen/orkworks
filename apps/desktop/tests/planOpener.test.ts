@@ -101,7 +101,10 @@ test("retains sidecar-resolved terminal document identity", async () => {
 test("starts the sidecar with the plan token without startup workspace adoption", async () => {
   const mainSource = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 
-  assert.match(mainSource, /env: \{ \.\.\.process\.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken \}/);
+  assert.match(mainSource, /env: \{ \.\.\.process\.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken, ORKWORKS_RENDERER_TOKEN: rendererToken \}/);
+  // The renderer credential is a separate secret, never the privileged plan token.
+  assert.match(mainSource, /const rendererToken = randomBytes\(32\)\.toString\("hex"\);/);
+  assert.doesNotMatch(mainSource, /returnValue = [^;]*openPlanToken/);
   assert.doesNotMatch(mainSource, /initialSidecarCwd/);
   assert.match(mainSource, /openPlanToken = randomBytes\(32\)\.toString\("hex"\);/);
 });

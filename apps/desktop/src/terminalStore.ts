@@ -1,3 +1,4 @@
+import { openBackendSocket } from "./backendAccess.ts";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -92,7 +93,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   wrapper.style.cssText = "position:absolute;inset:0;visibility:hidden;";
 
   const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
-  const ws = new WebSocket(wsUrl);
+  const ws = openBackendSocket(wsUrl);
   ws.binaryType = "arraybuffer";
 
   let fitRaf: number | null = null;

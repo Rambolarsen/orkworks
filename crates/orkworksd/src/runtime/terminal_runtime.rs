@@ -162,18 +162,7 @@ pub(crate) fn workflow_report_session_for_token(candidate: &str) -> Option<Strin
     })
 }
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    let a = a.as_bytes();
-    let b = b.as_bytes();
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
+use crate::http::api_auth::constant_time_eq;
 
 /// Records one authenticated report attempt for `session_id` and reports
 /// whether it is within `WORKFLOW_REPORT_RATE_LIMIT` attempts over the
@@ -1268,6 +1257,7 @@ pub(crate) fn should_forward_terminal_env(key: &str) -> bool {
         && !key.starts_with("VSCODE_")
         && !key.starts_with("ELECTRON_")
         && key != "ORKWORKS_OPEN_PLAN_TOKEN"
+        && key != crate::http::api_auth::RENDERER_TOKEN_ENV
         && key != "ORKWORKS_CODEX_SESSION_REPORT_DIR"
         && !key.eq_ignore_ascii_case("ORKWORKS_CODEX_NATIVE_APPROVAL")
         && !key.eq_ignore_ascii_case("ORKWORKS_SESSION_METADATA_API_VERSION")

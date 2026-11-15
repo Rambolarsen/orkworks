@@ -156,7 +156,9 @@ pub(crate) async fn session_terminal_handler(
                 let _ = ws.close().await;
             })
         }
-        Some(_) => ws.on_upgrade(move |ws| handle_session_terminal(ws, id, state)),
+        Some(_) => ws
+            .protocols([crate::http::api_auth::WEBSOCKET_PROTOCOL])
+            .on_upgrade(move |ws| handle_session_terminal(ws, id, state)),
     }
 }
 

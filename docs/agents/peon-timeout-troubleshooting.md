@@ -29,6 +29,9 @@ provider configuration contents.
 If `ORKWORKS_PORT` is present, `Sidecar health` and `Provider registry` show
 the HTTP status returned by the running sidecar. If the port is absent, the
 checks are skipped; this is expected when the desktop app is not running.
+`Provider registry: HTTP 401` means the sidecar is running: the script sends no
+credential, and only `/health` answers without one
+([ADR 0116](../adr/0116-authenticated-sidecar-listener.md)).
 
 ## Recover the active provider
 

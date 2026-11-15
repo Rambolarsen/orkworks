@@ -90,23 +90,7 @@ pub(crate) async fn invalidate_mutations(
     response
 }
 
-fn origin_allowed(origin: Option<&str>) -> bool {
-    let Some(origin) = origin else {
-        return true;
-    }; // Native clients have no browser Origin.
-    if origin == "null" {
-        return true;
-    } // Packaged file renderer.
-    url::Url::parse(origin).is_ok_and(|url| {
-        url.scheme() == "http"
-            && url.username().is_empty()
-            && url.password().is_none()
-            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-            && url.path() == "/"
-            && url.query().is_none()
-            && url.fragment().is_none()
-    })
-}
+use crate::http::api_auth::origin_allowed;
 
 #[derive(Deserialize)]
 pub(crate) struct Subscription {
@@ -129,7 +113,8 @@ pub(crate) async fn subscribe(
     let Some((workspace, root)) = identity.filter(|(path, _)| path == &query.workspace) else {
         return StatusCode::CONFLICT.into_response();
     };
-    ws.max_message_size(4096)
+    ws.protocols([crate::http::api_auth::WEBSOCKET_PROTOCOL])
+        .max_message_size(4096)
         .on_upgrade(move |socket| run(socket, state, workspace, root))
         .into_response()
 }

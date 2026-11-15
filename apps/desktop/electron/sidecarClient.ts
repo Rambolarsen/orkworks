@@ -32,6 +32,18 @@ export async function parsePeonError(response: Response, fallback: string): Prom
   return peonErrorFromBody(body, fallback);
 }
 
+let rendererToken: string | undefined;
+
+/** Credential every main-process sidecar request carries (ADR 0116). */
+export function setSidecarRendererToken(token: string): void {
+  rendererToken = token;
+}
+
+/** Headers that admit a main-process request through the sidecar access layer. */
+export function sidecarAccessHeaders(): Record<string, string> {
+  return rendererToken === undefined ? {} : { "x-orkworks-renderer-token": rendererToken };
+}
+
 export function sidecarSend(port: number, path: string, options: SidecarSendOptions = {}): Promise<Response> {
   const { method, jsonBody, token, signal, timeoutMs, fetchImpl = fetch } = options;
   let composedSignal = signal;
@@ -39,7 +51,7 @@ export function sidecarSend(port: number, path: string, options: SidecarSendOpti
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     composedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   }
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = sidecarAccessHeaders();
   if (jsonBody !== undefined) headers["Content-Type"] = "application/json";
   if (token !== undefined) headers["x-orkworks-open-plan-token"] = token;
   return fetchImpl(sidecarUrl(port, path), {

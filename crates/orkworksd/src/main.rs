@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, RwLock as StdRwLock};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod branch_documents;
@@ -326,7 +326,7 @@ async fn run_sidecar() {
     // opened workspace, so it can run concurrently with startup.
     tokio::spawn(gc_stale_workspaces_task());
 
-    let app = build_router(state.clone());
+    let app = build_router_with_access(state.clone(), http::api_auth::ApiAccess::from_env());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
@@ -365,9 +365,26 @@ async fn health_check() -> &'static str {
 /// Single source of truth for the HTTP router. Both the runtime `main`
 /// listener and the test fixtures build their `Router` through this so
 /// route drift between production and tests is structurally impossible.
+#[cfg(test)]
 pub(crate) fn build_router(state: Arc<AppState>) -> Router {
+    build_router_with_access(state, http::api_auth::ApiAccess::open_for_tests())
+}
+
+/// Builds the router behind the listener-wide access layer (ADR 0116).
+/// Production always passes an enforcing [`http::api_auth::ApiAccess`].
+pub(crate) fn build_router_with_access(
+    state: Arc<AppState>,
+    access: http::api_auth::ApiAccess,
+) -> Router {
+    // Only the desktop renderer's own origins may read responses. The access
+    // layer below rejects other browser origins outright; this keeps their
+    // preflights from being granted as well.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin, _| {
+            origin
+                .to_str()
+                .is_ok_and(|origin| http::api_auth::origin_allowed(Some(origin)))
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -566,6 +583,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             workspace_updates::invalidate_mutations,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            access,
+            http::api_auth::require_api_access,
         ))
         .layer(cors)
         .with_state(state)

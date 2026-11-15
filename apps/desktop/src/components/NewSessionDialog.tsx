@@ -1,3 +1,4 @@
+import { backendFetch } from "../backendAccess.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown, Paperclip } from "lucide-react";
 import type { HarnessConfig, CreateSessionOptions, IntegrationStatusResult } from "../harnessTypes";
@@ -105,7 +106,7 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
 
   useEffect(() => {
     let cancelled = false;
-    window.orkworks.getBackendUrl().then((url) => fetch(`${url}/session-image-context`))
+    window.orkworks.getBackendUrl().then((url) => backendFetch(`${url}/session-image-context`))
       .then(async (response) => response.ok ? response.json() : null)
       .then((capability) => { if (!cancelled && capability?.version === 1 && Array.isArray(capability.supportedHarnesses)) setImageTools(capability.supportedHarnesses.filter((id: unknown): id is string => typeof id === "string")); })
       .catch(() => {});
