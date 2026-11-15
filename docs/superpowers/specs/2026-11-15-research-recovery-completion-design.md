@@ -396,3 +396,27 @@ run/task/launch snapshots, complete exact blocker coverage, before-coordination
 origin order and resolved/unresolved/unknown denial rules. It does not add a
 persisted field/family or qualify an actual source/native proof. The three owner
 choices remain pending acceptance; no dependent fixtures were changed.
+
+
+## Scoped owner acceptance — 2026-11-15
+
+After proposal PR #1769 merged, the owner answered “Yes. Go shed” to the explicit
+three-choice approval question, in context authorizing the proposed offline
+fixture work. This accepts the late-interruption ordering/preservation, selected
+terminal/native settlement and stipulated blocker correspondence, and compound
+recovery/completion effects under unchanged codecs for independent offline
+components only. It does not qualify a real writer, native/source proof, physical
+catalog/history or runtime activation. Earlier proposal text records the review
+state at authoring; this appendix records the later scoped acceptance.
+#1689/#1089 stay open and Gate 2 remains Investigate.
+
+
+## Offline positive component packet — 2026-11-15
+
+The [separate positive recovery packet](../../validation/research-recovery-completion-components.md)
+derives new source snapshots, exact stipulated blocker correspondence and paired
+recovery/completion decisions/receipts for disposition-only and retained-independent-
+approval alternatives. Original turn/result/frozen versions and read-only bridge
+origins remain historical; prior negative examples stay byte-identical. This is
+not a legal history, real source/native proof, actual writer or physical catalog.
+Candidate 57 remains conditional and Gate 2 remains Investigate.

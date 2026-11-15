@@ -148,3 +148,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline research continuation components](research-continuation-components.md) — independent alternative turn/result/recovery source bytes, retry/count denials and shared control occurrence measurements.
 
 - [Offline research completion components](research-completion-components.md) — independent completion, summary and Main UI closure source examples; no runtime or format qualification.
+
+- [Offline positive research recovery/completion components](research-recovery-completion-components.md) — separate source snapshots, stipulated blocker bindings and paired recovery/completion outcomes; no runtime or physical-history qualification.
