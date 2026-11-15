@@ -100,6 +100,51 @@ current read set, original-to-final writes and complete membership before bytes.
 | Research-to-execution proposal and approval | Same parent/run, new planId, exact current input and completed research; new execution approval, one launch grant, independent live-child capacity and new plan worktree groups | Execution source codec joining exact SummaryRef/completed PlanRef/current input and bootstrap; fresh assessment including skip-research; exact shown-byte approval, rejection/replacement/invalidation and grants; complete execution plan/task/ordinary/source ownership while retaining the sole research run counter |
 | Execution final completion and terminal continuation | Final execution completion revokes run authority. Complete/cancelled are absorbing; no automatic child termination or cross-plan transfer | Exact execution final-result/completion trigger, terminal source/projection/consumer and proof mapping; complete authority revocation and wait/collection disposition; honest retained capacity/native outcomes and original retries |
 
+Applied to each row, the existing documentary seams imply this responsibility
+map; the exact routes and producer agreements are still missing:
+
+- **Scope resolution:** `research_sources.rs` for pending/disposition joins,
+  `research_control.rs` for the completion predicate and coalesced versions,
+  `research_authority.rs` with Main `researchApproval.ts` for current authorized
+  context, and `research_publication.rs` for the complete compound outcome.
+  Ordinary/native owners must supply any settlement facts consumed by the check;
+  rejection itself neither ends a child nor invents a new bridge event.
+- **Research review:** `research_sources.rs` for declared inputs/reviewer outcomes,
+  `research_control.rs` for required-review/conflict/currentness selection,
+  `research_authority.rs` for distinct exact scoped read/report rights, and
+  `research_publication.rs` for retained consumers and invalidation. Actual
+  reviewer runtime origin belongs to `session_application/research_bridge.rs`.
+  Review delivery/transport remains unassigned: the proposed
+  `http/research_handlers.rs` child-report seam is not a general review API.
+- **Clarification:** `research_sources.rs` for immutable request/answer/input joins,
+  Main `researchApproval.ts` with `research_authority.rs` for trusted UI answer
+  provenance, `research_control.rs` for pending/input/gate transitions and
+  `research_publication.rs` for their atomic retention/invalidation. These names
+  do not close a clarification UI operation or user-origin producer codec.
+- **Execution proposal/approval:** `research_sources.rs` for exact proposal and
+  input/summary provenance, Main `researchApproval.ts` with
+  `research_authority.rs` for new exact approval and its separate grant,
+  `research_control.rs` for the original sole run owner and plan/task/capacity
+  checks, and `research_publication.rs` for all retained effects. The ordinary
+  bridge owns actual child/runtime/terminal facts; transport and execution-source
+  admission agreement remain unclosed.
+- **Final execution/terminal:** `research_control.rs` for terminal absorption and
+  the actual final-condition outcome, `research_authority.rs` for revocation,
+  `research_publication.rs` for complete consumer/proof effects, and the ordinary
+  bridge for honest child/native disposition. `research_sources.rs` must resolve
+  the typed original outcome. This does not cast a terminal projection or make
+  Main the author of a parent coordination result.
+
+The [small direct-task path](../superpowers/specs/2026-10-04-orchestrator-preparation-design.md#example-workflows)
+also skips both clarification and research when supplied evidence suffices.
+Its skip assessment/input and execution sources remain unclosed in this research
+profile. It cannot fabricate a completed research plan or SummaryRef to fit the
+research-to-execution branch. The same execution responsibility seams above need
+an explicit direct-path agreement. Future-output independent review is only an
+intention until the result exists; the accepted #744 flow then needs a separately
+user-created review run and exact approval, without transferring the finished
+worker run's planning bearer. This is distinct from research-report review.
+
 Research-report review is not automatically #744 assignment evaluation. The
 [exact-result timing boundary](../superpowers/specs/2026-10-04-orchestrator-preparation-design.md#proposed-exact-result-reviewer-timing--2026-10-24)
 and [selected retained reviewer grammar](../superpowers/specs/2026-10-31-child-review-source-preparation-design.md)
