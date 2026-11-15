@@ -79,6 +79,11 @@ async function withReporter(run, identityStatuses = []) {
       authorization: request.headers.authorization,
       body: JSON.parse(Buffer.concat(chunks).toString()),
     });
+    // The sidecar rejects every report without the session credential (ADR 0116).
+    if (request.headers.authorization !== 'Bearer test-token') {
+      response.writeHead(401).end();
+      return;
+    }
     const status = request.url.endsWith('/harness-session') ? (identityStatuses.shift() ?? 204) : 204;
     response.writeHead(status).end();
   });
@@ -150,12 +155,12 @@ test('captured session reports initial idle, busy work, and an explicit question
   });
 });
 
-test('the capture-time identity POST is unauthenticated', async () => {
+test('the capture-time identity POST carries the session credential', async () => {
   await withReporter(async ({ push, posts }) => {
     await push(sessionEvent('session.step.started'));
     const identity = harnessPosts(posts);
     assert.equal(identity.length, 1);
-    assert.equal(identity[0].authorization, undefined);
+    assert.equal(identity[0].authorization, 'Bearer test-token');
     assert.equal(identity[0].body.source, 'opencode_hook');
   });
 });
