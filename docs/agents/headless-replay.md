@@ -129,6 +129,15 @@ interruption against a separately owned stopped canary. Fault injection changes
 only the temporary snapshot, never the host fixture. `host.json` records host
 architecture, caller ownership and source-hash/ownership preservation.
 
+Command lifecycle entries in `run.log` retain a fixed command label, the
+remaining deadline at admission, elapsed time and PID after host process
+creation, and final observed exit status with elapsed/remaining time after
+cleanup. An admission with an expired budget has no spawned entry. A spawned
+entry confirms only that host process creation returned; it does not prove the
+engine reached its command handler. Labels exclude argument and environment
+values; these entries share the existing bounded log cap. They improve future
+timeout evidence, without identifying the cause of earlier failures.
+
 If startup fails, read `run.log` and `result.json` first. If Python is missing,
 the Bash entry cannot create those files; its stderr states that prerequisite. Unreachable engine,
 missing Python/Git, absent tracked input, refused symlink, package/network failure,
