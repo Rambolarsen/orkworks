@@ -540,3 +540,28 @@ identity and assignment-choice cardinality. This revision supplies the closed
 summary publication input and exact-key retry order, a coordination/recovery
 trigger union with unsupported-trigger atomic denial, and explicit independent
 16-entry bounds for all three summary lists. No runtime qualification follows.
+
+
+## Scoped owner acceptance — 2026-11-15
+
+After proposal PR #1767 merged, the owner answered “Go ahead” to the explicit
+four-choice approval question. This accepts the completion records and typed
+triggers, bounded summary/publication/selector versioning, Main UI decision/
+read/receipt shapes, and three-family placement/admission/accounting obligations
+for independent offline components only. It does not qualify a real source
+writer, authority cutoff, physical catalog/profile/history, native outcome or
+runtime activation. Earlier proposal text records the review state at authoring;
+this appendix records the later scoped acceptance. #1689/#1089 remain open and
+Gate 2 remains Investigate.
+
+
+## Offline component packet — 2026-11-15
+
+The [separate completion packet](../../validation/research-completion-components.md)
+implements the scoped source/selector/summary/UI examples and supplied-fact denial
+checks. It preserves prior artifact bytes and the one-current-run owner. The
+retained recovery candidate is incomplete and correctly has no completion record;
+no positive final-condition recovery source/outcome is inferred. Original proof,
+consumer/native membership, actual effects, complete catalog/history and runtime
+qualification remain open. Candidate 57/root counts are conditional; acceptance
+of these offline shapes does not select a storage format. Gate 2 remains Investigate.

@@ -146,3 +146,5 @@ Capability research, validation results, and evidence fixtures.
 - [Original research preparation authorization components](research-authorization-components.md) — separate allocated snapshots, source digest, unchanged ordinary member and supplied lineage lookup examples.
 
 - [Offline research continuation components](research-continuation-components.md) — independent alternative turn/result/recovery source bytes, retry/count denials and shared control occurrence measurements.
+
+- [Offline research completion components](research-completion-components.md) — independent completion, summary and Main UI closure source examples; no runtime or format qualification.
