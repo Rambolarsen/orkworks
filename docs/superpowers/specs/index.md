@@ -329,3 +329,5 @@ Dated design records; these do not establish current product behavior.
 - [Research turn evidence, coordination and recovery](2026-11-15-research-continuation-design.md) — proposed positive turn/result/recovery codecs and catalog obligations.
 
 - [Research completion, synthesis and UI closure](2026-11-15-research-completion-design.md) — proposed automatic completion, bounded summary and version-bound finish/cancel/continue records.
+
+- [Research recovery completing the final condition](2026-11-15-research-recovery-completion-design.md) — proposed late-disposition source ordering, terminal settlement and compound automatic completion.

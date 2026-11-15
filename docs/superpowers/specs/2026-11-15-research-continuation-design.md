@@ -468,3 +468,14 @@ families would make the candidate 57 and original-admission selector adds one
 logical root row conditionally. These choices await scoped owner acceptance;
 prior acceptance does not extend to them. No terminal-profile cast, storage
 format, complete publication/history, dependent fixture or runtime work follows.
+
+
+## Positive final-condition recovery proposal — 2026-11-15
+
+The [new source contract](2026-11-15-research-recovery-completion-design.md)
+proposes a late disposition interruption preserving original readiness/result,
+then proven observe-terminal settlement and automatic plan completion in one
+outcome. Its three new choices await scoped owner acceptance before dependent
+fixtures. It preserves the old incomplete-task negative example, existing codecs,
+candidate 57 and runtime/physical qualification gates; no new family or actual
+source proof is supplied. Gate 2 remains Investigate.
