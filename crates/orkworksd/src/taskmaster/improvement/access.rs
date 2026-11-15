@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-const IDENTITY_VERSION: &str = "brain-improvement-v2:collector-1:prompt-2:response-1:text-2";
+const IDENTITY_VERSION: &str = "brain-improvement-v2:collector-1:prompt-3:response-1:text-2";
 
 #[derive(Clone)]
 pub(crate) struct Capture {

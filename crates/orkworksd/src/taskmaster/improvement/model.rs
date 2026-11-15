@@ -10,6 +10,10 @@ pub(crate) const MAX_READS: usize = 8;
 pub(crate) const MAX_RANGE_BYTES: usize = 8 * 1024;
 pub(crate) const RUN_TIMEOUT: Duration = Duration::from_secs(480);
 
+// The app and controlled baseline use one explanation of the decoder's
+// existing combined limit; each list must not imply a separate allowance.
+pub(crate) const STEP_RULES: &str = "Exactly these four fields and version 1. Set finish true with both repositoryReads and knowledgePageIds empty to request the final call. Set finish false only when requesting at least one item. Before responding, count repositoryReads.length + knowledgePageIds.length; their sum must not exceed stepLimits.maxCombinedRequests. Both lists share one budget, not one budget per list: four repository reads plus four page IDs use eight requests; four reads plus five page IDs use nine and are invalid. Choose the most relevant requests that fit and defer other requests to a later evidence round within the remaining call budget. Requests must be distinct. File IDs must be in the supplied repository catalog and page IDs in the signed guidance catalog. Each read length is 1..stepLimits.maxRangeBytes with valid UTF-8 endpoints; offset plus length must not overflow. Unknown fields, paths, commands and unlisted IDs are invalid. Malformed or rejected evidence output is not retried.";
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RepositoryRead {
