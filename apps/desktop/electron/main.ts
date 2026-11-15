@@ -1074,7 +1074,11 @@ app.whenReady().then(async () => {
         writeSettings(app.getPath("userData"), nextSettings);
         currentSettings = nextSettings;
       }
-      const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), ...sidecarAccessHeaders() }, signal });
+      const abortableFetch: typeof fetch = (input, init) => {
+        const headers = new Headers(init?.headers);
+        for (const [name, value] of Object.entries(sidecarAccessHeaders())) headers.set(name, value);
+        return fetch(input, { ...init, headers, signal });
+      };
       const result = await pushProviderSettings(
         sidecarUrl(port),
         normalizedProviders,

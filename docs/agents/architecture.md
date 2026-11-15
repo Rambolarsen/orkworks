@@ -581,7 +581,8 @@ WebSockets offer `orkworks.v1` plus `orkworks.token.<token>` as subprotocols.
 Privileged desktop routes additionally check `x-orkworks-open-plan-token`,
 which never reaches the renderer. Coding tools authenticate their reporting
 and recommendation routes with `Authorization: Bearer $ORKWORKS_REPORT_TOKEN`.
-A browser `Origin` other than the packaged renderer (`null`) or loopback HTTP
+A browser `Origin` other than the packaged renderer (`null`, or `file://` on
+WebSocket handshakes) or loopback HTTP
 is rejected with `403`. Renderer code calls the sidecar through
 `apps/desktop/src/backendAccess.ts`, not bare `fetch` or `WebSocket`.
 

@@ -35,8 +35,9 @@ Every route except `GET /health` passes one listener-wide access layer
 (`crates/orkworksd/src/http/api_auth.rs`) before any handler runs.
 
 1. **Origin.** A request with a browser `Origin` is rejected with `403` unless
-   the origin is `null` (packaged file renderer) or loopback HTTP
-   (development renderer). CORS grants the same origins and no others. This
+   the origin is the packaged file renderer or loopback HTTP (development
+   renderer). Chromium sends the packaged renderer's origin as `null` on HTTP
+   requests and as `file://` on WebSocket handshakes; both are admitted. CORS grants the same origins and no others. This
    applies to `/health` as well.
 2. **Renderer token.** Electron main creates a random 32-byte token once per
    app run and passes it to the sidecar as `ORKWORKS_RENDERER_TOKEN`. The

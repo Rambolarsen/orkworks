@@ -68,13 +68,15 @@ impl ApiAccess {
     }
 }
 
-/// True when `origin` is absent (native client), the packaged file renderer
-/// (`null`), or a loopback HTTP origin (development renderer).
+/// True when `origin` is absent (native client), the packaged file renderer,
+/// or a loopback HTTP origin (development renderer). Chromium serializes a
+/// `file:` page's origin as `null` on HTTP requests and as `file://` on
+/// WebSocket handshakes, so both are the packaged renderer.
 pub(crate) fn origin_allowed(origin: Option<&str>) -> bool {
     let Some(origin) = origin else {
         return true;
     };
-    if origin == "null" {
+    if origin == "null" || origin == "file://" {
         return true;
     }
     url::Url::parse(origin).is_ok_and(|url| {
@@ -432,6 +434,8 @@ mod tests {
     fn origin_policy_matches_the_desktop_renderer_only() {
         assert!(origin_allowed(None));
         assert!(origin_allowed(Some("null")));
+        // Electron sends exactly this on WebSocket handshakes from the packaged app.
+        assert!(origin_allowed(Some("file://")));
         assert!(origin_allowed(Some("http://127.0.0.1:5173")));
         assert!(!origin_allowed(Some("https://localhost:5173")));
         assert!(!origin_allowed(Some("file:///tmp/page.html")));
