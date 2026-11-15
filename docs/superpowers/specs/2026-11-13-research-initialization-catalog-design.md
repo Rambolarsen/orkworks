@@ -389,3 +389,13 @@ snapshots and unchanged ordinary-member source-resolution choices concrete for
 owner review. Its additional family would make the candidate union 51, still
 not a final catalog. Earlier initializer acceptance supplies none of those new
 policy/representation decisions; format, physical and native gates stay open.
+
+## Research continuation proposal — 2026-11-15
+
+The [written turn/result/recovery proposal](2026-11-15-research-continuation-design.md)
+makes positive original research turn evidence, coordination and typed recovery
+records concrete for scoped owner review. Three new logical families would raise
+the candidate inventory from 51 to 54 conditionally, without selecting a format.
+Earlier acceptance does not accept these choices. Finish/cancel, synthesis/
+execution continuation and full physical catalog/index/proof/initializer closure
+remain separate gates; no dependent components or runtime work are supplied.

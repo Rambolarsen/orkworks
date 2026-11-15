@@ -522,3 +522,13 @@ proposes exact logical reference recipes, complete discovery and the narrow firs
 report effect union. Its new research registry/discovery/eligibility choices are
 not accepted by the earlier four-choice prefix acceptance. It supplies no new
 fixture, catalog/version or product implementation.
+
+## Research continuation proposal — 2026-11-15
+
+The [written turn/result/recovery proposal](2026-11-15-research-continuation-design.md)
+makes positive original research turn evidence, coordination and typed recovery
+records concrete for scoped owner review. Three new logical families would raise
+the candidate inventory from 51 to 54 conditionally, without selecting a format.
+Earlier acceptance does not accept these choices. Finish/cancel, synthesis/
+execution continuation and full physical catalog/index/proof/initializer closure
+remain separate gates; no dependent components or runtime work are supplied.
