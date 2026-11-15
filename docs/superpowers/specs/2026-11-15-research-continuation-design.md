@@ -457,3 +457,14 @@ keeps source/auth/native/coverage/currentness/C/proof/outcome facts unqualified.
 It authorizes no actual turn/recovery event, physical catalog/format/header/
 manifest/row hash, runtime adapter or executable product plan. Gate 2 remains
 Investigate; #1689/#1089 remain open.
+
+## Research completion and UI closure proposal — 2026-11-15
+
+The [completion/synthesis/closure proposal](2026-11-15-research-completion-design.md)
+makes the next positive research lifecycle and source/effect choices concrete:
+automatic plan completion, immutable bounded summaries/current selector and
+version-bound Main finish/stage-cancel/continue/run-cancel decisions. Three new
+families would make the candidate 57 and original-admission selector adds one
+logical root row conditionally. These choices await scoped owner acceptance;
+prior acceptance does not extend to them. No terminal-profile cast, storage
+format, complete publication/history, dependent fixture or runtime work follows.
