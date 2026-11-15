@@ -99,3 +99,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independent offline research continuation oracle bytes.
 /docs/validation/research-continuation-components.json text eol=lf
+
+# Preserve independent offline completion/summary/UI closure oracle bytes.
+/docs/validation/research-completion-components.json text eol=lf
