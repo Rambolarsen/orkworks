@@ -144,3 +144,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline research initializer values and charges](research-initialization-components.md) — Fresh resource/control values, independent occurrence charges and conditional row-location counts; no format, store, creation proof or publisher.
 
 - [Original research preparation authorization components](research-authorization-components.md) — separate allocated snapshots, source digest, unchanged ordinary member and supplied lineage lookup examples.
+
+- [Offline research continuation components](research-continuation-components.md) — independent alternative turn/result/recovery source bytes, retry/count denials and shared control occurrence measurements.
