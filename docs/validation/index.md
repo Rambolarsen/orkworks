@@ -150,3 +150,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline research completion components](research-completion-components.md) — independent completion, summary and Main UI closure source examples; no runtime or format qualification.
 
 - [Offline positive research recovery and completion](research-recovery-completion-components.md) — late-disposition source ordering, paired original recovery/completion, preserved history, blocker correspondence and independent bytes.
+
+- [Remaining research source and variant coverage](research-source-coverage-audit.md) — Source-owner and codec gaps before complete research catalog/history qualification.
