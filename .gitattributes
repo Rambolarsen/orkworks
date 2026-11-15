@@ -96,3 +96,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 /docs/validation/research-membership-components.json text eol=lf
 
 /docs/validation/research-initialization-components.json text eol=lf
+
+# Preserve independent offline research continuation oracle bytes.
+/docs/validation/research-continuation-components.json text eol=lf

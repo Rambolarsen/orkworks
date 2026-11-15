@@ -442,3 +442,18 @@ technical specifications are append-only. No new fixture/code is included.
 Existing bundler circular/large-chunk notices concern unchanged configuration.
 Current-head hosted review and CI are recorded separately in the PR. These
 checks accept none of the new choices or open runtime/profile/proof gates.
+
+## Scoped owner acceptance — 2026-11-15
+
+The owner answered “Go ahead” to the explicit three-choice acceptance question
+for **offline fixtures only**. This accepts the retained research turn evidence,
+separate research coordination request/receipt family and typed original-attempt
+research recovery representation/accounting obligations at that scope. Earlier
+pending wording records the historical proposal state. The accepted logical
+same-parent lifecycle and every product capability/activation gate stay unchanged.
+
+The [bounded component plan](../plans/2026-11-15-research-continuation-components.md)
+keeps source/auth/native/coverage/currentness/C/proof/outcome facts unqualified.
+It authorizes no actual turn/recovery event, physical catalog/format/header/
+manifest/row hash, runtime adapter or executable product plan. Gate 2 remains
+Investigate; #1689/#1089 remain open.
