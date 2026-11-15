@@ -399,3 +399,14 @@ the candidate inventory from 51 to 54 conditionally, without selecting a format.
 Earlier acceptance does not accept these choices. Finish/cancel, synthesis/
 execution continuation and full physical catalog/index/proof/initializer closure
 remain separate gates; no dependent components or runtime work are supplied.
+
+## Research completion and UI closure proposal — 2026-11-15
+
+The [completion/synthesis/closure proposal](2026-11-15-research-completion-design.md)
+makes the next positive research lifecycle and source/effect choices concrete:
+automatic plan completion, immutable bounded summaries/current selector and
+version-bound Main finish/stage-cancel/continue/run-cancel decisions. Three new
+families would make the candidate 57 and original-admission selector adds one
+logical root row conditionally. These choices await scoped owner acceptance;
+prior acceptance does not extend to them. No terminal-profile cast, storage
+format, complete publication/history, dependent fixture or runtime work follows.

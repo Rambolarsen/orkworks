@@ -327,3 +327,5 @@ Dated design records; these do not establish current product behavior.
 - [Original research preparation authorization and lineage](2026-11-13-research-preparation-authorization-design.md) — Proposed research-specific persistence policy, retained intent/snapshots and original-commit lineage resolution; no format or runtime qualification.
 
 - [Research turn evidence, coordination and recovery](2026-11-15-research-continuation-design.md) — proposed positive turn/result/recovery codecs and catalog obligations.
+
+- [Research completion, synthesis and UI closure](2026-11-15-research-completion-design.md) — proposed automatic completion, bounded summary and version-bound finish/cancel/continue records.
