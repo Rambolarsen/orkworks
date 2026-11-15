@@ -396,3 +396,15 @@ run/task/launch snapshots, complete exact blocker coverage, before-coordination
 origin order and resolved/unresolved/unknown denial rules. It does not add a
 persisted field/family or qualify an actual source/native proof. The three owner
 choices remain pending acceptance; no dependent fixtures were changed.
+
+## Scoped owner acceptance and offline handoff — 2026-11-15
+
+The owner answered “keep going” to the three-choice handoff following #1769.
+All three choices above are accepted for independent offline components only.
+The earlier proposed/pending notes record the proposal's original review state;
+this scoped acceptance supersedes them without changing its technical body.
+The [positive recovery/completion packet](../../validation/research-recovery-completion-components.md)
+supplies new hypothetical source views, original paired records, exact retry and
+denial/occurrence checks. It preserves the old negative example and prior bytes.
+No actual authority/native/source/ordinary proof, legal physical history,
+publisher, format or runtime eligibility follows. Gate 2 remains Investigate.
