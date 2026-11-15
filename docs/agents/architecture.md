@@ -2335,6 +2335,14 @@ Desktop previews are read-only; confirmation submits only the selected session.
 The server rejects supplied prompt overrides and packet paths before execution
 reservation. This is not native coding-tool confinement: the receiving agent
 must inspect untrusted reference data under repository and owner controls.
-These coordinated source changes do not solve the nine-request model failure
-or qualify usefulness. The existing primary action remains active until the
-separate gates pass; no published-installer behavior is claimed.
+Prompt revision 3 clarifies the existing evidence contract for the app and
+controlled baseline using shared rules and numeric `stepLimits` derived from the
+decoder constants. Repository reads and Brain page IDs share a combined ceiling
+of eight per response: four plus four fits; four plus five is rejected. Excess
+requests are neither clipped nor retried. The baseline's final advice prompt
+omits the evidence contract, including these limits, after collection closes.
+The prompt identity changes so earlier inputs cannot be reused as current.
+Deterministic checks cover all eight-item splits and one-call rejection of the
+retained nine-item response pattern. They do not establish that a live model
+will comply or qualify usefulness. The existing primary action remains active
+until the separate gates pass; no published-installer behavior is claimed.

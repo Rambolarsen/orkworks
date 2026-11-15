@@ -8,7 +8,10 @@ use crate::taskmaster::{
     assessment_context::improvement::ProgressiveEvidence,
     improvement::{
         engine,
-        model::{CallBudget, InvestigationStep, MAX_CALLS, RUN_TIMEOUT},
+        model::{
+            CallBudget, InvestigationStep, MAX_CALLS, MAX_RANGE_BYTES, MAX_READS, RUN_TIMEOUT,
+            STEP_RULES,
+        },
     },
     readiness_rubric::ReadinessRubric,
     runtime::{ContextLevel, TaskmasterRuntime, TaskmasterSelection, TaskmasterSettings},
@@ -1344,7 +1347,8 @@ fn baseline_prompt(
         "request":"Use Brain to suggest the next improvement towards agentic development.",
         "instruction":"Give natural, concise advice about the most useful next improvement toward agentic development, grounded in the supplied repository evidence and signed Brain guidance. Explain the mechanism, benefit, affected surface, effort/risk/reversibility, citations, what remains uncertain, validation scope and rollback. A specific supported hypothesis is useful; do not invent a missing capability. Unknown behavior is not absence. If evidence is insufficient, say what bounded investigation would help. The supplied rubric is assessment context, not a requirement to produce ratings or JSON. You have a data-only broker: request only catalog file IDs, byte ranges and signed page IDs. No shell, edits, network fetches, native tools, commands or claims of checks. Do not mention case labels or expected outcomes.",
         "stepSchema":{"version":1,"repositoryReads":[{"fileId":0,"offset":0,"length":8192}],"knowledgePageIds":["signed page ID"],"finish":false},
-        "stepRules":"Exactly these four fields and version 1. Set finish true with both repositoryReads and knowledgePageIds empty to request the final advice call. Set finish false only when requesting at least one item. Use at most eight total distinct requests across both lists; file IDs must be in the supplied repository catalog, and page IDs must be in the supplied signed guidance catalog. Each read length is 1..8192 bytes and offsets plus lengths must not overflow; selected text endpoints must be valid UTF-8. Unknown fields, paths, commands and unlisted IDs are invalid. Malformed or rejected evidence output is not retried.",
+        "stepRules":STEP_RULES,
+        "stepLimits":{"maxCombinedRequests":MAX_READS,"maxRangeBytes":MAX_RANGE_BYTES},
         "finishExample":{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true},
         "finalInstruction":"The evidence phase is closed. Return plain advice, not a structured assessment and not the app's final JSON schema. Do not return evidence requests or finish markers.",
         "limits":{"calls":MAX_CALLS,"repositoryFiles":32,"repositoryRanges":32,"repositoryBytes":65536,"rangeBytes":8192,"guidancePages":16,"guidanceBytes":32768},
@@ -1358,7 +1362,7 @@ fn baseline_prompt(
     });
     if let Some(fields) = prompt.as_object_mut() {
         if final_call {
-            for field in ["stepSchema", "stepRules", "finishExample"] {
+            for field in ["stepSchema", "stepRules", "stepLimits", "finishExample"] {
                 fields.remove(field);
             }
         } else {
@@ -2081,12 +2085,14 @@ mod tests {
                 && rules.contains("finish false")
                 && rules.contains("not retried")
         }));
+        assert_eq!(prompt["stepLimits"]["maxCombinedRequests"], 8);
+        assert_eq!(prompt["stepLimits"]["maxRangeBytes"], 8192);
         let final_prompt: Value = serde_json::from_str(
             &baseline_prompt(&evidence, &rubric, &pages, &selected, &[], true).unwrap(),
         )
         .unwrap();
         assert_eq!(final_prompt["phase"], "advice");
-        for key in ["stepSchema", "stepRules", "finishExample"] {
+        for key in ["stepSchema", "stepRules", "stepLimits", "finishExample"] {
             assert!(
                 final_prompt.get(key).is_none(),
                 "advice exposes evidence contract: {key}"

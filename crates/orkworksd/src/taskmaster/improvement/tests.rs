@@ -341,6 +341,59 @@ fn investigation_collects_a_later_range_and_finalizes_one_shared_result_without_
 }
 
 #[test]
+fn combined_request_budget_is_advertised_and_nine_item_output_is_not_retried() {
+    let dir = repository();
+    let evidence =
+        ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+    let (_, rubric) = final_fixture();
+    let mut pages = vec![guidance_fixture()];
+    for index in 1..8 {
+        let mut page = guidance_fixture();
+        page.id = format!("concepts/page-{index}.md");
+        pages.push(page);
+    }
+    let ids = pages.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+    let mut calls = 0;
+    let result = super::engine::investigate(
+        evidence,
+        &rubric,
+        &pages,
+        "playbooks/rubric.md",
+        &mut |prompt, _| {
+            calls += 1;
+            let prompt: serde_json::Value = serde_json::from_str(prompt).unwrap();
+            let limit = prompt["stepLimits"]["maxCombinedRequests"]
+                .as_u64()
+                .expect("evidence prompt must advertise the combined request budget")
+                as usize;
+            // All partitions of the approved eight requests are valid; neither
+            // list has its own separate allowance of eight.
+            for reads in 0..=8 {
+                let step = serde_json::json!({"version":1,
+                    "repositoryReads":(0..reads).map(|offset|serde_json::json!({"fileId":0,"offset":offset,"length":1})).collect::<Vec<_>>(),
+                    "knowledgePageIds":&ids[..8-reads],"finish":false});
+                assert!(InvestigationStep::decode(&step.to_string(), 1, &ids).is_ok());
+                assert_eq!(
+                    reads + step["knowledgePageIds"].as_array().unwrap().len(),
+                    limit
+                );
+            }
+            assert_eq!(prompt["stepLimits"]["maxRangeBytes"], 8192);
+            // The retained CI failure had this exact 4 + 5 request shape.
+            Ok(serde_json::json!({"version":1,
+                "repositoryReads":(0..4).map(|offset|serde_json::json!({"fileId":0,"offset":offset,"length":1})).collect::<Vec<_>>(),
+                "knowledgePageIds":&ids[..5],"finish":false}).to_string())
+        },
+        || false,
+    );
+    assert_eq!(
+        result.err().unwrap(),
+        "Invalid improvement evidence selection"
+    );
+    assert_eq!(calls, 1);
+}
+
+#[test]
 fn saved_range_manifest_restores_exact_inputs_and_rejects_changed_uncited_ranges() {
     let dir = repository();
     let mut evidence =
