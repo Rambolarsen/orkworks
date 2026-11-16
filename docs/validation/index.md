@@ -154,3 +154,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline scope rejection and completion](research-scope-rejection-components.md) — independent prior-plan proposal sources, exact Main rejection/compound completion, original retry and retained submission checks; singleton membership remains unqualified.
 
 - [Remaining research source and variant coverage](research-source-coverage-audit.md) — Source-owner and codec gaps before complete research catalog/history qualification.
+
+- [Offline reserved research membership and report invalidation](research-prospective-components.md) — Independent finite A/B roles, immutable report-input invalidation and exact original rejection/retry comparisons.
