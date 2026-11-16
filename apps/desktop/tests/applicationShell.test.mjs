@@ -2024,6 +2024,24 @@ if (process.versions.electron) {
           const shortHeader = await evaluate('(()=>{const sidebar=document.querySelector("[data-shell-region=sessions]").getBoundingClientRect();const header=document.querySelector(".shell-sessions-header").getBoundingClientRect();return {top:header.top,bottom:header.bottom,regionTop:sidebar.top,regionBottom:sidebar.bottom}})()');
           assert.ok(shortHeader.top>=shortHeader.regionTop && shortHeader.bottom<=shortHeader.regionBottom,'Sessions focus cue stays in the visible short sidebar');
           await captureFocus('sessions-short');
+          await win.setContentSize(1280,700);
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('!document.getElementById("sessions-list")');
+          await evaluate('fixture.command("sessions",true)');
+          await waitFor('document.activeElement?.hasAttribute("data-shell-sessions-heading")');
+          await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
+          await captureFocus('sessions-empty');
+          await evaluate('document.querySelector(".session-state-filter select").focus()');
+          await assertFocusedRegion(null);
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await evaluate('fixture.command("sessions",true)');
+          await waitFor('document.activeElement?.hasAttribute("data-shell-sessions-heading")');
+          await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
+          await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-return]").focus()');
+          await assertFocusedRegion(null);
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');

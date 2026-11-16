@@ -2538,7 +2538,7 @@ html, body, #root {
 .shell-inspector-host--overlay .recommendations-panel { background: transparent; }
 /* Highlight the keyboard destination without changing its size;
    individual controls retain their own focus outlines. */
-.shell-region--sessions:has(#sessions-list:focus-within) > .shell-sessions-header,
+.shell-region--sessions:has(#sessions-list:focus-within, [data-shell-sessions-heading]:focus-within) > .shell-sessions-header,
 .shell-main:has([data-shell-region="terminal"] .terminal-container:focus-within) > .shell-toolbar {
   background: color-mix(in srgb, var(--accent-focus) 8%, var(--surface-0));
   box-shadow: inset 0 -2px 0 var(--accent-focus);
