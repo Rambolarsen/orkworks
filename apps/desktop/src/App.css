@@ -2526,6 +2526,8 @@ html, body, #root {
 .shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-left: var(--space-3); }
 .shell-main > .shell-region { flex: 1; }
+/* Cover the main gutter while preserving toolbar content alignment. */
+.shell-layout:not([data-mode="compact"]) .shell-toolbar { margin-left: calc(-1 * var(--space-3)); padding-left: calc(2 * var(--space-3)); }
 .shell-region { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-0); }
 .shell-region--inspector { background: var(--surface-1); }
 .shell-layout:not([data-mode="compact"]) :is(.shell-region--sessions, .shell-sidebar-rail) {
