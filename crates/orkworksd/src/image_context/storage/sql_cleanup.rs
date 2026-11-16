@@ -330,15 +330,12 @@ mod tests {
         let cleanup = bind_sql_cleanup(root.path(), ID, &lease).unwrap();
         (root, lease, path, cleanup)
     }
-    #[tokio::test]
-    async fn sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs() {
+    async fn isolated_case(case: &str) -> bool {
         // Other tests can fork while a guard is live, retaining its flock until
         // exec despite CLOEXEC. Create this fixture's FDs only in its own child.
         const CHILD: &str = "ORKWORKS_IMAGE_SYNC_TEST_CASE";
         let module = module_path!().split_once("::").unwrap().1;
-        let test = format!(
-            "{module}::sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs"
-        );
+        let test = format!("{module}::{case}");
         let marker = format!("isolated image sync case: {test}");
         if std::env::var(CHILD).as_deref() != Ok(test.as_str()) {
             let output = tokio::time::timeout(
@@ -358,9 +355,20 @@ mod tests {
                 "isolated image sync case did not pass\n{stdout}\n{}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            return;
+            return true;
         }
         println!("{marker}");
+        false
+    }
+    #[tokio::test]
+    async fn sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs() {
+        if isolated_case(
+            "sql_image_owner_sync_failure_keeps_retryable_marker_and_repeats_parent_syncs",
+        )
+        .await
+        {
+            return;
+        }
         for fail_at in 1..=4 {
             let (root, lease, path, cleanup) = fixture();
             let calls = std::cell::Cell::new(0);
@@ -433,8 +441,11 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn sql_image_owner_bounds_entries_and_never_recurses() {
+    #[tokio::test]
+    async fn sql_image_owner_bounds_entries_and_never_recurses() {
+        if isolated_case("sql_image_owner_bounds_entries_and_never_recurses").await {
+            return;
+        }
         let (root, lease, path, cleanup) = fixture();
         for i in 0..8 {
             std::fs::write(path.join(format!("extra-{i}")), b"extra").unwrap();
@@ -471,8 +482,11 @@ mod tests {
         assert_eq!(std::fs::read(foreign).unwrap(), b"keep");
         assert!(!path.exists());
     }
-    #[test]
-    fn sql_image_owner_pins_parent_but_rejects_replaced_target() {
+    #[tokio::test]
+    async fn sql_image_owner_pins_parent_but_rejects_replaced_target() {
+        if isolated_case("sql_image_owner_pins_parent_but_rejects_replaced_target").await {
+            return;
+        }
         for target in ["parent", "bundle"] {
             let (root, _lease, path, cleanup) = fixture();
             let original = root.path().join("original");
