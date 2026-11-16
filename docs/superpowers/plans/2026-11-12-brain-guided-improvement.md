@@ -828,3 +828,48 @@ there is no activation, signed publication, installed-settings change or release
 The next useful task is a bounded correction to the retained verification-claim
 false positive, with exact saved-result regression evidence and review of real
 completed-claim rejection. No further live calls are authorized by this cohort.
+
+### Follow-up validator correction, 2026-11-16
+
+The installed combined action's latest retained run finished successfully with
+`no_proposal`; it did not use the unqualified replacement investigation. The
+new engine remains unavailable until the independent paired usefulness gate
+passes. Correcting its validator is a prerequisite, not an installed-app fix.
+
+The fourth cohort's exact rejected benefit now has a deterministic final-decoder
+regression. The correction treats prospective `passing through` as transit in
+inert advice, rather than successful verification. It skips only that predicate;
+another completed-verification claim still rejects the whole field. The legacy
+policy and descriptive fields retain their previous behavior. Citation, schema,
+text bounds, control/bidi restrictions, producer identity and fixed handoffs are
+unchanged. Negative regressions cover actual passing/completed claims, including
+claims beside the prospective transit sentence and within its own clause.
+
+Offline checks establish decoder behavior only. Historical trial outputs and
+ledgers remain immutable and receive no retroactive qualification credit.
+The focused final-decoder and policy-isolation tests passed after the regression
+was observed failing with the original text-validation error. A temporary
+owner-local replay test also accepted the exact fourth-cohort final against its
+original final prompt's rubric and supplied citation lists; the harness was then
+removed. The retained output SHA256 remains
+`239f85b459f5241f7e1f1ffd373bbddcb79e3f381a90f11576d2412c1f8be62b`.
+Complete repository verification passed: 3,558 Rust unit tests plus integrations,
+1,751 desktop tests (five existing skips), native ABI repair, type-check, builds
+and 2,001 documentation tests. Independent current-diff `/code-review low`
+reported no findings. The documentation-currency warning needs no public-guide
+edit: active behavior and release claims remain unchanged. Foreign worktrees
+reported by the close-out hook were left untouched.
+The automated review then reproduced an actual-success counterexample (“The
+tests are passing through sheer luck rather than meaningful assertions.”).
+The initial correction was too broad: a prospective field does not make all its
+contents prospective. The counterexample and unrelated future-modal variants
+were added as failing regressions. The exemption now additionally requires an
+earlier future modal and an immediate comparative or stop predicate; the exact
+saved benefit remains the acceptance target. Final verification and fresh review
+both passed for the narrower correction: the exact benefit and legacy-mode
+regressions pass, actual-success and unrelated-modal variants reject, the full
+repository verifier passes again, and a fresh `/code-review low` has no findings.
+The reviewed Rust diff SHA256 is
+`1de23602ce98c080da82dbd0bab52a674c6510769554e5dbf0a7c9f453c61c67`.
+Production qualification remains false. No live provider trial, activation,
+installed-settings change, publication or release is authorized by this fix.

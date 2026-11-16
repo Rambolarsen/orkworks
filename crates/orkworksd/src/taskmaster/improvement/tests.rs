@@ -857,6 +857,21 @@ fn inert_advice_retains_literal_commands_and_ordinary_inventory_in_every_text_fi
 }
 
 #[test]
+fn prospective_transit_benefit_preserves_a_grounded_opportunity() {
+    let (mut value, rubric) = final_fixture();
+    let benefit = "An incorrect addition result would be detectable by the behavioral test rather than passing through an assertion unrelated to the output.";
+    value["opportunities"][0]["benefit"] = serde_json::json!(benefit);
+    let result = super::model::FinalResult::decode(
+        &value.to_string(),
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric,
+    )
+    .unwrap();
+    assert_eq!(result.preferred().unwrap().benefit, benefit);
+}
+
+#[test]
 fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_the_field() {
     let (value, rubric) = final_fixture();
     for text in [
@@ -864,6 +879,15 @@ fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_th
         "Text \u{061c} guidance",
         "Text \u{2069} guidance",
         "Tests passed.",
+        "The behavioral tests are passing.",
+        "The tests are passing through sheer luck rather than meaningful assertions.",
+        "A fix would help and the tests are passing through sheer luck rather than meaningful assertions.",
+        "The tests are passing through sheer luck and a fix would improve their assertions.",
+        "The behavioral tests passed rather than failing.",
+        "Tests passed. An incorrect result would stop passing through an unrelated assertion.",
+        "An incorrect result would stop passing through an unrelated assertion, and tests passed.",
+        "An incorrect result would stop passing through an unrelated assertion; verification completed.",
+        "An incorrect result would stop passing through the test and checks passed.",
         "Text\nnext line",
         "Text\u{1b}[31m",
     ] {
