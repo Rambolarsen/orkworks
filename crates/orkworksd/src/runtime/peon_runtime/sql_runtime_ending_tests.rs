@@ -356,6 +356,15 @@ async fn runtime_ending_sql_original_capture_rejects_replacements_across_wait() 
 }
 #[tokio::test]
 async fn runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_without_effects() {
+    // Exact lifecycle setup requires an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_without_effects"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
     let generation = ending(&writes, &state).await;
