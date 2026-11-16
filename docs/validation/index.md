@@ -156,3 +156,5 @@ Capability research, validation results, and evidence fixtures.
 - [Remaining research source and variant coverage](research-source-coverage-audit.md) — Source-owner and codec gaps before complete research catalog/history qualification.
 
 - [Offline reserved research membership and report invalidation](research-prospective-components.md) — Independent finite A/B roles, immutable report-input invalidation and exact original rejection/retry comparisons.
+
+- [Offline reports after revision rejection](research-post-report-components.md) — Independent original disposition/report/input/summary alternatives and exact retry/denial checks; no publisher or history qualification.

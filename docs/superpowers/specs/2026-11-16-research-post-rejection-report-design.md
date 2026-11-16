@@ -323,3 +323,15 @@ earlier prospective/audit technical bodies are append-only. Existing bundler
 notices and unrelated stale worktrees require no edit. Owned worktree reporting
 succeeded; primary desktop lockfile residue remains untouched. No full product/
 native verifier or broad repository/source qualification is claimed.
+
+## Scoped owner acceptance and offline packet — 2026-11-16
+
+The owner answered “keep going” to the explicit three-choice handoff after
+#1795. All three choices are accepted for finite offline components only. This
+supersedes pending-choice wording only at that scope; original technical bodies
+and historical review statements remain unchanged. The [component packet](../../validation/research-post-report-components.md)
+compares incomplete-A first/correction and completed-A null/S alternatives,
+retained B-derived input/history, exact original retries and bytes. Authority/
+native/source/currentness/complete membership/H-C/proof/outcome premises remain
+supplied and unqualified. No legal history, actual publisher, complete physical
+profile/accounting or product/runtime/native activation follows.
