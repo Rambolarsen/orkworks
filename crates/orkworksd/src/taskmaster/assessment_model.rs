@@ -257,7 +257,7 @@ fn contains_command_or_verification_claim(value: &str, prospective: bool) -> boo
     {
         return true;
     }
-    has_completed_verification_claim(&lower, prospective)
+    has_completed_verification_claim(&lower, prospective, super::advice_text::TextPolicy::Legacy)
 }
 
 fn contains_command_token(words: &[&str]) -> bool {
@@ -779,7 +779,11 @@ fn prospective_evidence_fragment(text: &str) -> bool {
     })
 }
 
-pub(super) fn has_completed_verification_claim(text: &str, prospective: bool) -> bool {
+pub(super) fn has_completed_verification_claim(
+    text: &str,
+    prospective: bool,
+    policy: super::advice_text::TextPolicy,
+) -> bool {
     const CHECKS: [&str; 11] = [
         "test",
         "tests",
@@ -817,6 +821,16 @@ pub(super) fn has_completed_verification_claim(text: &str, prospective: bool) ->
             .collect::<Vec<_>>();
         words.iter().enumerate().any(|(index, word)| {
             if !COMPLETION.contains(word) {
+                return false;
+            }
+            // In future advice, passing through a check describes transit,
+            // not a successful result. Exempt only this predicate, so another
+            // completed claim in the same clause still rejects the field.
+            if policy == super::advice_text::TextPolicy::InertAdvice
+                && prospective
+                && *word == "passing"
+                && words.get(index + 1) == Some(&"through")
+            {
                 return false;
             }
             let start = index.saturating_sub(3);
