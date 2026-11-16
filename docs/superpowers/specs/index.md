@@ -335,3 +335,5 @@ Dated design records; these do not establish current product behavior.
 - [Research scope revision rejection](2026-11-16-research-scope-rejection-design.md) — proposed prior-plan input, Main rejection and typed atomic completion, with reserved-replacement membership still gated.
 
 - [Reserved research replacement membership and report invalidation](2026-11-16-research-prospective-membership-design.md) — Proposed reserved-current-task and pending research membership with exact report/input invalidation.
+
+- [Research reports after revision rejection](2026-11-16-research-post-rejection-report-design.md) — Proposed original-disposition role joins, retained B-derived input updates and completed-plan summary invalidation without task rewrites.
