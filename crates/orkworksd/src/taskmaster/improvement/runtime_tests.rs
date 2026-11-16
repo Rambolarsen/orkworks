@@ -740,6 +740,14 @@ async fn qualified_run_uses_controlled_http_transport_against_local_fixture() {
 
 #[tokio::test]
 async fn inert_history_survives_reload_and_refuses_contradictory_producer_identities() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::inert_history_survives_reload_and_refuses_contradictory_producer_identities",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let mut inner = preferred_invoke();
     let invoke = Box::new(move |prompt: &str, remaining: Duration| {
