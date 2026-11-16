@@ -129,6 +129,14 @@ fn preferred_invoke() -> FixtureInvoke {
 
 #[tokio::test]
 async fn qualified_investigation_publishes_one_shared_current_report_and_fences_changed_evidence() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::qualified_investigation_publishes_one_shared_current_report_and_fences_changed_evidence",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let invoke = preferred_invoke();
     let admission = schedule_qualified(state.clone(), runtime.clone(), invoke);
