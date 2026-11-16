@@ -1949,6 +1949,14 @@ if (process.versions.electron) {
         } else if (scenario === 'region-focus') {
           // Highlight the actual keyboard destination, rather than any focused toolbar control.
           const assertFocusedRegion = async expected => {
+            if (expected === 'terminal') {
+              const gutter = await evaluate(`(()=>{
+                const header=document.querySelector('.shell-toolbar').getBoundingClientRect();
+                const main=document.querySelector('.shell-main').getBoundingClientRect();
+                return header.left-main.left;
+              })()`);
+              assert.ok(Math.abs(gutter)<1,'terminal header focus background reaches the divider; uncovered gutter: '+gutter);
+            }
             const cues = await evaluate(`(()=>{
               const highlighted = selector => {
                 const header = document.querySelector(selector);
