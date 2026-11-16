@@ -450,7 +450,33 @@ if (process.versions.electron) {
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [['/real/test','coding','vscode']]);
         await evaluate('fixture.nativeOpened=[];document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector("[data-session-app-open]")');
+        await evaluate('fixture.nativeInspectionFailure=true;fixture.setSessionState({cwd:"/tmp/failed-inspection"})');
+        await waitFor('document.querySelector(".session-app-menu [role=alert]")?.textContent.includes("Destination lookup failed")');
+        assert.doesNotMatch(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/, 'failed inspection leaves loading state');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true);
+        assert.equal(await evaluate('document.querySelector("[data-session-app-vscode]").disabled'), false, 'native failure does not block folder opening');
+        await evaluate('fixture.nativeInspectionFailure=false;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        await evaluate('document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector(".session-app-menu").textContent.includes("Native ID not captured")');
         await evaluate('fixture.nativeMissing=false;fixture.setSessionState({resume:{harnessSessionId:"12345678-1234-1234-1234-123456789abc"}})');
+        await waitFor('!document.querySelector("[data-session-app-open]").disabled');
+        await evaluate(`
+          fixture.inspectionTimeouts=[];
+          fixture.originalSetTimeout=window.setTimeout;
+          window.setTimeout=(callback,delay,...args)=>{
+            if(delay===15000)fixture.inspectionTimeouts.push(callback);
+            return fixture.originalSetTimeout.call(window,callback,delay,...args);
+          };
+          fixture.deferNative=true;fixture.setSessionState({cwd:'/tmp/hung-inspection'});
+        `);
+        await waitFor('document.querySelector("[data-session-app-open]").textContent.includes("Checking") && !!fixture.finishNative');
+        await evaluate('fixture.inspectionTimeouts.forEach(callback=>callback())');
+        assert.doesNotMatch(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/, 'hung inspection reaches a terminal state');
+        assert.match(await evaluate('document.querySelector(".session-app-menu [role=alert]")?.textContent'), /timed out/i);
+        await evaluate('fixture.finishNative()');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true, 'late success cannot undo timeout');
+        await evaluate('window.setTimeout=fixture.originalSetTimeout;fixture.deferNative=false;fixture.setSessionState({cwd:"/tmp/recovered-inspection"})');
         await waitFor('!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!document.querySelector(".session-app-popover")');
@@ -2245,6 +2271,7 @@ if (process.versions.electron) {
           fixture.nativeOpened=[];fixture.nativeMissing=${JSON.stringify(scenario)}==='open-session-app';
           window.orkworks.inspectSessionApp=async(_workspace,_id,destination)=>{
             if(destination==='vscode')return {label:'Visual Studio Code',installed:!!fixture.vscodeInstalled,available:!!fixture.vscodeInstalled};
+            if(fixture.nativeInspectionFailure)throw new Error('Destination lookup failed');
             const value=fixture.nativeMissing?{label:'ChatGPT',available:false,reason:'Native ID not captured'}:fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:fixture.nativeHarness==='claude-code'?'Claude':'ChatGPT',available:true};
             if(fixture.deferNative)await new Promise(resolve=>fixture.finishNative=resolve);
             return value;

@@ -26,14 +26,27 @@ export default function SessionAppMenu({ workspacePath, session, disabled }: { w
     if (disabled) return;
     let current = true;
     setError(null);
+    const timers: number[] = [];
     for (const destination of ["native", "vscode"] as const) {
-      void window.orkworks.inspectSessionApp(workspacePath, sessionId, destination).then(value => {
-        if (current) (destination === "native" ? setAvailability : setFolderAvailability)(value);
-      }).catch(reason => {
-        if (current) setError(reason instanceof Error ? reason.message : "Couldn't check the desktop application.");
-      });
+      let settled = false;
+      const finish = (value: Availability, message?: string) => {
+        if (!current || settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        (destination === "native" ? setAvailability : setFolderAvailability)(value);
+        if (message) setError(message);
+      };
+      const fail = (reason: unknown) => finish({
+        label: destination === "vscode" ? "Visual Studio Code"
+          : session.harnessId === "codex" ? "ChatGPT" : session.harnessId === "claude-code" ? "Claude" : "Native application",
+        available: false,
+      }, reason instanceof Error ? reason.message : "Couldn't check the desktop application.");
+      const timer = window.setTimeout(() => fail(new Error("Application check timed out. Close and reopen this menu to try again.")), 15_000);
+      timers.push(timer);
+      void window.orkworks.inspectSessionApp(workspacePath, sessionId, destination)
+        .then(value => finish(value)).catch(fail);
     }
-    return () => { current = false; };
+    return () => { current = false; timers.forEach(timer => window.clearTimeout(timer)); };
   }, [open, disabled, workspacePath, sessionId, session.harnessId, session.resume?.harnessSessionId, session.lifecycle, session.cwd, session.worktreeBinding?.root]);
 
   useEffect(() => {
