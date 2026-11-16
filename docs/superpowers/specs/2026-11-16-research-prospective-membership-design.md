@@ -252,3 +252,34 @@ consequential builder question was identified. Neither review establishes source
 membership completeness, legal history or publisher behavior. No new fixture or
 runtime work followed review. Final docs/OKF/rendered-link and preserved-byte
 checks are recorded with the proposal PR; existing technical evidence is unchanged.
+
+## Rejection freshness and profile eligibility clarification — 2026-11-16
+
+The [scope-rejection routing appendix](2026-11-16-research-scope-rejection-design.md#canonical-prospective-membership-proposal-—-2026-11-16)
+states the proposed stale-input exception against that contract's earlier
+normative denial explicitly. Existing acceptance remains binding until these
+new choices are accepted. Only B's original input becoming stale-for-approval
+through the selected A report/input advancement is allowed in this new rejection
+branch; the actual Main request.input/context/generation/versions must be current,
+and B's original source integrity, custody and proofs must still validate.
+This distinguishes rejection of an exact invalidated proposal from approval of
+stale bytes or acceptance of a stale UI request. Report arrival leaves B pending
+and the completion condition unresolved; exact authorized rejection owns its
+resolution and any compound completion.
+
+The unchanged field shapes do not authorize a profile switch or adoption of old
+prefix fixtures. A future complete profile must select original source/run
+ownership at admission and explicitly recognize these relations before they
+are used, under the [catalog and owner-selection gate](../../validation/research-source-coverage-audit.md#catalog-indexes-initialization-and-proofs-still-required).
+No replacement profile identifier, second run owner or delayed initializer is
+selected here. CollectionVersion advances for the owned prospective-role changes
+as proposed above; an unchanged B expectation does not receive a made-up version.
+
+After rejection or conditional completion, currentInput can still retain B-derived
+configuration/scope and stale assessment provenance although B is no longer
+pending. Preserve the retained source/input/producer/PlanRef joins. Do not roll
+the pointer back, reactivate B, force its scope to equal A's, or reuse the
+current/pending classification table as a positive post-resolution report writer.
+That publisher and its complete invalidation/collection owner remain explicitly
+unclosed. Existing reporting rights and historical membership are preserved;
+new publication is unavailable when its required owner/effect union is unsupported.

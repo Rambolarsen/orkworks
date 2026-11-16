@@ -339,3 +339,29 @@ supplies independent prior-plan/source joins and completing/incomplete rejection
 alternatives, original retry/denial and occurrence checks. Reserved-current-plan
 singleton membership remains unclosed: no second active collection, legal pending
 prestate, source-valid publisher/history or runtime qualification follows.
+
+## Canonical prospective membership proposal — 2026-11-16
+
+The [reserved replacement membership proposal](2026-11-16-research-prospective-membership-design.md)
+makes collecting A versus non-collecting prospective B and report/input
+invalidation choices concrete. Its three author choices remain pending scoped
+acceptance; this routing does not extend the earlier offline acceptance.
+
+The earlier stale-input denial stays binding for the accepted slice. The new
+proposal requests this exact conditional exception, **only if separately accepted
+for a complete recognized research profile**: when an A report advances current
+input and makes the exact still-pending B's original input stale-for-approval,
+a fresh Main rejection may resolve retained B using today's request.input and
+shown context/versions while validating B's older original source/input/proofs.
+The differing input identities alone are not source corruption. A stale rejection
+request/context, unknown/corrupt source or custody, arbitrary stale proposal,
+old-profile reinterpretation or missing original proof remains unavailable.
+This adds no request field, domain, receipt or completion trigger; it proposes a
+narrow eligibility rule, not a late-save or restored-authority exception.
+
+On rejection, B's unchanged false expectation receives no expectationVersion
+increment. The canonical proposal separately selects collectionVersion+1 for
+removal of the collection's owned prospective role even while collection.task
+stays A. That is its pending first owner choice, not permission to infer a role
+from collecting=false. Original task/report/ordinary capacity and conditional
+scope-rejection completion rules remain intact.
