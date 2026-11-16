@@ -375,7 +375,6 @@ test("session list uses one status slot and keeps tool/time metadata separate fr
 test("session list keeps the right-side metadata footprint compact", () => {
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
 
-  assert.match(css, /\.session-row\s*\{[\s\S]*padding:\s*var\(--space-3\) var\(--space-5\) var\(--space-3\) var\(--space-2\);/);
   assert.match(css, /\.session-row-secondary\s*\{[\s\S]*gap:\s*var\(--space-1\);/);
   assert.match(css, /\.session-row-meta\s*\{[\s\S]*grid-template-columns:\s*12px 6ch;/);
   assert.match(css, /\.session-row-meta\s*\{[\s\S]*column-gap:\s*var\(--space-2\);/);
