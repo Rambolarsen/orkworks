@@ -331,3 +331,5 @@ Dated design records; these do not establish current product behavior.
 - [Research completion, synthesis and UI closure](2026-11-15-research-completion-design.md) — proposed automatic completion, bounded summary and version-bound finish/cancel/continue records.
 
 - [Research recovery completing the final condition](2026-11-15-research-recovery-completion-design.md) — proposed late-disposition source ordering, terminal settlement and compound automatic completion.
+
+- [Research scope revision rejection](2026-11-16-research-scope-rejection-design.md) — proposed prior-plan input, Main rejection and typed atomic completion, with reserved-replacement membership still gated.

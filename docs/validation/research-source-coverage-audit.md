@@ -225,3 +225,12 @@ representation needs one scoped owner decision before dependent offline
 fixtures. The other matrix rows remain explicit prerequisites to claiming
 broader catalog coverage. Keep #1689/#1089 open and #740 closed research;
 this audit cannot establish Gate 2 completion or authorize activation.
+
+## Scope-rejection representation proposal — 2026-11-16
+
+The [scope-rejection proposal](../superpowers/specs/2026-11-16-research-scope-rejection-design.md)
+makes the exact prior-plan input, Main request/original retry and typed compound
+completion trigger reviewable. It also identifies the singleton collection's
+unclosed reserved-replacement source membership: a pending pointer cannot supply
+that proof or authorize a second active task. The new choices remain proposed;
+no dependent fixture, legal pending history or actual publisher follows.
