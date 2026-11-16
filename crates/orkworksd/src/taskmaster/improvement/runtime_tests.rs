@@ -684,6 +684,14 @@ fn custom_authority_gate_and_cancel_have_one_lock_order_and_no_late_dispatch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn qualified_run_uses_controlled_http_transport_against_local_fixture() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::qualified_run_uses_controlled_http_transport_against_local_fixture",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (_dir, state, runtime) = fixture();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
