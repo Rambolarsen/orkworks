@@ -105,3 +105,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independent positive recovery/completion source-example bytes.
 /docs/validation/research-recovery-completion-components.json text eol=lf
+
+# Preserve exact independent offline scope-rejection oracle bytes.
+/docs/validation/research-scope-rejection-components.json text eol=lf
