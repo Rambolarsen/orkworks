@@ -223,6 +223,14 @@ async fn runtime_ending_sql_completion_keeps_file_failures_as_partial_stages() {
 }
 #[tokio::test]
 async fn runtime_ending_sql_completion_keeps_unavailable_store_error_typed() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::runtime_ending_sql_completion_keeps_unavailable_store_error_typed",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
     let generation = ending(&writes, &state).await;
