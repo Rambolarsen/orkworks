@@ -108,3 +108,6 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve exact independent offline scope-rejection oracle bytes.
 /docs/validation/research-scope-rejection-components.json text eol=lf
+
+# Preserve independent offline prospective-membership oracle bytes.
+/docs/validation/research-prospective-components.json text eol=lf

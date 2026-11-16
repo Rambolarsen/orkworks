@@ -283,3 +283,23 @@ current/pending classification table as a positive post-resolution report writer
 That publisher and its complete invalidation/collection owner remain explicitly
 unclosed. Existing reporting rights and historical membership are preserved;
 new publication is unavailable when its required owner/effect union is unsupported.
+
+## Scoped owner acceptance and offline packet — 2026-11-16
+
+The owner answered “keep going” immediately after the explicit request to accept
+all three #1787 choices for offline checks only. This records that scoped acceptance
+and supersedes pending-choice wording only at that scope. The technical proposal
+and historical review remain unchanged. The alternative held draft #1786 is not
+adopted, edited or closed by this acceptance.
+
+The [finite component packet](../../validation/research-prospective-components.md)
+compares current collecting A and prospective/rejected B, cross-scope report input
+invalidation with original assessment provenance, fresh Main rejection and original
+retry/measurement denials. Auth/native/source/currentness/complete membership/H/C/
+proof/outcome inputs remain supplied. No source-valid publisher, legal history,
+physical profile or product/runtime permission follows. Post-rejection/completion
+report writers and approval handover remain separately unqualified.
+
+The merged #1786 freshness/profile clarification remains binding. This acceptance
+covers finite offline components only; it does not select or qualify a complete
+recognized research profile or turn stale UI requests into eligible rejection.
