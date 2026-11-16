@@ -253,3 +253,14 @@ or completed. It preserves rejected B-derived current input and original A
 reporting ownership, and names completed-plan summary invalidation and original
 outcome/proof obligations. Earlier prospective membership acceptance stands;
 the post-resolution writer choices remain proposed and qualify no legal history.
+
+## Stage-cancelled reporting written prerequisite — 2026-11-16
+
+The [stage report/continue proposal](../superpowers/specs/2026-11-16-research-stage-report-design.md)
+closes the next written source-role and current-input interaction after #1802.
+Its three new choices remain proposed for scoped offline acceptance. Cancelled
+approved-plan collecting ownership is distinct from rejected prospective-plan
+membership; current report input must not clear the independent continue gate
+or rewrite the original cancellation. No positive fixture, source-valid history,
+complete catalog/initializer/physical profile or runtime/native activation follows.
+Earlier technical audit statements remain historical and unchanged.

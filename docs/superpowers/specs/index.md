@@ -337,3 +337,5 @@ Dated design records; these do not establish current product behavior.
 - [Reserved research replacement membership and report invalidation](2026-11-16-research-prospective-membership-design.md) — Proposed reserved-current-task and pending research membership with exact report/input invalidation.
 
 - [Research reports after revision rejection](2026-11-16-research-post-rejection-report-design.md) — Proposed original-disposition role joins, retained B-derived input updates and completed-plan summary invalidation without task rewrites.
+
+- [Research reporting across stage cancellation and continuation](2026-11-16-research-stage-report-design.md) — Proposed original-cancellation collecting roles, retained report input and exact current-context Main continuation under unchanged authority.
