@@ -246,6 +246,14 @@ async fn sql_label_after_claim_is_definitive_but_cannot_publish_a_revoked_lookup
 }
 #[tokio::test]
 async fn sql_label_caller_abort_before_claim_discards_and_after_claim_finishes() {
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_caller_abort_before_claim_discards_and_after_claim_finishes"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for claimed in [false, true] {
         let (_dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
