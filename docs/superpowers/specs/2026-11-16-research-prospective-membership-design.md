@@ -303,3 +303,13 @@ report writers and approval handover remain separately unqualified.
 The merged #1786 freshness/profile clarification remains binding. This acceptance
 covers finite offline components only; it does not select or qualify a complete
 recognized research profile or turn stale UI requests into eligible rejection.
+
+## Post-rejection report source proposal — 2026-11-16
+
+The [post-rejection reporting proposal](2026-11-16-research-post-rejection-report-design.md)
+defines original rejection/optional completion role joins after pending B is
+cleared, captured-input updates retaining B's sources, and stale current-summary
+pointer invalidation for completed A. Those new choices await scoped review;
+this acceptance does not authorize their fixtures or qualify a positive writer.
+The collecting A runtime must still be eligible under its existing authority;
+plan completion is not ordinary child end or a source of fresh report authority.

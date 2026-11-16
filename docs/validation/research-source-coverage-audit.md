@@ -244,3 +244,12 @@ scope rejection. It proposes exact non-collecting pending membership and distinc
 current-task report/current-input invalidation, with no approval handover.
 New choices require scoped acceptance before finite components. It supplies no
 legal pending history, complete source/index/physical profile or runtime gate.
+
+## Post-rejection reporting prerequisite — 2026-11-16
+
+The [post-rejection report contract](../superpowers/specs/2026-11-16-research-post-rejection-report-design.md)
+proposes source/effect rules after proven B rejection with A either still current
+or completed. It preserves rejected B-derived current input and original A
+reporting ownership, and names completed-plan summary invalidation and original
+outcome/proof obligations. Earlier prospective membership acceptance stands;
+the post-resolution writer choices remain proposed and qualify no legal history.
