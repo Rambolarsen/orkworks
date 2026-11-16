@@ -178,3 +178,12 @@ charges. Owned source was not mutated by those controls. Prior artifact bytes an
 the original design technical body remain preserved. Full offline docs/OKF/site,
 rendered-link and current-head hosted evidence are recorded with the proposal PR;
 product/native/full-repository verification is not claimed.
+
+## Post-rejection reporting proposal — 2026-11-16
+
+The [next written source/effect proposal](../superpowers/specs/2026-11-16-research-post-rejection-report-design.md)
+resolves retained B-derived input and current/completed A collection after rejection,
+with first/successor report and exact current-summary invalidation effects. Its
+new eligibility choices require scoped acceptance before dependent finite components.
+This packet and every earlier source/evidence byte remain unchanged; no positive
+post-resolution publisher/history or complete profile is supplied by the proposal.
