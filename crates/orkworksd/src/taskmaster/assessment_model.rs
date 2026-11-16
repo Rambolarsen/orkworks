@@ -823,13 +823,24 @@ pub(super) fn has_completed_verification_claim(
             if !COMPLETION.contains(word) {
                 return false;
             }
-            // In future advice, passing through a check describes transit,
-            // not a successful result. Exempt only this predicate, so another
-            // completed claim in the same clause still rejects the field.
+            let before = &words[..index];
+            // A prospective field can still assert actual success. Require a
+            // future modal and a comparative/stop predicate before treating
+            // "passing through" as prospective transit. Other completion
+            // predicates in this clause remain subject to the claim check.
             if policy == super::advice_text::TextPolicy::InertAdvice
                 && prospective
                 && *word == "passing"
                 && words.get(index + 1) == Some(&"through")
+                && before.iter().any(|word| {
+                    matches!(
+                        *word,
+                        "should" | "would" | "could" | "might" | "may" | "can"
+                    )
+                })
+                && (before.ends_with(&["rather", "than"])
+                    || before.ends_with(&["instead", "of"])
+                    || before.ends_with(&["stop"]))
             {
                 return false;
             }
@@ -838,7 +849,6 @@ pub(super) fn has_completed_verification_claim(
             let nearby_checks = words[start..end]
                 .iter()
                 .any(|candidate| candidate != word && CHECKS.contains(candidate));
-            let before = &words[..index];
             let local = &words[index.saturating_sub(4)..index];
             // A modal qualifies this predicate only through auxiliaries;
             // "can confirm tests passed" still asserts completed verification.

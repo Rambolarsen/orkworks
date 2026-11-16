@@ -859,5 +859,17 @@ and 2,001 documentation tests. Independent current-diff `/code-review low`
 reported no findings. The documentation-currency warning needs no public-guide
 edit: active behavior and release claims remain unchanged. Foreign worktrees
 reported by the close-out hook were left untouched.
+The automated review then reproduced an actual-success counterexample (“The
+tests are passing through sheer luck rather than meaningful assertions.”).
+The initial correction was too broad: a prospective field does not make all its
+contents prospective. The counterexample and unrelated future-modal variants
+were added as failing regressions. The exemption now additionally requires an
+earlier future modal and an immediate comparative or stop predicate; the exact
+saved benefit remains the acceptance target. Final verification and fresh review
+both passed for the narrower correction: the exact benefit and legacy-mode
+regressions pass, actual-success and unrelated-modal variants reject, the full
+repository verifier passes again, and a fresh `/code-review low` has no findings.
+The reviewed Rust diff SHA256 is
+`1de23602ce98c080da82dbd0bab52a674c6510769554e5dbf0a7c9f453c61c67`.
 Production qualification remains false. No live provider trial, activation,
 installed-settings change, publication or release is authorized by this fix.
