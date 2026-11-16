@@ -509,8 +509,11 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn sql_image_owner_absence_refuses_later_bundles_until_recapture() {
+    #[tokio::test]
+    async fn sql_image_owner_absence_refuses_later_bundles_until_recapture() {
+        if isolated_case("sql_image_owner_absence_refuses_later_bundles_until_recapture").await {
+            return;
+        }
         for root_exists in [false, true] {
             let root = tempfile::tempdir().unwrap();
             let lease = WorkspaceLease::acquire(root.path()).unwrap();
