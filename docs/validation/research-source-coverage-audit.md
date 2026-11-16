@@ -234,3 +234,13 @@ completion trigger reviewable. It also identifies the singleton collection's
 unclosed reserved-replacement source membership: a pending pointer cannot supply
 that proof or authorize a second active task. The new choices remain proposed;
 no dependent fixture, legal pending history or actual publisher follows.
+
+
+## Reserved replacement membership proposal — 2026-11-16
+
+The [written prospective-membership proposal](../superpowers/specs/2026-11-16-research-prospective-membership-design.md)
+addresses the remaining singleton reserved-current-plan boundary after accepted
+scope rejection. It proposes exact non-collecting pending membership and distinct
+current-task report/current-input invalidation, with no approval handover.
+New choices require scoped acceptance before finite components. It supplies no
+legal pending history, complete source/index/physical profile or runtime gate.
