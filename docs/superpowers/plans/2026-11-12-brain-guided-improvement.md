@@ -732,3 +732,99 @@ handoff authority, state any intended change to command-payload rejection, and
 obtain owner approval before changing the security-sensitive policy. This report
 authorizes neither that policy change nor further live calls. Production
 qualification remains false; observation capture stays separate in #1077.
+
+
+## Fourth owner-authorized paired trial (2026-11-16)
+
+The owner answered “go ahead” to the explicit request for one fresh five-pair
+trial capped at **60 provider calls**, using Codex `gpt-6-luna` / medium, with no
+retries or model switches. Each of the same five pinned fixtures receives at
+most one six-call app run and one six-call controlled baseline. The existing
+once-per-case rule, eight-minute arm deadline and evidence/privacy limits apply.
+This is a fresh authorization after #1753's inert-text/fixed-handoff contract and
+#1774's combined-request clarification, not reuse of an earlier trial budget.
+
+Run the unchanged qualification harness from source
+`8d5c94d36f15b27d9808523c94ecb66a7bb432c3`. Keep signed `brain-4`, the public key,
+publication/core identity, pinned fixture revisions and excluded-test policy
+unchanged. Use fresh owner-local artifacts under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-4`; all prior cohorts
+remain immutable. Perform the no-call signed-input preflight before entering
+the live runner. Independently adjudicate all five pairs under the approved
+usefulness gate; failures and missing output receive no replacement sample.
+Production qualification stays false pending that evidence. No activation or
+published-installer claim follows from authorization alone.
+
+### Fourth comparison result, 2026-11-16
+
+The signed-input preflight passed with zero calls reserved and no trial outputs.
+The unchanged live runner then attempted every pair once and finished at
+**31 reserved and completed calls of 60**, with no retries or model switches.
+The runner reported `qualification_samples_failed`; its ledger status remains
+`incomplete; attempted calls and failures retained`. The unused allowance does
+not authorize replacement samples. Independent adjudication returns
+**NOT ACTIVATION-QUALIFIED**. Two positive app results meet the numeric floor,
+but a valid preferred baseline improvement is lost when the app final is rejected.
+The explicit paired-comparison gate therefore blocks activation.
+
+| Fixed case | App / baseline calls | App result | Controlled baseline and disposition |
+| --- | --- | --- | --- |
+| Behavioral assertions | 3 / 4 | Final rejected as `invalid_model_output`; no credit | Valid assertion of the addition result replaces an unconditional assertion. The rejected app result supplies no accepted alternative; this is a blocking paired loss. |
+| Entry command | 4 / 2 | Valid `align-verification-guidance` | Matching correction of `pnpm verify` guidance to the package/CI test command; covered. |
+| CI failure signaling | 3 / 4 | Valid `preserve-ci-test-failures` | Matching removal of failure masking; covered. Actual CI behavior remains unverified. |
+| Already satisfied | 2 / 3 | Valid no-proposal result | Baseline proposes a change-type-to-test mapping. Independent review judges it redundant/lower priority for this single-test-file fixture, rather than a distinct worthwhile validation path. This usefulness judgement is not needed for the blocking conclusion. |
+| Restricted evidence | 3 / 3 | Valid `inspect-test-evidence` investigation | Comparable bounded investigation; omitted test behavior stays unknown. The advice grants no permission to read excluded files; any further inspection must use separately permitted evidence. |
+
+The retained rejected final contains a grounded behavioral-test opportunity.
+Exact offline replay reports a text-validation rejection at
+`opportunities[0].benefit`:
+
+> An incorrect addition result would be detectable by the behavioral test rather than passing through an assertion unrelated to the output.
+
+This is 137 characters, below the 1,000-character bound, with no control or bidi
+characters. Citation validation passes. The retained completed-verification
+heuristic treats `passing` near `test` as a completion claim: its local modal
+rule does not carry the earlier `would` through the intervening benefit clause.
+The sentence describes a prospective contrast, not executed verification. The
+experiment remains rejected and receives no retroactive credit. No validator
+or policy changed. The temporary diagnostic test was removed, restoring the
+model source byte-for-byte; it made no provider calls. A local replay-harness
+type-inference error was corrected before the successful diagnosis.
+
+The two controlled arms had equivalent permitted fixture and signed-guidance
+catalogs, while selected facts/pages differed. In the satisfied case, the baseline
+read implementation/tests while the app finished without those reads. The app
+final is structured `ImprovementFinalV1`; baseline advice is natural text. Actual
+per-call elapsed times are not recorded; the existing per-arm deadline remains
+enforced. Both restricted arms received the same six permitted repository facts
+and no excluded test content. Neither arm executed suggested verification.
+
+Two read-only Luna/medium reviewers checked usefulness and custody/candidate
+coverage independently. One accidentally read an excluded restricted-fixture test;
+that reviewer's restricted-case judgement was invalidated. Its initial floor-only
+qualification conclusion was also rejected and corrected against the explicit
+paired-loss rule. A separate unexposed reviewer explicitly confirmed no excluded
+file or Git recovery access and adjudicated the restricted pair solely from
+delivered evidence. This review-tool error did not expose the file to either
+live model arm or change the trial inputs. The limitation is retained rather
+than treated as cured by a promise not to rely on the content.
+
+The custody audit checked all 62 prompt/output artifacts against recorded hashes
+and byte counts, all ten once-only arm groups, contiguous call numbers, no
+truncation and at most four calls in any arm. Runner source, fixture revisions,
+model/effort and signed `brain-4` identities match. Owner-local evidence remains
+under the fourth corpus root, including `trial-run/run.json`, all raw outputs,
+`decoder-diagnosis.json` and `independent-adjudication-four.json`. Separate
+`preflight.log`, `execution.log` and `offline-decode.log` retain the successful
+zero-call preflight, runner failure and exact decoder replay:
+
+- Ledger SHA256: `460e29759a92b23a0cef4c96588c1f4d01bd04aed38f3b37e80dabf20b6c832d`.
+- Run metadata SHA256: `b4be5c8a873c05f73f140b0a3e42b89844356f1865c5496a42365ffa861ce16f`.
+- Diagnosis SHA256: `971d9ff9625dafd1626a080a34c2d3ed39d89f415503edf4e326b2944d954fb7`.
+- Independent adjudication SHA256: `3f1cab8e1bc16d2ceee49b688e28d8f16acebf9155adb2a9b4948bb193bc9d9e`.
+
+All earlier cohorts remain immutable. Production qualification remains false;
+there is no activation, signed publication, installed-settings change or release.
+The next useful task is a bounded correction to the retained verification-claim
+false positive, with exact saved-result regression evidence and review of real
+completed-claim rejection. No further live calls are authorized by this cohort.
