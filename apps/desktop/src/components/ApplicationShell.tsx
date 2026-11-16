@@ -493,7 +493,7 @@ export default function ApplicationShell(props: Props) {
             <button type="button" data-shell-command="next-action" onClick={() => runCommand("next-action")}>Show next action</button>
             <span data-actions-counts>{actionsModel.sessionCountLabel} · {actionsModel.recommendationCountLabel}</span>
           </div>
-          <button type="button" data-shell-command="details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={15} aria-hidden="true" />Details</button>
+          <button type="button" data-shell-command="details" aria-label="Details" title="Details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={17} aria-hidden="true" /></button>
         </nav>
         {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
