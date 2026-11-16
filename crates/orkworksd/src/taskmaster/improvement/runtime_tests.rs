@@ -450,6 +450,14 @@ async fn no_proposal_report_retains_cited_signed_rubric_snapshots() {
 
 #[tokio::test]
 async fn history_failure_is_reported_without_hiding_committed_assessment() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::history_failure_is_reported_without_hiding_committed_assessment",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let root = state
         .workspace
