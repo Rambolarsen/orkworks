@@ -151,4 +151,6 @@ Capability research, validation results, and evidence fixtures.
 
 - [Offline positive research recovery and completion](research-recovery-completion-components.md) — late-disposition source ordering, paired original recovery/completion, preserved history, blocker correspondence and independent bytes.
 
+- [Offline scope rejection and completion](research-scope-rejection-components.md) — independent prior-plan proposal sources, exact Main rejection/compound completion, original retry and retained submission checks; singleton membership remains unqualified.
+
 - [Remaining research source and variant coverage](research-source-coverage-audit.md) — Source-owner and codec gaps before complete research catalog/history qualification.

@@ -328,3 +328,14 @@ earlier coverage audit is append-only. Existing bundler warnings and another
 owner's stale worktree require no unrelated edit. Worktree reporting succeeded;
 primary residue remains untouched. No product/native verifier or runtime call
 was run, and no broad repository or producer qualification is claimed.
+
+## Scoped owner acceptance and offline handoff — 2026-11-16
+
+The owner answered “go ahead” to the three choices following #1778. All three
+are accepted for finite offline components only. This supersedes pending-choice
+wording at that bounded scope; existing technical bodies and historical review
+statements remain unchanged. The [component packet](../../validation/research-scope-rejection-components.md)
+supplies independent prior-plan/source joins and completing/incomplete rejection
+alternatives, original retry/denial and occurrence checks. Reserved-current-plan
+singleton membership remains unclosed: no second active collection, legal pending
+prestate, source-valid publisher/history or runtime qualification follows.
