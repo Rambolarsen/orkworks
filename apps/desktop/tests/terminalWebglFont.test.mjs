@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Characterizes the installed WebGL addon, including our pnpm patch. The
 // regression kept 28px cells but silently rasterized glyphs at the 10px default.
@@ -51,8 +51,8 @@ if (process.versions.electron) {
   for (const format of ['js', 'mjs']) test(`WebGL ${format} glyphs use the requested Retina font for normal, bold and italic text`, {timeout:30000}, async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-webgl-font-'));
     const fixture = join(directory, 'index.html');
-    const xterm = require.resolve('@xterm/xterm').replace(/\.js$/, `.${format}`);
-    const webgl = require.resolve('@xterm/addon-webgl').replace(/\.js$/, `.${format}`);
+    const xterm = pathToFileURL(require.resolve('@xterm/xterm').replace(/\.js$/, `.${format}`)).href;
+    const webgl = pathToFileURL(require.resolve('@xterm/addon-webgl').replace(/\.js$/, `.${format}`)).href;
     const scripts = format === 'js'
       ? `<script src="${xterm}"></script><script src="${webgl}"></script>`
       : `<script type="module">import {Terminal} from '${xterm}'; import {WebglAddon} from '${webgl}'; window.Terminal=Terminal; window.WebglAddon={WebglAddon};</script>`;
