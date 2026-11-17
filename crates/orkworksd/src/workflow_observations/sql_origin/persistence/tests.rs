@@ -171,7 +171,7 @@ async fn physical_count_rewrite_copies_evicted_origin_and_tombstone_retry_is_rea
         .collect();
     seed_file(root.path(), &records, 1000);
     assert!(
-        matches!(write(&directory,&source,"new").unwrap(),RecordOutcome::Accepted(v) if v.sequence==1001)
+        matches!(numeric_write(&directory,&source,"new").unwrap(),RecordOutcome::Accepted(v) if v.sequence==1001)
     );
     let path = root.path().join("workflow-observations/s.ndjson");
     let bytes = fs::read(&path).unwrap();
@@ -191,7 +191,7 @@ async fn physical_count_rewrite_copies_evicted_origin_and_tombstone_retry_is_rea
     assert!(tomb.observation().is_none());
     assert_eq!(tomb.origin(), records[0].origin());
     assert!(matches!(
-        write(&directory, &source, "old-1").unwrap(),
+        numeric_write(&directory, &source, "old-1").unwrap(),
         RecordOutcome::Duplicate { sequence: 1, .. }
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
