@@ -1116,3 +1116,45 @@ The next useful work is recommendation restraint/applicability on an already
 covered workflow, with bounded offline evidence before any separately authorized
 paid comparison. This report changes no validator, producer, acceptance criterion,
 production gate or historical credit.
+
+### Applicability and no-proposal clarification, 2026-11-17
+
+The owner approved the follow-up with “go ahead” after the sixth report. Its
+retained satisfied-control final is structurally valid; semantic selection, not
+decoding or publication, generated the weak README recommendation. The model
+received the experimental practice's non-applicable scope but did not respect it.
+Existing prompts say to challenge gaps and avoid advice from low scores, while
+leaving the current-coverage/applicability/no-proposal decision largely implicit.
+
+The bounded source correction shares explicit selection guidance between the app
+and controlled baseline, in evidence and final/advice phases. A candidate must
+offer meaningful local benefit after considering existing coverage and guidance
+scope/status/limits. Low effort, reversibility, sparse text or an imagined audience
+alone is insufficient. Grounded hypotheses still need no observed failure, and a
+bounded investigation must resolve a concrete decision with permitted evidence.
+If nothing clears that bar, no proposal is a successful result with an explanation,
+assessment and uncertainty. No README-specific blacklist or prose classifier is
+introduced; the decoder and response schema do not change.
+
+The capture discriminator advances from prompt revision 4 to 5. A deterministic
+regression first showed an old prompt's no-proposal report still projected as
+current; the new identity suppresses its current projection while preserving the
+stored bytes and avoiding inference on a status read. Another regression first
+showed missing outgoing selection guidance and checks that both phases/arms
+retain the same guidance. Its fixture response verifies the no-proposal data path;
+it does not simulate or prove a model's judgement. Existing no-proposal publication
+and grounded-hypothesis tests remain applicable.
+
+No further paid trials, production activation or historical output recredit are
+authorized by this correction. Offline prompt/cache tests cannot establish that
+the model will obey the guidance; a future usefulness comparison still needs a
+fresh finite authorization and the unchanged acceptance gates.
+
+The first full verifier failed an unchanged native cancellation test before its
+assertions: the synthetic PID marker existed while still empty (`ParseIntError:
+Empty`). The exact case passed alone, but that did not erase the failed full run.
+Its test-only shell fixture now writes a complete PID to a per-process temporary
+file and renames it atomically before consumers observe the marker. Native
+production behavior, cancellation assertions, deadlines and concurrency remain
+unchanged. The captured failure and bounded correction are tracked in
+[#957](https://github.com/Rambolarsen/orkworks/issues/957#issuecomment-6950703304).

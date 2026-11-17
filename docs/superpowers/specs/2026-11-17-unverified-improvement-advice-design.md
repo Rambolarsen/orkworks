@@ -87,9 +87,10 @@ This is not native coding-tool confinement or a guarantee of advice accuracy.
 
 ## Producer identity and compatibility
 
-Use one explicit supported identity, with all redundant fields agreeing:
+Use one consistent producer identity, with all redundant fields agreeing. The
+initial approved producer-3 identity was:
 
-| Surface | Approved identity |
+| Surface | Initial approved identity |
 | --- | --- |
 | Capture/evaluation discriminator | `brain-improvement-v3:collector-1:prompt-4:response-1:text-3` |
 | Range manifest/report | Existing format 1 and ranges; purpose `brain-improvement-v3` |
@@ -99,6 +100,18 @@ Use one explicit supported identity, with all redundant fields agreeing:
 | History identity versions | `purpose: brain-improvement-v3`, `collector: 3`, `schema: 1`, `text: 3` |
 | Persisted history origin | Optional `improvementVersion: 3` on new snapshots, retained when privacy redacts data; absent on old snapshots |
 | Recommendation reference | Existing intent enum with `improvementReference.version: 3` |
+
+Prompt revision 5 clarifies the existing applicability/no-proposal decision:
+compare inspected current coverage, respect guidance applicability and limits,
+and require a meaningful local benefit before preferring a change. Both app and
+controlled baseline receive the same selection guidance in both phases. Supported
+hypotheses remain allowed without an observed failure; unknown or unassessed
+behavior alone does not justify work. The capture discriminator becomes
+`brain-improvement-v3:collector-1:prompt-5:response-1:text-3`; all response, storage,
+history, text-policy and presentation versions above remain unchanged. Earlier
+completed records still load in the same stored format, but cannot be projected
+as current under the new prompt identity. This clarification does not qualify model compliance or enable
+production admission.
 
 Unknown or contradictory identities fail closed. Preserve policy-1/2 readers and
 old bytes. Downgrade must report unsupported data without deleting it, rewriting

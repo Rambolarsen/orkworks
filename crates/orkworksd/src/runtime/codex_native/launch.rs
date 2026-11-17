@@ -742,7 +742,10 @@ if [ "${FIXTURE_REDACT_REPORT-}" = yes ]; then
 else
  printf '%s\n' "$ORKWORKS_REPORT_TOKEN" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" "$CODEX_HOME" "${ORKWORKS_CODEX_NATIVE_AUTH-absent}" > "$FIXTURE_DIR/env"
 fi
-echo $$ > "$FIXTURE_DIR/pid"
+# Tests wait for this marker's existence before parsing the PID. Publish the
+# complete value atomically so they cannot observe the redirection's empty file.
+printf '%s\n' "$$" > "$FIXTURE_DIR/pid.$$.tmp"
+mv "$FIXTURE_DIR/pid.$$.tmp" "$FIXTURE_DIR/pid"
 if [ "$FIXTURE_MODE" = fail ]; then exit 1; fi
 if [ "$FIXTURE_MODE" = hang ]; then exec sleep 30; fi
 if [ "$FIXTURE_MODE" = refuse ]; then
