@@ -2425,3 +2425,13 @@ results from appearing current while preserving stored bytes and read-only statu
 No schema, text policy, evidence/dispatch authority, call limit or production gate
 changes. Offline checks establish delivery/currentness, not model compliance; the
 seventh comparison remains failed and its original artifacts remain uncredited.
+
+The eighth paired recommendation comparison at merged #1865 used 30/60 calls:
+three useful positives, justified no-proposal app controls and no valid preferred
+baseline lost without an equally useful alternative. The scoped recommendation
+comparison passes; it does not establish full assessment fidelity. Independent
+review still found unsupported rubric ratings and fact-index miscitation, retained
+in the [eighth report](../superpowers/plans/2026-11-12-brain-guided-improvement.md#eighth-comparison-result-2026-11-17).
+Production activation was explicitly excluded; the gate remains false and the
+conditional workspace phase used zero calls. No installed behavior, model-wide
+compliance, historical recredit or resolved assessment-grounding claim follows.
