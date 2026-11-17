@@ -485,6 +485,10 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
             get(crate::http::branch_documents_handlers::content),
         )
         .route(
+            "/sessions/:id/plan-document-reset",
+            post(http::branch_documents_handlers::reset_invalid),
+        )
+        .route(
             "/sessions/:id/plan-document-latest",
             post(crate::http::branch_documents_handlers::use_latest),
         )

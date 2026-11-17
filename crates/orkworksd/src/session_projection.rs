@@ -153,7 +153,7 @@ struct ProjectionSnapshot {
 /// Only location-relevant state participates in optimistic validation. Output,
 /// labels and summaries can advance without starving session refreshes.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct LocationInputs {
+pub(crate) struct LocationInputs {
     cwd: String,
     binding: Option<crate::session_location::WorktreeBinding>,
     reported_cwd: Option<String>,
@@ -162,9 +162,54 @@ struct LocationInputs {
 }
 
 impl LocationInputs {
+    pub(crate) fn bind_recovery(&self, snapshot: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(snapshot.as_bytes());
+        hash.update(format!("{self:?}").as_bytes());
+        hex::encode(hash.finalize())
+    }
+    pub(crate) fn resolve_root(&self) -> Option<PathBuf> {
+        DocumentLocations::default().location_root(self)
+    }
+    /// Nonblocking while the caller retains the branch lock: another document
+    /// reader may own the workspace mutex while waiting for that branch.
+    pub(crate) fn try_capture_owned(
+        state: &AppState,
+        id: &str,
+        workspace: &crate::WorkspaceState,
+    ) -> Option<Self> {
+        let live = state.sessions.try_lock().ok()?;
+        let info = live.get(id).map(|h| h.info.clone()).or_else(|| {
+            // Final admission must never follow a link or wait on a FIFO.
+            // Use the existing bounded regular-file reader, not fs::read.
+            crate::git_changes_fs::metadata_file(
+                &workspace.metadata.sessions_dir().join(format!("{id}.json")),
+            )
+            .ok()
+            .flatten()
+            .and_then(|bytes| {
+                serde_json::from_slice::<crate::metadata::session_transactions::RevisionedSession>(
+                    &bytes,
+                )
+                .ok()
+            })
+            .filter(|record| record.metadata.id == id)
+            .map(|record| SessionInfo::baseline_from_metadata(&record.metadata))
+        })?;
+        let reported_cwd = state.peon.reported_cwd.try_read().ok()?.get(id).cloned();
+        let pid = state.session_pids.try_lock().ok()?.get(id).copied();
+        Some(Self {
+            cwd: info.cwd,
+            binding: info.worktree_binding,
+            reported_cwd,
+            pid,
+            runtime: live.get(id).map(|h| h.runtime.identity()),
+        })
+    }
     // Caller holds the projection fence; this captures state and durable
     // metadata without resolving Git, process CWD or filesystem paths.
-    fn capture(state: &AppState, id: &str) -> Option<Self> {
+    pub(crate) fn capture(state: &AppState, id: &str) -> Option<Self> {
         let info = crate::session_location::subject_info(state, id).ok()?;
         let runtime = state
             .sessions
@@ -736,6 +781,13 @@ impl SessionProjection {
                         let scan = store.scan(root, false);
                         let prepared =
                             crate::branch_documents::prepare_projection(&store, root, scan);
+                        let failure = prepared.as_ref().err().map(|error| {
+                            crate::branch_documents::recovery_projection(
+                                &store,
+                                root,
+                                error.clone(),
+                            )
+                        });
                         let mut fresh = DocumentLocations::default();
                         let context_matches = captured.is_none_or(|captured| {
                             captured[&info.id]
@@ -768,12 +820,19 @@ impl SessionProjection {
                                     crate::branch_documents::unavailable_projection(error)
                                 }
                             },
-                            Err(error) => crate::branch_documents::unavailable_projection(error),
+                            Err(error) => failure.unwrap_or_else(|| {
+                                crate::branch_documents::unavailable_projection(error)
+                            }),
                         };
                         projections.insert(root.to_path_buf(), projection.clone());
                         Some(projection)
                     });
-                if let Some(projection) = projection {
+                if let Some(mut projection) = projection {
+                    if let Some(snapshot) = projection.recovery_id.take() {
+                        let _fence = self.state.projection_lock.lock().unwrap();
+                        projection.recovery_id = LocationInputs::capture(&self.state, &info.id)
+                            .map(|inputs| inputs.bind_recovery(&snapshot));
+                    }
                     if projection.steps.iter().any(|step| step.available) {
                         info.has_openable_plan = Some(true);
                     }
@@ -796,6 +855,7 @@ impl SessionProjection {
                             })
                             .collect(),
                         notice: Some("Reported task worktree unavailable.".into()),
+                        recovery_id: None,
                     });
                 }
             }

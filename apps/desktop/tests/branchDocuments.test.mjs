@@ -26,3 +26,11 @@ test('missing pinned documents stay visibly unavailable and can return to latest
  const html=render({...data,notice:'Branch history unavailable',steps:[{...data.steps[1],available:false}]});
  assert.match(html,/Selected document unavailable/);assert.match(html,/Use latest/);assert.match(html,/Branch history unavailable/);
 });
+
+
+test('invalid records offer an explicit reset while unsafe records only offer retry',()=>{
+ const invalid={branch:'task',sharedSessions:2,steps:[],notice:'Saved choices unavailable',recoveryId:'a'.repeat(64)};
+ assert.match(render(invalid),/Reset saved document choices/);
+ assert.doesNotMatch(render({...invalid,recoveryId:undefined}),/Reset saved document choices/);
+ assert.match(render({...invalid,recoveryId:undefined}),/Try again/);
+});

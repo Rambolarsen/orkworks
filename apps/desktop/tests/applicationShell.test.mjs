@@ -175,6 +175,39 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.errors'), []);
         }
         return;
+      } else if (scenario === 'app-review-branch-recovery') {
+        await click('details');
+        await waitFor('document.querySelector(".branch-documents > summary")');
+        await evaluate('document.querySelector(".branch-documents > summary").click()');
+        await waitFor('document.querySelector("[data-document-reset]")');
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await waitFor('document.querySelector("[role=alertdialog]")');
+        assert.match(await evaluate('document.querySelector("[role=alertdialog]").textContent'), /both|Both/);
+        assert.match(await evaluate('document.querySelector("[role=alertdialog]").textContent'), /feature/);
+        await evaluate('document.querySelector("[data-document-reset-cancel]").click()');
+        assert.equal(await evaluate('fixture.documentResets.length'), 0);
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('fixture.sessionList=fixture.sessionList.map((s,i)=>i===0?{...s,planDocuments:{...s.planDocuments,recoveryId:"b".repeat(64)}}:s);document.querySelector("[data-document-retry]").click()');
+        await waitFor('!document.querySelector("[role=alertdialog]")');
+        await evaluate('fixture.sessionList=fixture.sessionList.map((s,i)=>i===0?{...s,planDocuments:{...s.planDocuments,recoveryId:"a".repeat(64)}}:s);document.querySelector("[data-document-retry]").click()');
+        await waitFor('document.querySelector("[data-document-reset]")');
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('document.querySelector("[data-document-reset-confirm]").click();document.querySelector("[data-document-reset-confirm]")?.click()');
+        await waitFor('fixture.documentResets.length===1 && !!fixture.rejectDocumentReset');
+        assert.equal(await evaluate('document.querySelector("[data-document-reset-confirm]").disabled'), true);
+        await evaluate('fixture.rejectDocumentReset(new Error("storage uncertain"))');
+        await waitFor('document.querySelector(".branch-documents [role=alert]")');
+        assert.match(await evaluate('document.querySelector(".branch-documents [role=alert]").textContent'), /refresh|Refresh/);
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('document.querySelector("[data-document-reset-confirm]").click()');
+        await waitFor('fixture.documentResets.length===2 && !!fixture.finishDocumentReset');
+        await evaluate('fixture.sessionList[0].planDocuments={branch:"feature",sharedSessions:2,steps:[{kind:"design",available:true,pinned:false,title:"Recovered design"}]};fixture.finishDocumentReset()');
+        await waitFor('document.querySelector(".branch-documents")?.textContent.includes("Recovered design")');
+        assert.equal(await evaluate('!!document.querySelector("[data-document-reset]")'), false);
+        assert.deepEqual(await evaluate('fixture.documentResets'), [['created','a'.repeat(64)],['created','a'.repeat(64)]]);
+        assert.equal(await evaluate('fixture.prompts'), 0);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'app-review-branch-documents') {
         await waitFor('document.querySelector("[data-shell-selected-session]") || fixture.sessionList.length===2');
         await click('details');
@@ -2334,7 +2367,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2410,6 +2443,8 @@ if (process.versions.electron) {
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${javascriptLiteral(scenario)}.startsWith('app-review')||${javascriptLiteral(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
             if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
+            fixture.documentResets=[];
+            if(${scenario === 'app-review-branch-recovery'})fixture.sessionList[0].planDocuments={branch:'feature',sharedSessions:2,steps:[],recoveryId:'a'.repeat(64),notice:'Saved choices could not be read. Reset to restore discovery.'};
             if(['app-review-terminal-links','app-review-replay'].includes(${javascriptLiteral(scenario)})){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             if(${javascriptLiteral(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${javascriptLiteral(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
@@ -2428,6 +2463,7 @@ if (process.versions.electron) {
               getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${javascriptLiteral(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
               completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${javascriptLiteral(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
               rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
+              resetSavedPlanDocuments:async (id,recoveryId)=>{fixture.documentResets.push([id,recoveryId]);await new Promise((resolve,reject)=>{fixture.finishDocumentReset=resolve;fixture.rejectDocumentReset=reject})},
               selectTerminalPlan:async (id,path)=>{fixture.planSelections.push([id,path]);if(fixture.selectionFailure)throw new Error('Document is unavailable');if(fixture.deferSelection)await new Promise(resolve=>fixture.finishSelection=resolve);return fixture.selectedDocument},
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},

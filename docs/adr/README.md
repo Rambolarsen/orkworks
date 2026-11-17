@@ -13,7 +13,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 ## Index
 
-- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted on 2026-11-01; shared selections, Git discovery and two ordered steps. The 2026-11-10 amendment keeps projection inspection outside terminal input fencing.
+- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted on 2026-11-01; shared selections, Git discovery and two ordered steps. The 2026-11-10 amendment keeps projection inspection outside terminal input fencing; the 2026-11-17 amendment adds confirmed, preservation-first recovery of invalid branch records.
 
 | ADR | Title | Status |
 |-----|-------|--------|

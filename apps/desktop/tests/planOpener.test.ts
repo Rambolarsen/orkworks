@@ -105,3 +105,19 @@ test("starts the sidecar with the plan token without startup workspace adoption"
   assert.doesNotMatch(mainSource, /initialSidecarCwd/);
   assert.match(mainSource, /openPlanToken = randomBytes\(32\)\.toString\("hex"\);/);
 });
+
+
+test("reset sends only the displayed recovery ID through authenticated generation-bound transport", async () => {
+  const { resetSavedPlanDocuments } = await import("../electron/planOpener.ts");
+  assert.equal(typeof resetSavedPlanDocuments, "function");
+  const requests: Array<{url: string; init?: RequestInit}> = [];
+  const signal = new AbortController().signal;
+  const fetcher: typeof fetch = async (url, init) => { requests.push({url:String(url),init}); return new Response(null,{status:204}); };
+  await resetSavedPlanDocuments("http://127.0.0.1:4444", "session 1", "a".repeat(64), "token", fetcher, signal);
+  assert.deepEqual(requests, [{url:"http://127.0.0.1:4444/sessions/session%201/plan-document-reset",init:{method:"POST",headers:{"Content-Type":"application/json","x-orkworks-open-plan-token":"token"},body:JSON.stringify({recoveryId:"a".repeat(64)}),signal}}]);
+  for (const invalid of ["", "../private", "A".repeat(64)]) {
+    await assert.rejects(resetSavedPlanDocuments("http://127.0.0.1:4444", "s", invalid, "token", fetcher, signal), /Invalid.*recovery/);
+  }
+  assert.equal(requests.length, 1);
+  await assert.rejects(resetSavedPlanDocuments("http://127.0.0.1:4444", "s", "a".repeat(64), "token", async()=>new Response(null,{status:409}), signal), /already.*applied|refresh/i);
+});

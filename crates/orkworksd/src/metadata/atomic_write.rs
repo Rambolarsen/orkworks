@@ -10,7 +10,16 @@ fn parent(path: &Path) -> &Path {
 
 /// Complete staging I/O before the caller's final admission/deadline check.
 /// A unique, exclusively created name cannot collide with another writer.
-pub(super) fn stage(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
+pub(crate) fn stage(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
+    stage_with_privacy(target, contents, false)
+}
+
+/// Private bytes must never pass through a broadly readable staging inode.
+pub(crate) fn stage_private(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
+    stage_with_privacy(target, contents, true)
+}
+
+fn stage_with_privacy(target: &Path, contents: &[u8], private: bool) -> io::Result<TempPath> {
     // Filesystem-scoped fault injection lets application tests exercise failed
     // persistence across async workers without process-global fault state.
     #[cfg(test)]
@@ -28,10 +37,18 @@ pub(super) fn stage(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
     // about to become persistent metadata. OpenOptions also retains the prior
     // fs::write creation permissions (0666 filtered by umask on Unix).
     let mut staged = builder.make_in(parent(target), |path| {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            if private {
+                options.mode(0o600);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = private; // Inherit the owning directory's ordinary Windows ACL.
+        options.open(path)
     })?;
     staged.write_all(contents)?;
     #[cfg(test)]
@@ -44,24 +61,28 @@ pub(super) fn stage(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
 /// Rename is the visible-write cutoff, even if the following directory sync
 /// fails. Retire old ownership at that cutoff; an error must not revive it.
 /// Errors after replacement do not imply that the old bytes remain on disk.
-pub(super) fn publish(
+pub(crate) fn publish(
     staged: TempPath,
     target: &Path,
     on_publish: impl FnOnce(),
 ) -> io::Result<()> {
     crate::durable_file::replace(&staged, target)?;
     on_publish();
+    sync_parent(target)
+}
+
+pub(crate) fn sync_parent(target: &Path) -> io::Result<()> {
     #[cfg(all(test, unix))]
     testing::before_sync(testing::SyncPoint::Directory, target)?;
     crate::durable_file::sync_directory(parent(target))
 }
 
 #[cfg(test)]
-pub(super) mod testing {
+pub(crate) mod testing {
     use std::{cell::RefCell, io, path::Path};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(in crate::metadata) enum SyncPoint {
+    pub(crate) enum SyncPoint {
         File,
         #[cfg(unix)]
         Directory,
@@ -70,10 +91,8 @@ pub(super) mod testing {
     thread_local! {
         static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
     }
-    pub(in crate::metadata) struct Guard;
-    pub(in crate::metadata) fn install(
-        hook: impl FnMut(SyncPoint, &Path) -> io::Result<()> + 'static,
-    ) -> Guard {
+    pub(crate) struct Guard;
+    pub(crate) fn install(hook: impl FnMut(SyncPoint, &Path) -> io::Result<()> + 'static) -> Guard {
         HOOK.with(|slot| assert!(slot.borrow_mut().replace(Box::new(hook)).is_none()));
         Guard
     }

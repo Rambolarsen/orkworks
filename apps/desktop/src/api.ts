@@ -159,6 +159,7 @@ export interface BranchDocumentStep {
   selectionId?: string | null;
 }
 export interface BranchDocuments {
+  recoveryId?: string | null;
   branch?: string | null;
   sharedSessions: number;
   steps: BranchDocumentStep[];

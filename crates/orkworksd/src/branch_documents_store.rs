@@ -8,7 +8,10 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
+mod recovery;
+
 pub(crate) struct Store {
+    recovery_nonce: String,
     root: PathBuf,
     locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     scans: Mutex<HashMap<PathBuf, (std::time::Instant, Identity, Option<git2::Oid>, Scan)>>,
@@ -41,6 +44,7 @@ struct Record {
 impl Store {
     pub(crate) fn new(root: &Path) -> Self {
         Self {
+            recovery_nonce: uuid::Uuid::new_v4().to_string(),
             root: root.join("branch-documents"),
             locks: Mutex::new(HashMap::new()),
             scans: Mutex::new(HashMap::new()),
@@ -130,7 +134,10 @@ impl Store {
             Ok(None) => return Ok(Vec::new()),
             Err(_) => return Err("Branch document record unreadable.".into()),
         };
-        let record: Record = serde_json::from_slice(&data)
+        Self::decode(id, &data)
+    }
+    fn decode(id: &Identity, data: &[u8]) -> Result<Vec<Document>, String> {
+        let record: Record = serde_json::from_slice(data)
             .map_err(|_| "Branch document record malformed; preserved without changes.")?;
         if record.version != 1
             || record.identity != *id

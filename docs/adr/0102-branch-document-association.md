@@ -85,3 +85,21 @@ selection writes retain the existing fenced authority; Git/document reads and
 branch-lock waits do not. Metadata/organization projection keeps its prior
 ordering, so remaining fenced I/O must still be measured. Live adoption requires
 an owner-controlled restart and responsiveness validation.
+
+
+## Amendment 2026-11-17: explicit recovery of invalid branch records
+
+The owner approved the [recovery amendment](../../specs/session-plan-review.md#branch-document-recovery-amendment)
+in draft PR #1847 and authorized implementation under #1782. Preserve the
+existing read-only failure behavior for invalid records. Add a confirmed,
+authenticated reset of both branch document choices/pins, scoped to the current
+workspace owner, validated session location, branch identity and exact displayed
+record snapshot. Preserve the original bytes durably in a unique sibling recovery
+copy before replacing the invalid record with an empty version-1 record. Never
+reset automatically, replace an earlier recovery copy, edit Markdown/session
+metadata or grant terminal/review authority. Unsafe or unreadable records remain
+unavailable with an honest retry notice. Recovery I/O stays outside the global
+input fence; final admission rejects changed context and visible replacement
+invalidates older prepared scans. Post-replacement errors require refresh,
+never blind rollback. Existing committed metadata-patch acknowledgements remain
+successful while the shared-record error is visible in session projection.

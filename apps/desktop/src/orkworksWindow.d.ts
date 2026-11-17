@@ -237,6 +237,7 @@ declare global {
       sessionTitle: (request: import("./sessionTitleTypes").SessionTitleRequest) => Promise<import("./sessionTitleTypes").SessionTitleResult>;
       getPlanContent: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<string>;
       requestPlanReview: (sessionId: string, kind?: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
+      resetSavedPlanDocuments: (sessionId: string, recoveryId: string) => Promise<void>;
       useLatestPlanDocument: (sessionId: string, kind: import("./api").PlanDocumentKind, selectionId?: string) => Promise<void>;
       selectTerminalPlan: (sessionId: string, printedPath: string) => Promise<{kind: import("./api").PlanDocumentKind; selectionId: string; branch?: string | null} | undefined>;
       setHotkeyCaptureActive: (active: boolean) => void;

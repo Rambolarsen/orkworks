@@ -733,3 +733,163 @@ async fn review_never_retargets_a_resumed_runtime_after_slow_document_inspection
         .iter()
         .all(|e| e.event_type != "plan_review_requested"));
 }
+
+fn recovery_fixture() -> (
+    tempfile::TempDir,
+    Arc<AppState>,
+    Arc<crate::branch_documents_store::Store>,
+    PathBuf,
+    String,
+) {
+    let (root, state, store, _rx) = fixture();
+    let identity = branch_documents::identity(root.path()).unwrap();
+    store
+        .report(
+            &identity,
+            branch_documents::document(
+                root.path(),
+                "specs/current.md",
+                crate::metadata::PlanSource::UserSelected,
+                true,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let record = {
+        let mut ws = state.workspace.lock().unwrap();
+        let ws = ws.as_mut().unwrap();
+        ws.lease = Some(Arc::new(
+            crate::workspace_runtime::WorkspaceLease::acquire(&ws.metadata.root_path()).unwrap(),
+        ));
+        std::fs::read_dir(ws.metadata.root_path().join("branch-documents"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path()
+    };
+    std::fs::write(&record, "{broken").unwrap();
+    let projection = crate::session_projection::SessionProjection::new(state.clone())
+        .list()
+        .unwrap();
+    let token = projection
+        .iter()
+        .find(|s| s.id == "runtime-review")
+        .unwrap()
+        .plan_documents
+        .as_ref()
+        .unwrap()
+        .recovery_id
+        .clone()
+        .unwrap();
+    (root, state, store, record, token)
+}
+#[test]
+fn reset_invalid_documents_does_not_hold_input_fence_during_preservation_and_rejects_adoption() {
+    use crate::metadata::atomic_write::testing::{self, SyncPoint};
+    let (_root, state, _store, record, token) = recovery_fixture();
+    let changed = state.clone();
+    let _hook = testing::install(move |point, path| {
+        if point == SyncPoint::File && path.to_string_lossy().ends_with(".preserved") {
+            assert!(changed.projection_lock.try_lock().is_ok());
+            let mut workspace = changed
+                .workspace
+                .try_lock()
+                .expect("preservation retained workspace mutex");
+            let old = workspace.take().unwrap();
+            let storage = old.metadata.root_path();
+            drop(old);
+            assert!(
+                crate::workspace_runtime::WorkspaceLease::acquire(&storage).is_err(),
+                "reset lost its retained writer lease"
+            );
+        }
+        Ok(())
+    });
+    assert!(SessionApplication::new(state)
+        .reset_invalid_documents("runtime-review", &token)
+        .is_err());
+    assert_eq!(std::fs::read(record).unwrap(), b"{broken");
+}
+#[test]
+fn reset_invalid_documents_rejects_stale_location_even_for_the_same_repository() {
+    use crate::metadata::atomic_write::testing::{self, SyncPoint};
+    let (_root, state, _store, record, token) = recovery_fixture();
+    let changed = state.clone();
+    let _hook = testing::install(move |point, path| {
+        if point == SyncPoint::File && path.to_string_lossy().ends_with(".preserved") {
+            let _fence = changed.projection_lock.lock().unwrap();
+            changed
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut("runtime-review")
+                .unwrap()
+                .info
+                .worktree_binding = Some(crate::session_location::WorktreeBinding {
+                root: "/missing".into(),
+                common_dir: "/missing".into(),
+            });
+        }
+        Ok(())
+    });
+    assert!(SessionApplication::new(state)
+        .reset_invalid_documents("runtime-review", &token)
+        .is_err());
+    assert_eq!(std::fs::read(record).unwrap(), b"{broken");
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_admission_refuses_a_historical_metadata_fifo_without_blocking_input() {
+    use std::{io::Write, sync::mpsc, time::Duration};
+    let (_root, state, _store, _rx) = fixture();
+    state.sessions.lock().unwrap().clear();
+    let path = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .sessions_dir()
+        .join("runtime-review.json");
+    std::fs::remove_file(&path).unwrap();
+    let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: a live NUL-terminated temporary path and fixed permission bits.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let worker_state = state.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let _fence = worker_state.projection_lock.lock().unwrap();
+        let workspace = worker_state.workspace.lock().unwrap();
+        entered_tx.send(()).unwrap();
+        let refused = crate::session_projection::LocationInputs::try_capture_owned(
+            &worker_state,
+            "runtime-review",
+            workspace.as_ref().unwrap(),
+        )
+        .is_none();
+        done_tx.send(refused).unwrap();
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let result = done_rx.recv_timeout(Duration::from_secs(1));
+    if result.is_err() {
+        // Release the old blocking reader before failing: no leaked thread.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"{}")
+            .unwrap();
+        done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+    worker.join().unwrap();
+    assert_eq!(
+        result.ok(),
+        Some(true),
+        "metadata FIFO blocked final admission"
+    );
+    assert!(state.projection_lock.try_lock().is_ok());
+}
