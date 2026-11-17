@@ -1982,6 +1982,23 @@ if (process.versions.electron) {
                 return header.left-main.left;
               })()`);
               assert.ok(Math.abs(gutter)<1,'terminal header focus background reaches the divider; uncovered gutter: '+gutter);
+              await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+              const seam = await evaluate(`(()=>{
+                const header=document.querySelector('.shell-toolbar').getBoundingClientRect();
+                const separator=document.querySelector('.shell-grid > .shell-region-separator');
+                const rect=separator.getBoundingClientRect();
+                return {left:Math.ceil(rect.left),right:Math.floor(header.left),top:Math.ceil(header.top),bottom:Math.floor(header.bottom),resizable:document.elementFromPoint(rect.left+rect.width/2,header.top+1)?.closest('[role="separator"]')===separator};
+              })()`);
+              const screenshot=await win.webContents.capturePage();
+              const pixelScale=screenshot.getSize().width/await evaluate('innerWidth');
+              const pixel=(x,y)=>screenshot.crop({x:Math.floor((x+0.5)*pixelScale),y:Math.floor((y+0.5)*pixelScale),width:1,height:1}).toBitmap().subarray(0,4);
+              for(const y of [seam.top+1,seam.bottom-1]) {
+                const reference=pixel(seam.right+1,y);
+                for(let x=seam.left;x<seam.right;x++) {
+                  assert.deepEqual(pixel(x,y),reference,'header background and underline cover separator pixel '+x+','+y);
+                }
+              }
+              assert.equal(seam.resizable,true,'background fill preserves the separator hit target');
             }
             const cues = await evaluate(`(()=>{
               const highlighted = selector => {
