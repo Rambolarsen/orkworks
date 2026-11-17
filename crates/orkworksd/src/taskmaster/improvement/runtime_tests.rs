@@ -478,7 +478,7 @@ async fn previous_prompt_no_proposal_is_retained_but_not_projected_as_current() 
     let capture = access::capture(&state, &runtime, None).unwrap();
     record.report.as_mut().unwrap().manifest.evaluation_key = capture
         .evaluation
-        .cache_key("brain-improvement-v3:collector-1:prompt-5:response-1:text-3")
+        .cache_key("brain-improvement-v3:collector-1:prompt-6:response-1:text-3")
         .unwrap();
     store.save(&record).unwrap();
     let before = std::fs::read(root.join("improvement-assessment.json")).unwrap();

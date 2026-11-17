@@ -1417,3 +1417,46 @@ Owner-local artifacts remain under
 - Independent adjudication SHA256: `116c534f329b4222e665db92853ff9e66e1e3ac2351d7a08335ccd7ad72a7968`.
 - Harness SHA256: `12c30614cc59be7abc185395fa0500cb89b2ecf2a5e649492a0d5a4d8490583b`.
 - Seventh ledger remains `f7413db4ca31df8869f664ee0a6a801ecbec80f60cf9af86d3e866c65d385e64`.
+
+## Assessment-grounding source follow-up (2026-11-17)
+
+[Issue #1880](https://github.com/Rambolarsen/orkworks/issues/1880) tracks the
+assessment defects separately from the eighth comparison's scoped recommendation
+pass. Investigation found complete concept-specific rubric requirements in the
+structured prompt. Incorrect ratings and fact IDs already existed in raw model
+JSON; decoding and publication preserved those IDs. Deterministic totals were
+consistent with the returned ratings. The defect was not missing rubric text, an
+index translation error or arithmetic.
+
+Prompt revision 7 adds a shared assessment procedure to evidence/final app prompts
+and evidence/advice baseline prompts, conditional on producing assessment rows.
+It requires support for each selected rubric level, evidence for zero, appropriate
+unknowns and scope limits, actual supporting fact IDs, and confidence tied to the
+selected level. Assessment uncertainty preserves independently supported advice.
+The baseline remains natural advice without mandatory rows or JSON. Only the
+prompt capture discriminator advances from 6 to 7; prior records remain stored
+without current projection or replacement inference. Response/storage formats,
+text policy, evidence authority, call limits and production admission are unchanged.
+
+Two regressions first failed at the intended boundaries: new guidance was absent
+from the real outgoing evidence request, and a retained prompt-6 no-proposal
+record still projected as current. Their corrected checks cover delivery of both
+shared policies through real app phases and baseline phases, plus retained bytes,
+freshness and absence of read-triggered inference. They do not judge model output.
+
+Structural validators continue to enforce shape, bounds and citation membership;
+they cannot establish that cited text entails a rating or rationale. No new proof
+schema, score cap, semantic prose filter or additional model judge is introduced.
+This source follow-up uses no paid calls and does not activate the engine. The
+eighth artifacts and historical recommendation pass remain unchanged at their
+original source. Factual rating/citation compliance under prompt 7 needs fresh
+empirical evidence; #1880 is not resolved by offline delivery tests alone.
+
+Validation: the focused improvement suite passed 60 tests with two live-call tests
+ignored. `bash scripts/verify-repo.sh` passed: 3,597 Rust unit tests plus integration
+tests, OpenCode reporter tests, desktop checks/build and docs checks/build. A fresh
+diff-scoped `/code-review low` found no actionable findings. The documentation
+currency warning needs no public onboarding edit because production remains gated;
+the changed source contract is recorded here and in architecture/design guidance.
+The worktree warning concerns an unowned stale branch and requires no mutation by
+this task. Build warnings do not change these source-only acceptance limits.

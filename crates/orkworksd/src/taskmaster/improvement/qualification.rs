@@ -1362,6 +1362,7 @@ fn baseline_prompt(
         "phase":if final_call {"advice"} else {"evidence"},
         "request":"Use Brain to suggest the next improvement towards agentic development.",
         "selectionRules":engine::SELECTION_RULES,
+        "assessmentRules":engine::ASSESSMENT_RULES,
         "instruction":"Give natural, concise advice about the most useful next improvement toward agentic development, grounded in the supplied repository evidence and signed Brain guidance. Explain the mechanism, benefit, affected surface, effort/risk/reversibility, citations, what remains uncertain, validation scope and rollback. A specific supported hypothesis is useful; do not invent a missing capability. Unknown behavior is not absence. If evidence is insufficient, say what bounded investigation would help. The supplied rubric is assessment context, not a requirement to produce ratings or JSON. You have a data-only broker: request only catalog file IDs, byte ranges and signed page IDs. No shell, edits, network fetches, native tools, commands or claims of checks. Do not mention case labels or expected outcomes.",
         "stepSchema":{"version":1,"repositoryReads":[{"fileId":0,"offset":0,"length":8192}],"knowledgePageIds":["signed page ID"],"finish":false},
         "stepRules":STEP_RULES,
@@ -2072,7 +2073,7 @@ mod tests {
     }
 
     #[test]
-    fn selection_guidance_reaches_both_arms_before_and_after_evidence_collection() {
+    fn task_guidance_reaches_both_arms_before_and_after_evidence_collection() {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("AGENTS.md"),
@@ -2108,31 +2109,32 @@ mod tests {
             }, || false).unwrap();
         assert!(result.result.preferred().is_none());
         assert_eq!(prompts.len(), 2);
-        let rules = prompts[0]["selectionRules"]
-            .as_str()
-            .filter(|rules| !rules.trim().is_empty())
-            .expect("model selection guidance is absent from the evidence request");
-        assert_eq!(
-            prompts[1]["selectionRules"], rules,
-            "finalization lost selection guidance"
-        );
-        for final_call in [false, true] {
-            let baseline: Value = serde_json::from_str(
-                &baseline_prompt(
-                    &evidence,
-                    &rubric,
-                    &[page.clone()],
-                    &[page.id.clone()],
-                    &[],
-                    final_call,
+        for key in ["selectionRules", "assessmentRules"] {
+            let rules = prompts[0][key]
+                .as_str()
+                .filter(|rules| !rules.trim().is_empty())
+                .unwrap_or_else(|| {
+                    panic!("model {key} guidance is absent from the evidence request")
+                });
+            assert_eq!(prompts[1][key], rules, "finalization lost {key} guidance");
+            for final_call in [false, true] {
+                let baseline: Value = serde_json::from_str(
+                    &baseline_prompt(
+                        &evidence,
+                        &rubric,
+                        &[page.clone()],
+                        &[page.id.clone()],
+                        &[],
+                        final_call,
+                    )
+                    .unwrap(),
                 )
-                .unwrap(),
-            )
-            .unwrap();
-            assert_eq!(
-                baseline["selectionRules"], rules,
-                "controlled baseline received different selection guidance"
-            );
+                .unwrap();
+                assert_eq!(
+                    baseline[key], rules,
+                    "controlled baseline received different {key} guidance"
+                );
+            }
         }
     }
 

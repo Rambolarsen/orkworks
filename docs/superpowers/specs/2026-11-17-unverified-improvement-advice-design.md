@@ -127,6 +127,21 @@ stored formats remain unchanged. Earlier prompt results are preserved without
 current projection or status-triggered inference. This is a prospective prompt
 clarification, not empirical usefulness qualification or production admission.
 
+Prompt revision 7 clarifies assessment grounding within the existing contract.
+Shared conditional `assessmentRules` reach both phases and comparison arms; the
+baseline still need not produce ratings or JSON. A row selects a level only when
+its exact supplied requirements are supported, retaining a grounded lower level
+or an explicit unknown. Level zero needs evidence, and documentation/configuration
+does not establish required execution, reliability or feedback history. Rows cite
+actual supporting `repositoryFacts[].id` values, respecting evidence scope and
+limits; related files, catalog IDs and row positions are not substitutes.
+Confidence describes support for the selected level. Uncertain assessments do not
+disqualify an independently supported opportunity. The capture discriminator is
+`brain-improvement-v3:collector-1:prompt-7:response-1:text-3`; earlier results remain
+stored without current projection or read-triggered inference. All other versions,
+formats, limits and authority remain unchanged. This guidance does not add semantic
+entailment validation or prove empirical compliance; activation remains gated.
+
 Unknown or contradictory identities fail closed. Preserve policy-1/2 readers and
 old bytes. Downgrade must report unsupported data without deleting it, rewriting
 it as legacy, dispatching inference, or acquiring freshness/authority.
