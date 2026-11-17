@@ -249,7 +249,6 @@ impl ExecutableImage {
                 field: "fixture executable",
             })?;
         if candidate_digest != trusted_digest {
-            eprintln!("fixture-image candidate digest differs from trusted image");
             return Err(ProtocolError::InvalidValue {
                 field: "fixture executable",
             });
@@ -277,7 +276,6 @@ impl ExecutableImage {
             field: "fixture executable",
         })?;
         if digest != candidate_digest {
-            eprintln!("fixture-image prepared digest differs from candidate image");
             return Err(ProtocolError::InvalidValue {
                 field: "fixture executable",
             });
@@ -299,29 +297,9 @@ impl ExecutableImage {
         let current = std::env::current_exe().map_err(|_| ProtocolError::InvalidValue {
             field: "fixture executable",
         })?;
-        eprintln!("fixture-image current={current:?}");
-        let candidate = if is_fixture_executable(&current) {
-            current
-        } else {
-            let name = if cfg!(windows) {
-                "process-ownership-fixture.exe"
-            } else {
-                "process-ownership-fixture"
-            };
-            current
-                .parent()
-                .and_then(Path::parent)
-                .ok_or(ProtocolError::InvalidValue {
-                    field: "fixture executable",
-                })?
-                .join(name)
-        };
-        eprintln!("fixture-image discovery candidate={candidate:?}");
+        let candidate = fixture_executable_path(&current)?;
         candidate
             .canonicalize()
-            .inspect_err(|error| {
-                eprintln!("fixture-image canonicalize path={candidate:?} error={error:?}")
-            })
             .map_err(|_| ProtocolError::InvalidValue {
                 field: "fixture executable",
             })
@@ -420,9 +398,7 @@ fn open_executable(path: &Path) -> std::io::Result<File> {
     options.read(true);
     #[cfg(windows)]
     options.share_mode(0x0000_0001);
-    options.open(path).inspect_err(|error| {
-        eprintln!("fixture-image open path={path:?} error={error:?}");
-    })
+    options.open(path)
 }
 
 #[cfg(target_os = "linux")]
@@ -509,20 +485,12 @@ fn prepare_launch_image(source_path: &Path, source: File) -> std::io::Result<(Pa
 }
 
 fn hash_executable(file: &File) -> Result<[u8; 32], ()> {
-    let mut file = file
-        .try_clone()
-        .inspect_err(|error| eprintln!("fixture-image clone error={error:?}"))
-        .map_err(|_| ())?;
-    file.rewind()
-        .inspect_err(|error| eprintln!("fixture-image rewind error={error:?}"))
-        .map_err(|_| ())?;
+    let mut file = file.try_clone().map_err(|_| ())?;
+    file.rewind().map_err(|_| ())?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 16 * 1024];
     loop {
-        let read = file
-            .read(&mut buffer)
-            .inspect_err(|error| eprintln!("fixture-image read error={error:?}"))
-            .map_err(|_| ())?;
+        let read = file.read(&mut buffer).map_err(|_| ())?;
         if read == 0 {
             break;
         }
@@ -1729,6 +1697,40 @@ fn unix_epoch_millis() -> u128 {
         .map_or(1, |duration| duration.as_millis().max(1))
 }
 
+fn fixture_executable_path(current: &Path) -> Result<PathBuf, ProtocolError> {
+    if is_fixture_executable(current) {
+        return Ok(current.to_path_buf());
+    }
+    let parent = current.parent();
+    let profile = if parent.is_some_and(|path| path.ends_with("deps")) {
+        current.ancestors().nth(2)
+    } else if parent.is_some_and(|path| path.ends_with("out"))
+        && current
+            .ancestors()
+            .nth(3)
+            .is_some_and(|path| path.ends_with("process-ownership-fixture"))
+        && current
+            .ancestors()
+            .nth(4)
+            .is_some_and(|path| path.ends_with("build"))
+    {
+        // Cargo 1.100 moved integration tests from deps/ to
+        // build/<crate>/<hash>/out/. Only recognize that exact crate layout.
+        current.ancestors().nth(5)
+    } else {
+        None
+    };
+    let profile = profile.ok_or(ProtocolError::InvalidValue {
+        field: "fixture executable",
+    })?;
+    let name = if cfg!(windows) {
+        "process-ownership-fixture.exe"
+    } else {
+        "process-ownership-fixture"
+    };
+    Ok(profile.join(name))
+}
+
 fn is_fixture_executable(executable: &Path) -> bool {
     executable
         .file_name()
@@ -1830,5 +1832,51 @@ mod tests {
                     .then(|| entry.path())
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod executable_discovery_tests {
+    use super::*;
+
+    fn binary_name() -> &'static str {
+        if cfg!(windows) {
+            "process-ownership-fixture.exe"
+        } else {
+            "process-ownership-fixture"
+        }
+    }
+
+    #[test]
+    fn cargo_1100_test_image_resolves_the_fixture_in_the_profile_directory() {
+        let current = Path::new("target/debug/build/process-ownership-fixture/24d494c1b4bb4b3a/out/windows_job-24d494c1b4bb4b3a.exe");
+        assert_eq!(
+            fixture_executable_path(current).unwrap(),
+            Path::new("target/debug").join(binary_name())
+        );
+    }
+
+    #[test]
+    fn legacy_test_image_and_self_hosted_fixture_keep_their_locations() {
+        let expected = Path::new("target/release").join(binary_name());
+        assert_eq!(
+            fixture_executable_path(Path::new("target/release/deps/windows_job-abc.exe")).unwrap(),
+            expected
+        );
+        assert_eq!(fixture_executable_path(&expected).unwrap(), expected);
+    }
+
+    #[test]
+    fn unrecognized_test_layout_does_not_select_an_ancestor_executable() {
+        for current in [
+            "target/debug/unrelated/abc/out/windows_job.exe",
+            "target/debug/build/another-crate/abc/out/windows_job.exe",
+            "target/debug/other/windows_job.exe",
+        ] {
+            assert!(
+                fixture_executable_path(Path::new(current)).is_err(),
+                "unexpected layout accepted: {current}"
+            );
+        }
     }
 }
