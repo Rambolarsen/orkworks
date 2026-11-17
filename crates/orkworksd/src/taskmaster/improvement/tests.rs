@@ -880,6 +880,7 @@ fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_th
         "Text \u{2069} guidance",
         "Tests passed.",
         "The behavioral tests are passing.",
+        "Unverified; proposed validation includes a passing test case already executed.",
         "The tests are passing through sheer luck rather than meaningful assertions.",
         "A fix would help and the tests are passing through sheer luck rather than meaningful assertions.",
         "The tests are passing through sheer luck and a fix would improve their assertions.",

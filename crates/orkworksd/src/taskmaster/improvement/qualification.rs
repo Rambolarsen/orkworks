@@ -794,6 +794,22 @@ impl Ledger {
         let record = outputs.last_mut().ok_or("trial_output_missing")?;
         record["state"] = json!(state);
         record["failureCategory"] = json!(category);
+        if category == "provider_or_policy_failure" {
+            // controlled_invoke returns fixed assessment_failure codes. Keep
+            // only exact known codes; never persist arbitrary error messages.
+            let code = match result.as_ref().err().map(String::as_str) {
+                Some("provider_timeout") => "provider_timeout",
+                Some("provider_authentication") => "provider_authentication",
+                Some("provider_model") => "provider_model",
+                Some("provider_unsupported") => "provider_unsupported",
+                Some("provider_request") => "provider_request",
+                Some("provider_unavailable") => "provider_unavailable",
+                Some("inputs_changed") => "inputs_changed",
+                Some("cancelled") => "cancelled",
+                _ => "unclassified",
+            };
+            record["providerFailureCode"] = json!(code);
+        }
         record["outputBytes"] = json!(output_bytes);
         record["truncated"] = json!(truncated);
         record["originalUtf8Bytes"] = json!(original_bytes);
@@ -1506,6 +1522,39 @@ mod tests {
             value: json!({"formatVersion":1,"callsReserved":0,"callsCompleted":0,"authorization":{"callLimit":60,"appCallsPerCase":6,"baselineCallsPerCase":6},"outputs":[]}),
             _lock: lock,
         }
+    }
+
+    #[test]
+    fn provider_failures_retain_only_fixed_diagnostic_codes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("ledger.json");
+        let mut ledger = ledger_fixture(&path, &dir.path().join("artifacts"));
+        for (error, expected) in [
+            ("provider_timeout", "provider_timeout"),
+            ("provider_authentication", "provider_authentication"),
+            ("inputs_changed", "inputs_changed"),
+            ("cancelled", "cancelled"),
+            ("provider_timeout /private/session", "unclassified"),
+            ("/secret/account provider response", "unclassified"),
+        ] {
+            assert_eq!(
+                ledger
+                    .invoke("positive-entry-command", Arm::App, "{}", || Err(
+                        error.into()
+                    ))
+                    .unwrap_err(),
+                "provider_or_policy_failure"
+            );
+            let saved: Value = read_json(&path).unwrap();
+            let record = saved["outputs"].as_array().unwrap().last().unwrap();
+            assert_eq!(record["failureCategory"], "provider_or_policy_failure");
+            assert_eq!(record["providerFailureCode"], expected);
+            assert!(record.get("outputFile").is_none());
+            assert!(!saved.to_string().contains("/private/session"));
+            assert!(!saved.to_string().contains("/secret/account"));
+        }
+        assert_eq!(ledger.value["callsReserved"], 6);
+        assert_eq!(ledger.value["callsCompleted"], 6);
     }
 
     fn plan_for_ledger(root: &Path) -> QualificationPlan {

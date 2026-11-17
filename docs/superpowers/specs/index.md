@@ -4,7 +4,9 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Proposed text-policy and handoff contract for #1694; owner approval, implementation and activation remain gated.
+- [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Proposed policy-3 status and consumer compatibility boundary after the fifth failed comparison; owner approval and implementation remain pending.
+
+- [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Owner-approved and implemented policy 2 and fixed handoffs for #1694; usefulness qualification and activation remain gated.
 
 - [Responsive session refresh inspection](2026-11-10-session-refresh-lag-design.md) — Capture/inspect/recheck repair for terminal lag; source implementation authorized, live replacement owner-controlled.
 
