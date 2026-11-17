@@ -18,6 +18,7 @@ mod branch_documents_store;
 mod capacity_analysis;
 mod capacity_state;
 mod codex_session_store;
+mod durable_file;
 mod git;
 mod git_changes;
 mod git_changes_eol;

@@ -3688,9 +3688,12 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        let record = sessions_dir.join(format!("{id}.json"));
+        let before = std::fs::read(&record).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
 
         record_terminal_input(&state, id, "respond to the prompt\r");
+        assert_eq!(std::fs::read(&record).unwrap(), before);
 
         assert!(state.sessions.lock().unwrap()[id]
             .runtime
@@ -3702,7 +3705,7 @@ mod tests {
                 .committed_input_sequence,
             1
         );
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         drop(dir);
     }
 

@@ -185,7 +185,7 @@ async fn sql_trust_file_failure_is_typed_after_sql_commit_and_retries_without_js
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(None).await;
     let root = observation_root(&state);
-    let failed = root.join("codex-hook-observation.json.tmp");
+    let failed = root.join("codex-hook-observation.json.write-blocked");
     std::fs::create_dir(&failed).unwrap();
     let generation = state.sessions.lock().unwrap()[ID].runtime.run_generation();
     let relay = crate::runtime::codex_hook_report_relay::CodexHookReportRelay::new().unwrap();
@@ -495,7 +495,7 @@ async fn sql_trust_failed_replacement_preserves_the_previous_observation_and_rel
     let root = observation_root(&state);
     let path = root.join("codex-hook-observation.json");
     let previous = std::fs::read(&path).unwrap();
-    let tmp = root.join("codex-hook-observation.json.tmp");
+    let tmp = root.join("codex-hook-observation.json.write-blocked");
     std::fs::create_dir(&tmp).unwrap();
     let mut request = observed("root-one");
     request.hook_fingerprint = Some("b".repeat(64));

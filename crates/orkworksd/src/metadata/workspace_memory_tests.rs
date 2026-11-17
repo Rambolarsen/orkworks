@@ -123,7 +123,7 @@ fn workspace_memory_selection_reports_write_failure_and_can_retry() {
         metadata.workspace_memory_path()
     };
     let before = fs::read(&path).unwrap();
-    let obstruction = path.with_file_name("workspace.json.tmp");
+    let obstruction = path.with_file_name("workspace.json.write-blocked");
     fs::create_dir(&obstruction).unwrap();
     let app = crate::session_application::SessionApplication::new(state);
     assert!(matches!(
@@ -377,7 +377,7 @@ fn workspace_memory_reopen_reports_normalization_write_failure_before_adoption()
             (metadata.workspace_memory_path(), metadata.session_reader())
         };
         let before = fs::read(&path).unwrap();
-        fs::create_dir(path.with_file_name("workspace.json.tmp")).unwrap();
+        fs::create_dir(path.with_file_name("workspace.json.write-blocked")).unwrap();
         let result = app.open_workspace(root.path().into());
         let same = Arc::ptr_eq(
             &reader,

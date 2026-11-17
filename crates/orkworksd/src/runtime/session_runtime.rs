@@ -3889,7 +3889,12 @@ mod tests {
             let workspace = state.workspace.lock().unwrap();
             let store = &workspace.as_ref().unwrap().metadata;
             store.write_session(&metadata);
-            std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+            std::fs::create_dir(
+                store
+                    .sessions_dir()
+                    .join(format!("{id}.json.write-blocked")),
+            )
+            .unwrap();
         }
         let before = state.sessions.lock().unwrap()[id].info.attention.clone();
         let now = tokio::time::Instant::now();

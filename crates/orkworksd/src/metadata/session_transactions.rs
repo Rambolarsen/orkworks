@@ -2,7 +2,7 @@
 //! Legacy snapshot writers remain unconditional; they still advance the revision.
 //! This module does not enable native clearing or coordinate external file writes.
 
-use super::{normalize_session_metadata, tmp_write_path, MetadataStore, SessionMetadata};
+use super::{normalize_session_metadata, MetadataStore, SessionMetadata};
 use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
@@ -324,18 +324,13 @@ impl MetadataStore {
         let json = serde_json::to_string_pretty(record)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let path = self.sessions_dir().join(format!("{id}.json"));
-        let staged = tmp_write_path(&path);
-        fs::write(&staged, json)?;
-        if let Err(error) = before_replace(&record.metadata) {
-            if let Err(cleanup_error) = fs::remove_file(&staged) {
-                tracing::warn!(%cleanup_error, session_id = %id, "failed to clean rejected metadata stage");
+        let staged = super::atomic_write::stage(&path, json.as_bytes())?;
+        before_replace(&record.metadata)?;
+        super::atomic_write::publish(staged, &path, || {
+            if scope.attention {
+                let _ = self.accept_session_write(id);
             }
-            return Err(error);
-        }
-        fs::rename(&staged, &path)?;
-        if scope.attention {
-            self.accept_session_write(id);
-        }
+        })?;
         Ok(())
     }
 

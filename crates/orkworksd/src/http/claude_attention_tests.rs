@@ -250,7 +250,7 @@ mod claude_attention {
         let f=Fixture::new(); f.prompt("elicitation_dialog").await;
         let before=serde_json::to_value(f.saved()).unwrap();
         let kind=f.state.sessions.lock().unwrap()[&f.id].runtime.active_prompt_kind;
-        let blocked=f.state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir().join(format!("{}.json.tmp",f.id));
+        let blocked=f.state.workspace.lock().unwrap().as_ref().unwrap().metadata.sessions_dir().join(format!("{}.json.write-blocked",f.id));
         std::fs::create_dir(&blocked).unwrap();
         assert_eq!(f.send(f.report("Notification",Some("elicitation_response"))).await,StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(serde_json::to_value(f.saved()).unwrap(),before);

@@ -363,7 +363,7 @@ async fn json_observation_failure_does_not_undo_identity_or_replace_previous_fil
         .unwrap()
         .metadata
         .root_path();
-    std::fs::create_dir(root.join("codex-hook-observation.json.tmp")).unwrap();
+    std::fs::create_dir(root.join("codex-hook-observation.json.write-blocked")).unwrap();
     let response = report_harness_session(
         State(state.clone()),
         Path("observation".into()),
@@ -389,7 +389,7 @@ async fn json_observation_failure_does_not_undo_identity_or_replace_previous_fil
             .as_deref(),
         Some("native-observation")
     );
-    std::fs::remove_dir(root.join("codex-hook-observation.json.tmp")).unwrap();
+    std::fs::remove_dir(root.join("codex-hook-observation.json.write-blocked")).unwrap();
     let _ = report_harness_session(
         State(state.clone()),
         Path("observation".into()),
@@ -925,7 +925,7 @@ async fn json_observation_definitive_failure_is_logged_after_waiter_cancellation
         .unwrap();
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
-    std::fs::create_dir(root.join("codex-hook-observation.json.tmp")).unwrap();
+    std::fs::create_dir(root.join("codex-hook-observation.json.write-blocked")).unwrap();
     pause.finish().await;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {

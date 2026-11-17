@@ -795,6 +795,26 @@ retains producer, backup, recovery and performance gates. The [private adapter f
 writer integration and activation remain pending. The paths and source behavior
 below still describe format 1.
 
+Format-1 metadata replacement uses a unique, exclusively created staging file
+in the destination directory. It writes and syncs the file before the final
+admission check, then replaces the destination and syncs its directory on Unix.
+Windows reuses the archive writer's native write-through replacement because
+Unix directory fsync is unavailable there. Existing creation permissions and
+record codecs are unchanged. A failed file sync leaves the destination intact;
+a failed directory sync is reported even though replacement has already become
+visible. Attention writers retire the prior ownership token at replacement,
+including that latter error path. Callers must reread rather than infer that
+an I/O error means no publication occurred.
+
+Session mutations retain their per-session lanes, branch documents their
+per-key locks, workspace memory its edit owner, and hook observations their
+workspace-owned claim. Production transcript append/trim retains the workspace
+lock and runtime drain ordering. Unique staging prevents temporary-file
+collisions; it does not serialize noncooperating legacy agent edits or enable
+the gated native clearing/producer migration. Unchanged session/document
+projection still performs no replacement or durability sync. Mutations that
+actually publish keep their existing locking and incur the durability I/O.
+
 The accepted [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
 replaces single-session display with design/specification and implementation-plan
 slots shared by canonical repository and branch identity. [ADR 0102](../adr/0102-branch-document-association.md)

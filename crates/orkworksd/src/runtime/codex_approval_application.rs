@@ -1849,7 +1849,7 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir()
-            .join(format!("{id}.json.tmp"));
+            .join(format!("{id}.json.write-blocked"));
         std::fs::create_dir(&staging).unwrap();
         relay
             .consume_ready(state.clone(), &id, "test-report-token", generation)
@@ -2092,7 +2092,7 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir()
-            .join(format!("{id}.json.tmp"));
+            .join(format!("{id}.json.write-blocked"));
         std::fs::create_dir(&staging).unwrap();
         assert_eq!(
             report_hook(
