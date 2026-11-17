@@ -873,3 +873,129 @@ The reviewed Rust diff SHA256 is
 `1de23602ce98c080da82dbd0bab52a674c6510769554e5dbf0a7c9f453c61c67`.
 Production qualification remains false. No live provider trial, activation,
 installed-settings change, publication or release is authorized by this fix.
+
+### Fifth comparison authorization and continuation, 2026-11-17
+
+The owner answered “keep going” to the explicit request for one fresh trial and
+conditional activation, capped at **66 Codex `gpt-6-luna`/medium provider calls**:
+at most sixty for the fixed five-pair comparison, then one workspace verification
+run of at most six calls only if independent usefulness and compatibility pass.
+The previous once-per-case approvals and their unused numerical allowances are
+not reused. This authorization changes no acceptance criterion or access limit.
+
+One owner executes from `improvement-qualification-five`, based on merged
+`d6e8d94c0e97881880985e461f0d513caa5b9bbe`. Fresh owner-local artifacts are under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-5`, with the unchanged
+five fixture revisions/hashes, signed `brain-4` identities and unchanged runner.
+The new trial ledger starts at zero reservations/completions and no outputs;
+`combined-budget.json` reserves the separate six-call conditional workspace cap.
+Every previous cohort remains immutable and receives no retroactive credit.
+
+1. Run the existing no-call signed-input/fixture preflight, then invoke the
+   unchanged paired runner exactly once. Retain all raw prompts, outputs and
+   failures. No retries, replacement samples or provider/model switches.
+2. Independently adjudicate the three positive pairs and satisfied control;
+   review the restricted pair in a separate fresh context that receives only its
+   delivered permitted evidence and outputs. No excluded tests, Git recovery,
+   positive cases or prior verdicts enter that restricted review. Separately
+   audit custody, budgets and valid baseline-candidate coverage against the
+   existing paired-loss gate. At most three read-only review agents, one pass.
+3. If qualification fails, retain the evidence, report the precise blocker and
+   leave production admission false. No conditional workspace calls are spent.
+   Unused allowance never authorizes another trial.
+4. If qualification and existing signed-delivery/consumer checks pass, enable
+   admission under the accepted contract, verify real routing and primary-action
+   selection, run the repository checks and current-code review, and deliver a
+   PR. Perform the one bounded workspace run through the supported candidate or
+   installed flow, preserving other sessions and current context/exclusions.
+   Distinguish verified source, candidate and installed behavior; no private
+   Brain changes, publication or additional execution authority is introduced.
+
+Continuation review: **Ready** for the authorized comparison; activation remains
+conditional. Existing dependency/compatibility and recovery decisions above are
+reused. The new uncertainty is empirical usefulness after the merged correction;
+the fixed corpus and independent paired adjudication resolve it. The conditional
+workspace check uses the existing six-call/eight-minute operation, with no new
+interface. No further design approval is required within this authorization.
+
+### Fifth comparison result, 2026-11-17
+
+**NOT ACTIVATION-QUALIFIED.** The owner-authorized batch settled at 28 reserved
+and completed calls of sixty, with no retries or model switches. All ten arms
+were attempted once. The conditional workspace run used zero of its six calls:
+the qualification condition failed. Unused allowance is not permission for
+replacement samples. Production admission remains false and the installed
+primary action remains the older combined flow.
+
+| Fixed case | App / baseline calls | App result | Independent baseline/candidate disposition |
+| --- | --- | --- | --- |
+| Behavioral assertions | 1 / 2 | Provider/policy failure; no returned model text, no credit | Baseline suggests investigating targeted verification guidance, not the known assertion defect. Reviewer judged the bounded investigation useful, with practical benefit unmeasured and narrower-check capability unknown; no app alternative covers it. |
+| Entry command | 3 / 3 | Valid `align-verification-guidance` | Matching correction of `pnpm verify` guidance to the package/CI `pnpm test` command; covered. |
+| CI failure signaling | 2 / 2 | Final rejected as `invalid_model_output`; no credit | Valid removal of `pnpm test || true` failure masking; the rejected app final supplies no accepted alternative. This is a blocking paired loss. |
+| Already satisfied | 4 / 4 | Valid no-proposal result | Baseline's README pointer has no demonstrated discovery problem and duplicates discoverable root guidance; not a distinct worthwhile missed candidate. |
+| Restricted evidence | 4 / 3 | Valid `verification-path-review` investigation | Equivalent bounded investigation before contemplating a guidance change; excluded behavior remains unknown, no invented gap or missed preferred candidate. |
+
+Only one of three positive app results earns credit, below the required floor.
+Independently, the CI preferred baseline candidate is lost. These conclusions do
+not depend on crediting the weaker behavioral-baseline investigation judgement.
+The satisfied/restricted controls do not supply positive credit.
+
+The initial preflight command's exact test filter selected zero tests; test
+discovery caught that before provider dispatch. The actual preflight then found
+missing old temporary artifact paths. The current packaged starter and installed
+proof contain the exact pinned bundle/manifest envelopes. The approved public
+payload was restored from Brain PR #147's frozen public review file, with exact
+SHA256 `627c582c06b038d66b7fa196b241ef54b6cf61ee5f9f3cd87309c13c891552e3`.
+Expected pins were unchanged. The actual signed-input/fixture preflight passed
+with zero reservations and no outputs before the single live invocation.
+
+Three independent read-only Luna/medium reviews checked positive/satisfied
+usefulness, the restricted pair, and custody separately. The restricted reviewer
+completed its grounding check against both final supplied prompts and outputs,
+and explicitly confirmed no excluded tests, Git recovery, other cases/cohorts or
+prior verdicts were read. Custody checked 28 prompt and 27 output artifacts,
+144 supplied facts, 100 selected pages, 31 fixture artifact hashes, two signed
+artifacts and both accessible prior ledger hashes, with no mismatches. There are
+26 completed and two failed ledger records; the provider failure has no output
+artifact, while the rejected CI final is retained. No truncation occurred.
+Catalogs were equivalent; selected evidence differed in entry-command, satisfied
+and restricted pairs. Whole test duration was 408.85 seconds; per-call times are
+not recorded. Provider versus policy cause cannot be recovered from the generic
+recorded category and is not inferred.
+
+Exact offline production decoding accepts the CI citations and isolates its
+155-character validation field:
+
+> Unverified; proposed validation includes a failing test case demonstrating a non-successful CI job and a passing test case demonstrating normal completion.
+
+This future experiment description trips the retained completion-claim heuristic.
+A prospective-modifier exception accepted that final offline, but an adversarial
+regression showed it also accepted “Unverified; proposed validation includes a
+passing test case already executed.” The exception was withdrawn, source restored,
+and the actual-claim counterexample retained as a rejection regression. No such
+text relaxation is shipped or credited. The separate post-trial diagnostic fix
+retains only fixed known provider failure codes in future qualification ledgers;
+unknown/private error messages remain unrecorded. It cannot diagnose the old
+failure retrospectively and adds no provider calls.
+
+Owner-local evidence remains under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-5`:
+
+- Trial ledger: `ce17e7b7eeec829ddda97b318da06ac972f9a8c4dece3467800dda5f4dad7b9f`.
+- Exact rejected final: `94cb64527d2b93df9adc7300f763eca98de7af3a6ad47a0ac073d6599052b00a`.
+- Preflight/build-filter/missing-path logs, restoration provenance, all raw
+  prompts/outputs, independent adjudication, original decoder diagnosis and
+  withdrawn-experiment counterexample are retained separately.
+
+The next proposed decision is [code-owned unverified advice status](../specs/2026-11-17-unverified-improvement-advice-design.md),
+replacing English claim guessing only for a versioned new producer. This changes
+the explicitly retained claim policy and needs owner approval before dependent
+implementation. The current budget does not authorize another comparison.
+
+Post-trial verification passed `bash scripts/verify-repo.sh`, including 3,559
+Rust unit tests and the desktop/docs/integration checks. A read-only
+`/code-review low` approved the current Rust diff without required findings;
+reviewed diff SHA256 was
+`5eb3e3aeb58555e3b7dcfac6132ba8e492a53ee7e07dffa40a6c0644fd04596f`.
+The production text policy and admission gate are unchanged. Public user docs
+need no behavior update for this diagnostic-only correction and draft proposal.
