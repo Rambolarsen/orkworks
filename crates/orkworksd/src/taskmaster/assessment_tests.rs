@@ -315,28 +315,205 @@ print(json.dumps({'type':'turn.completed'}))
     pub(crate) async fn wait_for_terminal(&self) -> AssessmentRecord {
         let store = AssessmentStore::new(&self.workspace_root());
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        self.wait_for_terminal_until(store, deadline).await
+    }
+
+    async fn wait_for_terminal_until(
+        &self,
+        store: AssessmentStore,
+        deadline: tokio::time::Instant,
+    ) -> AssessmentRecord {
         loop {
-            if let Some(record) = store.load::<AssessmentRecord>().unwrap() {
+            let record = store.load::<AssessmentRecord>().unwrap();
+            if let Some(record) = &record {
                 if matches!(
                     record.state,
                     AssessmentState::Succeeded
                         | AssessmentState::Failed
                         | AssessmentState::Interrupted
                 ) {
-                    return record;
+                    return record.clone();
                 }
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "assessment did not finish"
+                "assessment did not finish: {}",
+                self.timeout_diagnostics(record.as_ref())
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
 
+    fn timeout_diagnostics(&self, record: Option<&AssessmentRecord>) -> serde_json::Value {
+        // Never wait on the worker's configuration lock while diagnosing a stall.
+        let persistence_lock = match crate::taskmaster::runtime::PERSISTENCE_LOCK.try_lock() {
+            Ok(_guard) => "available",
+            Err(std::sync::TryLockError::WouldBlock) => "held",
+            Err(std::sync::TryLockError::Poisoned(_)) => "poisoned",
+        };
+        // Open only the existing fixture lease and immediately drop any acquired
+        // handle. Do not create a lease or inspect another runtime's state.
+        let analysis_lease = match fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.runtime_root.join(".analysis.lock"))
+        {
+            Ok(file) => match fs2::FileExt::try_lock_exclusive(&file) {
+                Ok(()) => "available",
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        || error.raw_os_error().is_some_and(|code| {
+                            Some(code) == fs2::lock_contended_error().raw_os_error()
+                        }) =>
+                {
+                    "held"
+                }
+                Err(_) => "unavailable",
+            },
+            Err(_) => "unavailable",
+        };
+        let provider_calls = match fs::metadata(self.marker.with_extension("count")) {
+            Ok(metadata) => Some(metadata.len()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(0),
+            Err(_) => None,
+        };
+        // Allowlist stage enums, booleans and counts. Reports, errors, prompts,
+        // provider output, credentials and paths must never enter panic output.
+        serde_json::json!({
+            "state": record.map(|record| &record.state),
+            "phase": record.and_then(|record| record.phase.as_ref()),
+            "hasReport": record.is_some_and(|record| record.report.is_some()),
+            "hasPendingRecommendation": record.is_some_and(|record| record.pending_recommendation.is_some()),
+            "hasErrorSummary": record.is_some_and(|record| record.error_summary.is_some()),
+            "analysisLease": analysis_lease,
+            "persistenceLock": persistence_lock,
+            "providerCalls": provider_calls,
+            "providerReleased": self.marker.with_extension("release").is_file(),
+            "discoveryPromptSeen": self.response.with_extension("discovery-prompt").is_file(),
+            "finalPromptSeen": self.response.with_extension("final-prompt").is_file(),
+            "finalGateReached": self.response.with_extension("final-started").is_file(),
+            "finalGateReleased": self.response.with_extension("final-release").is_file(),
+        })
+    }
+
     fn release_provider(&self) {
         fs::write(self.marker.with_extension("release"), "go").unwrap();
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_timeout_identifies_a_blocked_final_provider_without_payloads() {
+    use futures_util::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
+    let fixture = AssessmentFixture::new();
+    fixture.prepare_response("proposed");
+    fs::write(fixture.response.with_extension("block-final"), "hold").unwrap();
+    assert_eq!(
+        schedule(fixture.state.clone(), fixture.runtime_root.clone()).status,
+        AssessmentRequestStatus::Scheduled
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !fixture.response.with_extension("final-started").exists() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    fs::write(
+        fixture.dir.path().join("provider-output.stderr"),
+        "PRIVATE_PROVIDER_TEXT REPORT_TOKEN_SECRET",
+    )
+    .unwrap();
+    let store = AssessmentStore::new(&fixture.workspace_root());
+    let failure =
+        AssertUnwindSafe(fixture.wait_for_terminal_until(store, tokio::time::Instant::now()))
+            .catch_unwind()
+            .await;
+    // Release the real synthetic provider before checking diagnostic assertions.
+    fs::write(fixture.response.with_extension("final-release"), "release").unwrap();
+    assert_eq!(
+        fixture.wait_for_terminal().await.state,
+        AssessmentState::Succeeded
+    );
+    let panic = failure.err().expect("blocked final call must time out");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic");
+    let (_, data) = message
+        .split_once(": ")
+        .expect("timeout must include structured stage diagnostics");
+    let data: serde_json::Value = serde_json::from_str(data).unwrap();
+    assert_eq!(data["state"], "running");
+    assert_eq!(data["phase"], "assessing");
+    assert_eq!(data["hasPendingRecommendation"], false);
+    assert_eq!(data["analysisLease"], "held");
+    assert_eq!(data["providerCalls"], 2);
+    assert_eq!(data["finalPromptSeen"], true);
+    assert_eq!(data["finalGateReached"], true);
+    assert_eq!(data["finalGateReleased"], false);
+    assert!(!message.contains("PRIVATE_PROVIDER_TEXT"));
+    assert!(!message.contains("REPORT_TOKEN_SECRET"));
+}
+
+#[tokio::test]
+async fn terminal_timeout_identifies_pending_publication_without_mutation() {
+    use futures_util::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
+    let fixture = AssessmentFixture::new();
+    let root = fixture.workspace_root();
+    let store = AssessmentStore::new(&root);
+    let mut pending = fixture.pending_record();
+    pending.report.as_mut().unwrap().summary = "PRIVATE_PROVIDER_TEXT".into();
+    pending.error_summary = Some("REPORT_TOKEN_SECRET".into());
+    store.save(&pending).unwrap();
+    let before = fs::read(root.join("assessment.json")).unwrap();
+    let runtime = TaskmasterRuntime::open(fixture.runtime_root.clone());
+    let lease = runtime.try_analysis_lease().unwrap().unwrap();
+    let (held_tx, held_rx) = std::sync::mpsc::sync_channel(0);
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let holder = std::thread::spawn(move || {
+        let _lease = lease;
+        let _persistence = crate::taskmaster::runtime::PERSISTENCE_LOCK.lock().unwrap();
+        if held_tx.send(()).is_ok() {
+            // Even a regressed blocking probe must eventually return and fail.
+            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+        }
+    });
+    held_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let failure =
+        AssertUnwindSafe(fixture.wait_for_terminal_until(store, tokio::time::Instant::now()))
+            .catch_unwind()
+            .await;
+    let lease_retained = runtime.try_analysis_lease().unwrap().is_none();
+    let after = fs::read(root.join("assessment.json")).unwrap();
+    let _ = release_tx.send(());
+    holder.join().unwrap();
+    assert!(
+        lease_retained,
+        "diagnostics must not release the retained lease"
+    );
+    assert_eq!(after, before);
+    let panic = failure.err().expect("pending publication is not terminal");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("non-string panic");
+    let (_, data) = message
+        .split_once(": ")
+        .expect("timeout must include structured stage diagnostics");
+    let data: serde_json::Value = serde_json::from_str(data).unwrap();
+    assert_eq!(data["state"], "pending_recommendation");
+    assert_eq!(data["phase"], serde_json::Value::Null);
+    assert_eq!(data["hasReport"], true);
+    assert_eq!(data["hasPendingRecommendation"], true);
+    assert_eq!(data["analysisLease"], "held");
+    assert_eq!(data["persistenceLock"], "held");
+    assert_eq!(data["providerCalls"], 0);
+    assert!(!message.contains("PRIVATE_PROVIDER_TEXT"));
+    assert!(!message.contains("REPORT_TOKEN_SECRET"));
 }
 
 #[test]
