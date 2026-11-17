@@ -225,3 +225,112 @@ the original session metadata; no downgrade deletes user selections.
   invalid kinds/paths, and fence stale session/workspace/document responses.
 - [ ] No approval/completion state, Git mutation, workflow gate or work-item
   hierarchy is introduced.
+
+
+## Proposed branch document recovery amendment
+
+Status: proposed, 2026-11-17, pending owner approval under
+[#1782](https://github.com/Rambolarsen/orkworks/issues/1782). This section does
+not change the accepted behavior above until approved. It defines a narrow
+recovery action, not permission to implement or activate it before approval.
+
+### Decision and scope
+
+Offer **Reset saved document choices** for the selected branch when its saved
+record is malformed or unsupported. Do not quarantine or replace records during
+reads, polling, discovery or agent reports. Automatic recovery could silently
+remove explicit pins, including valid choices written by a newer app version.
+An explicit reset preserves the old bytes before replacing the branch record;
+it does not attempt to repair or interpret unknown record contents.
+
+The reset affects both design/specification and implementation slots for this
+workspace's canonical repository and branch key, including their saved pins.
+It affects every session sharing that key, never another branch, repository or
+workspace owner. It never edits Markdown files, Git state, ordinary session
+metadata, terminal input, review authority or workflow approvals. Existing
+session-local legacy references remain compatible and cannot repopulate shared
+pins without fresh explicit selection.
+
+### Notice and confirmation
+
+Show a plain-language notice in **Design & plan** explaining that saved document
+choices could not be read and that resetting them can restore discovery. For an
+unsupported version, explain that a newer app may understand the record. Keep
+both document steps unavailable while the record cannot be trusted. Expose the
+reset only when the exact bounded regular record can be safely read and
+preserved; unreadable, oversized, linked or non-regular records instead show a
+specific failure and **Try again**, without an unsafe reset fallback.
+
+Confirmation names the branch and explains: saved choices and pins for both
+steps will be cleared for all sessions sharing this branch; the previous record
+will be preserved; the actual documents will remain unchanged. Cancel has no
+side effects. Disable repeated submission while pending. Show failures in the
+same disclosure, with an accessible alert; do not show success merely because
+the request was sent. No raw storage paths or record contents reach the
+renderer.
+
+### Admission and preservation
+
+Use the existing authenticated Electron-main-to-sidecar document boundary. The
+renderer supplies only the selected session ID and an opaque recovery ID from
+the displayed error projection. Neither a path nor a branch name from the
+renderer selects storage. The recovery ID binds the owner/adoption generation,
+validated session location, canonical repository/branch key and exact offending
+record bytes; it identifies a snapshot and grants no independent authority.
+
+On confirmation, revalidate that context and the record under the retained
+per-key lock and workspace writer lease. Reject a changed, missing or now-valid
+record, changed branch/worktree/session location, or replaced workspace rather
+than resetting a different snapshot. Detached HEAD and unavailable authoritative
+bindings have no shared-record reset. Bound all reads and perform preservation
+I/O outside the global terminal-input fence, using retained ownership and final
+admission checks before publication. The owning sidecar remains the sole
+cooperating writer; this creates no cross-instance writer service or authority
+for uncoordinated external edits.
+
+Preserve the exact original bytes in a uniquely named, exclusively created
+recovery file under the owning branch-document storage. Never replace an older
+recovery copy or follow a link. Flush the copy and its containing directory
+where supported before publishing a valid, empty version-1 record for the same
+key through the durable atomic metadata writer. Do not remove the active record
+first: failed preservation leaves it untouched, and interruption before
+replacement leaves it available for another explicit attempt. Recovery copies
+are excluded from record discovery and are not automatically expired by this
+amendment; no automatic restore/import action is added.
+
+At visible replacement, invalidate cached scans and prepared publications so
+older in-flight work cannot reinstate cleared selections. An error after
+replacement may mean the reset is already visible: report uncertainty, refresh
+from storage and never blindly roll back or replay against a new record. A
+retry requires the newly projected error and a fresh confirmation. Normal
+bounded discovery and fresh reports may populate the empty record afterward;
+if no eligible documents exist, show the ordinary missing-document states.
+
+### Reporting and acceptance
+
+A dedicated document report still returns an honest storage error. A revisioned
+metadata patch that already committed still acknowledges success and retains
+its session-local reference. When its supplementary branch report fails on the
+bad record, the next ordinary session projection exposes the actionable record
+notice above; a trace warning alone is insufficient. Do not claim the shared
+association was saved or reinterpret patch success as reset approval.
+
+Before runtime work, record the approved recovery decision in the branch
+association ADR and outline implementation/verification at the affected
+store, application boundary and inspector. This amendment grants no native
+session-storage migration or general metadata cleanup authority.
+
+- [ ] Malformed JSON, unsupported versions and identity-invalid records retain
+  their exact bytes until a confirmed, snapshot-matched reset preserves them.
+- [ ] Cancel, stale recovery IDs, branch/worktree/workspace changes, unauthenticated
+  requests and unsafe/unreadable records cause no reset or cross-key mutation.
+- [ ] Preservation failure, pre-replacement interruption and post-replacement
+  sync failure have distinct tested outcomes; an existing recovery copy is
+  never overwritten and no acknowledged reset lacks a durable preserved copy.
+- [ ] A confirmed reset clears both shared slots/pins, leaves Markdown and
+  session metadata unchanged, invalidates stale prepared scans and survives
+  restart before normal discovery restores eligible documents.
+- [ ] The notice, confirmation, pending/error states and retry work for both
+  document steps; raw paths and record contents never enter the renderer.
+- [ ] A failed supplementary report remains visible through the branch notice
+  without changing a committed metadata patch's successful acknowledgement.
