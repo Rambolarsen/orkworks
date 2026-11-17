@@ -2314,11 +2314,15 @@ own currentness validation. A history write failure is separate from the report.
 Production qualification is a code-owned disabled gate, with no environment or
 HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication and consumer integration. Five five-pair usefulness attempts
-remain unqualified. The latest used 28/60 authorized comparison calls and reached
-one of three required positive cases. The retained verification-claim heuristic
-rejected prospective validation prose. Rejected output remains uncredited; unused
-allowance does not authorize another attempt. The
+tracks publication and consumer integration. Six five-pair usefulness attempts
+remain unqualified. The latest used 32/60 authorized comparison calls with all
+ten arms structurally accepted. Independent review found all three positive app
+suggestions useful and no preferred positive baseline lost. The satisfied control
+still recommended a README link despite accurate root instructions and cited
+guidance excluding already-covered entry points. That usefulness/applicability
+failure blocks qualification; the conditional workspace allowance was unused.
+Earlier rejected output remains uncredited, and unused allowance does not
+authorize another attempt. The
 immutable evidence and independent-review limitations are recorded in the
 [implementation history](../superpowers/plans/2026-11-12-brain-guided-improvement.md).
 

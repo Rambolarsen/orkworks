@@ -999,3 +999,120 @@ reviewed diff SHA256 was
 `5eb3e3aeb58555e3b7dcfac6132ba8e492a53ee7e07dffa40a6c0644fd04596f`.
 The production text policy and admission gate are unchanged. Public user docs
 need no behavior update for this diagnostic-only correction and draft proposal.
+
+### Sixth comparison authorization, 2026-11-17
+
+After the owner-approved producer-3 implementation merged through #1825 as
+`8933bcfb18bd0dfc72cc17f15cf3faf6faec850b`, the owner answered “keep going” to
+one explicit fresh trial: at most **60 comparison calls**, plus at most **6
+workspace calls only if comparisons pass**, with no retries. Keep Codex
+`gpt-6-luna`/medium, the same fixed five cases and signed `brain-4` identities.
+This approval does not authorize production activation, model switches,
+replacement samples or recrediting historical outputs.
+
+One owner runs the unchanged harness from `improvement-qualification-six` at
+that merged revision. Fresh artifacts and zeroed ledgers live under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-6`. The fifth
+ledger remains byte-identical at SHA256
+`ce17e7b7eeec829ddda97b318da06ac972f9a8c4dece3467800dda5f4dad7b9f`;
+all previous cohorts remain immutable. Signed-input/fixture preflight reserves
+no calls and precedes the single live invocation. Preserve every prompt, output,
+rejection and failed reservation; unused allowance never authorizes another run.
+
+After collection, use at most three fresh read-only reviewers in one round:
+positive/satisfied usefulness and baseline-candidate coverage; an isolated
+restricted-case review that sees only delivered permitted evidence; and custody,
+budget and comparison-contract audit. No reviewer may read excluded test content
+or recover it through Git. Reviewers do not invoke providers or write source;
+the parent reconciles their evidence under the unchanged two-of-three,
+negative-honesty and paired-loss gates. If the comparison fails, spend no
+conditional workspace calls. If it passes, one bounded workspace check may use
+the remaining six-call cap without enabling production admission. Report source,
+candidate and installed behavior separately.
+
+
+### Sixth comparison result, 2026-11-17
+
+The exact signed-input preflight passed with one test, zero provider calls and no
+trial outputs. An initial build invocation omitted the nested `runtime` module
+from its filter and ran zero tests; it is retained separately and receives no
+preflight credit. The corrected exact test passed before the live runner.
+The frozen runner was then invoked exactly once and completed all ten arms at
+**32 reserved/completed calls of 60**, in 415.69 seconds. Every app final passed
+the production decoder, and every controlled baseline returned natural advice.
+There were no runner retries, replacement samples, model switches or truncation.
+The requested selection remained Codex `gpt-6-luna`/medium.
+
+Independent adjudication returns **NOT ACTIVATION-QUALIFIED**. All three positive
+app suggestions are useful, with no preferred positive baseline opportunity lost.
+The satisfied control nevertheless recommends an unnecessary README route to
+already-covered instructions. The negative-control gate is independent of the
+positive floor. The conditional workspace check was therefore not admitted:
+**0/6 workspace calls**, with no activation, installed-settings change or release.
+Unused allowance does not authorize another trial.
+
+| Fixed case | App / baseline calls | App result | Independent comparison |
+| --- | --- | --- | --- |
+| Behavioral assertions | 3 / 3 | Valid `assert-add-result` | Useful result assertion replaces unconditional `assert.ok(true)`; the valid baseline fix is equivalent and covered. |
+| Entry command | 3 / 2 | Valid `align-verification-guidance` | Useful correction of documented `pnpm verify` to the package/CI test command; equivalent baseline covered. |
+| CI failure signaling | 3 / 4 | Valid `ci-test-failure-signal` | Useful removal of `pnpm test || true` failure masking; equivalent baseline covered. Proposed validation was not executed. |
+| Already satisfied | 3 / 4 | Valid `readme-workflow-entry` | Fails worthwhile-gap judgement: root guidance is already accurate; no supported need for a second README route. Baseline change-to-check mapping is unsupported/lower priority in this one-script fixture, so no valid preferred baseline is lost. |
+| Restricted evidence | 4 / 3 | Valid `readme-verification-entry` | Isolated review accepts a bounded README/verification-pointer hypothesis equivalent to its baseline. Test behavior remains unknown; no excluded-file gap or bypass is asserted. |
+
+The satisfied app correctly observes that README contains only a description and
+AGENTS already gives the workflow. Its proposed benefit assumes visitors or
+agents without automatic instruction discovery need another route. This is
+labelled a `supported_hypothesis`, not an observed failure. The blocking judgement
+is practical applicability and priority, not a false claim that README lacks a
+link, nor a new rule requiring every hypothesis to have an observed failure.
+Its final prompt supplied, and its opportunity cited,
+`practices/documented-repository-entry-points.md`. That experimental practice
+explicitly excludes repositories with an accurate, current entry-point file.
+The existing root AGENTS, package script, source/test and CI configuration cover
+the control's workflow; the app supplies no reason to override that exclusion.
+A low-cost reversible edit alone does not establish a worthwhile next step.
+
+The restricted reviewer accepted a similar, narrower README hypothesis using
+only its delivered evidence. That favourable judgement does not waive the
+separate satisfied-control gate. The restricted reviewer also flagged verification
+maturity 3 as potentially high given unknown outcomes/reliability. Scores were
+not independently qualified; neither ratings nor lifecycle status prove checks
+ran. All generated advice remains explicitly unverified under producer 3.
+
+Three fresh read-only Luna/medium reviewers made one bounded pass: positives and
+satisfied-control usefulness/candidate coverage; isolated restricted-case honesty;
+and custody/budgets. The restricted reviewer explicitly remained unexposed to
+excluded tests, actual fixtures, Git recovery, other cases and prior verdicts.
+The parent upheld the satisfied-control failure against the actual supplied
+practice scope rather than adopting an observed-failure-only criterion.
+No reviewer executed suggested commands or invoked a provider.
+
+Custody independently verified all 32 prompt/output hash and byte-count pairs,
+contiguous call numbers in ten once-only groups, and at most four calls per arm.
+Totals are 1,472,414 prompt bytes and 59,789 output bytes, without truncation.
+Source, fixed fixture OIDs, signed `brain-4` identity and requested selection align.
+The harness stayed unchanged during this trial. Relative to the fifth cohort,
+its only already-merged change is fixed known provider-failure diagnostics and
+the corresponding tests; call/evidence/acceptance limits are unchanged.
+
+Equivalent permitted catalogs do not mean identical selected facts/pages or turn
+counts. Per-call timing and provider-side served model/effort/retry traces are not
+independently established by returned text; requested selection, ledger
+reservations and the one runner invocation are recorded. Restricted-source hashes
+were not independently re-read by reviewers; identity relies on the recorded
+preflight. These are comparison limits, not installed-app or usefulness proof.
+
+Owner-local evidence is retained under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-6`:
+
+- Ledger SHA256: `7b05c34e40743b8cdccfbcc74398f00cbaa1458a381fdbcb16db481e4945b992`.
+- Run metadata SHA256: `676503a1b8a4a1ce22f8baaf8021bc99e715c075c15a24e5e1e020220974702d`.
+- Independent adjudication SHA256: `5dd7c0c5c045e1869a371091650a4a72250b96ab9cb7515efe5f866528995602`.
+- Harness SHA256: `c9a6efeafd9672a8928349896bc483603753d7c7da919644c7d33dbe027a0e39`.
+- Fifth ledger remains unchanged at `ce17e7b7eeec829ddda97b318da06ac972f9a8c4dece3467800dda5f4dad7b9f`.
+
+The wording-rejection blocker did not recur in these three positive fixtures.
+The next useful work is recommendation restraint/applicability on an already
+covered workflow, with bounded offline evidence before any separately authorized
+paid comparison. This report changes no validator, producer, acceptance criterion,
+production gate or historical credit.
