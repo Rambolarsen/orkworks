@@ -1257,3 +1257,35 @@ Owner-local evidence remains under
 - Independent adjudication SHA256: `1440733b3b3958f988ffb58df02d74bb18f1b2b805caaf491fbf419f4a9bb7c2`.
 - Harness SHA256: `12c30614cc59be7abc185395fa0500cb89b2ecf2a5e649492a0d5a4d8490583b`.
 - Sixth ledger remains `7b05c34e40743b8cdccfbcc74398f00cbaa1458a381fdbcb16db481e4945b992`.
+
+### Supported-hypothesis threshold clarification, 2026-11-17
+
+The owner approved the next bounded correction with “go ahead” after #1858.
+The retained entry-command final received six complete facts and reported complete
+catalog/instruction coverage. It acknowledged possible verification-entry alignment
+but declined a candidate because a consequential discrepancy or failed workflow
+was not established. This is generated selection, not a validator rejection or
+publication failure. The valid baseline instead conditions a concrete alignment
+choice on confirming how the documented command is provided.
+
+The shared selection guidance now distinguishes an inspected inconsistency from
+an unassessed area. Differing scope or intent may explain it and must be considered;
+otherwise a grounded mechanism and meaningful benefit can support a hypothesis
+without execution results or a recorded incident. Keep unresolved explanations
+explicit or suggest bounded permitted confirmation. This does not make every
+textual difference worthwhile, force advice, bypass exclusions, or assert absence
+or verified failure. The app and controlled baseline retain the same policy in
+both phases. No fixture-specific command rule or semantic output classifier is
+introduced. Assessment-calibration defects from the seventh report remain separate.
+
+The capture identity advances from prompt 5 to 6. The existing persisted-result
+regression is retargeted to prompt 5 before the change: a prior no-proposal report
+must remain readable and byte-preserved while disappearing from current status,
+without replacement inference. Existing real-engine prompt delivery/parity,
+supported-hypothesis acceptance and no-proposal lifecycle checks remain relevant.
+No source-text snapshot or canned response can prove a model's reasoning changed;
+these offline checks establish currentness and guidance delivery only.
+
+No paid calls, activation, historical result edits or qualification recredit are
+authorized by this source correction. Another live comparison still needs fresh
+finite authorization and the existing independent usefulness gates.
