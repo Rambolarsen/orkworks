@@ -249,6 +249,7 @@ impl ExecutableImage {
                 field: "fixture executable",
             })?;
         if candidate_digest != trusted_digest {
+            eprintln!("fixture-image candidate digest differs from trusted image");
             return Err(ProtocolError::InvalidValue {
                 field: "fixture executable",
             });
@@ -276,6 +277,7 @@ impl ExecutableImage {
             field: "fixture executable",
         })?;
         if digest != candidate_digest {
+            eprintln!("fixture-image prepared digest differs from candidate image");
             return Err(ProtocolError::InvalidValue {
                 field: "fixture executable",
             });
@@ -297,6 +299,7 @@ impl ExecutableImage {
         let current = std::env::current_exe().map_err(|_| ProtocolError::InvalidValue {
             field: "fixture executable",
         })?;
+        eprintln!("fixture-image current={current:?}");
         let candidate = if is_fixture_executable(&current) {
             current
         } else {
@@ -313,8 +316,12 @@ impl ExecutableImage {
                 })?
                 .join(name)
         };
+        eprintln!("fixture-image discovery candidate={candidate:?}");
         candidate
             .canonicalize()
+            .inspect_err(|error| {
+                eprintln!("fixture-image canonicalize path={candidate:?} error={error:?}")
+            })
             .map_err(|_| ProtocolError::InvalidValue {
                 field: "fixture executable",
             })
@@ -413,7 +420,9 @@ fn open_executable(path: &Path) -> std::io::Result<File> {
     options.read(true);
     #[cfg(windows)]
     options.share_mode(0x0000_0001);
-    options.open(path)
+    options.open(path).inspect_err(|error| {
+        eprintln!("fixture-image open path={path:?} error={error:?}");
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -500,12 +509,20 @@ fn prepare_launch_image(source_path: &Path, source: File) -> std::io::Result<(Pa
 }
 
 fn hash_executable(file: &File) -> Result<[u8; 32], ()> {
-    let mut file = file.try_clone().map_err(|_| ())?;
-    file.rewind().map_err(|_| ())?;
+    let mut file = file
+        .try_clone()
+        .inspect_err(|error| eprintln!("fixture-image clone error={error:?}"))
+        .map_err(|_| ())?;
+    file.rewind()
+        .inspect_err(|error| eprintln!("fixture-image rewind error={error:?}"))
+        .map_err(|_| ())?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 16 * 1024];
     loop {
-        let read = file.read(&mut buffer).map_err(|_| ())?;
+        let read = file
+            .read(&mut buffer)
+            .inspect_err(|error| eprintln!("fixture-image read error={error:?}"))
+            .map_err(|_| ())?;
         if read == 0 {
             break;
         }
