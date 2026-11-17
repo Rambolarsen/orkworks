@@ -2361,3 +2361,15 @@ Deterministic checks cover all eight-item splits and one-call rejection of the
 retained nine-item response pattern. They do not establish that a live model
 will comply or qualify usefulness. The existing primary action remains active
 until the separate gates pass; no published-installer behavior is claimed.
+
+Prompt revision 5 adds shared selection guidance before and after evidence
+collection in both arms. It explicitly checks current coverage and the supplied
+practice's applicability/non-applicability, status and limits before preferring
+a change. Cheap reversible edits, sparse documentation, low ratings or imagined
+audiences alone do not establish worthwhile benefit. Grounded hypotheses remain
+valid without observed failure; investigations need a concrete permitted decision.
+No proposal is a successful result that retains the assessment and uncertainty.
+The capture identity advances to `prompt-5`, so older results remain persisted
+but cannot appear current; no read dispatches replacement inference. Wire/storage
+versions, evidence limits, validators and handoff authority are unchanged. Offline
+tests cover shared prompt dataflow and freshness, not future model compliance.

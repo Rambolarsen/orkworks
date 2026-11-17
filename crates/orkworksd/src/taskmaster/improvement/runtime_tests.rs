@@ -427,6 +427,81 @@ fn no_proposal_invoke() -> FixtureInvoke {
 }
 
 #[tokio::test]
+async fn previous_prompt_no_proposal_is_retained_but_not_projected_as_current() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::previous_prompt_no_proposal_is_retained_but_not_projected_as_current",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
+    let (_dir, state, runtime) = fixture();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let invoked = calls.clone();
+    let mut inner = no_proposal_invoke();
+    assert_eq!(
+        schedule_qualified(
+            state.clone(),
+            runtime.clone(),
+            Box::new(move |prompt, remaining| {
+                invoked.fetch_add(1, Ordering::SeqCst);
+                inner(prompt, remaining)
+            })
+        )
+        .outcome,
+        "scheduled"
+    );
+    let root = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .root_path();
+    let store = ReportStore::new(&root);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut record = loop {
+        let record = store.load().unwrap().unwrap();
+        if record.state == RunState::Succeeded && runtime.try_analysis_lease().unwrap().is_some() {
+            break record;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert!(status_with_runtime(&state, &runtime, true)
+        .run
+        .unwrap()
+        .report
+        .is_some());
+    let capture = access::capture(&state, &runtime, None).unwrap();
+    record.report.as_mut().unwrap().manifest.evaluation_key = capture
+        .evaluation
+        .cache_key("brain-improvement-v3:collector-1:prompt-4:response-1:text-3")
+        .unwrap();
+    store.save(&record).unwrap();
+    let before = std::fs::read(root.join("improvement-assessment.json")).unwrap();
+
+    let old_view = status_with_runtime(&state, &runtime, true).run.unwrap();
+
+    assert!(
+        old_view.report.is_none(),
+        "a result selected under the previous prompt is still current"
+    );
+    assert_eq!(
+        std::fs::read(root.join("improvement-assessment.json")).unwrap(),
+        before
+    );
+    assert!(store.load().unwrap().unwrap().report.is_some());
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "status must not replace old results with new inference"
+    );
+}
+
+#[tokio::test]
 async fn no_proposal_report_retains_cited_signed_rubric_snapshots() {
     if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
         "{}::no_proposal_report_retains_cited_signed_rubric_snapshots",

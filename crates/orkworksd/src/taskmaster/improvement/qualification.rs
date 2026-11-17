@@ -1361,6 +1361,7 @@ fn baseline_prompt(
         "protocol":"controlled-brain-improvement-baseline-v1",
         "phase":if final_call {"advice"} else {"evidence"},
         "request":"Use Brain to suggest the next improvement towards agentic development.",
+        "selectionRules":engine::SELECTION_RULES,
         "instruction":"Give natural, concise advice about the most useful next improvement toward agentic development, grounded in the supplied repository evidence and signed Brain guidance. Explain the mechanism, benefit, affected surface, effort/risk/reversibility, citations, what remains uncertain, validation scope and rollback. A specific supported hypothesis is useful; do not invent a missing capability. Unknown behavior is not absence. If evidence is insufficient, say what bounded investigation would help. The supplied rubric is assessment context, not a requirement to produce ratings or JSON. You have a data-only broker: request only catalog file IDs, byte ranges and signed page IDs. No shell, edits, network fetches, native tools, commands or claims of checks. Do not mention case labels or expected outcomes.",
         "stepSchema":{"version":1,"repositoryReads":[{"fileId":0,"offset":0,"length":8192}],"knowledgePageIds":["signed page ID"],"finish":false},
         "stepRules":STEP_RULES,
@@ -2068,6 +2069,71 @@ mod tests {
             verify_pinned_case(&plan, &pinned["cases"][CASES[0]], CASES[0]).unwrap_err(),
             "fixture_file_set_changed"
         );
+    }
+
+    #[test]
+    fn selection_guidance_reaches_both_arms_before_and_after_evidence_collection() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "The current workflow is documented here.",
+        )
+        .unwrap();
+        let evidence =
+            ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        let rubric = app_final_rubric();
+        let page = crate::taskmaster::runtime::KnowledgePage {
+            id: "playbooks/rubric.md".into(),
+            title: "Guidance".into(),
+            page_type: "playbook".into(),
+            status: "active".into(),
+            content: "Inspect existing coverage and applicability.".into(),
+            sha256: "b".repeat(64),
+            related_ids: Vec::new(),
+        };
+        let mut prompts = Vec::new();
+        let result = engine::investigate(evidence.clone(), &rubric, &[page.clone()], &page.id,
+            &mut |raw: &str, _| {
+                let prompt: Value = serde_json::from_str(raw).unwrap();
+                prompts.push(prompt.clone());
+                if prompt["phase"] == "evidence" {
+                    return Ok(json!({"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true}).to_string());
+                }
+                let mut response = app_final_response(prompt["repositoryFacts"][0]["sha256"].as_str().unwrap());
+                response["summary"] = json!("The inspected workflow already covers the supported need.");
+                response["opportunities"] = json!([]);
+                response["preferredOpportunityId"] = Value::Null;
+                response["noProposalReason"] = json!("Inspected current workflow already covers the supported need.");
+                Ok(response.to_string())
+            }, || false).unwrap();
+        assert!(result.result.preferred().is_none());
+        assert_eq!(prompts.len(), 2);
+        let rules = prompts[0]["selectionRules"]
+            .as_str()
+            .filter(|rules| !rules.trim().is_empty())
+            .expect("model selection guidance is absent from the evidence request");
+        assert_eq!(
+            prompts[1]["selectionRules"], rules,
+            "finalization lost selection guidance"
+        );
+        for final_call in [false, true] {
+            let baseline: Value = serde_json::from_str(
+                &baseline_prompt(
+                    &evidence,
+                    &rubric,
+                    &[page.clone()],
+                    &[page.id.clone()],
+                    &[],
+                    final_call,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                baseline["selectionRules"], rules,
+                "controlled baseline received different selection guidance"
+            );
+        }
     }
 
     #[test]
