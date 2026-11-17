@@ -2441,6 +2441,7 @@ mod integration_tests {
                 .run()
                 .unwrap()
                 .is_some_and(|r| !matches!(r.state, RunState::Queued | RunState::Running))
+                && runtime.try_analysis_lease().unwrap().is_some()
             {
                 break;
             }
