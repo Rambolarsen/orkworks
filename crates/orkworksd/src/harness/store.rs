@@ -1196,7 +1196,7 @@ mod tests {
             codex.launch,
             LaunchCapability::CommandTemplate {
                 command: "codex-wrapper".into(),
-                args: vec![],
+                args: vec!["--model".into(), "{model}".into()],
                 model_prefix: None,
             }
         );
