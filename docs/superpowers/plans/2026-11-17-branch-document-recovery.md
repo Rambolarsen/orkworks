@@ -61,7 +61,7 @@ with exact-snapshot admission, retained lease, injected failure ordering and
 native Windows CI. The owner approved the full contract; no repeat gate needed.
 
 
-## Verification progress
+## Verification evidence (before integration)
 
 Owner-approved implementation is complete. Final `/code-review medium` approved
 the code diff against `6154e4e0fcfbf72ce445661f8cebf9ef6dd6e56e`, SHA256
@@ -74,5 +74,15 @@ and static rendering passed 14 tests; the real Electron recovery interaction
 passed confirmation, cancel, stale refresh, duplicate-click and error retry.
 The recovery code remained unchanged when rebased onto current main. Both
 recovery and compact-menu Electron scenarios passed after preserving their
-combined registration. The complete Node22 / CI-four-thread repository verifier
-is in progress; final CI and merge remain pending. No power-loss hardware qualification is claimed.
+combined registration. The complete Node22 / CI-four-thread verifier ran: 3,593 Rust tests passed,
+three failed and 21 were ignored. Two provider fixtures assumed unused port
+49999, occupied by the host Codex runtime (tracked in #1862). The unchanged
+SQL-origin byte-limited rewrite test expired under suite load, then passed in
+an exact isolated run; no production deadline or assertion was changed.
+
+All post-Rust verifier steps passed: 31 reporter tests, 1,776 desktop tests
+(five skipped), 2,056 documentation tests, type-check/builds, documentation and
+worktree checks. Clean required Rust CI and native Windows recovery tests also
+passed. Final PR comments, CI and integration evidence are recorded in
+[PR #1847](https://github.com/Rambolarsen/orkworks/pull/1847). No power-loss
+hardware qualification is claimed.
