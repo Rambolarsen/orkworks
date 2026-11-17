@@ -100,6 +100,10 @@ GitHub Actions separates validation, releases, documentation and audits into wor
 - `.github/workflows/docs-audit.yml` checks public guides weekly and proposes
   bounded corrections through a draft PR. See [site maintenance](site-maintenance.md)
   for credentials, permissions, and the review handoff.
+- `.github/workflows/dependency-freshness.yml` reports APM ref freshness,
+  desktop advisories and explicit dismissal follow-up weekly or manually, with
+  pinned-CLI dry-run qualification on relevant PRs. See the
+  [APM guide](apm.md#dependency-freshness-report) for reporting and watch-list rules.
 - `.github/workflows/quality-audit.yml` runs a weekly rotating quality audit
   from the skills in `skills/`, filing scoped issues under those skills'
   guardrails. It requires the `CLAUDE_CODE_OAUTH_TOKEN` repository secret;
