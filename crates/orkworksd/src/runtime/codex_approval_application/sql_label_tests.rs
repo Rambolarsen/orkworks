@@ -606,6 +606,15 @@ async fn sql_label_busy_publication_retries_without_rewriting_an_identical_title
 
 #[tokio::test]
 async fn sql_label_normal_observer_sync_does_not_revoke_a_published_identity_lookup() {
+    // Observer-sync assertions require uncontended identity admission.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_normal_observer_sync_does_not_revoke_a_published_identity_lookup"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for (previous, root) in [(None, "root-one"), (Some("root-one"), "root-two")] {
         let (_dir, state, store, writes, _commands) = fixture(previous).await;
