@@ -169,6 +169,8 @@ In current source builds, **Actions** shows session attention followed by
 workspace recommendations. It opens in the right inspector in a wide window and
 as a temporary page in a narrower window. Session attention and recommendation
 counts stay separate; loading, partial and unavailable information is labeled.
+The toolbar's **Actions** control includes both counts; choose it to open the
+overview. The arrow beside it is **Show next action**.
 Session usage-limit status remains in the session list and Details. The
 unfinished standalone Capacity destination has been removed from current source
 builds; its dashboard is deferred.

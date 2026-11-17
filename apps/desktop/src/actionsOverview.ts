@@ -23,9 +23,8 @@ const GROUPS: Record<string, string> = {
 };
 const ORDER = ["Needs You", "Blocked", "Failed", "Done", "Stale", "Working", "Idle"];
 
-function countLabel(label: string, count: number, status: ActionsSourceStatus): string {
-  const value = status === "ready" ? count : status === "partial" ? `${count} known (partial)` : status;
-  return `${label}: ${value}`;
+function countValue(count: number, status: ActionsSourceStatus): string {
+  return String(status === "ready" ? count : status === "partial" ? `${count} known (partial)` : status);
 }
 
 export function buildActionsOverview(
@@ -63,12 +62,16 @@ export function buildActionsOverview(
     });
   }
   const attentionCount = sessionRows.filter(row => ["Needs You", "Blocked", "Failed"].includes(row.group)).length;
+  const sessionCountValue = countValue(attentionCount, sessionsStatus);
+  const recommendationCountValue = countValue(recommendationRows.length, recommendationsStatus);
   return {
     rows: [...sessionRows, ...recommendationRows],
     sessionCount: sessionsStatus === "ready" ? attentionCount : null,
     recommendationCount: recommendationsStatus === "ready" ? recommendationRows.length : null,
-    sessionCountLabel: countLabel("Session attention", attentionCount, sessionsStatus),
-    recommendationCountLabel: countLabel("Recommendations", recommendationRows.length, recommendationsStatus),
+    sessionCountValue,
+    recommendationCountValue,
+    sessionCountLabel: `Session attention: ${sessionCountValue}`,
+    recommendationCountLabel: `Recommendations: ${recommendationCountValue}`,
   };
 }
 export type ActionsOverviewModel = ReturnType<typeof buildActionsOverview>;

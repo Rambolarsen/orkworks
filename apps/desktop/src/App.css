@@ -2524,7 +2524,7 @@ html, body, #root {
 .review-actions button, .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-heading > button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
-.shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.shell-context { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
 .shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -3162,8 +3162,15 @@ html, body, #root {
 [data-shell-review-heading] { min-width: 0; overflow-wrap: anywhere; }
 
 /* Actions keeps each source count visible independently of the sidebar. */
-.shell-actions-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
-.shell-actions-controls [data-actions-counts] { font-size:11px; color:var(--text-secondary); overflow-wrap:anywhere; }
+.shell-session-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1); min-width:0; }
+.shell-session-controls:empty { display:none; }
+.shell-actions-controls { display:flex; align-items:center; gap:2px; min-width:0; max-width:100%; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); }
+.shell-actions-controls > [data-shell-command=actions] { flex-wrap:wrap; min-width:0; }
+.shell-actions-controls > [data-shell-command=next-action] { flex-shrink:0; align-self:stretch; justify-content:center; }
+.shell-layout[data-mode="compact"] .shell-actions-controls { flex:1 1 240px; }
+.shell-actions-controls [data-actions-counts] { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; font-size:11px; color:var(--text-muted); }
+.shell-actions-controls [data-actions-source] { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:4px; }
+.shell-actions-controls [data-actions-source] strong { font-weight:var(--weight-medium); color:var(--text-secondary); }
 .actions-overview { overflow:auto; min-height:0; padding:12px; font-size:13px; }
 .actions-overview h3 { margin:14px 0 6px; font-size:13px; }
 .actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }

@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
 import type { CentralSurface } from "../shellNavigation";
 import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
@@ -485,6 +485,7 @@ export default function ApplicationShell(props: Props) {
             <div ref={navigationPopoverRef} className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
+          <div className="shell-session-controls" role="group" aria-label="Session controls">
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} compact={compact} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header compact={compact}
@@ -495,10 +496,18 @@ export default function ApplicationShell(props: Props) {
           {!showComposer && session && <button type="button" data-shell-command="changes" aria-expanded={changesPage}
             disabled={!(session.repoRoot || session.branch)} onClick={() => runCommand("changes")}>Changes</button>}
           {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
-          <div className="shell-actions-controls">
-            <button type="button" data-shell-command="actions" aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>Actions</button>
-            <button type="button" data-shell-command="next-action" onClick={() => runCommand("next-action")}>Show next action</button>
-            <span data-actions-counts>{actionsModel.sessionCountLabel} · {actionsModel.recommendationCountLabel}</span>
+          </div>
+          <div className="shell-actions-controls" role="group" aria-label="Workspace actions">
+            <button type="button" data-shell-command="actions" aria-label="Actions"
+              aria-description={`${actionsModel.sessionCountLabel}; ${actionsModel.recommendationCountLabel}`}
+              aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>
+              <span>Actions</span>
+              <span data-actions-counts aria-hidden="true">
+                <span data-actions-source="sessions">Attention <strong>{actionsModel.sessionCountValue}</strong></span>
+                <span data-actions-source="recommendations">Recommendations <strong>{actionsModel.recommendationCountValue}</strong></span>
+              </span>
+            </button>
+            <button type="button" data-shell-command="next-action" aria-label="Show next action" title="Show next action" onClick={() => runCommand("next-action")}><ArrowRight size={17} aria-hidden="true" /></button>
           </div>
           <button type="button" data-shell-command="details" aria-label="Details" title="Details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={17} aria-hidden="true" /></button>
         </nav>
