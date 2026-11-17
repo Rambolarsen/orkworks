@@ -428,6 +428,14 @@ fn no_proposal_invoke() -> FixtureInvoke {
 
 #[tokio::test]
 async fn no_proposal_report_retains_cited_signed_rubric_snapshots() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::no_proposal_report_retains_cited_signed_rubric_snapshots",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let invoke = no_proposal_invoke();
     let admission = schedule_qualified(state.clone(), runtime.clone(), invoke);
