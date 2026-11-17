@@ -261,7 +261,7 @@ impl FinalResult {
             facts,
             pages,
             rubric,
-            crate::taskmaster::advice_text::TextPolicy::InertAdvice,
+            crate::taskmaster::advice_text::TextPolicy::UnverifiedAdvice,
         )
     }
 

@@ -1,4 +1,5 @@
 import { conceptIds, type ReadinessRow } from './readiness.ts';
+import { isUnverifiedAdvice, requireSupportedAdvice, type AdviceMetadata } from './advice.ts';
 // Renderer-owned copy of the public improvement contract. Keep independent of Electron/Rust.
 export type ImprovementOpportunity = {
   id: string; targetSurface: string; title: string; summary: string; mechanism: string; benefit: string;
@@ -6,7 +7,8 @@ export type ImprovementOpportunity = {
   effort: 'low' | 'medium' | 'high'; risk: 'low' | 'medium' | 'high'; reversibility: 'low' | 'medium' | 'high';
   repositoryFactHashes: string[]; knowledgePageIds: string[]; validation: string; rollback: string;
 };
-export type ImprovementReport = {
+export type ImprovementReport = AdviceMetadata & {
+  producerVersion?: 3;
   summary: string; concepts: ReadinessRow[]; opportunities: ImprovementOpportunity[]; preferredOpportunityId: string | null;
   noProposalReason: string | null; limitations: string[]; coverage: number; overallScore: number | null;
   recommendationId: string | null; historySnapshotId: string | null; historyError: string | null;
@@ -37,6 +39,7 @@ function parseOpportunity(value: unknown): ImprovementOpportunity {
 }
 function parseReport(value: unknown): ImprovementReport {
   const r=obj(value);
+  requireSupportedAdvice(r);
   if (!str(r.summary,1000) || !Array.isArray(r.concepts) || r.concepts.length!==14 || !Array.isArray(r.opportunities) || r.opportunities.length>5
     || !nullable(r.preferredOpportunityId,128) || !nullable(r.noProposalReason,1000) || !Array.isArray(r.limitations) || r.limitations.length>32 || r.limitations.some(x=>!str(x,500))
     || !Number.isInteger(r.coverage) || (r.coverage as number)<0 || (r.coverage as number)>14
@@ -65,6 +68,8 @@ function parseReport(value: unknown): ImprovementReport {
 }
 export function parseImprovementStatus(value: unknown): ImprovementStatus {
   const s=obj(value);
+  const report = s.run && typeof s.run === 'object' ? (s.run as Record<string, unknown>).report : null;
+  if (isUnverifiedAdvice(report) && s.protocolVersion !== 3) throw Error('Advice protocol upgrade required');
   if (!(s.workspacePath===null||str(s.workspacePath,4096)) || typeof s.available!=='boolean' || !nullable(s.reasonCode,128)) throw Error('Invalid improvement status');
   let run: ImprovementRun|null=null;
   if(s.run!==null){const x=obj(s.run); if(!str(x.id,128)||!['queued','running','pending_recommendation','succeeded','failed','interrupted','access_redacted'].includes(x.state as string)||!(x.phase===null||['collecting_evidence','reading_evidence','assessing'].includes(x.phase as string))||!str(x.startedAt,40)||!nullable(x.completedAt,40)||!nullable(x.errorCode,128))throw Error('Invalid improvement run'); run={...x,report:x.report===null?null:parseReport(x.report)} as unknown as ImprovementRun;}
@@ -79,7 +84,7 @@ export function canUseImprovementPrimary(value: ImprovementStatus | null): boole
 export function improvementHandoffLabel(intent: 'implementation'|'investigation'|undefined): string {
   return intent === 'investigation' ? 'Investigate with AI' : 'Fix with AI';
 }
-export type ImprovementReference = { version: 1 | 2; intent: 'implementation' | 'investigation' };
+export type ImprovementReference = { version: 1 | 2 | 3; intent: 'implementation' | 'investigation' };
 export function readImprovementReference(assessment: unknown): ImprovementReference | undefined | null {
   if(assessment===undefined||assessment===null)return undefined;
   if(typeof assessment!=='object'||Array.isArray(assessment))return null;
@@ -87,7 +92,7 @@ export function readImprovementReference(assessment: unknown): ImprovementRefere
   if(provenance===undefined)return undefined;
   if(!provenance||typeof provenance!=='object'||Array.isArray(provenance))return null;
   const value=provenance as Record<string,unknown>;
-  return Object.keys(value).sort().join(',')==='intent,version'&&(value.version===1||value.version===2)&&(value.intent==='implementation'||value.intent==='investigation')?value as ImprovementReference:null;
+  return Object.keys(value).sort().join(',')==='intent,version'&&(value.version===1||value.version===2||value.version===3)&&(value.intent==='implementation'||value.intent==='investigation')?value as ImprovementReference:null;
 }
 export function readImprovementIntent(assessment: unknown): 'implementation'|'investigation'|undefined|null {
   const reference=readImprovementReference(assessment);

@@ -1,3 +1,4 @@
+import { isUnverifiedAdvice, requireSupportedAdvice, type AdviceMetadata } from './advice.ts';
 // Renderer contract, independent of Electron and Rust types.
 export const conceptIds = ['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'] as const;
 export interface ReadinessRow {
@@ -36,14 +37,19 @@ export interface ReadinessData {
     bundle_sha256?: string;
   };
   rubricDigest: string;
-  inputManifest?: { collector: {
-    collectorVersion: number;
+  inputManifest?: { purpose?: string; collector: {
+    collectorVersion?: number;
+    version?: number;
+    manifest?: { purpose?: string };
     purpose?: string;
     preferredFileIds?: number[];
-    requestedFileIds: number[];
+    requestedFileIds?: number[];
     selectionOmissions?: {id: number; reason: 'evidence_limit'}[];
   }};
   versions?: {
+    purpose?: string;
+    schema?: number;
+    text?: number;
     prompt?: string;
     collector?: number;
     discoverySchema?: number;
@@ -72,7 +78,8 @@ export interface ReadinessData {
   }[];
 }
 
-export interface ReadinessSnapshot {
+export interface ReadinessSnapshot extends AdviceMetadata {
+  improvementVersion?: 3;
   id: string;
   startedAt: string;
   completedAt: string;
@@ -233,6 +240,17 @@ function validateData(value: unknown): void {
 
 function validateSnapshot(value: unknown, ids: Set<string>): void {
   const snapshot = object(value);
+  requireSupportedAdvice(snapshot);
+  const data = snapshot.data && typeof snapshot.data === 'object' ? snapshot.data as Record<string, unknown> : undefined;
+  const manifest = data?.inputManifest as Record<string, unknown> | undefined;
+  const versions = data?.versions as Record<string, unknown> | undefined;
+  if ((manifest?.purpose === 'brain-improvement-v3') !== (snapshot.improvementVersion === 3 && !snapshot.redacted)) throw Error('Unsupported unverified history identity');
+  if (snapshot.improvementVersion === 3 && !snapshot.redacted) {
+    const collector = manifest?.collector as Record<string, unknown> | undefined;
+    const ranges = collector?.manifest as Record<string, unknown> | undefined;
+    if (collector?.version !== 3 || ranges?.purpose !== 'brain-improvement-v3' || versions?.purpose !== 'brain-improvement-v3'
+      || versions?.collector !== 3 || versions?.schema !== 1 || versions?.text !== 3) throw Error('Unsupported unverified history identity');
+  }
   if (
     !text(snapshot.id, 128) || ids.has(snapshot.id as string) ||
     !text(snapshot.startedAt, 40) || !text(snapshot.completedAt, 40) || typeof snapshot.redacted !== 'boolean'
@@ -273,7 +291,10 @@ export function parseReadinessStatus(value: unknown): ReadinessStatus {
   }
   if (status.suggestionRun != null) validateSuggestionRun(status.suggestionRun);
   const ids = new Set<string>();
-  for (const snapshot of status.snapshots) validateSnapshot(snapshot, ids);
+  for (const snapshot of status.snapshots) {
+    if (isUnverifiedAdvice(snapshot) && status.protocolVersion !== 3) throw Error('Advice protocol upgrade required');
+    validateSnapshot(snapshot, ids);
+  }
 
   if (status.run !== null) {
     const run = object(status.run);

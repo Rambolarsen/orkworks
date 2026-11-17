@@ -1,15 +1,17 @@
+import { unverifiedAdviceWarning } from '../advice.ts';
 import { useEffect, useRef, useState } from "react";
 
 interface FixWithAiDialogProps {
   initialPrompt: string;
   promptReadOnly?: boolean;
+  unverifiedAdvice?: boolean;
   title?: string;
   confirmLabel?: string;
   onConfirm: (prompt: string) => void;
   onCancel: () => void;
 }
 
-export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false, title = "Fix with AI", confirmLabel = "Send to session", onConfirm, onCancel }: FixWithAiDialogProps) {
+export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false, unverifiedAdvice = false, title = "Fix with AI", confirmLabel = "Send to session", onConfirm, onCancel }: FixWithAiDialogProps) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -55,6 +57,7 @@ export default function FixWithAiDialog({ initialPrompt, promptReadOnly = false,
         </header>
 
         <div className="new-session-body">
+          {unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
           <div className="new-session-row new-session-row--prompt">
             <label className="new-session-label" htmlFor="fix-with-ai-prompt">Prompt</label>
             <textarea

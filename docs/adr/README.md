@@ -162,4 +162,6 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.
 
-- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Accepted new-producer text policy and canonical handoff authority; activation remains gated.
+- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Superseded for the new producer by ADR 0116; policy-2 records retain their original contract.
+
+- [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.

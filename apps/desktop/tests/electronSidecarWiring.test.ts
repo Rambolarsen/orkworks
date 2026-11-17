@@ -431,7 +431,7 @@ test("manual Taskmaster analysis uses the generation-bound authenticated Electro
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(panel, /window\.orkworks\.requestTaskmasterAnalysis\(\)/);
+  assert.match(panel, /requestAdviceAnalysis\(workspacePath \?\? ""\)/);
   assert.match(panel, /generation !== workspaceGeneration\.current/);
 });
 

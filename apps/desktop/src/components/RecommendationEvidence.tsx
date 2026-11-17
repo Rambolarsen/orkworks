@@ -1,5 +1,6 @@
+import { isUnverifiedAdvice, unverifiedAdviceWarning } from '../advice.ts';
 import { useEffect, useRef, useState } from "react";
-import { getTaskmasterRecommendation, type WorkflowRecommendation } from "../api.ts";
+import { getAdviceRecommendation as getTaskmasterRecommendation, type WorkflowRecommendation } from "../api.ts";
 import { sortedEvidence } from "../taskmaster.ts";
 
 interface EvidenceProps {
@@ -60,7 +61,7 @@ export default function RecommendationEvidence({ recommendation, onSelectSession
         const baseUrl = await window.orkworks.getBackendUrl();
         if (cancelled) return;
         const results = await Promise.allSettled(missing.map(async (id) => {
-          const member = await getTaskmasterRecommendation(baseUrl, id);
+          const member = await getTaskmasterRecommendation(baseUrl, id, recommendation.workspaceId);
           if (member.id !== id || member.rollupMemberIds.length > 0) throw new Error("Invalid family detail");
           return member;
         }));
@@ -92,7 +93,8 @@ export default function RecommendationEvidence({ recommendation, onSelectSession
       </p>}
       {recommendation.rollupMemberIds.map((id) => {
         const member = current?.members.get(id);
-        return member ? <section key={id} aria-label={`Exact family: ${member.title}`}>
+        return member ? <section key={id} aria-label={isUnverifiedAdvice(member) ? 'Unverified exact family' : `Exact family: ${member.title}`}>
+          {isUnverifiedAdvice(member) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
           <h4>{member.title}</h4>
           <EvidenceRows recommendation={member} onSelectSession={onSelectSession} />
         </section> : null;

@@ -1,3 +1,4 @@
+import { isUnverifiedAdvice } from './advice.ts';
 import { isSessionAlive } from "./sessionRuntimeState";
 import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -638,7 +639,7 @@ function App() {
 
   const handleRunCleanup = useCallback(async (recommendation: WorkflowRecommendation) => {
     try {
-      const result = await acceptCleanupRecommendation(recommendation.id);
+      const result = await acceptCleanupRecommendation(recommendation.id, recommendation.workspaceId);
       if (result.skipped.length === 0) {
         pushToast("info", "Cleanup complete — flagged recommendations dismissed.");
         return;
@@ -676,7 +677,7 @@ function App() {
       if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
       if (!isCurrentHandoff()) return;
       const acceptedRecommendation = await acceptTaskmasterRecommendation(recommendation.id,
-        buildRecommendationAcceptOptions(recommendation, activeSessionId, prompt));
+        buildRecommendationAcceptOptions(recommendation, activeSessionId, prompt), recommendation.workspaceId);
       if (!isCurrentHandoff()) return;
       handleAcceptedFixWithAi(
         acceptedRecommendation,
@@ -1001,12 +1002,13 @@ function App() {
       )}
       {fixRecommendation && (
         <FixWithAiDialog
-          initialPrompt={readImprovementReference(fixRecommendation.assessment)?.version === 2 || (fixRecommendation.assessment?.improvementReference?.version === 1 && fixRecommendation.assessment.improvementReference.intent === "investigation")
+          initialPrompt={[2,3].includes(readImprovementReference(fixRecommendation.assessment)?.version ?? 0) || (fixRecommendation.assessment?.improvementReference?.version === 1 && fixRecommendation.assessment.improvementReference.intent === "investigation")
             ? buildFixPromptDraft(fixRecommendation)
             : fixRecommendation.completionPacket?.action.prompt ?? buildFixPromptDraft(fixRecommendation)}
-          promptReadOnly={readImprovementReference(fixRecommendation.assessment)?.version === 2 || Boolean(fixRecommendation.completionPacket) || fixRecommendation.assessment?.improvementReference?.intent === "investigation"}
+          promptReadOnly={[2,3].includes(readImprovementReference(fixRecommendation.assessment)?.version ?? 0) || Boolean(fixRecommendation.completionPacket) || fixRecommendation.assessment?.improvementReference?.intent === "investigation"}
           title={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Investigate with AI" : "Fix with AI"}
           confirmLabel={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Start investigation" : "Send to session"}
+          unverifiedAdvice={isUnverifiedAdvice(fixRecommendation)}
           onConfirm={handleConfirmFixWithAi}
           onCancel={() => setFixRecommendation(null)}
         />

@@ -4,7 +4,7 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Proposed policy-3 status and consumer compatibility boundary after the fifth failed comparison; owner approval and implementation remain pending.
+- [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Owner-approved policy-3 status and consumer compatibility boundary; implementation and qualification tracked in #1694.
 
 - [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Owner-approved and implemented policy 2 and fixed handoffs for #1694; usefulness qualification and activation remain gated.
 

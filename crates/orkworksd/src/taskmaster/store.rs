@@ -1504,8 +1504,8 @@ fn validate_recommendation(recommendation: &Recommendation) -> Result<(), StoreE
         .as_ref()
         .and_then(|p| p.improvement_reference.as_ref())
     {
-        if !matches!(reference.version, 1 | 2)
-            || (reference.version == 2
+        if !matches!(reference.version, 1 | 2 | 3)
+            || (matches!(reference.version, 2 | 3)
                 && (!super::canonical_improvement_id(&recommendation.id)
                     || recommendation.completion_packet.is_some()))
         {

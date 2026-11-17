@@ -1108,7 +1108,7 @@ fn build_taskmaster_prompt(
     };
     serde_json::json!({
         "instruction": instruction,
-        "proposedRecommendations": recommendations.iter().filter(|item| item.status == RecommendationStatus::Proposed).take(16).map(|item| serde_json::json!({"dedupeKey":item.dedupe_key,"title":item.title,"summary":item.summary})).collect::<Vec<_>>(),
+        "proposedRecommendations": recommendations.iter().filter(|item| item.status == RecommendationStatus::Proposed && !super::is_unverified_improvement(item)).take(16).map(|item| serde_json::json!({"dedupeKey":item.dedupe_key,"title":item.title,"summary":item.summary})).collect::<Vec<_>>(),
         "workflowObservations": evidence,
         "knowledgePages": pages,
         "repositoryFacts": facts.iter().map(|fact| serde_json::json!({"path":fact.path,"sha256":fact.sha256,"excerpt":fact.excerpt})).collect::<Vec<_>>(),
@@ -1268,7 +1268,9 @@ fn validate_legacy_model_output(
         .collect::<std::collections::HashSet<_>>();
     let proposed = supplied_recommendations
         .iter()
-        .filter(|item| item.status == RecommendationStatus::Proposed)
+        .filter(|item| {
+            item.status == RecommendationStatus::Proposed && !super::is_unverified_improvement(item)
+        })
         .take(16)
         .collect::<Vec<_>>();
     let cites_unsupplied_knowledge = model.enrichments.iter().any(|enrichment| {
@@ -1406,7 +1408,10 @@ fn apply_model_output_parsed(
             enrichment.dedupe_key.is_empty()
                 || !supplied_recommendations
                     .iter()
-                    .filter(|item| item.status == RecommendationStatus::Proposed)
+                    .filter(|item| {
+                        item.status == RecommendationStatus::Proposed
+                            && !super::is_unverified_improvement(item)
+                    })
                     .take(16)
                     .any(|item| item.dedupe_key == enrichment.dedupe_key)
                 || enrichment.knowledge_page_ids.len() > 8
@@ -1484,6 +1489,7 @@ fn apply_model_output_parsed(
             .iter()
             .find(|recommendation| {
                 recommendation.dedupe_key == enrichment.dedupe_key
+                    && !super::is_unverified_improvement(recommendation)
                     && recommendation.status == RecommendationStatus::Proposed
             })
             .cloned()
@@ -2323,6 +2329,66 @@ mod tests {
             "confidence": 0.9, "fingerprint": format!("friction-{sequence}")
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn unverified_advice_never_enters_a_legacy_synthesis_prompt_but_stays_active() {
+        let (_, mut item) = super::super::assessment_report::tests::proposal();
+        item.assessment.as_mut().unwrap().improvement_reference =
+            Some(super::super::ImprovementReference {
+                version: 3,
+                intent: super::super::ImprovementIntent::Implementation,
+            });
+        item.title = "UNVERIFIED_ADVICE_TITLE".into();
+        item.summary = "UNVERIFIED_ADVICE_SUMMARY".into();
+        let mut old = item.clone();
+        old.id = "legacy-card".into();
+        old.title = "Retained legacy advice".into();
+        old.summary = "Legacy summary".into();
+        old.assessment
+            .as_mut()
+            .unwrap()
+            .improvement_reference
+            .as_mut()
+            .unwrap()
+            .version = 2;
+        let records = vec![item.clone(), old];
+        assert!(super::super::active_workflow_recommendation(&records).is_some());
+        let prompt =
+            build_taskmaster_prompt(&brain_observation_snapshot(), &[], &[], &records, false);
+        assert!(!prompt.contains("UNVERIFIED_ADVICE"));
+        assert!(prompt.contains("Retained legacy advice"));
+        let output = ModelOutput {
+            enrichments: vec![ModelEnrichment {
+                dedupe_key: item.dedupe_key.clone(),
+                knowledge_page_ids: vec![],
+            }],
+            proposals: vec![],
+            rollups: RollupSection::NotRequested,
+        };
+        assert!(
+            validate_legacy_model_output(
+                &output,
+                &brain_observation_snapshot(),
+                &[],
+                &[item.clone()]
+            )
+            .is_err(),
+            "an omitted v3 key cannot be enriched by legacy output"
+        );
+        assert!(
+            super::super::rollup::RollupFamilySnapshot::from_recommendation_with_active_parent(
+                &item, None
+            )
+            .is_err()
+        );
+        assert!(super::super::audit::build_cleanup_card(
+            &[item],
+            "workspace",
+            "2026-11-17T12:00:00Z",
+            None
+        )
+        .is_none());
     }
 
     fn brain_observation_snapshot() -> EvaluationSnapshot {

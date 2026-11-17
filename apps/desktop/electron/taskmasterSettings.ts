@@ -48,20 +48,56 @@ async function boundedResponseText(response: Response, limit: number, assertCurr
   }
 }
 
+type TaskmasterResource = "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow" | "readiness" | "assess-readiness" | "assess-and-suggest" | "improvement" | "start-improvement" | "cancel-improvement" | "recommendations" | "recommendation" | "dismiss-recommendation" | "accept-recommendation" | "audit-recommendations" | "analyze";
+type AdviceResource = Exclude<TaskmasterResource, "settings" | "knowledge" | "inference" | "models">;
+
+export class TaskmasterHttpError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
+
+// Electron-owned entry: callers of a narrow new IPC never supply this header.
+export async function taskmasterAdviceRequest(
+  port: number, token: string, resource: AdviceResource, payload?: unknown, recommendationId?: string,
+  fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch, requestSignal?: AbortSignal,
+  assertCurrent: () => void = () => {},
+): Promise<Record<string, unknown>> {
+  const advice = {protocol:3 as const,recommendationId};
+  // Old sidecars ignore unknown headers. Negotiate through a read before any
+  // POST so an unsupported server cannot act and only then report failure.
+  if (!["run-status", "readiness", "improvement", "recommendations", "recommendation"].includes(resource)) {
+    const support = await taskmasterRequest(port, token, "improvement", undefined, fetcher, assertCurrent, requestSignal, advice);
+    if (support.protocolVersion !== 3) throw Error("Advice protocol upgrade required");
+  }
+  const value = await taskmasterRequest(port, token, resource, payload, fetcher, assertCurrent, requestSignal, advice);
+  if (value.protocolVersion !== 3) throw Error("Advice protocol upgrade required");
+  return value;
+}
+
 /** Narrow privileged transport: renderer input never selects a URL or authority. */
 export async function taskmasterRequest(
-  port: number, token: string, resource: "settings" | "knowledge" | "inference" | "models" | "run-status" | "assess-workflow" | "readiness" | "assess-readiness" | "assess-and-suggest" | "improvement" | "start-improvement" | "cancel-improvement", payload?: unknown,
+  port: number, token: string, resource: TaskmasterResource, payload?: unknown,
   fetcher: (url: string, init?: RequestInit) => Promise<Response> = fetch,
   assertCurrent: () => void = () => {},
   requestSignal?: AbortSignal,
+  advice?: { protocol: 3; recommendationId?: string },
 ): Promise<Record<string, unknown>> {
   assertCurrent();
   if (!Number.isInteger(port) || port < 1 || port > 65535 || !token) throw new Error("Taskmaster backend unavailable");
   if ((resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "readiness" || resource === "improvement" || resource === "start-improvement") && payload !== undefined) throw new Error("Workflow assessment does not accept a request body");
+  const recordResource = resource === "recommendation" || resource === "dismiss-recommendation" || resource === "accept-recommendation";
+  if (recordResource && (typeof advice?.recommendationId !== "string" || !advice.recommendationId || advice.recommendationId.length > 512)) throw Error("Invalid recommendation ID");
+  if ((resource === "recommendation" || resource === "recommendations" || resource === "audit-recommendations" || resource === "analyze") && payload !== undefined) throw Error("Advice operation does not accept a request body");
   const body = payload === undefined ? undefined : JSON.stringify(payload);
   const limit = resource === "knowledge" ? 6 * 1024 * 1024 : resource === "inference" ? 8 * 1024 : 64 * 1024;
   if (body && Buffer.byteLength(body) > limit) throw new Error("Taskmaster request too large");
-  const path = resource === "settings" ? "/settings/taskmaster"
+  const path = resource === "recommendations" ? "/taskmaster/recommendations"
+    : resource === "recommendation" ? `/taskmaster/recommendations/${encodeURIComponent(advice!.recommendationId!)}`
+    : resource === "dismiss-recommendation" ? `/taskmaster/recommendations/${encodeURIComponent(advice!.recommendationId!)}/dismiss`
+    : resource === "accept-recommendation" ? `/taskmaster/recommendations/${encodeURIComponent(advice!.recommendationId!)}/accept`
+    : resource === "audit-recommendations" ? "/taskmaster/audit/recommendations"
+    : resource === "analyze" ? "/taskmaster/analyze"
+    : resource === "settings" ? "/settings/taskmaster"
     : resource === "run-status" ? "/taskmaster/run-status"
       : resource === "assess-workflow" ? "/taskmaster/assess-workflow"
       : resource === "readiness" ? "/taskmaster/readiness"
@@ -72,20 +108,23 @@ export async function taskmasterRequest(
       : resource === "cancel-improvement" ? "/taskmaster/improvement/cancel"
       : `/settings/taskmaster/${resource}`;
   const response = await fetcher(`http://127.0.0.1:${port}${path}`, {
-    method: resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "start-improvement" || resource === "cancel-improvement" || body !== undefined ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
+    method: resource === "assess-workflow" || resource === "assess-readiness" || resource === "assess-and-suggest" || resource === "start-improvement" || resource === "cancel-improvement" || resource === "audit-recommendations" || resource === "analyze" || resource === "dismiss-recommendation" || resource === "accept-recommendation" || body !== undefined ? "POST" : "GET",
+    headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token, ...(advice ? { "X-OrkWorks-Advice-Protocol": "3" } : {}) },
     body, signal: requestSignal ? AbortSignal.any([requestSignal, AbortSignal.timeout(resource === "models" ? 45_000 : 15_000)]) : AbortSignal.timeout(resource === "models" ? 45_000 : 15_000),
   });
   assertCurrent();
-  const responseLimit = resource === "readiness" ? 8 * 1024 * 1024 + 128 * 1024
+  const responseLimit = resource === "readiness" || resource === "recommendations" ? 8 * 1024 * 1024 + 128 * 1024
     : resource === "knowledge" ? 2 * 1024 * 1024
     : resource === "models" ? 256 * 1024
-      : resource === "run-status" || resource === "improvement" ? 256 * 1024 : 64 * 1024;
+      : resource === "run-status" || resource === "improvement" || recordResource || resource === "audit-recommendations" ? 256 * 1024 : 64 * 1024;
   const responseText = await boundedResponseText(response, responseLimit, assertCurrent);
   assertCurrent();
   let result: unknown;
   try { result = JSON.parse(responseText); }
-  catch { throw new Error("Invalid Taskmaster response"); }
+  catch {
+    if (advice && !response.ok) throw new TaskmasterHttpError(`Taskmaster request failed (${response.status})`, response.status);
+    throw new Error("Invalid Taskmaster response");
+  }
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Invalid Taskmaster response");
   const value = result as Record<string, unknown>;
   const error = value.error;
@@ -93,7 +132,7 @@ export async function taskmasterRequest(
     : error && typeof error === "object" && !Array.isArray(error) && typeof (error as Record<string, unknown>).message === "string"
       ? (error as Record<string, string>).message
       : `Taskmaster request failed (${response.status})`;
-  if (!response.ok) throw new Error(message);
+  if (!response.ok) throw new TaskmasterHttpError(message, response.status);
   if (resource === "run-status" && value.assessment && typeof value.assessment === "object") {
     const phase = (value.assessment as Record<string, unknown>).phase;
     if (phase !== undefined && phase !== null

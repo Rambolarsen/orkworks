@@ -66,6 +66,7 @@ pub(crate) struct RollupCluster {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RollupValidationError {
+    UnsupportedProducer,
     TooManyFamilies,
     TooManyObservations,
     InputTooLarge,
@@ -103,6 +104,9 @@ impl RollupFamilySnapshot {
         recommendation: &Recommendation,
         active_parent: Option<&Recommendation>,
     ) -> Result<Self, RollupValidationError> {
+        if super::is_unverified_improvement(recommendation) {
+            return Err(RollupValidationError::UnsupportedProducer);
+        }
         if recommendation.status != RecommendationStatus::Proposed {
             return Err(RollupValidationError::NotProposed(
                 recommendation.id.clone(),
@@ -150,6 +154,7 @@ pub(crate) fn build_rollup_family_snapshots_with_offset(
 ) -> Result<Vec<RollupFamilySnapshot>, RollupValidationError> {
     let active_parents = recommendations
         .iter()
+        .filter(|item| !super::is_unverified_improvement(item))
         .filter(|recommendation| {
             recommendation.status == RecommendationStatus::Proposed
                 && !recommendation.rollup_member_ids.is_empty()
@@ -159,6 +164,7 @@ pub(crate) fn build_rollup_family_snapshots_with_offset(
         .collect::<BTreeMap<_, _>>();
     let mut candidates = recommendations
         .iter()
+        .filter(|item| !super::is_unverified_improvement(item))
         .filter_map(|recommendation| {
             if recommendation.status == RecommendationStatus::Proposed
                 && recommendation.rollup_member_ids.is_empty()

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getTaskmasterRecommendations, type RecommendationListResponse } from "./api";
+import { getAdviceRecommendations, type RecommendationListResponse } from "./api";
 import { createRecommendationSource, type RecommendationSnapshot } from "./recommendationSource";
 import { subscribeWorkspaceUpdateSignal, workspaceUpdateSignal } from "./workspaceUpdateSignals";
 
@@ -10,7 +10,7 @@ const empty: RecommendationSnapshot = { response: { recommendations: [], diagnos
 function acquire(scope: string, workspacePath: string): Entry {
   let entry = sources.get(scope);
   if (!entry) {
-    const source = createRecommendationSource({ load: async () => getTaskmasterRecommendations(await window.orkworks.getBackendUrl()) });
+    const source = createRecommendationSource({ load: async () => getAdviceRecommendations(await window.orkworks.getBackendUrl(), workspacePath) });
     source.setHealthy(workspaceUpdateSignal(workspacePath).healthy);
     const unsubscribeSignal = subscribeWorkspaceUpdateSignal(workspacePath, () => {
       source.setHealthy(workspaceUpdateSignal(workspacePath).healthy); source.invalidate();

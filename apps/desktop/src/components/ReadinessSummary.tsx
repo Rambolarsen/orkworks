@@ -1,3 +1,4 @@
+import { adviceIsSupported, isUnverifiedAdvice, unverifiedAdviceWarning } from '../advice.ts';
 import { compareReadiness, conceptLabel, readinessQualification, type ReadinessData, type ReadinessRow, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
 interface Props {
   snapshot: ReadinessSnapshot;
@@ -29,6 +30,7 @@ function ReadinessArea({ row, prior, comparable, evidence }: AreaProps) {
 }
 
 export default function ReadinessSummary({ snapshot, baseline, freshness }: Props) {
+  if (!adviceIsSupported(snapshot) || (baseline && !adviceIsSupported(baseline))) return <p role="alert">This assessment requires an updated advice protocol.</p>;
   const data = snapshot.data;
   if (snapshot.redacted || !data) return <p>Assessment evidence and scores were redacted after access changed.</p>;
   const comparison = compareReadiness(snapshot, baseline);
@@ -39,6 +41,7 @@ export default function ReadinessSummary({ snapshot, baseline, freshness }: Prop
     .slice(0, 3);
 
   return <div className="readiness-summary">
+    {(isUnverifiedAdvice(snapshot) || isUnverifiedAdvice(baseline)) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
     <div className="readiness-score" aria-label="Overall agent readiness">
       {data.overallScore === null ? <strong>Partial assessment</strong> : <><strong>{data.overallScore}</strong><span> / 100</span></>}
       {comparison.delta !== null && <span className="readiness-delta">{comparison.delta > 0 ? '+' : ''}{comparison.delta} since baseline</span>}

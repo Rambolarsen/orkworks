@@ -1,10 +1,10 @@
 ---
 type: Design
 title: Code-owned unverified status for improvement advice
-description: Proposed replacement for English verification-claim guessing in the new improvement producer, with explicit unverified presentation and compatible consumers.
+description: Approved replacement for English verification-claim guessing in the new improvement producer, with explicit unverified presentation and compatible consumers.
 tags: [orkworks, taskmaster, recommendations, validation, security]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Code-owned unverified improvement advice
@@ -15,10 +15,11 @@ Related: [approved investigation](2026-11-12-brain-guided-improvement-design.md)
 [ADR 0115](../../adr/0115-inert-improvement-text-and-fixed-handoffs.md), and the
 [fifth comparison](../plans/2026-11-12-brain-guided-improvement.md#fifth-comparison-result-2026-11-17).
 
-**Proposal only.** The owner authorized one 66-call comparison and conditional
-activation, not this change to the retained verification-claim policy. The trial
-failed its gate. Production remains disabled, and no policy-3 implementation or
-further provider calls are authorized by this document.
+**Owner-approved, 2026-11-17.** The owner answered “keep going” to the explicit
+question approving implementation of this reviewed design, including visible
+false completion statements as unverified advice. This is separate from the
+earlier 66-call trial authorization. Implementation is authorized; activation
+and further provider calls remain separately gated. See [ADR 0116](../../adr/0116-unverified-improvement-advice.md).
 
 ## Problem and proposed decision
 
@@ -45,7 +46,7 @@ This deliberately permits a model to emit a false sentence such as “Tests
 passed.” as unverified advice. The product does not assert that sentence's truth
 or promote it to an execution result. The warning does not make bad advice
 accurate or safe; owner review and independent usefulness qualification remain
-necessary. This tradeoff needs explicit owner approval.
+necessary. The owner explicitly approved this tradeoff on 2026-11-17.
 
 ## Policy and execution authority
 
@@ -88,7 +89,7 @@ This is not native coding-tool confinement or a guarantee of advice accuracy.
 
 Use one explicit supported identity, with all redundant fields agreeing:
 
-| Surface | Proposed identity |
+| Surface | Approved identity |
 | --- | --- |
 | Capture/evaluation discriminator | `brain-improvement-v3:collector-1:prompt-4:response-1:text-3` |
 | Range manifest/report | Existing format 1 and ranges; purpose `brain-improvement-v3` |
@@ -96,6 +97,7 @@ Use one explicit supported identity, with all redundant fields agreeing:
 | History manifest | Existing envelope version 1; purpose `brain-improvement-v3`, `Collector::Improvement` |
 | History input wrapper | Version 3 around the unchanged range manifest |
 | History identity versions | `purpose: brain-improvement-v3`, `collector: 3`, `schema: 1`, `text: 3` |
+| Persisted history origin | Optional `improvementVersion: 3` on new snapshots, retained when privacy redacts data; absent on old snapshots |
 | Recommendation reference | Existing intent enum with `improvementReference.version: 3` |
 
 Unknown or contradictory identities fail closed. Preserve policy-1/2 readers and
@@ -114,6 +116,19 @@ main process from accidentally opting into new advice. The renderer receives no
 arbitrary URL/header capability. Version-3 responses carry `protocolVersion: 3`,
 and new clients require its matching code-owned unverified status before display.
 The fixed handoff fetch also declares protocol 3 with existing authentication.
+Main binds each new call to the selected workspace and backend generation before
+and after awaiting the request. List/detail/audit may carry the expected backend
+URL only as an equality selector; it never selects the fetch destination.
+Before any new-protocol mutation, main negotiates support through a safe read
+inside that same generation/abort scope and rechecks workspace identity. An old
+server that ignores unknown headers cannot receive a mutation before rejection.
+IPC carries HTTP failures in a fixed protocol/status envelope so stale-detail
+recovery retains 404/409 semantics without transporting raw error prose.
+
+Producer-3 mutation replies contain only lifecycle receipts: recommendation ID,
+status and target session. Advice must be fetched separately through the current
+privacy/currentness fence; completion can settle after evidence changes without
+echoing stale prose or declaring checks verified.
 
 Apply the declaration to **every producer-bearing surface**, not only the primary
 panel: improvement status/start/cancel, recommendation lists/details/actions,
@@ -140,7 +155,7 @@ legacy producer or bypass authentication, evidence access or handoff admission.
 | --- | --- |
 | More English exceptions | Small patches retain broad rejection, but repeated normal phrasing fails and exceptions can admit real completion claims. |
 | Structured validation-plan model schema | More output/schema and publisher coordination; other prose fields still have the same ambiguity. |
-| Code-owned unverified status (proposed) | Removes the guessing boundary; false statements may remain visible as unverified data, with explicit consumer and authority controls. |
+| Code-owned unverified status (approved) | Removes the guessing boundary; false statements may remain visible as unverified data, with explicit consumer and authority controls. |
 | Another model to judge or repair prose | Adds cost/latency and uncertain judgement; it does not establish execution evidence. |
 
 The first provider failure's underlying cause is unknown: the old trial ledger
@@ -149,10 +164,10 @@ helps future failures; it does not explain, retry or reclassify that old request
 
 ## Implementation and acceptance boundary
 
-Before dependent implementation, obtain owner approval, record the replacement
-decision through the ADR lifecycle, synchronize the authoritative specifications,
-and write a concise plan for backend identity/policy, compatible IPC/views and
-fixed UI/handoffs. ADR 0115 remains accepted until that decision is made.
+Owner approval is recorded above and the replacement decision in ADR 0116.
+Synchronize the authoritative specifications and follow the concise plan for
+backend identity/policy, compatible IPC/views and fixed UI/handoffs before
+dependent implementation. ADR 0115 remains the contract for policy-2 records.
 
 Acceptance must prove: correct version binding at decode/save/reload/publication;
 the captured harmless CI final accepted only under policy 3; legacy/v2 fixtures
@@ -167,7 +182,7 @@ once-per-case paired usefulness comparison still gates activation and needs its
 own finite authorization after implementation. Preserve all prior failures; an
 offline decoder pass or warning label earns no usefulness credit. Rollback stops
 new admission and keeps supported readers for existing records; use no destructive
-migration. This proposal authorizes no activation, release, private Brain access,
+migration. This approval authorizes no activation, release, private Brain access,
 trust change, or additional provider calls.
 
 ## Proposal review

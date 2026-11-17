@@ -3477,3 +3477,13 @@ html, body, #root {
   margin: 4px 0 0;
   color: var(--text-secondary);
 }
+
+
+.advice-warning {
+  color: var(--state-warn);
+  border-left: 2px solid var(--state-warn);
+  padding: 0.4rem 0.65rem;
+  background: var(--state-warn-bg);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
