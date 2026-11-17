@@ -384,7 +384,8 @@ async fn sql_history_cancelled_after_commit_retains_lane_lease_and_publication()
     assert!(writer.await.unwrap_err().is_cancelled());
     assert!(lane.clone().try_lock_owned().is_err());
     drop(pause);
-    let _released = tokio::time::timeout(std::time::Duration::from_secs(5), lane.lock_owned())
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let _released = tokio::time::timeout_at(deadline, lane.lock_owned())
         .await
         .unwrap();
     assert_eq!(files.read_events(ID).len(), 1);
@@ -392,6 +393,14 @@ async fn sql_history_cancelled_after_commit_retains_lane_lease_and_publication()
         state.sessions.lock().unwrap()[ID].info.lifecycle_phase,
         "ended"
     );
+    // Lane availability precedes the completion's final workspace-lease drop.
+    tokio::time::timeout_at(deadline, async {
+        while lease.strong_count() > 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(lease.strong_count(), 1);
     store.close().await.unwrap();
 }
