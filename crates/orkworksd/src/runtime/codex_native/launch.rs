@@ -1638,7 +1638,11 @@ while True:
         let file = dir.path().join("pid");
         let mut command = std::process::Command::new("/bin/sh");
         command
-            .args(["-c", "sleep 30 & echo $! > \"$1\"; exit 0", "fixture"])
+            .args([
+                "-c",
+                "sleep 30 & echo $! > \"$1.tmp\"; mv \"$1.tmp\" \"$1\"; exit 0",
+                "fixture",
+            ])
             .arg(&file);
         let owner = OwnedProcess::spawn(command).unwrap();
         for _ in 0..100 {
