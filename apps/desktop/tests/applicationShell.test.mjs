@@ -1670,7 +1670,7 @@ if (process.versions.electron) {
             for (const [status,want] of [['loading','loading'],['unavailable','unavailable'],['partial','1 known (partial)'],['ready','1']]) {
               await evaluate(`fixture.setSessionSourceStatus(${javascriptLiteral(status)})`);
               await waitFor(`document.querySelector('[data-actions-source="sessions"] strong')?.textContent===${javascriptLiteral(want)}`);
-              assert.match(await evaluate('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description")'),new RegExp('Session attention: '+want.replace(/[()]/g,'\\$&')));
+              assert.ok((await evaluate('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description")')).includes('Session attention: '+want));
               assert.match(await evaluate('document.querySelector("[data-actions-source=recommendations]").textContent'),/Recommendations.*unavailable/);
             }
           }
