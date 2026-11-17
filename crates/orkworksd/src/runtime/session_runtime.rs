@@ -4796,7 +4796,9 @@ if [ "$isolated" = no ]; then
 else
   printf '%s\n%s\n' "$ORKWORKS_SESSION_ID" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" > "$ORKWORKS_SESSION_ID.env"
 fi
-printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
+# The parent treats the final args file as readiness for all fixture evidence.
+printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
+  mv "$ORKWORKS_SESSION_ID.args.tmp" "$ORKWORKS_SESSION_ID.args"
 "#).unwrap();
         crate::test_support::make_test_executable(&executable);
         let mut mailboxes = Vec::new();
