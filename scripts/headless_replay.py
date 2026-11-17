@@ -27,6 +27,7 @@ PROXY_ENV = ('HTTP_PROXY', 'HTTPS_PROXY', 'FTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
 INPUTS = {'Containerfile', 'apps/desktop/tsconfig.json', 'apps/desktop/package.json', 'apps/desktop/pnpm-lock.yaml',
           'apps/desktop/pnpm-workspace.yaml', 'apps/desktop/scripts/setup-electron.mjs',
           'apps/desktop/tests/applicationShell.test.mjs',
+          'apps/desktop/tests/helpers/javascriptLiteral.mjs',
           'apps/desktop/tests/fixtures/shellSubprocess.mjs'}
 
 
