@@ -3,7 +3,7 @@ type: Implementation Plan
 title: Explicit branch document recovery
 description: Preserve invalid branch records before a confirmed snapshot-bound reset.
 tags: [orkworks, plans, recovery, branch-documents]
-status: active
+status: stable
 ---
 
 # Explicit branch document recovery
@@ -64,13 +64,15 @@ native Windows CI. The owner approved the full contract; no repeat gate needed.
 ## Verification progress
 
 Owner-approved implementation is complete. Final `/code-review medium` approved
-the code diff against `06628d9be1b245ae50110a240714a56c68d44de2`, SHA256
-`ceae8befddfe20c0ea8f5771c8f82388b14c133f56089b4bad45b30ce43d666c`,
+the code diff against `6154e4e0fcfbf72ce445661f8cebf9ef6dd6e56e`, SHA256
+`cdca6fdc235a71f43cb737044ad0365b853dfebcda1f15f8551cf7d1ad9251c4`,
 with no remaining findings. TDD exposed and fixed absent recovery, transient
 staging permission exposure and historical FIFO blocking before their fixes.
 
 The final focused branch-document run passed all 55 tests. Desktop transport
 and static rendering passed 14 tests; the real Electron recovery interaction
 passed confirmation, cancel, stale refresh, duplicate-click and error retry.
-The complete Node22 / CI-four-thread repository verifier is in progress; final
-CI and merge remain pending. No power-loss hardware qualification is claimed.
+The recovery code remained unchanged when rebased onto current main. Both
+recovery and compact-menu Electron scenarios passed after preserving their
+combined registration. The complete Node22 / CI-four-thread repository verifier
+is in progress; final CI and merge remain pending. No power-loss hardware qualification is claimed.
