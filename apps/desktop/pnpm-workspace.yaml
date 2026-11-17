@@ -8,6 +8,8 @@ overrides:
   "@xmldom/xmldom@>=0.7.0 <=0.8.14": ">=0.8.15"
   "fast-uri@>=3.0.0 <3.1.6": "4.2.3"
   "fast-uri@>=4.0.0 <4.2.3": "4.2.3"
+  # Keep legacy minimatch 3/5 APIs; packaging consumers of 9/10 use named APIs.
+  "minimatch@>=7.0.0 <11.0.1": "11.0.6"
   "undici@<6.29.1": "6.29.1"
   "undici@>=7.0.0 <7.30.1": "7.30.1"
   "brace-expansion@<1.1.21": "1.1.21"
