@@ -2402,3 +2402,14 @@ The paired-comparison gate therefore remains unsatisfied; conditional workspace
 verification used zero calls and production admission remains false. Assessment
 calibration/citation caveats and exact retained evidence are recorded in the
 [implementation record](../superpowers/plans/2026-11-12-brain-guided-improvement.md#seventh-owner-authorized-comparison-2026-11-17).
+
+Prompt revision 6 clarifies that inspected inconsistencies can support a grounded
+hypothesis after checking scope, intent, counterevidence and meaningful benefit.
+Unknown execution outcomes or a missing incident history alone do not disqualify
+such a candidate; alternative explanations stay explicit and may motivate bounded
+permitted confirmation. The shared policy still allows no proposal and does not
+infer missing capabilities from unknown areas. Identity `prompt-6` prevents older
+results from appearing current while preserving stored bytes and read-only status.
+No schema, text policy, evidence/dispatch authority, call limit or production gate
+changes. Offline checks establish delivery/currentness, not model compliance; the
+seventh comparison remains failed and its original artifacts remain uncredited.

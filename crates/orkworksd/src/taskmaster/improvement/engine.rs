@@ -23,6 +23,7 @@ pub(super) const SELECTION_RULES: &str = concat!(
     "Apply the cited guidance's applicable and non-applicable scope, status and limits; a relevant page or citation does not by itself make a practice applicable. ",
     "Preserve an adequate existing mechanism unless inspected evidence supports a meaningful residual benefit. Low maturity, sparse documentation, low effort, reversibility or an imagined user or harness alone do not establish that benefit. ",
     "A supported hypothesis can qualify without an observed failure when its local mechanism and meaningful benefit are grounded; do not inflate it into an observed problem. Unknown behavior is not a missing capability. ",
+    "An apparent inconsistency across inspected artifacts governing the same workflow can support a hypothesis after checking whether scope or intent explains it. When its mechanism and meaningful benefit are grounded, keep it eligible for ranking; retain unresolved explanations as limits or a bounded permitted confirmation step. Lack of execution results or a recorded incident alone does not disqualify it. ",
     "An investigation must resolve a concrete decision using permitted evidence, not merely seek work because an area is unassessed. ",
     "If no candidate clears this bar, return no proposal with a concise evidence-based reason, retaining supported assessment findings and uncertainty."
 );

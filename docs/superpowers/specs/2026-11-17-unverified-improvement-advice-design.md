@@ -113,6 +113,20 @@ completed records still load in the same stored format, but cannot be projected
 as current under the new prompt identity. This clarification does not qualify model compliance or enable
 production admission.
 
+Prompt revision 6 clarifies the positive evidence threshold for a supported
+hypothesis. An apparent inconsistency across inspected artifacts governing a
+workflow can remain a candidate after considering differing scope or intent and
+meaningful local benefit. Unresolved explanations remain limitations or a bounded
+permitted confirmation step; lack of execution results or a historical incident
+alone does not disqualify the candidate. This does not turn unknown behavior into
+a missing capability, require a proposal, or waive counterevidence/applicability.
+Both phases and comparison arms keep the same shared selection guidance. The
+capture discriminator advances to
+`brain-improvement-v3:collector-1:prompt-6:response-1:text-3`; other versions and
+stored formats remain unchanged. Earlier prompt results are preserved without
+current projection or status-triggered inference. This is a prospective prompt
+clarification, not empirical usefulness qualification or production admission.
+
 Unknown or contradictory identities fail closed. Preserve policy-1/2 readers and
 old bytes. Downgrade must report unsupported data without deleting it, rewriting
 it as legacy, dispatching inference, or acquiring freshness/authority.
