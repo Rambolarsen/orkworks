@@ -2435,3 +2435,17 @@ in the [eighth report](../superpowers/plans/2026-11-12-brain-guided-improvement.
 Production activation was explicitly excluded; the gate remains false and the
 conditional workspace phase used zero calls. No installed behavior, model-wide
 compliance, historical recredit or resolved assessment-grounding claim follows.
+
+Prompt revision 7 makes the existing assessment procedure explicit in shared
+`assessmentRules` for both phases and comparison arms. Rows use their exact rubric
+requirements and actual supporting fact IDs; unknown requirements remain limits
+or unassessed, and level zero also requires evidence. Configured automation alone
+does not establish execution history or reliability. Confidence cannot replace a
+missing requirement, and uncertain rows do not suppress a separately supported
+opportunity. Identity `prompt-7` retains older records without current projection
+or replacement inference. The full rubric was already delivered; incorrect ratings
+and IDs were present in raw model output, rather than introduced by decoding or
+publication. Validators still enforce structure and citation membership, not
+semantic support. Offline delivery/currentness checks cannot establish factual
+model compliance. No response/storage format, authority, budget or production gate
+changes; the eighth comparison remains historical at its original source.
