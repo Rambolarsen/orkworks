@@ -1082,6 +1082,22 @@ mod tests {
     }
 
     #[test]
+    fn codex_launch_renders_and_drops_the_model_flag() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+        let harness = registry.get("codex").unwrap();
+
+        let explicit = harness.build_launch("/repo", Some("gpt-6.1-sol"));
+        assert_eq!(explicit.program, "codex");
+        assert_eq!(explicit.args, ["--model", "gpt-6.1-sol"]);
+        assert_eq!(explicit.cwd, "/repo");
+        assert_eq!(
+            harness.build_launch("/repo", None).args,
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
     fn copilot_launch_renders_and_drops_the_model_flag() {
         let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
         let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
