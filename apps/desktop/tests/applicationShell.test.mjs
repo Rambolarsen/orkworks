@@ -1647,7 +1647,7 @@ if (process.versions.electron) {
         } else if (scenario === 'toolbar-summary') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
-          const summaryPoint = await evaluate('(()=>{const r=document.querySelector("[data-actions-counts]").getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()');
+          const summaryPoint = await evaluate('(()=>{const group=document.querySelector(".shell-actions-controls").getBoundingClientRect();const next=document.querySelector("[data-shell-command=next-action]").getBoundingClientRect();return {x:Math.round(group.right-next.width-12),y:Math.round(group.top+group.height/2)}})()');
           win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...summaryPoint});
           win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...summaryPoint});
           await waitFor('document.querySelector(".actions-overview")');
@@ -1667,6 +1667,7 @@ if (process.versions.electron) {
               return selectors.map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {selector,left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width}});
             })()`);
             for (const rect of bounds) assert.ok(rect.width>0&&rect.left>=0&&rect.right<=width&&rect.top>=0&&rect.bottom<=700,`${rect.selector} reachable at ${width}px: ${JSON.stringify(rect)}`);
+            assert.ok(await evaluate('(()=>{const group=document.querySelector(".shell-actions-controls").getBoundingClientRect();const next=document.querySelector("[data-shell-command=next-action]").getBoundingClientRect();return Math.abs(group.right-next.right)<=2})()'),`next action uses the trailing edge at ${width}px`);
             for (const [status,want] of [['loading','loading'],['unavailable','unavailable'],['partial','1 known (partial)'],['ready','1']]) {
               await evaluate(`fixture.setSessionSourceStatus(${javascriptLiteral(status)})`);
               await waitFor(`document.querySelector('[data-actions-source="sessions"] strong')?.textContent===${javascriptLiteral(want)}`);
