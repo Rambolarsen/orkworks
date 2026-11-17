@@ -16,4 +16,6 @@ overrides:
   "tar@7.5.16": ">=7.5.18"
   "baseline-browser-mapping@>=2.0.0 <2.11.0": ">=2.11.0"
 patchedDependencies:
+  # Electron 45.2.3 rejects leading whitespace in connected canvas font strings (#1849).
+  '@xterm/addon-webgl@0.19.0': patches/@xterm__addon-webgl@0.19.0.patch
   '@xterm/xterm@6.0.0': patches/@xterm__xterm@6.0.0.patch
