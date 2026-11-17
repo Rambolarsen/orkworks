@@ -3165,7 +3165,7 @@ html, body, #root {
 .shell-session-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1); min-width:0; }
 .shell-session-controls:empty { display:none; }
 .shell-actions-controls { display:flex; align-items:center; gap:2px; min-width:0; max-width:100%; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); }
-.shell-actions-controls > [data-shell-command=actions] { flex-wrap:wrap; min-width:0; }
+.shell-actions-controls > [data-shell-command=actions] { flex:1; flex-wrap:wrap; min-width:0; }
 .shell-actions-controls > [data-shell-command=next-action] { flex-shrink:0; align-self:stretch; justify-content:center; }
 .shell-layout[data-mode="compact"] .shell-actions-controls { flex:1 1 240px; }
 .shell-actions-controls [data-actions-counts] { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; font-size:11px; color:var(--text-muted); }
