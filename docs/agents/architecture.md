@@ -2393,3 +2393,12 @@ The capture identity advances to `prompt-5`, so older results remain persisted
 but cannot appear current; no read dispatches replacement inference. Wire/storage
 versions, evidence limits, validators and handoff authority are unchanged. Offline
 tests cover shared prompt dataflow and freshness, not future model compliance.
+
+The seventh controlled comparison at merged #1842 used 30/60 calls with all ten
+arms structurally accepted. Independent review credited two useful positives and
+justified no-proposal app results in both controls, but the app missed a valid
+verification-entry alignment baseline without an equally useful alternative.
+The paired-comparison gate therefore remains unsatisfied; conditional workspace
+verification used zero calls and production admission remains false. Assessment
+calibration/citation caveats and exact retained evidence are recorded in the
+[implementation record](../superpowers/plans/2026-11-12-brain-guided-improvement.md#seventh-owner-authorized-comparison-2026-11-17).
