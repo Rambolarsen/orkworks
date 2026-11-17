@@ -4353,6 +4353,9 @@ impl ProviderManager {
 #[cfg(test)]
 mod tests {
     const MAX_OLLAMA_TEST_REQUEST_BYTES: usize = 1024 * 1024;
+    // Binding port 0 assigns a different ephemeral port, so no service can listen
+    // at this destination. Unlike releasing a reserved port, this has no reuse race.
+    const UNREACHABLE_OLLAMA_URL: &str = "http://127.0.0.1:0";
 
     use super::*;
 
@@ -6378,22 +6381,21 @@ done
                 revision: 1,
                 peon_model: None,
                 peon_selection: None,
-                ollama_base_url: "http://127.0.0.1:49999".to_string(),
+                ollama_base_url: UNREACHABLE_OLLAMA_URL.to_string(),
                 providers: vec![],
             },
             vec![],
         );
         // This bypasses FakeRunner — discover_models() dispatches on http_list_models
-        // Uses a non-default port to avoid conflicting with a running Ollama
         let result = manager.discover_models("ollama");
         assert!(
             result.is_err(),
-            "expected error connecting to unused port 49999"
+            "expected connection failure at {UNREACHABLE_OLLAMA_URL}"
         );
         let e = result.unwrap_err();
         assert!(
             e.contains("unreachable") || e.contains("connection refused"),
-            "expected connection refused error, got: {e}"
+            "expected connection failure, got: {e}"
         );
     }
 
@@ -6574,7 +6576,7 @@ done
     fn verify_ollama_unreachable_maps_to_failed_response() {
         let manager = ProviderManager::for_tests(ProviderSettingsPayload::default(), vec![]);
 
-        let response = manager.verify_ollama("http://127.0.0.1:49999");
+        let response = manager.verify_ollama(UNREACHABLE_OLLAMA_URL);
         assert!(!response.ok);
         assert_eq!(response.status, OllamaVerificationStatus::Failed);
         assert_eq!(
