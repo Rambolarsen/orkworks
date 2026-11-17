@@ -64,6 +64,7 @@ COPY apps/desktop/tsconfig.json ./tsconfig.json
 COPY apps/desktop/src ./src
 COPY apps/desktop/tests/applicationShell.test.mjs ./tests/applicationShell.test.mjs
 COPY apps/desktop/tests/fixtures/shellSubprocess.mjs ./tests/fixtures/shellSubprocess.mjs
+COPY apps/desktop/tests/helpers/javascriptLiteral.mjs ./tests/helpers/javascriptLiteral.mjs
 RUN chmod -R go-w /opt/replay && mkdir -p /artifacts/replay \
     && chown 1000:1000 /artifacts/replay
 ENV HOME=/tmp/orkworks-home \
