@@ -123,9 +123,9 @@ def watch_line(entry, advisory, today):
         raise ValueError("Advisory has no usable matching package evidence")
     versions = [item["first_patched_version"] for item in matching if item["first_patched_version"]]
     if versions:
-        if any(not isinstance(version, dict) or not version.get("identifier") for version in versions):
+        if any(not isinstance(version, str) or not version.strip() for version in versions):
             raise ValueError("Malformed patch information")
-        return prefix + "MET — upstream patch available: " + ", ".join(version["identifier"] for version in versions)
+        return prefix + "MET — upstream patch available: " + ", ".join(versions)
     return prefix + "UNCHANGED — no upstream patched version reported"
 
 

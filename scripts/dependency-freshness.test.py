@@ -58,7 +58,7 @@ class ReportTests(unittest.TestCase):
     def test_watch_conditions_met_unmet_unknown_and_withdrawn(self):
         entry = review(); today = date(2026, 11, 17)
         self.assertIn("UNCHANGED", f.watch_line(entry, {"withdrawn_at": None, "vulnerabilities": [{"package": {"name": "example", "ecosystem": "npm"}, "first_patched_version": None}]}, today))
-        self.assertIn("MET", f.watch_line(entry, {"withdrawn_at": None, "vulnerabilities": [{"package": {"name": "example", "ecosystem": "npm"}, "first_patched_version": {"identifier": "2.0.0"}}]}, today))
+        self.assertIn("MET", f.watch_line(entry, {"withdrawn_at": None, "vulnerabilities": [{"package": {"name": "example", "ecosystem": "npm"}, "first_patched_version": "2.0.0"}]}, today))
         self.assertIn("WITHDRAWN", f.watch_line(entry, {"withdrawn_at": "2026-11-01"}, today))
         with self.assertRaises(ValueError): f.watch_line(entry, {}, today)
         with self.assertRaises(ValueError): f.watch_line(entry, {"withdrawn_at": None, "vulnerabilities": []}, today)
