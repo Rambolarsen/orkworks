@@ -1289,3 +1289,131 @@ these offline checks establish currentness and guidance delivery only.
 No paid calls, activation, historical result edits or qualification recredit are
 authorized by this source correction. Another live comparison still needs fresh
 finite authorization and the existing independent usefulness gates.
+
+## Eighth comparison result, 2026-11-17
+
+The owner explicitly approved one new trial after the question specifying up to
+**60 comparison calls plus 6 conditional workspace calls**, permitted repository
+evidence transfer to Codex `gpt-6-luna` / medium, no retries and no production
+activation. The fresh zero-call signed-input preflight passed. Execution was
+pinned to merged #1865, `445886c11cf7c8dcfb48cddb4188a3816de3feba`, with the same
+fixed fixture revisions and signed `brain-4`. The runner and acceptance limits
+were unchanged; prompt revision 6's supported-hypothesis clarification is the
+source change under evaluation.
+
+The single runner invocation settled **30/60 comparison calls**, all ten arms
+structurally accepted, with no runner retries, model switches or truncation.
+App/baseline calls were 4/2, 4/2, 3/3, 3/3 and 3/3 in the case order below.
+Raw outputs, including weak baseline advice and assessment defects, are retained.
+
+**Paired recommendation comparison: PASSED. Activation: not authorized.**
+Independent review credits **3/3 useful app positives**, both app recommendation
+controls appropriately abstain, and no valid preferred baseline step is lost
+without an equally useful supported alternative. This is the existing scoped
+recommendation comparison, not a claim that every assessment row is sound or that
+the model generally complies. Material assessment fidelity problems remain below.
+
+| Case | App result | Independent baseline-candidate disposition |
+| --- | --- | --- |
+| Behavioral assertion | Useful `assert-add-result` | App inspected source/test and proposes the meaningful assertion; baseline lacked those contents and proposed the permitted review. Its investigation is superseded by the app's grounded result. |
+| Entry command | Useful `align-verification-entrypoint` | Same instruction/package/CI alignment covered, including confirmation of intent or an alternative mechanism; no equally useful baseline step is lost. |
+| CI failure masking | Useful `ci-test-failure-signal` | Same restoration of test-failure signaling covered, with unverified passing/failing validation scope. |
+| Already satisfied | Justified no proposal | Baseline README cross-link gives no grounded residual benefit beyond accurate existing instructions; lower priority/unsupported. |
+| Evidence restricted | Justified no proposal | Baseline hidden-test availability/behavior investigation cannot resolve its central decision using the permitted broker; unsupported, not a valid preferred loss. |
+
+The entry-command app now identifies the inspected discrepancy while preserving
+confirmation of the intended workflow and unverified execution. The observed
+problem is the documented inconsistency, not an observed failed invocation. The
+behavioral app's stronger answer also reflects better evidence selection: its
+baseline stopped with initial project/CI facts and did not request the source or
+test bodies. Equivalent permitted catalogs do not imply identical final evidence.
+Both outcomes are sampled results, not a causal estimate or proof of general
+compliance. The seventh cohort remains failed and receives no recredit.
+
+The satisfied baseline again promotes a README discovery hypothesis without a
+meaningful benefit beyond the adequate entry mechanism. Its cited experimental
+entry-point practice was catalog-only in that baseline's final context; the
+practice's delivered content elsewhere also excludes already accurate entry
+points. This does not make all documentation hypotheses require observed friction.
+The restricted baseline avoids literally claiming absent tests, but an ignore
+entry and evidence exclusion do not establish checkout unavailability. Tests and
+commands remain unavailable, and it supplies no further permitted read that could
+resolve availability or useful execution signal. Its contingent change is not an
+additional supported candidate. Neither app invents a recommendation gap.
+
+### Assessment fidelity remains unresolved
+
+The reviewers found material defects distinct from useful next-step selection:
+
+- Restricted verification is rated 3/high although reliability, results and test
+  behavior remain unknown; automation alone does not meet the supplied level 3.
+- Restricted instruction-scoping and progressive-disclosure ratings lack the
+  required nested/sectioned or layered-support evidence while their own rationales
+  acknowledge unknowns. Similar weak progressive-disclosure ratings appear elsewhere.
+- Behavioral human-oversight cites CI fact 2 rather than owner-escalation fact 0;
+  other CI/tool-version claims omit the workflow fact they describe.
+- CI verification level 2 lacks targeted-check-selection evidence. Satisfied
+  change-safety level 1 is supported only by owner escalation, while the rubric
+  requires risky-operation/safer-alternative guidance. Some zero ratings coexist
+  with acknowledged uncertainty about additional scopes or documentation.
+
+These errors are not erased by recommendation-control success or code-owned
+unverified warnings. They need assessment-grounding attention. No new numerical
+all-fourteen-row comparison threshold is introduced, and the scoped comparison
+pass is not promoted into a full report-fidelity or production-activation claim.
+No assessment correction, validator/policy change or activation occurs in this
+report. The new engine's production gate remains false.
+
+Conditional workspace verification used **0/6 calls**: production activation was
+explicitly excluded and the new-engine production path remains gated. The ceiling
+was not consumed and does not authorize bypassing that gate or replacing samples.
+Any later workspace phase must preserve its original conditions and separately
+resolve activation authority. No installed-settings change, release or actual
+workspace-result claim is made.
+
+### Custody and comparison limits
+
+Three fresh read-only `gpt-6.1-sol` / medium reviewers independently covered the
+accessible cases, the restricted pair using only delivered evidence, and custody.
+The trial itself retained Codex Luna/medium. One parent reconciled and wrote the
+report; no extra samples or review rework loop occurred. Restricted source,
+fixture Git/recovery, prior adjudications and other reviewer results were excluded
+from the restricted reviewer; custody read no fixture contents or fixture Git.
+
+All 30 prompt and 30 output files match their recorded hashes and byte counts:
+**1,320,622 prompt bytes**, **57,307 output bytes**, no truncation. Ten contiguous
+once-only groups use at most four calls per arm. All five app results equal final
+raw JSON; all five baseline advice/result texts equal final raw output. Selected
+fact/page occurrences match the ledger and delivered/pinned content. Shared
+selection guidance is identical across all 30 prompts: 20 evidence, five app final
+and five baseline advice requests.
+
+Requested selection, source endpoints, signed payload/core/bundle/manifest/key
+metadata and fixture OIDs align. Signature and fixture-content identity rely on
+the recorded passing preflight. Parent scripts asserted clean pinned source before
+execution and after settlement, then began docs installation; standalone timestamped
+status snapshots and continuous mutation history are absent. Custody verified
+source/hash endpoints, not independently timestamped ordering. The aggregate
+runner duration was 416.85 seconds; per-call timing, served model/effort and
+provider-internal retries are not independently exposed.
+
+Mutable session-progress counters briefly retained preflight zeros while the
+authoritative ledger/budget correctly recorded 30; those progress fields were
+corrected during review without editing trial evidence. All five inventory-listed
+prior ledgers, cohorts 3 through 7, were independently rehashed unchanged. Earlier
+cohorts outside that inventory were not rechecked.
+
+The next useful work is assessment grounding and accurate citations before
+considering explicit activation and the separately gated workspace phase. This
+report changes no product code, model selection, schema, acceptance rule,
+production gate or historical credit. Unused comparison calls are not replacement
+sample authorization.
+
+Owner-local artifacts remain under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-8`:
+
+- Ledger SHA256: `12e1c82aaea0c1fd8a85a7a2b6d4d4080130b90802b1c34be5db3afb6910fad4`.
+- Run metadata SHA256: `eb946c3db9d9c1f35fd6eab9d181c65b0155302fc01e10677cd6e439373821d0`.
+- Independent adjudication SHA256: `116c534f329b4222e665db92853ff9e66e1e3ac2351d7a08335ccd7ad72a7968`.
+- Harness SHA256: `12c30614cc59be7abc185395fa0500cb89b2ecf2a5e649492a0d5a4d8490583b`.
+- Seventh ledger remains `f7413db4ca31df8869f664ee0a6a801ecbec80f60cf9af86d3e866c65d385e64`.
