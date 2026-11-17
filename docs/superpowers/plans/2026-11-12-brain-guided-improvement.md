@@ -873,3 +873,47 @@ The reviewed Rust diff SHA256 is
 `1de23602ce98c080da82dbd0bab52a674c6510769554e5dbf0a7c9f453c61c67`.
 Production qualification remains false. No live provider trial, activation,
 installed-settings change, publication or release is authorized by this fix.
+
+### Fifth comparison authorization and continuation, 2026-11-17
+
+The owner answered “keep going” to the explicit request for one fresh trial and
+conditional activation, capped at **66 Codex `gpt-6-luna`/medium provider calls**:
+at most sixty for the fixed five-pair comparison, then one workspace verification
+run of at most six calls only if independent usefulness and compatibility pass.
+The previous once-per-case approvals and their unused numerical allowances are
+not reused. This authorization changes no acceptance criterion or access limit.
+
+One owner executes from `improvement-qualification-five`, based on merged
+`d6e8d94c0e97881880985e461f0d513caa5b9bbe`. Fresh owner-local artifacts are under
+`/private/tmp/orkworks-brain-improvement-qualification-corpus-5`, with the unchanged
+five fixture revisions/hashes, signed `brain-4` identities and unchanged runner.
+The new trial ledger starts at zero reservations/completions and no outputs;
+`combined-budget.json` reserves the separate six-call conditional workspace cap.
+Every previous cohort remains immutable and receives no retroactive credit.
+
+1. Run the existing no-call signed-input/fixture preflight, then invoke the
+   unchanged paired runner exactly once. Retain all raw prompts, outputs and
+   failures. No retries, replacement samples or provider/model switches.
+2. Independently adjudicate the three positive pairs and satisfied control;
+   review the restricted pair in a separate fresh context that receives only its
+   delivered permitted evidence and outputs. No excluded tests, Git recovery,
+   positive cases or prior verdicts enter that restricted review. Separately
+   audit custody, budgets and valid baseline-candidate coverage against the
+   existing paired-loss gate. At most three read-only review agents, one pass.
+3. If qualification fails, retain the evidence, report the precise blocker and
+   leave production admission false. No conditional workspace calls are spent.
+   Unused allowance never authorizes another trial.
+4. If qualification and existing signed-delivery/consumer checks pass, enable
+   admission under the accepted contract, verify real routing and primary-action
+   selection, run the repository checks and current-code review, and deliver a
+   PR. Perform the one bounded workspace run through the supported candidate or
+   installed flow, preserving other sessions and current context/exclusions.
+   Distinguish verified source, candidate and installed behavior; no private
+   Brain changes, publication or additional execution authority is introduced.
+
+Continuation review: **Ready** for the authorized comparison; activation remains
+conditional. Existing dependency/compatibility and recovery decisions above are
+reused. The new uncertainty is empirical usefulness after the merged correction;
+the fixed corpus and independent paired adjudication resolve it. The conditional
+workspace check uses the existing six-call/eight-minute operation, with no new
+interface. No further design approval is required within this authorization.
