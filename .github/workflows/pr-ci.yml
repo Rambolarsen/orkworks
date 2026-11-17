@@ -201,7 +201,7 @@ jobs:
         run: cargo fmt --manifest-path crates/orkworksd/Cargo.toml --check
 
       - name: Run Rust tests
-        run: cargo test --manifest-path crates/orkworksd/Cargo.toml
+        run: cargo test --locked --no-fail-fast --manifest-path crates/orkworksd/Cargo.toml -- --test-threads=64
 
       - name: Test OpenCode session reporter
         run: node --test crates/orkworksd/scripts/opencode-session-reporter.test.mjs
