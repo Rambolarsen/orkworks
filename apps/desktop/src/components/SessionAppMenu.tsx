@@ -2,10 +2,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import HarnessIcon from "./HarnessIcon";
 import type { SessionInfo } from "../api";
+import { useCompactPopover } from "../useCompactPopover";
 
 type Availability = { label: string; available: boolean; reason?: string; installed?: boolean };
 
-export default function SessionAppMenu({ workspacePath, session, disabled }: { workspacePath: string; session: SessionInfo; disabled: boolean }) {
+export default function SessionAppMenu({ workspacePath, session, disabled, compact = false }: { workspacePath: string; session: SessionInfo; disabled: boolean; compact?: boolean }) {
   const sessionId = session.id;
   const [open, setOpen] = useState(false);
   const [availability, setAvailability] = useState<Availability | null>(null);
@@ -14,8 +15,10 @@ export default function SessionAppMenu({ workspacePath, session, disabled }: { w
   const [opening, setOpening] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const intent = useRef(0);
   const panelId = useId();
+  useCompactPopover(open && compact, trigger, panel, "end");
 
   useEffect(() => {
     setAvailability(null);
@@ -84,7 +87,7 @@ export default function SessionAppMenu({ workspacePath, session, disabled }: { w
   }}>
     <button ref={trigger} type="button" data-session-app-trigger aria-expanded={open} aria-controls={open ? panelId : undefined}
       disabled={disabled} onClick={() => setOpen(value => !value)}><ExternalLink size={14} aria-hidden="true" />Open in…<ChevronDown size={13} aria-hidden="true" /></button>
-    {open && <div id={panelId} className="session-app-popover" role="group" aria-label="Open session in application">
+    {open && <div ref={panel} id={panelId} className="session-app-popover" role="group" aria-label="Open session in application">
       <button type="button" data-session-app-open disabled={!availability?.available || opening || disabled} onClick={() => void launch()}>
         <span aria-hidden="true"><HarnessIcon tool={session.harnessId} size={16} /></span>
         {opening ? "Opening…" : availability ? `Open in ${availability.label}` : "Checking application…"}

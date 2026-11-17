@@ -541,6 +541,51 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector("[data-session-app-trigger]")'),false);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
+      } else if (scenario === 'compact-menus') {
+        // Catch menus whose last action is present in the DOM but clipped off-screen.
+        const reachable = async (menuSelector, lastSelector, triggerSelector) => {
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const bounds = await evaluate(`(()=>{const r=document.querySelector(${javascriptLiteral(menuSelector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight}})()`);
+          assert.ok(bounds.left>=0&&bounds.right<=bounds.width&&bounds.top>=0&&bounds.bottom<=bounds.height,
+            menuSelector+' stays inside the short viewport: '+JSON.stringify(bounds));
+          assert.ok(await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(triggerSelector)});const r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button, summary')===b})()`), 'open menu leaves its invoker visible');
+          await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(lastSelector)});b.focus();b.scrollIntoView({block:'nearest'})})()`);
+          assert.ok(await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(lastSelector)});const r=b.getBoundingClientRect();return b===document.activeElement&&r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===b})()`), 'last action is visible and hit-testable');
+        };
+        await win.setContentSize(483,265);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        await evaluate('document.getElementById("root").style.paddingTop="38px";fixture.vscodeInstalled=true;fixture.nativeUnavailable=true;fixture.setSessionState({label:"Inspect a long session title while keeping all navigation controls"})');
+        await evaluate('const b=document.querySelector("[data-session-app-trigger]");b.focus();b.click()');
+        await waitFor('document.querySelector("[data-session-app-vscode]")');
+        await reachable('.session-app-popover','[data-session-app-vscode]','[data-session-app-trigger]');
+        await win.setContentSize(360,240);
+        await waitFor('innerWidth===360');
+        await reachable('.session-app-popover','[data-session-app-vscode]','[data-session-app-trigger]');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        assert.ok(await evaluate('document.activeElement.hasAttribute("data-session-app-trigger")'),'Open in returns focus to its invoker');
+
+        await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+        await waitFor('document.querySelector(".shell-navigation-menu").open');
+        await reachable('.shell-navigation-popover','.shell-navigation-popover [data-shell-settings]','.shell-navigation-menu summary');
+        await evaluate('fixture.advanceWorkspace()');
+        await waitFor('fixture.workspaceGeneration===1&&!document.querySelector(".shell-navigation-menu").open');
+        await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+        await reachable('.shell-navigation-popover','.shell-navigation-popover [data-shell-settings]','.shell-navigation-menu summary');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','Workspace returns focus to its invoker');
+
+        await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:true,label:"Latest in repo"}]})');
+        await waitFor('document.querySelector("[data-resume-toggle]")');
+        await evaluate('const b=document.querySelector("[data-resume-toggle]");b.focus();b.click()');
+        await waitFor('document.querySelector("[data-resume-options]")');
+        await reachable('[data-resume-options]','[data-resume-strategy=latest_repo]','[data-resume-toggle]');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        assert.ok(await evaluate('document.activeElement.hasAttribute("data-resume-toggle")'),'Resume returns focus to its invoker');
+        assert.deepEqual(await evaluate('fixture.resumed'),[],'navigation never resumes a session');
+        assert.deepEqual(await evaluate('fixture.nativeOpened'),[],'checking reachability never launches another app');
+        assert.deepEqual(await evaluate('fixture.errors'),[],'menu positioning produces no renderer errors');
+        return;
       } else if (scenario === 'sidebar-icon-rail') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         const sockets = await evaluate('fixture.socketCount');
@@ -2289,7 +2334,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
