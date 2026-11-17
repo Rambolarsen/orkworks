@@ -1,6 +1,9 @@
 //! Pure, runtime-local correlation of validated Codex hooks and native status.
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+pub(crate) mod test_clock;
+
 const GRACE: Duration = Duration::from_secs(2);
 const FRESHNESS: Duration = Duration::from_millis(300);
 const MAX_RECORDS: usize = 64;
