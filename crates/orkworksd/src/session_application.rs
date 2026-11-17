@@ -2059,64 +2059,66 @@ impl SessionApplication {
         }
 
         let mut observation_accepted = false;
-        if let Some(inference) = scan_result.inference.as_ref() {
-            for (index, candidate) in inference.workflow_observations.iter().enumerate() {
-                if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        candidate_index = index,
-                        "dropping final peon workflow observation: evidence not grounded in captured terminal output"
-                    );
-                    continue;
-                }
-                let key = format!("final-scan:{generation}:{index}");
-                let mut recorded = false;
-                for attempt in 0..3 {
-                    let result = workspace.workflow_observations.record_observation(
-                        session_id,
-                        crate::workflow_observations::ObservationOrigin::Peon,
-                        &key,
-                        crate::workflow_observations::ObservationCandidate {
-                            kind: candidate.kind,
-                            description: candidate.description.clone(),
-                            evidence: candidate.evidence.clone(),
-                            problem_area: candidate.problem_area.clone(),
-                            reported_impact: candidate.reported_impact,
-                            confidence: Some(candidate.confidence),
-                        },
-                    );
-                    match result {
-                        Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
-                            observation_accepted = true;
-                            recorded = true;
-                            break;
-                        }
-                        Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
-                            // A retry of the live Peon path may have already
-                            // made this final-scan evidence durable.
-                            recorded = true;
-                            break;
-                        }
-                        Err(error)
-                            if attempt < 2 && is_retryable_observation_record_error(&error) => {}
-                        Err(error) => {
-                            tracing::warn!(
-                                session_id = %session_id,
-                                candidate_index = index,
-                                %error,
-                                "final peon workflow observation could not be recorded"
-                            );
-                            break;
-                        }
+        for (index, candidate) in scan_result
+            .inference
+            .iter()
+            .flat_map(|inference| &inference.workflow_observations)
+            .enumerate()
+        {
+            if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    candidate_index = index,
+                    "dropping final peon workflow observation: evidence not grounded in captured terminal output"
+                );
+                continue;
+            }
+            let key = format!("final-scan:{generation}:{index}");
+            let mut recorded = false;
+            for attempt in 0..3 {
+                let result = workspace.workflow_observations.record_observation(
+                    session_id,
+                    crate::workflow_observations::ObservationOrigin::Peon,
+                    &key,
+                    crate::workflow_observations::ObservationCandidate {
+                        kind: candidate.kind,
+                        description: candidate.description.clone(),
+                        evidence: candidate.evidence.clone(),
+                        problem_area: candidate.problem_area.clone(),
+                        reported_impact: candidate.reported_impact,
+                        confidence: Some(candidate.confidence),
+                    },
+                );
+                match result {
+                    Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
+                        observation_accepted = true;
+                        recorded = true;
+                        break;
+                    }
+                    Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
+                        // A retry of the live Peon path may have already
+                        // made this final-scan evidence durable.
+                        recorded = true;
+                        break;
+                    }
+                    Err(error) if attempt < 2 && is_retryable_observation_record_error(&error) => {}
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            candidate_index = index,
+                            %error,
+                            "final peon workflow observation could not be recorded"
+                        );
+                        break;
                     }
                 }
-                if !recorded {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        candidate_index = index,
-                        "final peon workflow observation remained unrecorded after retries"
-                    );
-                }
+            }
+            if !recorded {
+                tracing::warn!(
+                    session_id = %session_id,
+                    candidate_index = index,
+                    "final peon workflow observation remained unrecorded after retries"
+                );
             }
         }
 
@@ -8350,6 +8352,9 @@ mod tests {
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.9,
         };
+        let mut second_candidate = candidate.clone();
+        second_candidate.description = "The final scan found another obstacle".into();
+        second_candidate.evidence = "other final output".into();
         let scan = crate::providers::ProviderRunResult {
             inference: Some(peon::PeonInference {
                 observed_status: Some("done".into()),
@@ -8367,7 +8372,7 @@ mod tests {
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: None,
-                workflow_observations: vec![candidate],
+                workflow_observations: vec![candidate, second_candidate],
             }),
             observation: Some(crate::providers::ProviderObservation {
                 provider_id: "provider-a".into(),
@@ -8379,7 +8384,7 @@ mod tests {
             runtime: std::collections::HashMap::new(),
         };
 
-        let captured_output = vec!["retry output".to_string()];
+        let captured_output = vec!["retry output".to_string(), "other final output".to_string()];
 
         let first = SessionApplication::new(state.clone()).persist_final_peon_scan(
             id,
@@ -8399,19 +8404,18 @@ mod tests {
         );
         assert!(duplicate.should_finalize);
         assert!(!duplicate.observation_accepted);
-        assert_eq!(
-            state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .workflow_observations
-                .workspace_observations()
-                .unwrap()
-                .len(),
-            1
-        );
+        let observations = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].evidence, "retry output");
+        assert_eq!(observations[1].evidence, "other final output");
     }
 
     #[test]
