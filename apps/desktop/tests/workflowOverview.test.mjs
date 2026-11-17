@@ -1,3 +1,4 @@
+import { javascriptLiteral } from './helpers/javascriptLiteral.mjs';
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
@@ -12,7 +13,7 @@ if (process.versions.electron) {
       // properties of returned nodes, and React-rendered nodes carry
       // function/cycle expandos that reject with "An object could not be
       // cloned". Serialized primitives and plain objects pass through.
-      const sanitized = `(() => { const value = eval((${JSON.stringify(source)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
+      const sanitized = `(() => { const value = eval((${javascriptLiteral(source)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
       try { return await win.webContents.executeJavaScript(sanitized); } catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
     };
     const wait = async source => {
@@ -23,8 +24,8 @@ if (process.versions.electron) {
       }
       throw new Error(`Timed out: ${source}\n${await evaluate("document.body.innerText")}\nACTIVE=${await evaluate("document.activeElement.outerHTML")}`);
     };
-    const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-    const key = value => evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(value)},bubbles:true}))`);
+    const click = selector => evaluate(`document.querySelector(${javascriptLiteral(selector)}).click()`);
+    const key = value => evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:${javascriptLiteral(value)},bubbles:true}))`);
     try {
       await win.loadFile(process.env.ORKWORKS_WORKFLOW_FIXTURE);
       await wait('document.querySelector("[role=treeitem]")');

@@ -1,3 +1,4 @@
+import { javascriptLiteral } from './helpers/javascriptLiteral.mjs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
@@ -20,14 +21,14 @@ if (process.versions.electron) {
       await win.loadFile(process.env.ORKWORKS_ARCHIVE_FIXTURE);
       await wait('window.fixture?.ready');
       const filter = async value => {
-        await evaluate(`(()=>{const s=document.querySelector('select');s.value=${JSON.stringify(value)};s.dispatchEvent(new Event('change',{bubbles:true}))})()`);
+        await evaluate(`(()=>{const s=document.querySelector('select');s.value=${javascriptLiteral(value)};s.dispatchEvent(new Event('change',{bubbles:true}))})()`);
       };
       const more = async id => {
         await evaluate(`document.querySelector('[data-session-id="${id}"] .session-row-more').click()`);
         await wait('document.querySelector("[role=menu]")');
       };
       const action = async prefix => {
-        await evaluate(`Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.startsWith(${JSON.stringify(prefix)})).click()`);
+        await evaluate(`Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.startsWith(${javascriptLiteral(prefix)})).click()`);
         await wait('!document.querySelector("[role=menu]")');
       };
       const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
@@ -208,12 +209,12 @@ if (process.versions.electron) {
         window.fixture={ready:true,reads:{},calls:[],selections:[],confirmations:[],errors:[],selected:'live'};
         window.addEventListener('error',e=>fixture.errors.push(e.message));
         window.confirm=message=>{fixture.confirmations.push(message);return false};
-        const clockCase=${JSON.stringify(scenario)}==='row-clock';
+        const clockCase=${javascriptLiteral(scenario)}==='row-clock';
         if(clockCase){const RealDate=Date;let clock=RealDate.parse('2026-10-31T12:00:00Z');window.Date=class extends RealDate{constructor(...args){if(args.length)super(...args);else super(clock)}static now(){return clock}};fixture.advanceClock=ms=>{clock+=ms}}
         const row=(id,state)=>({id,label:id,sessionState:state,sessionActionToken:'token-'+id,lifecycle:state==='active'?'alive':'dead',lifecyclePhase:state==='active'?'active':'ended',status:state==='active'?'running':'ended',created_at:'2026-10-18T10:00:00Z',...(clockCase&&id==='live'?{lastOutputAt:'2026-10-31T11:59:52Z'}:{}),cwd:'/tmp',memoryState:'remembered',resumeStrategy:'none'});
         const harnesses=[];
         const trackedRow=(id,state)=>{const value=row(id,state);Object.defineProperty(value,'harness',{enumerable:true,get(){fixture.reads[id]=(fixture.reads[id]??0)+1;return 'codex'}});return value};
-        function Harness(){const[workspace,setWorkspace]=useState({path:'/tmp',workspaceIdentity:'test'});fixture.setWorkspace=setWorkspace;const[rows,setRows]=useState(()=>[trackedRow('live','active'),trackedRow('closed','closed'),trackedRow('saved','archived'),...(['row-rendering','row-clock'].includes(${JSON.stringify(scenario)})?Array.from({length:707},(_,i)=>trackedRow('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[acknowledged,setAcknowledged]=useState(new Set());fixture.setAcknowledged=setAcknowledged;const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');const select=useCallback(id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)},[]);
+        function Harness(){const[workspace,setWorkspace]=useState({path:'/tmp',workspaceIdentity:'test'});fixture.setWorkspace=setWorkspace;const[rows,setRows]=useState(()=>[trackedRow('live','active'),trackedRow('closed','closed'),trackedRow('saved','archived'),...(['row-rendering','row-clock'].includes(${javascriptLiteral(scenario)})?Array.from({length:707},(_,i)=>trackedRow('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[acknowledged,setAcknowledged]=useState(new Set());fixture.setAcknowledged=setAcknowledged;const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');const select=useCallback(id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)},[]);
           return <SessionListPanel workspaceGeneration={generation} workspace={workspace} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={acknowledged} harnesses={harnesses}
             actionsEnabled={enabled} onSelectSession={select} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
             onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}

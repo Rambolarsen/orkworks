@@ -85,6 +85,7 @@ class ReplayTests(unittest.TestCase):
                  'apps/desktop/pnpm-workspace.yaml', 'apps/desktop/scripts/setup-electron.mjs',
                  'apps/desktop/tests/applicationShell.test.mjs', 'apps/desktop/src/App.tsx',
                  'apps/desktop/tests/fixtures/shellSubprocess.mjs',
+                 'apps/desktop/tests/helpers/javascriptLiteral.mjs',
                  'apps/desktop/tests/fixtures/private.mjs',
                  'apps/desktop/src/.env', '.env']
         for name in files:
@@ -126,6 +127,7 @@ class ReplayTests(unittest.TestCase):
         self.assertIn('apps/desktop/src/App.tsx',context)
         self.assertIn('apps/desktop/tsconfig.json',context)
         self.assertIn('apps/desktop/tests/fixtures/shellSubprocess.mjs',context)
+        self.assertIn('apps/desktop/tests/helpers/javascriptLiteral.mjs',context)
         self.assertNotIn('apps/desktop/tests/fixtures/private.mjs',context)
         self.assertFalse(any('.env' in p or '.git' in p for p in context))
         self.assertFalse((self.out/'context').exists(),'private build context is removed')
