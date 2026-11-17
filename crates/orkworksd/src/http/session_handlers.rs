@@ -2000,8 +2000,12 @@ mod tests {
                 "now",
                 "now",
             ));
-            std::fs::create_dir_all(store.sessions_dir().join("native-id-persist-fail.json.tmp"))
-                .unwrap();
+            std::fs::create_dir_all(
+                store
+                    .sessions_dir()
+                    .join("native-id-persist-fail.json.write-blocked"),
+            )
+            .unwrap();
         }
 
         let response = report_harness_session(
@@ -7665,10 +7669,14 @@ mod tests {
                 "now",
                 "now",
             ));
-            // A directory squatting on the atomic-write temp path makes the
+            // A test-only staging failure marker makes the
             // persist fail while the session stays readable.
-            std::fs::create_dir_all(store.sessions_dir().join("attention-persist-fail.json.tmp"))
-                .unwrap();
+            std::fs::create_dir_all(
+                store
+                    .sessions_dir()
+                    .join("attention-persist-fail.json.write-blocked"),
+            )
+            .unwrap();
         }
 
         let response = report_attention(
@@ -9871,7 +9879,7 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_path.join("plan-session.json.tmp")).unwrap();
+        std::fs::create_dir_all(sessions_path.join("plan-session.json.write-blocked")).unwrap();
 
         let response = report_session_plan_path(
             State(state.clone()),

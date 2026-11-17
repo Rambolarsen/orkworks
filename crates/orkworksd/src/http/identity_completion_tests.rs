@@ -471,7 +471,7 @@ async fn identity_merge_snapshot_failed_commit_has_no_publication_or_label_autho
         let dir = ws.as_ref().unwrap().metadata.sessions_dir();
         (
             dir.join("observation.json"),
-            dir.join("observation.json.tmp"),
+            dir.join("observation.json.write-blocked"),
         )
     };
     let before = std::fs::read(&path).unwrap();

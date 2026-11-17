@@ -28,7 +28,7 @@ async fn startup_failure_retains_safe_live_detail_when_persistence_fails() {
     let mut meta = crate::test_support::test_session_metadata(id, "Safe", root.path().display().to_string(), "creating", "before", "before");
     meta.lifecycle_phase = "creating".into();
     state.workspace.lock().unwrap().as_ref().unwrap().metadata.write_session(&meta);
-    let blocked = root.path().join(".orkworks-test/sessions/startup-io-failure.json.tmp");
+    let blocked = root.path().join(".orkworks-test/sessions/startup-io-failure.json.write-blocked");
     std::fs::create_dir(&blocked).unwrap();
     let mut handle = attention_test_handle(id, root.path());
     handle.info.status = "creating".into();

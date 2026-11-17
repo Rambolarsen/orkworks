@@ -484,7 +484,7 @@ mod tests {
         begin_wait(&store, &mut handle, &mut app);
         let generation = handle.runtime.run_generation();
         let before = std::fs::read(store.sessions_dir().join("completion.json")).unwrap();
-        let staged = store.sessions_dir().join("completion.json.tmp");
+        let staged = store.sessions_dir().join("completion.json.write-blocked");
         std::fs::create_dir(&staged).unwrap();
         assert!(app
             .event(

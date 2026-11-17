@@ -2761,10 +2761,21 @@ mod tests {
         meta.attention = Some("needs_you".into());
         let token = store.try_write_session_owned(&meta).unwrap().unwrap();
         meta.attention = Some("working".into());
-        let staged = store.sessions_dir().join("freshness.json.tmp");
+        let stages = || {
+            std::fs::read_dir(store.sessions_dir())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".orkworks-write-")
+                })
+                .count()
+        };
         assert!(!store
             .try_write_session_if_owned_when(&meta, &token, || {
-                assert!(staged.exists());
+                assert_eq!(stages(), 1);
                 false
             })
             .unwrap());
@@ -2776,7 +2787,7 @@ mod tests {
                 .as_deref(),
             Some("needs_you")
         );
-        assert!(!staged.exists());
+        assert_eq!(stages(), 0);
         assert!(store
             .try_write_session_if_owned_when(&meta, &token, || true)
             .unwrap());
@@ -4723,7 +4734,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&test_metadata("capture-write-fail"));
-        std::fs::create_dir_all(store.sessions_dir().join("capture-write-fail.json.tmp")).unwrap();
+        std::fs::create_dir_all(
+            store
+                .sessions_dir()
+                .join("capture-write-fail.json.write-blocked"),
+        )
+        .unwrap();
 
         let result = store.merge_harness_session_report(
             "capture-write-fail",
@@ -6690,9 +6706,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&test_metadata("att-fail"));
-        // A directory squatting on the temp path makes the atomic write fail
+        // A test-only staging failure marker makes the atomic write fail
         // while the session itself remains readable.
-        std::fs::create_dir_all(store.sessions_dir().join("att-fail.json.tmp")).unwrap();
+        std::fs::create_dir_all(store.sessions_dir().join("att-fail.json.write-blocked")).unwrap();
 
         let result = store.merge_agent_attention_signal_with_plan(
             "att-fail",
@@ -6741,10 +6757,15 @@ mod tests {
         assert_eq!(meta.metadata_source, "process");
         assert_eq!(meta.summary, None);
         assert!(store.session_writes.lock().unwrap()["att-event-fail"].owns(&prior_owner.write));
-        assert!(!store
-            .sessions_dir()
-            .join("att-event-fail.json.tmp")
-            .exists());
+        assert!(std::fs::read_dir(store.sessions_dir())
+            .unwrap()
+            .all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".orkworks-write-")
+            }));
     }
 
     #[test]
@@ -6769,7 +6790,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = MetadataStore::new(dir.path());
         store.write_session(&test_metadata("peon-fail"));
-        std::fs::create_dir_all(store.sessions_dir().join("peon-fail.json.tmp")).unwrap();
+        std::fs::create_dir_all(store.sessions_dir().join("peon-fail.json.write-blocked")).unwrap();
 
         let inf: crate::peon::PeonInference = serde_json::from_str(
             r#"{"status":"working","summary":"not persisted","confidence":0.9}"#,

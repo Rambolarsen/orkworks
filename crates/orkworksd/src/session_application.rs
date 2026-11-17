@@ -9109,7 +9109,7 @@ mod tests {
         let state = opencode_attention_state(root.path(), id);
         std::fs::create_dir_all(
             root.path()
-                .join(".orkworks-test/sessions/opencode-persist-failure.json.tmp"),
+                .join(".orkworks-test/sessions/opencode-persist-failure.json.write-blocked"),
         )
         .unwrap();
 
@@ -9862,7 +9862,7 @@ mod tests {
             store.write_session(&metadata);
             store.sessions_dir()
         };
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         state
             .sessions
             .lock()
@@ -10231,7 +10231,7 @@ mod tests {
         handle.info.lifecycle_phase = "ending".into();
         let generation = handle.runtime.run_generation();
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        let temporary_record = sessions_dir.join(format!("{id}.json.tmp"));
+        let temporary_record = sessions_dir.join(format!("{id}.json.write-blocked"));
         std::fs::create_dir_all(&temporary_record).unwrap();
         let application = SessionApplication::new(state.clone());
         let snapshot = metadata::canonical_null_snapshot("recovery", Some("now".into()));
@@ -11561,7 +11561,7 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_path.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_path.join(format!("{id}.json.write-blocked"))).unwrap();
 
         assert_eq!(
             SessionApplication::new(state.clone()).report_plan_path(id, plan.to_str().unwrap()),
@@ -12391,7 +12391,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .metadata
             .sessions_dir()
             .join(format!("{id}.json"));
-        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        std::fs::create_dir(path.with_extension("json.write-blocked")).unwrap();
         drop(workspace);
         assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
         assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
@@ -13268,7 +13268,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&meta);
         std::fs::create_dir_all(
             root.path()
-                .join(".orkworks-test/sessions/attention-persist-failure.json.tmp"),
+                .join(".orkworks-test/sessions/attention-persist-failure.json.write-blocked"),
         )
         .unwrap();
 
@@ -14163,7 +14163,12 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let ws_guard = state.workspace.lock().unwrap();
         let store = &ws_guard.as_ref().unwrap().metadata;
         store.write_session(&meta);
-        std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir(
+            store
+                .sessions_dir()
+                .join(format!("{id}.json.write-blocked")),
+        )
+        .unwrap();
         drop(ws_guard);
         let mut handle = attention_test_handle(id, root.path());
         handle.info.label = placeholder.clone();
@@ -18896,7 +18901,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
 
         let application = SessionApplication::new(state.clone());
         assert!(application.set_active_harnesses_at(Vec::new(), 0).is_err());
@@ -18939,7 +18944,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .runtime
                 .prompt_tuple_clear_pending
         );
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 let cleared = !state
@@ -19067,7 +19072,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         assert!(authority.acknowledge_reset(id).is_some());
         application.commit_prompt_identity_reset(id);
@@ -19084,7 +19089,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             assert!(handle.info.attention.is_none());
         }
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         application.persist_peon_observation_for_test(id, None, None, None, "later");
 
         let saved = state
@@ -19306,7 +19311,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.commit_prompt_identity_reset(id);
         assert!(!authority.is_active(id));
@@ -19322,7 +19327,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .prompt_tuple_clear_pending
         );
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         application.persist_peon_observation_for_test(id, None, None, None, "recovered");
         let saved = state
             .workspace
@@ -19428,13 +19433,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.persist_peon_observation_for_test(id, None, None, None, "blocked");
         assert!(authority.identity_reset_pending(id));
         assert!(!authority.is_active(id));
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         let saved = state
@@ -19537,7 +19542,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         assert_eq!(
             state
                 .workspace
@@ -19549,7 +19554,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .merge_prompt_authority_wait(id),
             metadata::AttentionMergeResult::PersistFailed
         );
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
 
         let observed = (newer_prompt_at - chrono::Duration::seconds(1))
             .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
@@ -19670,7 +19675,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .metadata
                 .sessions_dir();
             let path = sessions_dir.join(format!("{id}.json"));
-            let failed_write_path = sessions_dir.join(format!("{id}.json.tmp"));
+            let failed_write_path = sessions_dir.join(format!("{id}.json.write-blocked"));
             let before_bytes = std::fs::read(&path).unwrap();
             let assert_failed_write = || {
                 assert!(!authority.is_active(&id));
@@ -20159,7 +20164,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.commit_prompt_identity_reset(id);
         assert!(authority.identity_reset_pending(id));
@@ -20177,7 +20182,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         tokio::time::sleep(std::time::Duration::from_millis(7_000)).await;
         assert!(authority.identity_reset_pending(id));
         assert!(!authority.is_active(id));
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(7), async {
             loop {
                 if !authority.identity_reset_pending(id) && authority.is_active(id) {

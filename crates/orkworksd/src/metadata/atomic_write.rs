@@ -11,6 +11,16 @@ fn parent(path: &Path) -> &Path {
 /// Complete staging I/O before the caller's final admission/deadline check.
 /// A unique, exclusively created name cannot collide with another writer.
 pub(super) fn stage(target: &Path, contents: &[u8]) -> io::Result<TempPath> {
+    // Filesystem-scoped fault injection lets application tests exercise failed
+    // persistence across async workers without process-global fault state.
+    #[cfg(test)]
+    {
+        let mut marker = target.as_os_str().to_os_string();
+        marker.push(".write-blocked");
+        if Path::new(&marker).is_dir() {
+            return Err(io::Error::other("injected metadata staging failure"));
+        }
+    }
     let mut builder = tempfile::Builder::new();
     builder.prefix(".orkworks-write-").suffix(".tmp");
     // Create an ordinary file through the unique-name/cleanup helper. The
