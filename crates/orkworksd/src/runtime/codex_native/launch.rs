@@ -720,7 +720,8 @@ case " $* " in
  *" --remote "*)
   printf '%s\n' "$@" > "$FIXTURE_DIR/tui-args"
   echo $$ > "$FIXTURE_DIR/tui-pid"
-  if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence"
+  if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence.tmp"
+  mv "$FIXTURE_DIR/tui-auth-presence.tmp" "$FIXTURE_DIR/tui-auth-presence"
   echo fake-tui-ready
   if [ "${FIXTURE_TUI_EXIT-}" = yes ]; then exit 0; fi
   if [ "${FIXTURE_TUI_EXIT_ON_SERVER-}" = yes ]; then
