@@ -1,4 +1,5 @@
 pub(crate) mod agent_patch;
+mod atomic_write;
 pub(crate) mod hook_observation;
 pub(crate) mod internal_mutations;
 pub(crate) mod lifecycle_mutations;
@@ -1191,7 +1192,10 @@ pub enum AttentionMergeResult {
 
 /// Writes `contents` to `path` via a temp file in the same directory plus an
 /// atomic rename, so readers never observe a partially written file and a
-/// mid-write kill cannot corrupt the previous contents.
+/// mid-write kill cannot corrupt the previous contents. Flush the staged file
+/// before replacement and the containing directory afterward (native
+/// write-through publication on Windows). A post-publication sync failure is
+/// an error, but does not mean that the old bytes remain visible.
 pub(crate) fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
     write_atomic_bytes(path, contents.as_bytes())
 }
@@ -1199,18 +1203,8 @@ pub(crate) fn write_atomic(path: &std::path::Path, contents: &str) -> std::io::R
 /// Byte-level variant of [`write_atomic`] for payloads that are not UTF-8,
 /// such as the raw terminal transcript.
 fn write_atomic_bytes(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
-    let tmp = tmp_write_path(path);
-    fs::write(&tmp, contents)?;
-    fs::rename(&tmp, path)
-}
-
-fn tmp_write_path(path: &std::path::Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(|n| n.to_os_string())
-        .unwrap_or_default();
-    name.push(".tmp");
-    path.with_file_name(name)
+    let staged = atomic_write::stage(path, contents)?;
+    atomic_write::publish(staged, path, || {})
 }
 
 fn corrupt_session_path(path: &std::path::Path) -> PathBuf {
@@ -1496,10 +1490,7 @@ impl MetadataStore {
         &self,
         meta: &SessionMetadata,
     ) -> std::io::Result<Option<SessionWriteToken>> {
-        self.with_session_write_lock(&meta.id, || {
-            self.write_session_file(meta)?;
-            Ok(self.accept_session_write(&meta.id))
-        })
+        self.with_session_write_lock(&meta.id, || self.write_session_file(meta))
     }
 
     /// Native observations arbitrate and publish inside the shared session
@@ -1583,8 +1574,9 @@ impl MetadataStore {
             let path = self.sessions_dir().join(format!("{id}.json"));
             let json = serde_json::to_string_pretty(&latest)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            write_atomic(&path, &json)?;
-            let token = self.accept_session_write(id);
+            let staged = atomic_write::stage(&path, json.as_bytes())?;
+            let mut token = None;
+            atomic_write::publish(staged, &path, || token = self.accept_session_write(id))?;
             Ok(Some((latest.metadata, token)))
         })
     }
@@ -1674,26 +1666,33 @@ impl MetadataStore {
             latest.revision = latest.revision.next()?;
             let json = serde_json::to_string_pretty(&latest)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            let tmp = tmp_write_path(&path);
-            fs::write(&tmp, json)?;
+            let staged = atomic_write::stage(&path, json.as_bytes())?;
             // Recheck the monotonic observation deadline after serialization
             // and staging I/O, immediately before the atomic replacement.
             if !ready() {
-                fs::remove_file(tmp)?;
                 return Ok(false);
             }
-            fs::rename(tmp, path)?;
-            self.accept_session_write(&meta.id);
+            atomic_write::publish(staged, &path, || {
+                let _ = self.accept_session_write(&meta.id);
+            })?;
             Ok(true)
         })
     }
 
-    fn write_session_file(&self, meta: &SessionMetadata) -> std::io::Result<()> {
+    fn write_session_file(
+        &self,
+        meta: &SessionMetadata,
+    ) -> std::io::Result<Option<SessionWriteToken>> {
         let dir = self.sessions_dir();
         fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}.json", meta.id));
         let json = self.prepare_session_replacement(meta)?;
-        write_atomic(&path, &json)
+        let staged = atomic_write::stage(&path, json.as_bytes())?;
+        let mut token = None;
+        atomic_write::publish(staged, &path, || {
+            token = self.accept_session_write(&meta.id)
+        })?;
+        Ok(token)
     }
 
     #[cfg(test)]
@@ -4436,8 +4435,10 @@ mod tests {
             .unwrap();
         let path = store.sessions_dir().join("transaction-io-error.json");
         let before = fs::read(&path).unwrap();
-        let staging_path = tmp_write_path(&path);
-        fs::create_dir(&staging_path).unwrap();
+        let fault = atomic_write::testing::install(|point, _| {
+            assert_eq!(point, atomic_write::testing::SyncPoint::File);
+            Err(std::io::Error::other("staging sync failed"))
+        });
         let result = store.try_update_session(&meta.id, &snapshot.revision, |current| {
             current.task = "Must not publish".into();
             Ok(())
@@ -4447,7 +4448,7 @@ mod tests {
             Err(session_transactions::SessionTransactionError::Io(_))
         ));
         assert_eq!(fs::read(&path).unwrap(), before);
-        fs::remove_dir(&staging_path).unwrap();
+        drop(fault);
         assert!(store.try_write_session_if_owned(&meta, &owner).unwrap());
         assert_eq!(store.read_session(&meta.id).unwrap().task, meta.task);
     }
@@ -6089,12 +6090,11 @@ mod tests {
         let path = dir.path().join("events").join("trim-failure.terminal");
         let original = fs::read(&path).unwrap();
 
-        // Block the rewrite at its staging step: a directory occupying the
-        // temp path makes the trimmed-content write fail, simulating an
-        // unwritable temp file (full disk, permissions). The live transcript
-        // must survive untouched instead of being truncated in place.
-        let tmp = dir.path().join("events").join("trim-failure.terminal.tmp");
-        fs::create_dir(&tmp).unwrap();
+        // A staging durability failure must leave the live transcript intact.
+        let _fault = atomic_write::testing::install(|point, _| {
+            assert_eq!(point, atomic_write::testing::SyncPoint::File);
+            Err(std::io::Error::other("staging sync failed"))
+        });
 
         store.trim_terminal_output("trim-failure", 50);
 
