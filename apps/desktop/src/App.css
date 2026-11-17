@@ -1550,8 +1550,12 @@ html, body, #root {
 /* Unread tint outranks hover; selection outranks both. */
 .session-row--unread,
 .session-row--unread:hover { background: var(--surface-2); }
-.session-row[data-selected="true"] { background: var(--surface-active); }
-.session-row[data-selected="true"]:hover { background: var(--surface-active); }
+/* Neutral selection remains visible when focus moves to the terminal. */
+.session-row[data-selected="true"],
+.session-row[data-selected="true"]:hover {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
 .session-row--remembered { opacity: 0.62; }
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
