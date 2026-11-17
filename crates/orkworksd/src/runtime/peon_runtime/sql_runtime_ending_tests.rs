@@ -408,6 +408,15 @@ async fn runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_with
 
 #[tokio::test]
 async fn runtime_ending_sql_metadata_completion_does_not_prove_physical_cleanup() {
+    // Exact lifecycle capture requires an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_metadata_completion_does_not_prove_physical_cleanup"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, mut commands) = fixture().await;
     let generation = ending(&writes, &state).await;
