@@ -323,6 +323,19 @@ attention/question/options/user/lifecycle/workspace/cancellation changes, caller
 cancellation before/after execution, durable revision conflict, expired clear and
 runtime replacement, tracker replacement before capture with an identical effect,
 and old-clear rejection after an equal effect is reissued from a fresh observation.
+
+The isolated SQL expiry fixture owns one scoped monotonic test clock across SQL
+native-clear admission/commit checks and native capture/publication. It advances
+310 ms at the actual worker gate, then keeps a newly issued observation fresh
+across incidental scheduling and storage completion. The pure 300 ms predicate,
+real worker queue deadlines and every ownership assertion remain unchanged.
+The clock slot compiles only in tests; installation requires the existing exact
+isolated-child protocol and restores real time on scope exit. Production still
+samples `Instant::now()`. Controlled post-commit wall delay preserves the fresh
+retry, while a checked-in regression advances logical time only after observing SQL
+revision 3 and still detaches publication, preserving live attention, the original
+attention token, SQL ownership and the unacknowledged reducer effect.
+This qualifies a fixture-time correction, not the historical CI schedule.
 A controlled runtime-command consumer delivers bytes to an
 actual PTY while native SQL is stalled after its execution claim. This proves
 input independence at this boundary, not complete terminal-load or #1247 latency

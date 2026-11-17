@@ -199,7 +199,11 @@ impl NativeCapture {
         let tuple = match self.effect {
             Effect::ShowWait { .. } => h.info.attention.as_deref() != Some("needs_you"),
             Effect::ClearWait { .. } => {
-                tracker.reducer.clear_is_fresh(Instant::now())
+                #[cfg(test)]
+                let now = super::super::codex_approval::test_clock::now();
+                #[cfg(not(test))]
+                let now = Instant::now();
+                tracker.reducer.clear_is_fresh(now)
                     && tracker.reducer.clear_observation_start() == self.observation_start
                     && h.info.needs_user_input.is_none()
                     && h.info.observed_status.as_deref() == Some("waiting_for_input")

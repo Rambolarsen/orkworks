@@ -27,14 +27,16 @@ impl Database {
         proof: Option<&super::AttentionProof>,
         intent: &InternalMutation,
     ) -> Result<InternalMutationResult> {
-        self.mutate_internal_owned_with_clock(
-            id,
-            created,
-            expected,
-            proof,
-            intent,
-            std::time::Instant::now,
-        )
+        #[cfg(test)]
+        let clock = || match intent {
+            InternalMutation::NativeClearWait { .. } => {
+                crate::runtime::codex_approval::test_clock::now()
+            }
+            _ => std::time::Instant::now(),
+        };
+        #[cfg(not(test))]
+        let clock = std::time::Instant::now;
+        self.mutate_internal_owned_with_clock(id, created, expected, proof, intent, clock)
     }
     fn mutate_internal_owned_with_clock(
         &mut self,
