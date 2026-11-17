@@ -497,6 +497,7 @@ export default function ApplicationShell(props: Props) {
             disabled={!(session.repoRoot || session.branch)} onClick={() => runCommand("changes")}>Changes</button>}
           {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           </div>
+          <div className="shell-context-controls">
           <div className="shell-actions-controls" role="group" aria-label="Workspace actions">
             <button type="button" data-shell-command="actions" aria-label="Actions"
               aria-description={`${actionsModel.sessionCountLabel}; ${actionsModel.recommendationCountLabel}`}
@@ -510,6 +511,7 @@ export default function ApplicationShell(props: Props) {
             <button type="button" data-shell-command="next-action" aria-label="Show next action" title="Show next action" onClick={() => runCommand("next-action")}><ArrowRight size={17} aria-hidden="true" /></button>
           </div>
           <button type="button" data-shell-command="details" aria-label="Details" title="Details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={17} aria-hidden="true" /></button>
+          </div>
         </nav>
         {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">

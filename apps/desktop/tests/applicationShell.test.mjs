@@ -1693,6 +1693,22 @@ if (process.versions.electron) {
               assert.match(await evaluate('document.querySelector("[data-actions-source=recommendations]").textContent'),/Recommendations.*unavailable/);
             }
           }
+          await win.setContentSize(640,700);
+          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",hasOpenablePlan:true,repoRoot:"/tmp/test",branch:"feature",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"}]})');
+          await waitFor('document.querySelector("[data-shell-resume]")');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const endedRows = await evaluate('(()=>{const bounds=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {top:r.top,bottom:r.bottom}};return {actions:bounds("[data-shell-command=actions]"),details:bounds("[data-shell-command=details]"),resume:bounds("[data-shell-resume]")}})()');
+          assert.ok(Math.abs((endedRows.details.top+endedRows.details.bottom)-(endedRows.actions.top+endedRows.actions.bottom))<=2,`Details shares the ended-session Actions row: ${JSON.stringify(endedRows)}`);
+          assert.ok(endedRows.actions.top>=endedRows.resume.bottom,'ended-session summary gets a full row below Resume');
+          await evaluate('document.querySelector("[data-shell-command=actions]").focus()');
+          for (const command of ['next-action','details']) {
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor(`document.activeElement.dataset.shellCommand===${javascriptLiteral(command)}`);
+          }
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'layout and keyboard navigation never resume a session');
+          await evaluate('fixture.setSessionState({})');
+          await waitFor('!document.querySelector("[data-shell-resume]")&&fixture.runtime()?.terminal.element?.isConnected');
           win.webContents.debugger.attach('1.3');
           try {
             await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
