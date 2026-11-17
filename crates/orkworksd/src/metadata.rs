@@ -1,5 +1,5 @@
 pub(crate) mod agent_patch;
-mod atomic_write;
+pub(crate) mod atomic_write;
 pub(crate) mod hook_observation;
 pub(crate) mod internal_mutations;
 pub(crate) mod lifecycle_mutations;

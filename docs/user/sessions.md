@@ -375,6 +375,13 @@ document was found. These steps display documents only: the coding workflow
 owns approval, completion and execution gates. Older documents remain accessible
 through Changes. Published installers may predate this source behavior.
 
+In current source builds, malformed or unsupported saved branch choices offer
+**Reset saved document choices**. Confirmation clears both steps' choices and
+pins for all sessions sharing that branch, after preserving the old record.
+Markdown documents remain unchanged, then normal discovery resumes. A newer app
+may understand an unsupported record, so reset is always explicit. If storage
+cannot be preserved safely, check storage access and try again; nothing is reset.
+
 In current source builds, select a session with an associated readable plan or
 specification, then choose **Review** in the content header or View menu, or
 the matching document step in Details (**Plan** for a legacy association). The document replaces the terminal in the main work

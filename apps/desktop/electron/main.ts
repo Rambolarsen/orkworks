@@ -31,7 +31,7 @@ import { providerSettingsSyncError, pushProviderSettings } from "./providerSetti
 import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
-import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan, useLatestPlanDocument, validatePlanDocumentKind, validatePlanSelectionId } from "./planOpener";
+import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan, useLatestPlanDocument, resetSavedPlanDocuments, validatePlanRecoveryId, validatePlanDocumentKind, validatePlanSelectionId } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
 import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody } from "./sidecarClient";
@@ -1754,6 +1754,11 @@ app.whenReady().then(async () => {
     if (kind === undefined) throw new Error("A document kind is required.");
     validatePlanSelectionId(selectionId);
     await withReadyBackendGeneration((port, token, signal) => useLatestPlanDocument(sidecarUrl(port), sessionId, kind, token, fetch, signal, selectionId));
+  });
+  ipcMain.handle("reset-saved-plan-documents", async (_event, sessionId: unknown, recoveryId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
+    validatePlanRecoveryId(recoveryId);
+    await withReadyBackendGeneration((port, token, signal) => resetSavedPlanDocuments(sidecarUrl(port), sessionId, recoveryId, token, fetch, signal));
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");

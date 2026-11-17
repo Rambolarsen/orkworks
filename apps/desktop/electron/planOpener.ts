@@ -58,3 +58,17 @@ export async function selectTerminalPlan(baseUrl: string, sessionId: string, pri
   if (body.branch !== undefined && body.branch !== null && typeof body.branch !== "string") throw new Error("Invalid document branch.");
   return {kind: body.kind, selectionId: body.selectionId, ...(body.branch === undefined ? {} : {branch: body.branch})};
 }
+
+
+export function validatePlanRecoveryId(value: unknown): asserts value is string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new Error("Invalid document recovery ID.");
+}
+
+export async function resetSavedPlanDocuments(baseUrl: string, sessionId: string, recoveryId: string, token: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<void> {
+  validatePlanRecoveryId(recoveryId);
+  const response = await fetchImpl(`${baseUrl}/sessions/${encodeURIComponent(sessionId)}/plan-document-reset`, {
+    method: "POST", headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
+    body: JSON.stringify({recoveryId}), signal,
+  });
+  if (!response.ok) throw new Error("Couldn’t reset saved document choices. It may already have applied; refresh before trying again.");
+}

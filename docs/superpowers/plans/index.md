@@ -373,3 +373,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Offline research continuation components](2026-11-15-research-continuation-components.md) — scoped turn/result/recovery source examples and denial checks.
 
 - [Unverified improvement advice implementation](2026-11-17-unverified-improvement-advice.md) — Approved producer-3 identity, compatible views and fixed warned handoffs; qualification remains gated.
+
+- [Explicit branch document recovery](2026-11-17-branch-document-recovery.md)

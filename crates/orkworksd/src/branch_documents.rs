@@ -97,6 +97,8 @@ pub(crate) struct Step {
 pub(crate) struct Projection {
     pub branch: Option<String>,
     pub shared_sessions: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_id: Option<String>,
     pub steps: Vec<Step>,
     pub notice: Option<String>,
 }
@@ -173,6 +175,7 @@ pub(crate) fn unavailable_projection(notice: String) -> Projection {
     Projection {
         branch: None,
         shared_sessions: 1,
+        recovery_id: None,
         steps: DocumentKind::ALL
             .into_iter()
             .map(|kind| Step {
@@ -187,6 +190,25 @@ pub(crate) fn unavailable_projection(notice: String) -> Projection {
             .collect(),
         notice: Some(notice),
     }
+}
+
+/// Prepared outside the input fence; no paths or raw record bytes are exposed.
+pub(crate) fn recovery_projection(
+    store: &crate::branch_documents_store::Store,
+    root: &Path,
+    error: String,
+) -> Projection {
+    let mut projection = unavailable_projection(error);
+    if let Ok(id) = identity(root) {
+        projection.branch = Some(id.branch.trim_start_matches("refs/heads/").into());
+        projection.recovery_id = store.recovery_id(root);
+        projection.notice = Some(if projection.recovery_id.is_some() {
+            "Saved document choices could not be read by this app. A newer app may support them. Reset saved document choices to restore discovery; the previous record will be preserved.".into()
+        } else {
+            "Saved document choices are unavailable and could not be preserved safely. Check storage access and size, then try again.".into()
+        });
+    }
+    projection
 }
 
 pub(crate) struct PreparedProjection {
@@ -265,6 +287,7 @@ fn projection_from_resolved(
     Projection {
         branch: id.map(|id| id.branch.trim_start_matches("refs/heads/").into()),
         shared_sessions: 1,
+        recovery_id: None,
         steps,
         notice,
     }

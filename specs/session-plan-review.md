@@ -227,12 +227,13 @@ the original session metadata; no downgrade deletes user selections.
   hierarchy is introduced.
 
 
-## Proposed branch document recovery amendment
+## Branch document recovery amendment
 
-Status: proposed, 2026-11-17, pending owner approval under
-[#1782](https://github.com/Rambolarsen/orkworks/issues/1782). This section does
-not change the accepted behavior above until approved. It defines a narrow
-recovery action, not permission to implement or activate it before approval.
+Status: accepted, 2026-11-17. The owner approved draft PR
+[#1847](https://github.com/Rambolarsen/orkworks/pull/1847) and explicitly
+authorized implementation under [#1782](https://github.com/Rambolarsen/orkworks/issues/1782).
+This adds only the confirmed recovery action below; ordinary reads and reports
+retain the accepted rejection/preservation behavior above.
 
 ### Decision and scope
 

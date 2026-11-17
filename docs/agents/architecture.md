@@ -839,6 +839,18 @@ the existing `SessionApplication`; `session_location.rs` supplies the shared
 validated root resolver. The thin `http/branch_documents_handlers.rs` extends content/review access with
 the closed optional `kind` selector and adds authenticated pin reset. The
 existing `planPath` metadata and bodyless legacy APIs remain compatible.
+The [approved recovery amendment](../../specs/session-plan-review.md#branch-document-recovery-amendment)
+adds an opaque `recoveryId` for safely readable invalid records. It binds the
+store instance/generation, exact bytes, Git identity, worktree and row location
+inputs. Authenticated `POST /sessions/:id/plan-document-reset` accepts only that
+ID. The application retains the actual writer lease, stages a unique preserved
+copy and empty record outside the input fence, and admits only the native
+replacement under nonblocking owner/location checks. Backup copies are private
+on Unix, ordinary durable files on Windows, excluded from discovery and never
+automatically expired. Directory-sync failure after replacement is uncertain,
+not rollback authority. Reads/reports never reset, and already-committed patch
+acknowledgements remain successful while projection exposes the record error.
+
 
 Session title operations are separate from attention/work metadata. The renderer
 uses `window.orkworks.sessionTitle` through Electron main's generation-bound
