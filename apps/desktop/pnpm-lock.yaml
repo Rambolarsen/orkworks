@@ -176,6 +176,7 @@ overrides:
   baseline-browser-mapping@>=2.0.0 <2.11.0: '>=2.11.0'
 
 patchedDependencies:
+  '@xterm/addon-webgl@0.19.0': d6c412c074ff480f838073d9fa10ce1fafa66b07a2010e34853eeb1020ac8b1f
   '@xterm/xterm@6.0.0': a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf
 
 importers:
@@ -187,7 +188,7 @@ importers:
         version: 0.11.0
       '@xterm/addon-webgl':
         specifier: ^0.19.0
-        version: 0.19.0
+        version: 0.19.0(patch_hash=d6c412c074ff480f838073d9fa10ce1fafa66b07a2010e34853eeb1020ac8b1f)
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0(patch_hash=a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf)
@@ -2390,7 +2391,7 @@ snapshots:
 
   '@xterm/addon-fit@0.11.0': {}
 
-  '@xterm/addon-webgl@0.19.0': {}
+  '@xterm/addon-webgl@0.19.0(patch_hash=d6c412c074ff480f838073d9fa10ce1fafa66b07a2010e34853eeb1020ac8b1f)': {}
 
   '@xterm/xterm@6.0.0(patch_hash=a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf)': {}
 
