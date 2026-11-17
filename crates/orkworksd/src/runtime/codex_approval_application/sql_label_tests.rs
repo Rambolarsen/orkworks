@@ -31,6 +31,15 @@ async fn begin(
 }
 #[tokio::test]
 async fn sql_label_persists_and_publishes_only_display_fields_with_unchanged_noop() {
+    // Exact display publication requires an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_persists_and_publishes_only_display_fields_with_unchanged_noop"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
     automatic(&store).await;
