@@ -424,14 +424,25 @@ if (process.versions.electron) {
         await evaluate('fixture.deferSelection=true;fixture.selectedDocument={kind:"design",selectionId:"d".repeat(64),branch:"sibling"}');
         await waitFor('document.querySelector("[data-shell-command=changes]")?.disabled===false');
         const activatePath = async (historical = false) => {
-          const point = await evaluate(`(()=>{
+          const path = historical ? 'specs/history.md' : 'specs/clicked.md';
+          await waitFor(`[...document.querySelectorAll('.terminal-container .xterm-rows > div')].some(row=>row.textContent===${javascriptLiteral(path)})`);
+          const {point, resetPoint} = await evaluate(`(()=>{
             const screen=document.querySelector('.terminal-container .xterm-screen');
             const rect=screen.getBoundingClientRect();
             const term=fixture.runtime()?.terminal;
-            return {x:Math.round(rect.x+rect.width/${historical ? 80 : 'term.cols'}*3),y:Math.round(rect.y+rect.height/${historical ? 24 : 'term.rows'}*0.5)};
+            const cellWidth=rect.width/${historical ? 80 : 'term.cols'};
+            const cellHeight=rect.height/${historical ? 24 : 'term.rows'};
+            const x=Math.round(rect.x+cellWidth*3);
+            return {point:{x,y:Math.round(rect.y+cellHeight*0.5)},resetPoint:{x,y:Math.round(rect.y+cellHeight*1.5)}};
           })()`);
+          // An early hover can cache an empty provider result. Changing rows
+          // starts a fresh native hover after the text has actually rendered.
+          const resetAfter = await evaluate('performance.now()');
+          win.webContents.sendInputEvent({type:'mouseMove',...resetPoint});
+          await waitFor(`fixture.linkTrace.some(event=>event.type==='move' && event.at>=${resetAfter} && event.x===${resetPoint.x} && event.y===${resetPoint.y})`);
           win.webContents.sendInputEvent({type:'mouseMove',...point});
-          await waitFor('document.querySelector(".xterm-cursor-pointer")');
+          try { await waitFor('document.querySelector(".xterm-cursor-pointer")'); }
+          finally { console.error('link-trace',historical,JSON.stringify(await evaluate('({events:fixture.linkTrace,current:fixture.linkState()})'))); }
           win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
           win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
         };
@@ -466,6 +477,7 @@ if (process.versions.electron) {
         await evaluate('fixture.selectionFailure=false;fixture.deferSelection=true');
         await activatePath();
         await waitFor('!!fixture.finishSelection');
+        await evaluate('fixture.holdReplayWrite=true');
         await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
         await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
         await evaluate('fixture.finishSelection()');
@@ -473,6 +485,12 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'late selection cannot open another session');
         assert.deepEqual(await evaluate('fixture.reads'), ['created','created']);
         await evaluate('fixture.deferSelection=false');
+        await waitFor('!!fixture.releaseReplayWrite && !!fixture.linkState().transform');
+        const earlyPoint = await evaluate('(()=>{const r=document.querySelector(".terminal-container .xterm-screen").getBoundingClientRect();return {x:Math.round(r.x+r.width/80*3),y:Math.round(r.y+r.height/24*0.5)}})()');
+        const earlyAfter = await evaluate('performance.now()');
+        win.webContents.sendInputEvent({type:'mouseMove',...earlyPoint});
+        await waitFor(`fixture.linkTrace.some(event=>event.type==='provider' && event.at>=${earlyAfter} && event.y===1 && event.state.cols===80 && event.state.rows===24 && event.state.line==='' && !event.links)`);
+        await evaluate('fixture.releaseReplayWrite()');
         await activatePath(true);
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Other session plan")');
         assert.deepEqual(await evaluate('fixture.planSelections.at(-1)'), ['other','specs/history.md']);
@@ -2416,7 +2434,9 @@ if (process.versions.electron) {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
     const replayArtifacts = scenario === 'app-review-replay'
       ? (process.env.ORKWORKS_REPLAY_ARTIFACT_DIR ? resolve(process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) : mkdtempSync(join(tmpdir(), 'orkworks-replay-artifacts-')))
-      : undefined;
+      : scenario === 'app-review-terminal-links'
+        ? mkdtempSync(join(tmpdir(), 'orkworks-terminal-links-artifacts-'))
+        : undefined;
     if (replayArtifacts) mkdirSync(replayArtifacts, { recursive: true });
     try {
       const bundle = await build({
@@ -2432,7 +2452,26 @@ if (process.versions.electron) {
           import './src/styles/tokens.css';
           import './src/App.css';
           import {getTerminal, getLiveTerminalCount} from './src/terminalStore';
+          import {Terminal as FixtureTerminal} from '@xterm/xterm';
           const fixture = window.fixture = {selections:0,prompts:0,settingsOpened:0,sessionsCreated:0,errors:[],ready:true};
+          if (${javascriptLiteral(scenario)} === 'app-review-terminal-links') {
+            fixture.linkTrace=[];
+            fixture.traceLink=value=>{fixture.linkTrace.push({at:performance.now(),...value});fixture.linkTrace=fixture.linkTrace.slice(-32)};
+            fixture.linkState=()=>{const terminal=fixture.linkTerminal;const screen=terminal?.element?.querySelector('.xterm-screen');return {cols:terminal?.cols,rows:terminal?.rows,line:terminal?.buffer.active.getLine(0)?.translateToString(true),screen:screen?.getBoundingClientRect().toJSON(),transform:terminal?.element?.style.transform,pointer:screen?.classList.contains('xterm-cursor-pointer')}};
+            const register=FixtureTerminal.prototype.registerLinkProvider;
+            FixtureTerminal.prototype.registerLinkProvider=function(provider){
+              fixture.linkTerminal=this;
+              return register.call(this,{provideLinks:(y,callback)=>provider.provideLinks(y,links=>{fixture.traceLink({type:'provider',y,links:links?.map(({text,range})=>({text,range})),state:fixture.linkState()});callback(links)})});
+            };
+            document.addEventListener('mousemove',event=>fixture.traceLink({type:'move',x:event.clientX,y:event.clientY,target:event.target?.className,state:fixture.linkState()}),true);
+            // Gate only the synthetic replay record; the real terminal parser,
+            // renderer and link provider still process it after explicit release.
+            const writeln=FixtureTerminal.prototype.writeln;
+            FixtureTerminal.prototype.writeln=function(...args){
+              if(fixture.holdReplayWrite && this!==fixture.runtime()?.terminal){fixture.releaseReplayWrite=()=>{fixture.holdReplayWrite=false;writeln.apply(this,args)};return;}
+              return writeln.apply(this,args);
+            };
+          }
           window.addEventListener('error', e => fixture.errors.push(e.error?.stack || e.message));
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
           fixture.socketCount=0;fixture.input=[];fixture.pins=0;fixture.workspaceOpens=0;
