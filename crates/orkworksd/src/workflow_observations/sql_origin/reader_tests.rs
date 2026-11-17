@@ -311,7 +311,9 @@ mod supported {
             }
         };
         save(&values);
-        let snapshot = scan(root.path()).unwrap();
+        let snapshot = count_request()
+            .read_at(&File::open(root.path()).unwrap(), EPOCH, HASH)
+            .unwrap();
         assert_eq!(
             serde_json::to_vec(snapshot.records()).unwrap().len(),
             MAX_SELECTED_BYTES
@@ -323,7 +325,10 @@ mod supported {
         last["observation"]["evidence"] = json!(text);
         refresh(last);
         save(&values);
-        assert!(matches!(scan(root.path()), Err(StoreError::TooLarge)));
+        assert!(matches!(
+            count_request().read_at(&File::open(root.path()).unwrap(), EPOCH, HASH),
+            Err(StoreError::TooLarge)
+        ));
     }
     #[test]
     fn original_deadline_includes_wait_and_foreign_scope_never_becomes_empty() {
