@@ -142,7 +142,7 @@ did not start from the recommendation, the sequence is:
    off).
 2. Accept it from this session: `POST
    /taskmaster/recommendations/${RECOMMENDATION_ID}/accept` with
-   `{"session_id":"${ORKWORKS_SESSION_ID}"}`.
+   `{"sessionId":"${ORKWORKS_SESSION_ID}"}`.
 3. Complete it: `POST /taskmaster/recommendations/${RECOMMENDATION_ID}/complete`
    with `Authorization: Bearer ${ORKWORKS_REPORT_TOKEN}` and
    `{"summary":"Verified disposition and checks run."}`.
