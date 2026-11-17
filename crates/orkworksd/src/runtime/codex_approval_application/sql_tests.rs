@@ -79,6 +79,20 @@ pub(crate) async fn fixture_with_root(root_id: &str) -> Fixture {
         latest_fallback: false,
         last_seen_at: None,
     });
+    // Finish asynchronous store setup before starting the synthetic observation
+    // freshness window. Initialization time is not part of the RPC under test.
+    let store = Arc::new(SessionStore::initialize(root, path.clone()).await.unwrap());
+    let mut meta =
+        crate::test_support::test_session_metadata(ID, "native", path, "running", CREATED, CREATED);
+    meta.harness = "codex".into();
+    meta.lifecycle = "alive".into();
+    meta.lifecycle_phase = "active".into();
+    meta.resume = info.resume.clone();
+    meta.harness_session_id_source = Some("codex_hook".into());
+    store
+        .create(serde_json::to_value(meta).unwrap())
+        .await
+        .unwrap();
     let (mut runtime, commands) = super::super::session_runtime::SessionRuntime::live(24, 80);
     let mut tracker = NativeApprovalState::new(runtime.run_generation());
     tracker.root = Some(root_id.into());
@@ -128,18 +142,6 @@ pub(crate) async fn fixture_with_root(root_id: &str) -> Fixture {
             active_work_hook: true,
         },
     );
-    let store = Arc::new(SessionStore::initialize(root, path.clone()).await.unwrap());
-    let mut meta =
-        crate::test_support::test_session_metadata(ID, "native", path, "running", CREATED, CREATED);
-    meta.harness = "codex".into();
-    meta.lifecycle = "alive".into();
-    meta.lifecycle_phase = "active".into();
-    meta.resume = state.sessions.lock().unwrap()[ID].info.resume.clone();
-    meta.harness_session_id_source = Some("codex_hook".into());
-    store
-        .create(serde_json::to_value(meta).unwrap())
-        .await
-        .unwrap();
     let writes = SessionWrites::bind(state.clone(), store.clone()).unwrap();
     (dir, state, store, writes, effect, commands)
 }
