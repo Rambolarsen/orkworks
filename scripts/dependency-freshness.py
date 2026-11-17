@@ -78,9 +78,15 @@ def audit_lines(payload, code, reviews, overrides):
     for item in advisories.values():
         if not isinstance(item, dict):
             raise ValueError("Malformed advisory")
-        for key in ("module_name", "severity", "github_advisory_id", "patched_versions", "title"):
+        for key in ("module_name", "severity", "github_advisory_id", "title"):
             if not isinstance(item.get(key), str) or not item[key]:
                 raise ValueError("Missing advisory field: " + key)
+        if "patched_versions" not in item:
+            raise ValueError("Missing advisory field: patched_versions")
+        patched = item["patched_versions"]
+        if patched is not None and (not isinstance(patched, str) or not patched.strip()):
+            raise ValueError("Malformed advisory field: patched_versions")
+        fix = patched if patched is not None else "No patched version available"
         findings = item.get("findings")
         if not isinstance(findings, list) or not findings:
             raise ValueError("Advisory missing dependency paths")
@@ -98,7 +104,7 @@ def audit_lines(payload, code, reviews, overrides):
         related = {key: value for key, value in overrides.items()
                    if key == item["module_name"] or key.startswith(item["module_name"] + "@")}
         lines.append(f'{item["github_advisory_id"]} | {item["severity"]} | {item["module_name"]}: '
-                     f'{item["title"]}\n  Paths: {", ".join(paths)}\n  Fix: {item["patched_versions"]}'
+                     f'{item["title"]}\n  Paths: {", ".join(paths)}\n  Fix: {fix}'
                      f'\n  {disposition}\n  Relevant overrides (not suppressions): {json.dumps(related)}')
     if not lines:
         return ["No advisories reported."]

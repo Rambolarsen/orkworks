@@ -36,6 +36,28 @@ class ReportTests(unittest.TestCase):
         for expected in [GHSA, "high", "app>tool>example", ">=2.0.0", "ACTIONABLE"]:
             self.assertIn(expected, text)
 
+    def test_unpatched_advisory_remains_actionable_in_a_mixed_complete_audit(self):
+        payload = audit()
+        payload["advisories"]["2"] = {
+            "module_name": "picomatch", "severity": "high", "title": "Extglob ReDoS",
+            "github_advisory_id": "GHSA-fc5q-39xc-vjpf", "patched_versions": None,
+            "findings": [{"paths": ["app>vite>picomatch"]}]
+        }
+        payload["metadata"]["vulnerabilities"]["high"] = 2
+        text = "\n".join(f.audit_lines(payload, 1, [], {}))
+        self.assertIn("GHSA-fc5q-39xc-vjpf", text)
+        self.assertIn("No patched version available", text)
+        self.assertIn(">=2.0.0", text)
+        self.assertEqual(text.count("ACTIONABLE"), 2)
+
+    def test_missing_or_malformed_patch_field_still_fails_collection(self):
+        for value in [0, [], {}, "", " "]:
+            payload = audit(); payload["advisories"]["1"]["patched_versions"] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                f.audit_lines(payload, 1, [], {})
+        payload = audit(); del payload["advisories"]["1"]["patched_versions"]
+        with self.assertRaises(ValueError): f.audit_lines(payload, 1, [], {})
+
     def test_override_never_suppresses_and_only_matching_review_acknowledges(self):
         text = "\n".join(f.audit_lines(audit(), 1, [], {"example@<2": "2"}))
         self.assertIn("ACTIONABLE", text)
