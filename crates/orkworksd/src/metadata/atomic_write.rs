@@ -315,13 +315,15 @@ mod tests {
             "each writer must own its own stage"
         );
         assert_eq!(fs::read_to_string(&target).unwrap(), "old");
-        for release in releases {
+        // Callers serialize publication for a metadata key. Windows can reject
+        // simultaneous MoveFileExW replacements with ACCESS_DENIED; private
+        // staging does not grant uncoordinated writers a publication lock.
+        // Keep all stages alive together, then exercise that caller ordering.
+        for ((release, writer), payload) in releases.into_iter().zip(writers).zip(&payloads) {
             release.send(()).unwrap();
-        }
-        for writer in writers {
             writer.join().unwrap().unwrap();
+            assert_eq!(&fs::read_to_string(&target).unwrap(), payload);
         }
-        assert!(payloads.contains(&fs::read_to_string(&target).unwrap()));
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
