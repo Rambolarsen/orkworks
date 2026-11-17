@@ -21,6 +21,7 @@ import { buildActionsOverview, type ActionRow, type ActionsSourceStatus } from "
 import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
+import { useCompactPopover } from "../useCompactPopover";
 
 export type ShellDestination = "changes" | "details" | "recommendations" | "skills" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
@@ -88,6 +89,9 @@ const TITLES = { changes: "Changes", actions: "Actions", details: "Details", rec
 
 export default function ApplicationShell(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const navigationMenuRef = useRef<HTMLDetailsElement>(null);
+  const navigationPopoverRef = useRef<HTMLDivElement>(null);
+  const [navigationMenuOpen, setNavigationMenuOpen] = useState(false);
   const invokerRef = useRef<HTMLElement | null>(null);
   const invokerSelectorRef = useRef<string | null>(null);
   const reviewInvoker = useRef<{ element: HTMLElement | null; selector: string | null } | null>(null);
@@ -124,6 +128,8 @@ export default function ApplicationShell(props: Props) {
   const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
   const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
+  useCompactPopover(compact && !showSessions && navigationMenuOpen, navigationMenuRef, navigationPopoverRef, "start");
+  useEffect(() => setNavigationMenuOpen(false), [props.workspaceGeneration, showSessions]);
   const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && props.inspector !== null;
   const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
   const isResuming = !!session && !!props.resumingSessionIds?.has(session.id);
@@ -463,7 +469,8 @@ export default function ApplicationShell(props: Props) {
       {(!showSessionsPage || !!props.newSessionContent) && <main className="shell-main" hidden={showSessionsPage}>
         <nav className="shell-toolbar" aria-label="Content navigation">
           {compact && <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>}
-          {!showSessions && <details key={props.workspaceGeneration} className="shell-navigation-menu" onClick={event => {
+          {!showSessions && <details ref={navigationMenuRef} key={props.workspaceGeneration} className="shell-navigation-menu"
+          onToggle={event => setNavigationMenuOpen(event.currentTarget.open)} onClick={event => {
             if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings], .workspace-history-row-open, .workspace-history-other-folder")) {
               event.currentTarget.open = false;
               event.currentTarget.querySelector("summary")?.focus();
@@ -475,12 +482,12 @@ export default function ApplicationShell(props: Props) {
             event.currentTarget.querySelector("summary")?.focus();
           }}>
             <summary>Workspace<ChevronDown size={14} aria-hidden="true" /></summary>
-            <div className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
+            <div ref={navigationPopoverRef} className="shell-navigation-popover">{workspaceNavigation}<footer className="shell-sidebar-footer">{settingsAndStatus}</footer></div>
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
-            workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} />}
-          {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header
+            workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} compact={compact} />}
+          {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header compact={compact}
             pending={isResuming} options={resumeChoices(session)} onSelect={option => props.onResumeSession(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}

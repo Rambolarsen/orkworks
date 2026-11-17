@@ -2618,15 +2618,12 @@ html, body, #root {
 .shell-region-separator:focus-visible::after { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .shell-layout[data-mode="compact"] .shell-main { padding-left: 0; }
 .shell-layout[data-mode="compact"] .shell-context { flex-basis: 160px; order: -1; }
-/* Wrapped controls share the toolbar as their dropdown anchor. */
-.shell-layout[data-mode="compact"] .shell-toolbar { position: relative; }
-.shell-layout[data-mode="compact"] .shell-toolbar > :is(.shell-navigation-menu, .session-app-menu, .resume-menu) { position: static; }
+/* Compact menus are positioned against their invokers by useCompactPopover. */
 .shell-layout[data-mode="compact"] .shell-toolbar :is(.shell-navigation-popover, .session-app-popover, .resume-menu-popover) {
   box-sizing: border-box;
   max-width: calc(100% - 2 * var(--space-3));
+  overflow-wrap: anywhere;
 }
-.shell-layout[data-mode="compact"] .shell-toolbar .shell-navigation-popover { left: var(--space-3); }
-.shell-layout[data-mode="compact"] .shell-toolbar :is(.session-app-popover, .resume-menu-popover) { right: var(--space-3); }
 .shell-layout[data-mode="compact"] .session-list { min-width: 0; }
 @media (max-height: 480px) {
   .shell-region--sessions { overflow-y: auto; }
