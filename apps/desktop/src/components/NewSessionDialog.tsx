@@ -137,18 +137,21 @@ export default function NewSessionDialog({ workspacePath = "", harnesses, provid
       harnesses
         .filter((harness) => harness.id !== "generic-shell" && !harness.retired)
         .map(async (harness) => {
+          let result: IntegrationStatusResult;
           try {
-            return [harness.id, await getHarnessDetectionStatus(harness)] as const;
+            result = await getHarnessDetectionStatus(harness);
           } catch (error) {
-            return [harness.id, {
-              ok: false as const,
+            result = {
+              ok: false,
               error: error instanceof Error ? error.message : "Coding tool detection unavailable.",
-            }] as const;
+            };
+          }
+          if (!cancelled) {
+            setDetectionStatuses((current) => ({ ...current, [harness.id]: result }));
           }
         }),
-    ).then((entries) => {
+    ).then(() => {
       if (!cancelled) {
-        setDetectionStatuses(Object.fromEntries(entries));
         setDetectionComplete(true);
       }
     });
