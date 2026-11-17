@@ -3164,10 +3164,12 @@ html, body, #root {
 /* Actions keeps each source count visible independently of the sidebar. */
 .shell-session-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1); min-width:0; }
 .shell-session-controls:empty { display:none; }
-.shell-actions-controls { display:flex; align-items:center; gap:2px; min-width:0; max-width:100%; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); }
+.shell-context-controls { display:flex; align-items:center; gap:var(--space-2); min-width:0; max-width:100%; }
+.shell-context-controls > [data-shell-command=details] { flex-shrink:0; }
+.shell-actions-controls { display:flex; flex:1; align-items:center; gap:2px; min-width:0; max-width:100%; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); }
 .shell-actions-controls > [data-shell-command=actions] { flex:1; flex-wrap:wrap; min-width:0; }
 .shell-actions-controls > [data-shell-command=next-action] { flex-shrink:0; align-self:stretch; justify-content:center; }
-.shell-layout[data-mode="compact"] .shell-actions-controls { flex:1 1 240px; }
+.shell-layout[data-mode="compact"] .shell-context-controls { flex:1 1 300px; }
 .shell-actions-controls [data-actions-counts] { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; font-size:11px; color:var(--text-muted); }
 .shell-actions-controls [data-actions-source] { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:4px; }
 .shell-actions-controls [data-actions-source] strong { font-weight:var(--weight-medium); color:var(--text-secondary); }
