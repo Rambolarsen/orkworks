@@ -1,3 +1,4 @@
+import { unverifiedRecommendation } from './fixtures/unverifiedAdvice.ts';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -10,7 +11,7 @@ const compiled = await build({
   bundle: true, write: false, platform: "node", format: "cjs", packages: "external",
 });
 const evidence = (id) => ({ observationId: id, sessionId: `session-${id}`, description: `Observation ${id}`, source: "agent", observedAt: "2026-09-14T10:00:00Z", problemArea: "Testing", evidence: `Full evidence ${id}` });
-const family = (id) => ({ id, title: `Family ${id}`, updatedAt: "2026-09-14T10:00:00Z", rollupMemberIds: [], evidence: [evidence(id)] });
+const family = (id) => ({ ...unverifiedRecommendation(), assessment:undefined, verificationStatus:undefined, id, title: `Family ${id}`, updatedAt: "2026-09-14T10:00:00Z", rollupMemberIds: [], evidence: [evidence(id)] });
 const parent = { ...family("parent"), rollupMemberIds: ["a", "b"] };
 
 async function fixture(t, respond = async (id) => family(id)) {
@@ -18,11 +19,10 @@ async function fixture(t, respond = async (id) => family(id)) {
   let index = 0, effectIndex = 0, props = { recommendation: parent, onSelectSession: (id) => selected.push(id) };
   const oldWindow = globalThis.window, oldFetch = globalThis.fetch;
   globalThis.window = { orkworks: { getBackendUrl: async () => "http://sidecar" } };
-  globalThis.fetch = async (url) => {
-    const id = decodeURIComponent(url.split("/").at(-1));
-    requests.push(id);
-    return { ok: true, json: async () => respond(id) };
+  globalThis.window.orkworks.getAdviceRecommendation = async (workspace, _backend, id) => {
+    requests.push(id);return {...await respond(id),protocolVersion:3};
   };
+  globalThis.fetch = async () => {throw Error('Renderer HTTP fallback must not run');};
   const hooks = { ...React,
     useState(initial) {
       const i = index++;
@@ -143,7 +143,7 @@ test("ordinary exact family evidence remains local and never requests member det
 
 test("changing only the workspace identity discards cached family details", async (t) => {
   let activeWorkspace = "first";
-  const view = await fixture(t, async (id) => ({ ...family(id), title: `${activeWorkspace} family ${id}` }));
+  const view = await fixture(t, async (id) => ({ ...family(id), workspaceId: activeWorkspace, title: `${activeWorkspace} family ${id}` }));
   view.render({ recommendation: { ...parent, workspaceId: "first" } }); await view.settle();
   await view.toggle(true);
   assert.match(text(view.render()), /first family a/);

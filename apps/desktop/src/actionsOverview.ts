@@ -1,3 +1,4 @@
+import { adviceIsSupported, isUnverifiedAdvice } from './advice.ts';
 import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import type { SessionInfo, WorkflowRecommendation } from "./api.ts";
 import { sessionAttentionStatus } from "./sessionSort.ts";
@@ -13,6 +14,7 @@ export interface ActionRow {
   summary: string;
   revision: string;
   unavailable: boolean;
+  unverifiedAdvice?: boolean;
 }
 
 const GROUPS: Record<string, string> = {
@@ -50,12 +52,13 @@ export function buildActionsOverview(
   seen.clear();
   const recommendationRows: ActionRow[] = [];
   for (const recommendation of filterPanelRecommendations(recommendations, "all")) {
-    if (seen.has(recommendation.id)) continue;
+    if (seen.has(recommendation.id) || !adviceIsSupported(recommendation)) continue;
     seen.add(recommendation.id);
     recommendationRows.push({
       key: `recommendation:${recommendation.id}`, source: "recommendation", id: recommendation.id,
       group: "Recommendations", title: recommendation.title, summary: recommendation.summary,
-      revision: JSON.stringify([recommendation.updatedAt, recommendation.status, recommendation.title, recommendation.summary]),
+      unverifiedAdvice: isUnverifiedAdvice(recommendation),
+      revision: JSON.stringify([recommendation.updatedAt, recommendation.status, recommendation.title, recommendation.summary, recommendation.assessment?.improvementReference, recommendation.protocolVersion, recommendation.verificationStatus]),
       unavailable: recommendationsStatus === "loading" || recommendationsStatus === "unavailable",
     });
   }

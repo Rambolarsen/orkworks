@@ -281,6 +281,7 @@ pub(crate) struct WorkspaceSnapshot {
 
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
+    unverified_advice_view: bool,
 }
 
 pub(crate) struct PromptAuthorityRevokeSnapshot {
@@ -580,7 +581,27 @@ enum PhaseCheck {
 
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
-        Self { state }
+        Self {
+            state,
+            unverified_advice_view: false,
+        }
+    }
+
+    pub(crate) fn with_unverified_advice_view(mut self) -> Self {
+        self.unverified_advice_view = true;
+        self
+    }
+
+    fn require_advice_view(
+        &self,
+        item: &crate::taskmaster::Recommendation,
+    ) -> Result<(), crate::taskmaster::store::StoreError> {
+        if !self.unverified_advice_view && crate::taskmaster::is_unverified_improvement(item) {
+            return Err(crate::taskmaster::store::StoreError::GraphInvariant(
+                "protocol_upgrade_required".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Evaluates the current workspace's workflow evidence and persists the
@@ -1254,6 +1275,8 @@ impl SessionApplication {
                 else {
                     return Ok(None);
                 };
+                self.require_advice_view(&existing)
+                    .map_err(RecommendationDismissError::Store)?;
                 if !matches!(
                     existing.recommendation_type,
                     RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
@@ -1292,6 +1315,8 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
+        self.require_advice_view(&existing)
+            .map_err(RecommendationPacketError::Store)?;
         crate::taskmaster::assessment_access::ensure_mutable(&existing)
             .map_err(RecommendationPacketError::Store)?;
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
@@ -1362,6 +1387,8 @@ impl SessionApplication {
                 else {
                     return Ok(None);
                 };
+                self.require_advice_view(&recommendation)
+                    .map_err(RecommendationAcceptError::Store)?;
                 if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
                     || recommendation.status != RecommendationStatus::Proposed
                 {
@@ -1564,6 +1591,11 @@ impl SessionApplication {
             return Ok(None);
         };
 
+        self.require_advice_view(&existing)
+            .map_err(RecommendationCompleteError::Store)?;
+        if crate::taskmaster::is_unverified_improvement(&existing) && packet_mutation.is_some() {
+            return Err(RecommendationCompleteError::Conflict);
+        }
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
             || existing.target_session_id.as_deref() != Some(session_id)
         {
@@ -16875,6 +16907,70 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         assert!(events
             .iter()
             .any(|event| event.event_type == "taskmaster_fix_requested"));
+    }
+
+    #[test]
+    fn unverified_completion_requires_a_compatible_view_before_events_or_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let session_id = "unverified-completion-target";
+        write_alive_session(&state, root.path(), session_id);
+        let id = proposed_recommendation_id(&state, "unverified-completion");
+        let mut item = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&id)
+            .unwrap()
+            .unwrap();
+        item.assessment = Some(crate::taskmaster::AssessmentProvenance {
+            improvement_reference: Some(crate::taskmaster::ImprovementReference {
+                version: 3,
+                intent: crate::taskmaster::ImprovementIntent::Implementation,
+            }),
+            sql_sources: None,
+            readiness_reference: None,
+            access_redacted: false,
+            id: "improvement-fixture".into(),
+            input_fingerprint: "a".repeat(64),
+            context_level: crate::taskmaster::runtime::ContextLevel::SourceCode,
+            excluded_paths: vec![],
+        });
+        item.workspace_id = root.path().to_string_lossy().into_owned();
+        item.status = RecommendationStatus::Accepted;
+        item.target_session_id = Some(session_id.into());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(&item)
+                .unwrap();
+        }
+        let result = SessionApplication::new(state.clone())
+            .complete_recommendation_with_packet(&item.id, session_id, None, None);
+        assert!(
+            matches!(result, Err(RecommendationCompleteError::Store(crate::taskmaster::store::StoreError::GraphInvariant(ref reason))) if reason == "protocol_upgrade_required")
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().unwrap();
+        assert_eq!(
+            workspace
+                .recommendation_store
+                .get(&item.id)
+                .unwrap()
+                .unwrap(),
+            item
+        );
+        assert!(!workspace
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .any(|event| event.event_type == "taskmaster_fix_completed"));
     }
 
     #[test]

@@ -312,6 +312,7 @@ mod tests {
             if suggestion {
                 ReadinessStore::new(root.path())
                     .append(Snapshot {
+                        improvement_version: None,
                         id: score.id.clone(),
                         started_at: score.started_at.clone(),
                         completed_at: now(),

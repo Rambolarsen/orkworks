@@ -1,3 +1,4 @@
+use super::advice_protocol::View;
 use crate::http::ErrorResponse;
 use crate::runtime::terminal_runtime::{record_report_attempt, workflow_report_session_for_token};
 use crate::session_application::{
@@ -66,17 +67,17 @@ struct ManualAnalysisResponse {
 }
 
 fn manual_analysis_response(
+    view: View,
     status: &'static str,
     recommendation: Option<Recommendation>,
     message: Option<&'static str>,
 ) -> Response {
-    Json(ManualAnalysisResponse {
+    view.json(ManualAnalysisResponse {
         status,
         recommendation,
         recovery_allowed: false,
         message,
     })
-    .into_response()
 }
 
 fn manual_analysis_recovery_allowed(
@@ -92,17 +93,17 @@ fn manual_analysis_recovery_allowed(
 }
 
 fn active_recommendation_response(
+    view: View,
     recommendation: Recommendation,
     live_session_ids: &std::collections::HashSet<String>,
 ) -> Response {
     let recovery_allowed = manual_analysis_recovery_allowed(&recommendation, live_session_ids);
-    Json(ManualAnalysisResponse {
+    view.json(ManualAnalysisResponse {
         status: "active_recommendation",
         recommendation: Some(recommendation),
         recovery_allowed,
         message: Some("Finish the active Brain recommendation before requesting another analysis."),
     })
-    .into_response()
 }
 
 fn actionable_recommendations(recommendations: Vec<Recommendation>) -> Vec<Recommendation> {
@@ -144,6 +145,10 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn store_error(error: StoreError) -> Response {
+    if matches!(&error, StoreError::GraphInvariant(reason) if reason == "protocol_upgrade_required")
+    {
+        return super::advice_protocol::upgrade_required();
+    }
     if matches!(
         error,
         StoreError::InvalidTransition | StoreError::StalePacket { .. }
@@ -162,6 +167,27 @@ fn store_error(error: StoreError) -> Response {
         .into_response()
 }
 
+// Reject an unsupported record before rate accounting, recovery or mutation.
+// The application repeats the view guard on the record selected under its lock.
+fn record_view(headers: &HeaderMap, state: &Arc<AppState>, id: &str) -> Result<View, Response> {
+    let view = View::parse(headers)?;
+    let workspace = state
+        .workspace
+        .lock()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+    let workspace = workspace
+        .as_ref()
+        .ok_or_else(|| StatusCode::CONFLICT.into_response())?;
+    if let Some(item) = workspace
+        .recommendation_store
+        .get(id)
+        .map_err(store_error)?
+    {
+        view.require_record(&item)?;
+    }
+    Ok(view)
+}
+
 pub(crate) async fn report_completion_packet(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -174,6 +200,10 @@ pub(crate) async fn report_completion_packet(
     let Some(session_id) = workflow_report_session_for_token(token) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
+    let view = match record_view(&headers, &state, &id) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     if !record_report_attempt(&session_id) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
@@ -182,8 +212,11 @@ pub(crate) async fn report_completion_packet(
     else {
         return StatusCode::BAD_REQUEST.into_response();
     };
-    match SessionApplication::new(state).report_completion_packet(&id, &session_id, packet) {
-        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+    match view
+        .application(state)
+        .report_completion_packet(&id, &session_id, packet)
+    {
+        Ok(Some(recommendation)) => view.mutation(&recommendation),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationPacketError::Conflict) => StatusCode::CONFLICT.into_response(),
         Err(RecommendationPacketError::Store(error)) => store_error(error),
@@ -198,6 +231,10 @@ pub(crate) async fn analyze_taskmaster(
     {
         return status.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let live_session_ids = state
         .sessions
         .lock()
@@ -210,6 +247,7 @@ pub(crate) async fn analyze_taskmaster(
         let workspace = state.workspace.lock().expect("workspace lock poisoned");
         let Some(workspace) = workspace.as_ref() else {
             return manual_analysis_response(
+                view,
                 "unavailable",
                 None,
                 Some("Open a workspace before requesting Brain analysis."),
@@ -224,6 +262,7 @@ pub(crate) async fn analyze_taskmaster(
             .filter(|workspace| workspace.path == workspace_path)
         else {
             return manual_analysis_response(
+                view,
                 "unavailable",
                 None,
                 Some("The selected workspace changed before Brain analysis could start."),
@@ -255,6 +294,7 @@ pub(crate) async fn analyze_taskmaster(
         .is_some_and(|workspace| workspace.path == workspace_path)
     {
         return manual_analysis_response(
+            view,
             "unavailable",
             None,
             Some("The selected workspace changed before Brain analysis could start."),
@@ -264,13 +304,14 @@ pub(crate) async fn analyze_taskmaster(
     if let Some(recommendation) =
         crate::taskmaster::active_workflow_recommendation(&recommendations)
     {
-        return active_recommendation_response(recommendation.clone(), &live_session_ids);
+        return active_recommendation_response(view, recommendation.clone(), &live_session_ids);
     }
 
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
     let status = runtime.status(Some(&workspace_path));
     if status.analysis_status == "ledger_unavailable" {
         return manual_analysis_response(
+            view,
             "unavailable",
             None,
             Some("Taskmaster's usage ledger is unavailable; analysis was not started."),
@@ -278,6 +319,7 @@ pub(crate) async fn analyze_taskmaster(
     }
     let Some(selection) = status.effective_settings.selection.as_ref() else {
         return manual_analysis_response(
+            view,
             "unavailable",
             None,
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
@@ -307,7 +349,7 @@ pub(crate) async fn analyze_taskmaster(
                 "could not acquire the Taskmaster analysis lease for deferred run recovery"
             ),
         }
-        return manual_analysis_response("unavailable", None, Some(reason));
+        return manual_analysis_response(view, "unavailable", None, Some(reason));
     }
     let trust = super::inference_trust_handlers::trust_store(&state).ok();
     let available = provider_catalog::inspect(&state.harness_store, trust.as_ref())
@@ -318,23 +360,24 @@ pub(crate) async fn analyze_taskmaster(
         });
     if !available {
         return manual_analysis_response(
+            view,
             "unavailable",
             None,
             Some("Configure an available Taskmaster model before requesting Brain analysis."),
         );
     }
     match crate::taskmaster::evaluator::schedule_manual_evaluation(state, workspace_path) {
-        crate::taskmaster::evaluator::ScheduleResult::Scheduled => manual_analysis_response(
+        crate::taskmaster::evaluator::ScheduleResult::Scheduled => manual_analysis_response(view,
             "scheduled",
             None,
             Some("Brain analysis requested. Recommendations will refresh automatically."),
         ),
-        crate::taskmaster::evaluator::ScheduleResult::AlreadyRunning => manual_analysis_response(
+        crate::taskmaster::evaluator::ScheduleResult::AlreadyRunning => manual_analysis_response(view,
             "already_running",
             None,
             Some("A Taskmaster analysis is already running."),
         ),
-        crate::taskmaster::evaluator::ScheduleResult::Unavailable => manual_analysis_response(
+        crate::taskmaster::evaluator::ScheduleResult::Unavailable => manual_analysis_response(view,
             "unavailable",
             None,
             Some(
@@ -356,10 +399,14 @@ pub(crate) async fn assess_workflow(
     if !body.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
     let response =
         crate::taskmaster::assessment::schedule(state, runtime.root_path().to_path_buf());
-    Json(response).into_response()
+    view.json(response)
 }
 
 #[derive(Serialize)]
@@ -368,33 +415,51 @@ struct AuditResponse {
     recommendation: Option<Recommendation>,
 }
 
-pub(crate) async fn run_recommendation_audit(State(state): State<Arc<AppState>>) -> Response {
+pub(crate) async fn run_recommendation_audit(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     match SessionApplication::new(state).run_recommendation_audit() {
-        Ok(recommendation) => Json(AuditResponse { recommendation }).into_response(),
+        Ok(recommendation) => view.json(AuditResponse { recommendation }),
         Err(error) => store_error(error),
     }
 }
 
-pub(crate) async fn list_recommendations(State(state): State<Arc<AppState>>) -> Response {
+pub(crate) async fn list_recommendations(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let (recommendations, diagnostics) = match SessionApplication::new(state).list_recommendations()
     {
         Ok(result) => result,
         Err(RecommendationQueryError::Conflict) => return StatusCode::CONFLICT.into_response(),
         Err(RecommendationQueryError::Store(error)) => return store_error(error),
     };
-    Json(RecommendationListResponse {
+    view.json(RecommendationListResponse {
         recommendations: actionable_recommendations(recommendations),
         diagnostics,
     })
-    .into_response()
 }
 
 pub(crate) async fn get_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
-    match SessionApplication::new(state).get_recommendation(&id) {
-        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+    let view = match record_view(&headers, &state, &id) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
+    match view.application(state).get_recommendation(&id) {
+        Ok(Some(recommendation)) => view.json(recommendation),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationQueryError::Conflict) => StatusCode::CONFLICT.into_response(),
         Err(RecommendationQueryError::Store(error)) => store_error(error),
@@ -404,16 +469,21 @@ pub(crate) async fn get_recommendation(
 pub(crate) async fn dismiss_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<DismissRequest>>,
 ) -> Response {
+    let view = match record_view(&headers, &state, &id) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     if body
         .and_then(|Json(request)| request.reason)
         .is_some_and(|reason| reason.chars().count() > 500)
     {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    match SessionApplication::new(state).dismiss_recommendation(&id) {
-        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+    match view.application(state).dismiss_recommendation(&id) {
+        Ok(Some(recommendation)) => view.mutation(&recommendation),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationDismissError::Conflict) => StatusCode::CONFLICT.into_response(),
         Err(RecommendationDismissError::Store(error)) => store_error(error),
@@ -430,8 +500,13 @@ struct CleanupAcceptResponse {
 pub(crate) async fn accept_recommendation(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<AcceptRequest>,
 ) -> Response {
+    let view = match record_view(&headers, &state, &id) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     if request
         .packet_mutation
         .as_ref()
@@ -439,21 +514,20 @@ pub(crate) async fn accept_recommendation(
     {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    let recommendation = match SessionApplication::new(state.clone()).get_recommendation(&id) {
+    let recommendation = match view.application(state.clone()).get_recommendation(&id) {
         Ok(Some(recommendation)) => recommendation,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationQueryError::Conflict) => return StatusCode::CONFLICT.into_response(),
         Err(RecommendationQueryError::Store(error)) => return store_error(error),
     };
-    let application = SessionApplication::new(state);
+    let application = view.application(state);
     match recommendation.recommendation_type {
         RecommendationType::Cleanup if request.session_id.is_none() => {
             match application.accept_cleanup_recommendation(&id) {
-                Ok(Some((card, skipped))) => Json(CleanupAcceptResponse {
+                Ok(Some((card, skipped))) => view.json(CleanupAcceptResponse {
                     recommendation: card,
                     skipped,
-                })
-                .into_response(),
+                }),
                 Ok(None) => StatusCode::NOT_FOUND.into_response(),
                 Err(error) => store_error(error),
             }
@@ -470,7 +544,7 @@ pub(crate) async fn accept_recommendation(
                 )
                 .await
             {
-                Ok(Some(recommendation)) => Json(recommendation).into_response(),
+                Ok(Some(recommendation)) => view.mutation(&recommendation),
                 Ok(None) => StatusCode::NOT_FOUND.into_response(),
                 Err(RecommendationAcceptError::Conflict) => StatusCode::CONFLICT.into_response(),
                 Err(RecommendationAcceptError::SessionNotFound) => {
@@ -493,6 +567,10 @@ pub(crate) async fn complete_recommendation(
     };
     let Some(session_id) = workflow_report_session_for_token(token) else {
         return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let view = match record_view(&headers, &state, &id) {
+        Ok(view) => view,
+        Err(response) => return response,
     };
     if !record_report_attempt(&session_id) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
@@ -518,13 +596,13 @@ pub(crate) async fn complete_recommendation(
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
 
-    match SessionApplication::new(state).complete_recommendation_with_packet(
+    match view.application(state).complete_recommendation_with_packet(
         &id,
         &session_id,
         summary,
         packet_mutation,
     ) {
-        Ok(Some(recommendation)) => Json(recommendation).into_response(),
+        Ok(Some(recommendation)) => view.mutation(&recommendation),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(RecommendationCompleteError::Conflict) => StatusCode::CONFLICT.into_response(),
         Err(RecommendationCompleteError::Store(error)) => store_error(error),
@@ -534,6 +612,31 @@ pub(crate) async fn complete_recommendation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    async fn dismiss_recommendation(
+        state: State<Arc<AppState>>,
+        id: Path<String>,
+        body: Option<Json<DismissRequest>>,
+    ) -> Response {
+        super::dismiss_recommendation(state, id, HeaderMap::new(), body).await
+    }
+    async fn accept_recommendation(
+        state: State<Arc<AppState>>,
+        id: Path<String>,
+        request: Json<AcceptRequest>,
+    ) -> Response {
+        super::accept_recommendation(state, id, HeaderMap::new(), request).await
+    }
+
+    async fn list_recommendations(state: State<Arc<AppState>>) -> Response {
+        super::list_recommendations(state, HeaderMap::new()).await
+    }
+    async fn get_recommendation(state: State<Arc<AppState>>, id: Path<String>) -> Response {
+        super::get_recommendation(state, id, HeaderMap::new()).await
+    }
+    async fn run_recommendation_audit(state: State<Arc<AppState>>) -> Response {
+        super::run_recommendation_audit(state, HeaderMap::new()).await
+    }
+
     use crate::runtime::terminal_runtime::{
         clear_workflow_report_token, set_workflow_report_token, WORKFLOW_REPORT_RATE_LIMIT,
     };
@@ -848,6 +951,113 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
         headers
+    }
+
+    fn accepted_unverified(state: &Arc<AppState>, session: &str, token: &str) -> String {
+        let id = accepted_recommendation(state, session, session, token);
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        let mut item = store.get(&id).unwrap().unwrap();
+        item.title = "MODEL_TEXT".into();
+        item.summary = "MODEL_TEXT".into();
+        item.assessment = Some(crate::taskmaster::AssessmentProvenance {
+            improvement_reference: Some(crate::taskmaster::ImprovementReference {
+                version: 3,
+                intent: crate::taskmaster::ImprovementIntent::Implementation,
+            }),
+            sql_sources: None,
+            readiness_reference: None,
+            access_redacted: false,
+            id: "improvement-11111111-1111-4111-8111-111111111111".into(),
+            input_fingerprint: "a".repeat(64),
+            context_level: crate::taskmaster::runtime::ContextLevel::SourceCode,
+            excluded_paths: vec![],
+        });
+        store.put(&item).unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn unverified_completion_returns_only_a_receipt_even_after_origin_is_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session = "unverified-receipt-session";
+        let token = "unverified-receipt-token";
+        let id = accepted_unverified(&state, session, token);
+        let response = complete_recommendation(
+            State(state.clone()),
+            Path(id.clone()),
+            authorization(token),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&id)
+                .unwrap()
+                .unwrap()
+                .status,
+            RecommendationStatus::Accepted
+        );
+        let mut headers = authorization(token);
+        headers.insert("x-orkworks-advice-protocol", "3".parse().unwrap());
+        let response =
+            complete_recommendation(State(state), Path(id.clone()), headers, Bytes::new()).await;
+        clear_workflow_report_token(session);
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"protocolVersion":3,"id":id,"status":"completed","targetSessionId":session})
+        );
+        assert!(!body.to_string().contains("MODEL_TEXT"));
+    }
+
+    #[tokio::test]
+    async fn unverified_completion_refuses_packet_fields_before_a_transition() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let session = "unverified-packet-session";
+        let token = "unverified-packet-token";
+        let id = accepted_unverified(&state, session, token);
+        let mut headers = authorization(token);
+        headers.insert("x-orkworks-advice-protocol", "3".parse().unwrap());
+        let body = serde_json::json!({"packetRevision":1,"evidenceFingerprint":"a".repeat(64),"idempotencyKey":"unverified-packet-completion"});
+        let response = complete_recommendation(
+            State(state.clone()),
+            Path(id.clone()),
+            headers,
+            Bytes::from(body.to_string()),
+        )
+        .await;
+        clear_workflow_report_token(session);
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .get(&id)
+                .unwrap()
+                .unwrap()
+                .status,
+            RecommendationStatus::Accepted
+        );
     }
 
     #[tokio::test]

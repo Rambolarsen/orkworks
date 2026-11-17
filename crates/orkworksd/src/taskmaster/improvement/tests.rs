@@ -155,6 +155,46 @@ fn final_fixture() -> (
 }
 
 #[test]
+fn unverified_final_retains_claims_but_model_cannot_set_status_or_protocol() {
+    let (mut value, rubric) = final_fixture();
+    let text = "Unverified; proposed validation includes a failing test case demonstrating a non-successful CI job and a passing test case demonstrating normal completion.";
+    value["opportunities"][0]["validation"] = serde_json::json!(text);
+    value["summary"] = serde_json::json!("Tests passed.");
+    value["concepts"][0]["rationale"] = serde_json::json!("Verification completed.");
+    let decode = |v: &serde_json::Value| {
+        super::model::FinalResult::decode(
+            &v.to_string(),
+            &["a".repeat(64)],
+            &["playbooks/rubric.md".into()],
+            &rubric,
+        )
+    };
+    let result = decode(&value).expect("producer 3 retains claims only as unverified data");
+    assert_eq!(result.summary, "Tests passed.");
+    assert_eq!(result.preferred().unwrap().validation, text);
+    for (key, status) in [
+        ("verificationStatus", serde_json::json!("verified")),
+        ("protocolVersion", serde_json::json!(3)),
+    ] {
+        let mut bad = value.clone();
+        bad[key] = status;
+        assert!(decode(&bad).is_err(), "model must not control {key}");
+    }
+    let duplicate = value
+        .to_string()
+        .replacen("\"version\":1", "\"version\":1,\"version\":1", 1);
+    assert!(super::model::FinalResult::decode(
+        &duplicate,
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric
+    )
+    .is_err());
+    value["opportunities"][0]["repositoryFactHashes"] = serde_json::json!(["c".repeat(64)]);
+    assert!(decode(&value).is_err(), "claims do not waive citations");
+}
+
+#[test]
 fn final_response_joins_rating_and_preferred_step_against_the_same_evidence() {
     let (value, rubric) = final_fixture();
     let result = super::model::FinalResult::decode(
@@ -895,11 +935,12 @@ fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_th
         let mut bad = value.clone();
         bad["opportunities"][0]["benefit"] = serde_json::json!(text);
         assert!(
-            super::model::FinalResult::decode(
+            super::model::FinalResult::decode_with_policy(
                 &bad.to_string(),
                 &["a".repeat(64)],
                 &["playbooks/rubric.md".into()],
-                &rubric
+                &rubric,
+                crate::taskmaster::advice_text::TextPolicy::InertAdvice
             )
             .is_err(),
             "accepted {text:?}"

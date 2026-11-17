@@ -134,6 +134,8 @@ pub(crate) struct PublicRange<'a> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PublicReport<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    producer_version: Option<u8>,
     summary: &'a str,
     concepts: Vec<crate::taskmaster::readiness_store::StoredRow>,
     opportunities: &'a [super::model::Opportunity],
@@ -180,6 +182,7 @@ impl Report {
             .collect::<Result<Vec<_>, String>>()?;
         let (coverage, _, overall_score) = self.result.readiness().totals();
         Ok(PublicReport {
+            producer_version: (self.manifest.purpose == "brain-improvement-v3").then_some(3),
             summary: &self.result.summary,
             concepts,
             opportunities: &self.result.opportunities,

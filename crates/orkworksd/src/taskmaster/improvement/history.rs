@@ -111,7 +111,7 @@ pub(crate) fn snapshot(
         })
         .collect();
     let input = ImprovementHistoryInput {
-        version: 2,
+        version: 3,
         manifest: report.manifest.clone(),
         excerpts,
     };
@@ -124,7 +124,7 @@ pub(crate) fn snapshot(
         },
         input_fingerprint: report.manifest.fingerprint()?,
         comparison_fingerprint: readiness_store::hash(&(
-            "brain-improvement-v2",
+            "brain-improvement-v3",
             &report.manifest.evaluation_key,
             &report.manifest.rubric_digest,
             report.manifest.context_level,
@@ -132,7 +132,7 @@ pub(crate) fn snapshot(
         ))?,
         input_manifest: Manifest {
             version: 1,
-            purpose: "brain-improvement-v2".into(),
+            purpose: "brain-improvement-v3".into(),
             collector: Collector::Improvement(input),
             observations_digest: readiness_store::hash(&Vec::<String>::new())?,
         },
@@ -140,12 +140,13 @@ pub(crate) fn snapshot(
         knowledge_identity: serde_json::to_value(&capture.evaluation.knowledge_identity)
             .map_err(|_| "Guidance identity unavailable")?,
         rubric_digest: report.manifest.rubric_digest.clone(),
-        versions: serde_json::json!({"purpose":"brain-improvement-v2","collector":2,"schema":1,"text":2}),
+        versions: serde_json::json!({"purpose":"brain-improvement-v3","collector":3,"schema":1,"text":3}),
         context_level: report.manifest.context_level,
         excluded_paths: report.manifest.excluded_paths.clone(),
     };
     let (coverage, raw_total, overall_score) = report.result.readiness().totals();
     Ok(Snapshot {
+        improvement_version: Some(3),
         id: id.into(),
         started_at: record.started_at.clone(),
         completed_at,

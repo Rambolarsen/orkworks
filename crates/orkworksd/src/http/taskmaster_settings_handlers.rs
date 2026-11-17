@@ -159,6 +159,10 @@ pub(crate) async fn get_taskmaster_run_status(
     if let Err(status) = authorize_taskmaster_request(&headers) {
         return status.into_response();
     }
+    let view = match super::advice_protocol::View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = runtime_for(&state);
     match runtime.run_status(workspace_path(&state).as_deref()) {
         Ok(status) => {
@@ -167,7 +171,7 @@ pub(crate) async fn get_taskmaster_run_status(
             };
             value["assessment"] =
                 crate::taskmaster::assessment_access::status_for(&state, &runtime);
-            Json(value).into_response()
+            view.json(value)
         }
         Err(error) => (
             StatusCode::SERVICE_UNAVAILABLE,

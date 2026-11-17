@@ -13,6 +13,12 @@ Tracking: [#1694](https://github.com/Rambolarsen/orkworks/issues/1694).
 Parent: [Brain-guided next improvement](2026-11-12-brain-guided-improvement-design.md).
 Evidence: [three qualification attempts](../plans/2026-11-12-brain-guided-improvement.md).
 
+Superseded for the new producer by the approved
+[unverified-advice design](2026-11-17-unverified-improvement-advice-design.md)
+and [ADR 0116](../../adr/0116-unverified-improvement-advice.md). This document
+retains the version-2 contract and its historical approval; legacy policy-2
+readers still reject verification claims.
+
 ## Approved decision
 
 Replace linguistic command guessing **only in the new Brain improvement flow**

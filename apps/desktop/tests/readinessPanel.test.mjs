@@ -14,6 +14,17 @@ async function fixture(t,initial,props={}){
  const queue=[Promise.resolve(initial)];let tick;
  let improvementStatus={workspacePath:'/repo',available:false,reasonCode:'not_qualified',run:null};
  const prior=globalThis.window;globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{getReadinessStatus:()=>queue.shift(),getImprovementStatus:async()=>improvementStatus,requestImprovement:async()=>({outcome:'unavailable',runId:null,reasonCode:'not_qualified'}),cancelImprovement:async()=>({outcome:'cancel_requested',runId:'improvement',reasonCode:null}),requestReadinessAssessment:async()=>({outcome:'unavailable',runId:null,reasonCode:null})}};t.after(()=>globalThis.window=prior);
+ // Synthetic privileged bridge: preserve each test's backend operation counters.
+ const protocol=async value=>({protocolVersion:3,...await value});
+ const admitted=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
+ Object.assign(window.orkworks,{
+  getAdviceReadinessStatus:()=>protocol(window.orkworks.getReadinessStatus()),
+  getAdviceImprovementStatus:()=>protocol(window.orkworks.getImprovementStatus()),
+  requestAdviceImprovement:()=>admitted(window.orkworks.requestImprovement()),
+  cancelAdviceImprovement:(_workspace,id)=>admitted(window.orkworks.cancelImprovement(id)),
+  requestAdviceReadinessAssessment:()=>admitted(window.orkworks.requestReadinessAssessment()),
+  requestAdviceReadinessSuggestion:()=>admitted(window.orkworks.requestReadinessSuggestion()),
+ });
  let stateIndex=0,effectIndex=0;const values=[],deps=[],effects=[];
  const hooks={...React,useRef:initial=>hooks.useState({current:initial})[0],useState(initial){const i=stateIndex++;if(!(i in values))values[i]=initial;return[values[i],next=>values[i]=typeof next==='function'?next(values[i]):next];},useEffect(callback,next){const i=effectIndex++;if(!deps[i]||next.some((x,j)=>x!==deps[i][j]))effects.push(callback);deps[i]=next;}};
  const module={exports:{}};new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='react'?hooks:require(id),module,module.exports);
@@ -356,4 +367,17 @@ test('workspace switch synchronously hides the former improvement report before 
  view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'former',state:'succeeded',phase:null,startedAt:'2026-11-12T10:00:00Z',completedAt:'2026-11-12T10:01:00Z',errorCode:null,report}});
  view.tick();await view.settle();assert.match(displayedText(view.render()),/Private former workspace/);
  assert.doesNotMatch(displayedText(view.render({workspacePath:'/other'})),/Private former workspace/);
+});
+
+
+test('producer three report warning precedes every generated advice field',async t=>{
+ const view=await fixture(t,status());
+ const report={...snapshot().data,producerVersion:3,protocolVersion:3,verificationStatus:'unverified',summary:'Tests passed.',opportunities:[],preferredOpportunityId:null,noProposalReason:'Verification completed.',limitations:[],recommendationId:null,historySnapshotId:null,historyError:null};
+ view.setImprovementStatus({protocolVersion:3,workspacePath:'/repo',available:true,reasonCode:null,run:{id:'new-advice',state:'succeeded',phase:null,startedAt:'2026-11-17T10:00:00Z',completedAt:'2026-11-17T10:01:00Z',errorCode:null,report}});
+ view.tick();await view.settle();
+ const text=displayedText(view.render());
+ const warning='Checks remain unverified. Run the proposed validation before relying on it.';
+ assert.ok(text.indexOf(warning)>=0);
+ assert.ok(text.indexOf(warning)<text.indexOf('Verification completed.'));
+ assert.ok(text.indexOf(warning)<text.indexOf('Tests passed.'));
 });

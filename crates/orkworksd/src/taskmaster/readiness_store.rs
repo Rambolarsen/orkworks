@@ -204,6 +204,8 @@ pub(crate) fn fact_id(fact: &RepositoryEvidence) -> Result<String, String> {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Snapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub improvement_version: Option<u8>,
     pub id: String,
     pub started_at: String,
     pub completed_at: String,
@@ -437,7 +439,8 @@ fn validate_run(run: &Run) -> Result<(), String> {
     Ok(())
 }
 fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
-    if uuid::Uuid::parse_str(&s.id).is_err()
+    if s.improvement_version.is_some_and(|v| v != 3)
+        || uuid::Uuid::parse_str(&s.id).is_err()
         || chrono::DateTime::parse_from_rfc3339(&s.started_at).is_err()
         || chrono::DateTime::parse_from_rfc3339(&s.completed_at).is_err()
         || s.redacted != s.data.is_none()
@@ -456,7 +459,12 @@ fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
             return Err("Invalid readiness snapshot data".into());
         }
         let policy = data.text_policy()?;
-        if policy == super::advice_text::TextPolicy::InertAdvice {
+        if (policy == super::advice_text::TextPolicy::UnverifiedAdvice)
+            != (s.improvement_version == Some(3))
+        {
+            return Err("Contradictory improvement snapshot origin".into());
+        }
+        if policy != super::advice_text::TextPolicy::Legacy {
             policy.validate(&data.summary, 1000, true, false)?;
         }
         let coverage = data
@@ -568,6 +576,9 @@ impl SnapshotData {
                     ("brain-improvement-v2", 2) => {
                         serde_json::json!({"purpose":"brain-improvement-v2","collector":2,"schema":1,"text":2})
                     }
+                    ("brain-improvement-v3", 3) => {
+                        serde_json::json!({"purpose":"brain-improvement-v3","collector":3,"schema":1,"text":3})
+                    }
                     _ => return Err("Unsupported improvement history identity".into()),
                 };
                 if input.manifest.purpose != *purpose
@@ -632,6 +643,7 @@ mod tests {
         for n in 0..101 {
             store
                 .append(Snapshot {
+                    improvement_version: None,
                     id: uuid::Uuid::new_v4().to_string(),
                     started_at: format!("2026-10-25T00:00:{:02}Z", n % 60),
                     completed_at: "2026-10-25T00:00:00Z".into(),
@@ -648,6 +660,7 @@ mod tests {
         assert!(store.history().is_err());
         assert!(store
             .append(Snapshot {
+                improvement_version: None,
                 id: uuid::Uuid::new_v4().to_string(),
                 started_at: "now".into(),
                 completed_at: "now".into(),
@@ -669,6 +682,7 @@ mod tests {
         store.save_run(&run).unwrap();
         store
             .append(Snapshot {
+                improvement_version: None,
                 id,
                 started_at: run.started_at.clone(),
                 completed_at: now(),

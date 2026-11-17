@@ -71,13 +71,25 @@ if (process.versions.electron) {
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
       if (scenario === 'app-review-inert-improvement') {
-        for (const intent of ['implementation','investigation']) {
-          if(intent==='investigation')await fresh();
+        let firstAdviceCase=true;
+        for (const version of [2,3]) for (const intent of ['implementation','investigation']) {
+          if(!firstAdviceCase)await fresh();
+          firstAdviceCase=false;
+          await evaluate('(()=>{fixture.recommendation.assessment.improvementReference.version='+version+';'+(version===3?'Object.assign(fixture.recommendation,{protocolVersion:3,verificationStatus:"unverified"})':'delete fixture.recommendation.verificationStatus')+'})()');
           await waitFor('fixture.runtime()?.terminal.element?.isConnected');
           await evaluate('fixture.recommendation.assessment.improvementReference.intent='+JSON.stringify(intent));
           await evaluate('fixture.menu({action:"focus",panelId:"recommendations"})');
           await waitFor('document.querySelector(".recommendation-card")');
           assert.equal(await evaluate('document.querySelector(".recommendation-card").textContent.includes(fixture.hostile)'),true);
+          const card=await evaluate('document.querySelector(".recommendation-card").textContent');
+          const warning='Checks remain unverified. Run the proposed validation before relying on it.';
+          if(version===3){assert.ok(card.includes(warning));assert.ok(card.indexOf(warning)<card.indexOf(await evaluate('fixture.hostile')));}
+          await evaluate('[...document.querySelectorAll("summary")].find(element=>element.getAttribute("aria-label")==="Other assessment options").click()');
+          await evaluate('[...document.querySelectorAll("button")].find(button=>button.textContent==="Run discovery").click()');
+          await waitFor('document.querySelector(".recommendation-analysis-status strong")');
+          const banner=await evaluate('document.querySelector(".recommendation-analysis-status").textContent');
+          if(version===3){assert.ok(banner.includes(warning));assert.ok(banner.indexOf(warning)<banner.indexOf(await evaluate('fixture.hostile')));}
+
           assert.equal(await evaluate('!!document.querySelector("img[data-inert-probe]") || !!window.modelScriptRan'),false);
           assert.deepEqual(await evaluate('fixture.accepted'),[]);
           assert.deepEqual(await evaluate('fixture.input'),[]);
@@ -87,6 +99,7 @@ if (process.versions.electron) {
           const preview=await evaluate('document.querySelector("#fix-with-ai-prompt").value');
           assert.match(preview,/GET \/taskmaster\/recommendations\/recommendation-inert/);
           assert.doesNotMatch(preview,/MODEL_|data-inert-probe|pnpm test/);
+          if(version===3){assert.match(preview,/Checks remain unverified/);assert.match(preview,/X-OrkWorks-Advice-Protocol: 3/);}
           if(intent==='investigation')assert.match(preview,/Do not edit files/);
           assert.deepEqual(await evaluate('fixture.accepted'),[]);
           await evaluate('document.querySelector("[role=dialog] .new-session-confirm").click()');
@@ -2399,11 +2412,12 @@ if (process.versions.electron) {
             for(const session of fixture.sessionList){session.harnessId='codex';session.harness='Codex';}
             fixture.hostile='<img data-inert-probe src=x onerror="window.modelScriptRan=true"> MODEL_DATA '+String.fromCharCode(96)+'pnpm test || true'+String.fromCharCode(96);
             fixture.accepted=[];
-            fixture.recommendation={id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
+            fixture.recommendation={workspaceId:'/tmp/test',id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
             window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
             window.orkworks.getImprovementStatus=async()=>({workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
             window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return {...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
+            window.orkworks.requestTaskmasterAnalysis=async()=>({status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
+            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
             const fetchBase=window.fetch;
             window.fetch=async(url,options)=>{
               const path=new URL(String(url)).pathname;
@@ -2436,7 +2450,7 @@ if (process.versions.electron) {
           }
           if (${JSON.stringify(scenario)}==='actions-sources') {
             fixture.openedRecommendations=[];fixture.pendingRecommendations=[];
-            fixture.recommendation=id=>({id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
+            fixture.recommendation=id=>({workspaceId:'/tmp/test',id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
             window.fetch=async url=>{
               if(new URL(url).pathname!=='/taskmaster/recommendations')throw new Error('Unexpected Actions request');
               const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
@@ -2446,6 +2460,24 @@ if (process.versions.electron) {
           if (${JSON.stringify(scenario)}==='session-menu') {
             window.fetch=async url=>({ok:true,json:async()=>({entries:[{timestamp:'2026-10-31T10:00:00Z',summary:'Checkpoint '+new URL(url).pathname.split('/')[2],source:'agent_hook'}]})});
           }
+          // Synthetic IPC replies for the modern client. These adapters are fixture-only.
+          const adviceReply=async value=>({...await value,protocolVersion:3});
+          const adviceAdmission=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
+          const adviceFetch=async path=>{const response=await window.fetch('http://127.0.0.1:12345'+path);if(!response.ok)throw Error('Fixture request failed '+response.status);return adviceReply(response.json());};
+          window.orkworks.getAdviceRecommendations=async()=>adviceFetch('/taskmaster/recommendations');
+          window.orkworks.getAdviceRecommendation=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
+          window.orkworks.runAdviceAudit=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
+          window.orkworks.getAdviceReadinessStatus=async()=>adviceReply(window.orkworks.getReadinessStatus?.()??{workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
+          window.orkworks.getAdviceImprovementStatus=async()=>adviceReply(window.orkworks.getImprovementStatus?.()??{workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
+          window.orkworks.getAdviceRunStatus=async()=>adviceReply(window.orkworks.getTaskmasterRunStatus?.()??{workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
+          window.orkworks.requestAdviceImprovement=async()=>adviceAdmission(window.orkworks.requestImprovement());
+          window.orkworks.cancelAdviceImprovement=async(_workspace,id)=>adviceAdmission(window.orkworks.cancelImprovement(id));
+          window.orkworks.requestAdviceReadinessAssessment=async()=>adviceAdmission(window.orkworks.requestReadinessAssessment());
+          window.orkworks.requestAdviceReadinessSuggestion=async()=>adviceAdmission(window.orkworks.requestReadinessSuggestion());
+          window.orkworks.requestAdviceAssessment=async()=>adviceReply(window.orkworks.requestTaskmasterAssessment());
+          window.orkworks.requestAdviceAnalysis=async()=>adviceReply(window.orkworks.requestTaskmasterAnalysis());
+          window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>adviceReply(window.orkworks.acceptTaskmasterRecommendation(id,options));
+          window.orkworks.dismissAdviceRecommendation=async(_workspace,id,reason)=>adviceReply(window.orkworks.dismissTaskmasterRecommendation(id,reason));
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {

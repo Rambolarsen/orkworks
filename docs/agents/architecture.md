@@ -2314,29 +2314,37 @@ own currentness validation. A history write failure is separate from the report.
 Production qualification is a code-owned disabled gate, with no environment or
 HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication and consumer integration. Four five-pair usefulness attempts
-remain unqualified. The latest used 31/60 authorized calls and met the positive
-floor, but the retained verification-claim heuristic rejected a prospective
-behavioral-test benefit. A valid baseline improvement was therefore missed,
-blocking activation under the paired-comparison gate. Citation validation passes
-in exact offline replay; this trial's rejected app output remains uncredited. The
+tracks publication and consumer integration. Five five-pair usefulness attempts
+remain unqualified. The latest used 28/60 authorized comparison calls and reached
+one of three required positive cases. The retained verification-claim heuristic
+rejected prospective validation prose. Rejected output remains uncredited; unused
+allowance does not authorize another attempt. The
 immutable evidence and independent-review limitations are recorded in the
 [implementation history](../superpowers/plans/2026-11-12-brain-guided-improvement.md).
 
-[ADR 0115](../adr/0115-inert-improvement-text-and-fixed-handoffs.md) and the
-[approved text contract](../superpowers/specs/2026-11-13-improvement-text-contract.md)
-define text policy 2 for the new producer. Bounded single-line command mentions
-are inert data, with control/bidi exclusions and existing verification-claim
-checks. Legacy readiness/assessment producers retain strict prose validation.
-The new evaluation identity, report purpose, history wrapper/versions and
-recommendation reference agree before policy selection. History and report
-reload reuse the same policy and retain structural/citation checks.
+[ADR 0116](../adr/0116-unverified-improvement-advice.md) and the
+[approved unverified-advice design](../superpowers/specs/2026-11-17-unverified-improvement-advice-design.md)
+define text policy 3 for the new producer. Bounded single-line prose is unverified
+data, with control/bidi exclusions and structural/citation checks. Code derives
+`verificationStatus: unverified` only after producer identity validation. Legacy
+policy 1/2 readers and stored bytes retain their original validation.
+History retains `improvementVersion: 3` even after privacy redaction clears data.
+Protocol-3 consumers receive fixed warnings before generated prose; absent
+`X-OrkWorks-Advice-Protocol: 3` omits new records from lists/history and refuses
+their detail/actions. The header declares presentation support, never policy.
+New narrow Electron IPC owns this header and retains workspace/generation fences;
+new clients fail closed against old main/server versions. Legacy enrichment,
+rollup and audit cannot forward new prose, while active/dedupe accounting retains
+the records. Mutation replies contain only lifecycle receipts for producer 3.
 
-Version-2 handoffs for both intents contain code-owned instructions and a
+Version-2/3 handoffs for both intents contain code-owned instructions and a
 validated recommendation ID, with no generated descriptions or excerpts.
 Desktop previews are read-only; confirmation submits only the selected session.
 The server rejects supplied prompt overrides and packet paths before execution
-reservation. This is not native coding-tool confinement: the receiving agent
+reservation. Version 3 adds the fixed unverified warning and requires the
+protocol header on every recommendation request, including completion. Lifecycle
+completion never establishes that proposed checks passed. This is not native
+coding-tool confinement: the receiving agent
 must inspect untrusted reference data under repository and owner controls.
 Prompt revision 3 clarifies the existing evidence contract for the app and
 controlled baseline using shared rules and numeric `stepLimits` derived from the

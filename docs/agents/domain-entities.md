@@ -446,16 +446,22 @@ publication can recover from the saved final result without repeating inference.
 A cancellation request does not release ownership before provider cleanup settles.
 
 An improvement-derived recommendation retains normal explicit acceptance and
-adds optional `assessment.improvementReference` provenance with `version: 2` and
-`intent: implementation | investigation` for the new inert-text producer.
-Version 1 retains its legacy validation/handoff behavior; unknown versions are
-unsupported. Both version-2 handoffs use fixed ID-only instructions and reject
+adds optional `assessment.improvementReference` provenance with `version: 3` and
+`intent: implementation | investigation` for the new unverified-advice producer.
+Versions 1/2 retain their validation/handoff behavior; unknown versions are
+unsupported. Both version-2/3 handoffs use fixed ID-only instructions and reject
 client prompt overrides and completion packets. An investigation requests
 read-only findings, without speculative implementation authority. Legacy
 recommendations without this reference retain their existing Fix with AI scope.
-The [text-policy contract](../superpowers/specs/2026-11-13-improvement-text-contract.md)
+The [unverified-advice contract](../superpowers/specs/2026-11-17-unverified-improvement-advice-design.md)
 defines consistent producer, history and report identities; command-shaped
 advice stays reference data, never a typed executable action.
+Producer-3 public advice has code-owned `verificationStatus: unverified` and
+requires protocol-3 presentation. This status is not a session lifecycle state,
+an execution result or proof that checks ran. A history snapshot retains
+`improvementVersion: 3` through privacy redaction. Mutation receipts contain
+only recommendation ID, lifecycle status and target session; completion cannot
+promote advice into verified evidence.
 Report and recommendation identities bind the same selected opportunity and
 input evidence. Access narrowing redacts the complete source-derived result;
 stale or missing origin identity cannot authorize recommendation actions.

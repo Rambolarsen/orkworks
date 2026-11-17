@@ -1,3 +1,4 @@
+import { unverifiedAdviceWarning } from '../advice.ts';
 import { useLayoutEffect, useRef } from "react";
 import type { ActionRow, ActionsOverviewModel } from "../actionsOverview";
 
@@ -54,6 +55,7 @@ export default function ActionsOverview({
     {[...new Set(model.rows.map(row => row.group))].map(group => <section key={group} aria-label={group}>
       <h3>{group}</h3>
       {model.rows.filter(row => row.group === group).map(row => <div key={row.key} className="actions-row">
+        {row.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
         <button type="button" data-action-key={row.key} aria-pressed={current?.key === row.key}
           onClick={() => onInspectAction(row)}>{row.title}</button>
         <span>{row.source === "session" ? "Session" : "Recommendation"}
@@ -61,9 +63,10 @@ export default function ActionsOverview({
       </div>)}
     </section>)}
     {inspected && !current && <div className="actions-row" role="status">
-      <span>{inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</span>
+      <span>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</span>
     </div>}
     {current && <section data-actions-detail aria-label="Inspected action">
+      {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
       <h3>{current.title}</h3>
       <p>{current.summary || "No additional details reported."}</p>
       {current.source === "session"

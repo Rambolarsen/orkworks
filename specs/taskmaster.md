@@ -1576,3 +1576,26 @@ and recommendation invalidation. Reconnect resynchronizes authoritatively; REST
 polling remains the compatibility/disconnection fallback. Thirty-second server
 reconciliation permits bounded delay for Git/cwd, clock and external changes.
 Session attention, organization and recommendation action authority are unchanged.
+
+## Accepted unverified improvement advice (2026-11-17)
+
+The owner approved [producer-3 unverified advice](../docs/superpowers/specs/2026-11-17-unverified-improvement-advice-design.md)
+and [ADR 0116](../docs/adr/0116-unverified-improvement-advice.md). Only the new
+versioned improvement producer stops classifying English execution claims.
+All its bounded generated prose remains unverified reference data, including
+false completion statements. Code derives unverified status after consistent
+producer/report/history/recommendation binding; model fields never select policy
+or establish execution evidence. Legacy and policy-1/2 records retain validation.
+
+Every supported view and fixed ID-only handoff shows the fixed warning: “Checks
+remain unverified. Run the proposed validation before relying on it.” Narrow new
+IPC methods declare `X-OrkWorks-Advice-Protocol: 3`; existing methods remain legacy.
+Without support, omit new prose from lists/history, preserve bytes and unknown
+freshness when omitted new data determines latest, and refuse new-record detail
+or mutation before effects. Keep active/dedupe/currentness accounting; exclude
+new prose from legacy synthesis and packet follow-ups. Unknown identities and
+unsupported declarations fail closed. Existing bounds, citations, privacy,
+signed guidance, six-call/eight-minute budget, lease and action authority remain.
+Implementation approval grants no provider calls, activation, release or
+retroactive qualification credit. A fresh independent paired comparison remains
+required after implementation under separate finite authorization.

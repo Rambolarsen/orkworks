@@ -128,6 +128,7 @@ pub(crate) fn build_cleanup_card(
         .iter()
         .filter(|recommendation| {
             recommendation.status == RecommendationStatus::Proposed
+                && !super::is_unverified_improvement(recommendation)
                 && recommendation.recommendation_type != RecommendationType::Cleanup
                 && recommendation.rollup_member_ids.is_empty()
                 && recommendation

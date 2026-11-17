@@ -1,3 +1,4 @@
+import { installAdviceIpc } from "./adviceIpc";
 import { homedir } from "node:os";
 import { discoverSkills, readSkillDetail } from "./skillInventory";
 import type { SkillInventory } from "./skillTypes";
@@ -1566,6 +1567,12 @@ app.whenReady().then(async () => {
   ipcMain.handle("get-settings", async () => {
     currentSettings = readSettings(app.getPath("userData"));
     return rendererSettings(currentSettings);
+  });
+  installAdviceIpc({
+    handle: (name, handler) => ipcMain.handle(name, handler),
+    withReady: withReadyBackendGeneration,
+    workspacePath: () => workspacePath,
+    normalizeAccept: normalizeRecommendationAcceptOptions,
   });
   ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
   ipcMain.handle("get-readiness-status", () => readinessRequest("readiness"));
