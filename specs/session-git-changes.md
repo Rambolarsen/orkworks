@@ -81,6 +81,61 @@ retain visible focus, keyboard access, selectable code and screen-reader labels.
 At 200% zoom and narrow widths, controls wrap and the shell provides its normal
 explicit return path. No navigation keystroke reaches the PTY.
 
+## Proposed reading position between Review and Changes
+
+Proposal for [#1897](https://github.com/Rambolarsen/orkworks/issues/1897).
+
+A reviewer can follow a paragraph in the pinned implementation plan to a file
+in the branch patch, read a hunk, then switch back to check the wording. The
+existing **Review** and **Changes** toolbar buttons carry the reading position
+only on direct switches between these two central views. Both controls remain
+reachable by keyboard at narrow widths. Opening either destination for the
+first time uses its ordinary default. In particular, Changes opens in
+Uncommitted until the reviewer chooses Branch changes and a base.
+
+Keep at most one pair of reading positions in renderer memory for the current
+workspace generation, selected session, effective worktree and branch. Leaving
+the pair for Terminal or another destination, selecting a session (including
+the same one), or replacing the workspace ends the round trip. A subsequent
+open follows the ordinary fresh-open rules. Escape and explicit return controls
+keep their existing destinations. Navigation uses the existing read operations.
+
+| Returning to | What to restore after a fresh read |
+| --- | --- |
+| Review | Reopen the same document kind. Match its current selection and content identity before returning to the visible Markdown block. When only the legacy session document exists, use its validated session association and content identity. |
+| Changes | Restore the comparison and exact base if still available. Match the current worktree, branch, comparison endpoints, selected file (including rename identity) and displayed patch content before restoring the hunk. Restore the file filter, diff layout and revealed rows needed to reach it. A fresh capture supplies its own snapshot and file IDs. |
+
+Keep the heading keyboard-focused and the reading region positioned at the
+saved block or diff row. Tab navigation must reach the reading region. Use a
+content-relative location so wrapping after resize or zoom still reveals the
+same passage. Revalidate on every return, including uncommitted patches that
+can change while HEAD stays fixed. Give precedence to a newer navigation
+request when reads finish out of order.
+
+If the selected document was replaced, show the current document of that kind
+from the start. If missing, show its unavailable state. If the comparison
+still exists but the patch changed, keep the file selected when possible and
+start at its first hunk. A missing file returns to the file list. A missing
+base requires a new base selection. Announce the reason for each reset through
+a visible status message. A branch or effective worktree change discards both
+positions and explains the reset when the reviewer next switches within the
+pair. A read failure exposes the ordinary error and retry path.
+
+### Keyboard acceptance scenario
+
+1. With a pinned multi-paragraph plan and two committed changed files, open
+   Review and scroll to a requirement several paragraphs down.
+2. Tab to Changes and press Enter. Choose Branch changes and a base, open the
+   second file and scroll to a later hunk. Switch to Review, then back to
+   Changes. Check the same requirement, comparison, file and hunk are visible.
+3. Repeat in a narrow window. Exercise a hunk beyond the first 1,000 displayed
+   rows and a resize between visits. Verify focus and that navigation sends
+   zero input to the running terminal.
+4. Replace the plan, modify an uncommitted patch without moving HEAD, and
+   switch branches in separate runs. Verify fresh content and the reason for
+   each reset. End the round trip via Terminal and verify a fresh Changes open
+   starts in Uncommitted.
+
 ## Two distinct comparisons
 
 | Choice | Baseline and target | Included |
