@@ -125,7 +125,7 @@ Good:
 
 > Start Codex for an independent review. The implementation session reports completion, all 42 tests passed, the change affects retry behavior, and no review session is linked to this work.
 
-### Proposed review-handoff preview (#1899)
+### Review-handoff preview design (#1899)
 
 Before approving a review transition, the user should be able to inspect the
 exact source session, proposed reviewer/tool/model, source and reviewer work
@@ -140,7 +140,9 @@ Material source, reviewer, worktree, artifact or instruction changes invalidate
 the inspected approval context; the consuming authenticated action must reject
 stale inputs before effects. Refresh is inspection, never approval or retry.
 
-Status: proposed for owner review, not accepted behavior or runtime approval.
+Status: interaction design owner-accepted on 2026-11-18; implementation pending.
+Acceptance covers the in-place detail layout, full instruction expanded by
+default and refresh-before-approval behavior, not runtime implementation.
 This changes neither the existing selected-session fixed review prompt nor
 #610's exact-plan, capability and implementation gates. It adds no launch route;
 ordinary session creation remains subject to its explicit Start contract.

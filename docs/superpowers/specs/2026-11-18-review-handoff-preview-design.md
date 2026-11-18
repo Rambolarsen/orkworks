@@ -8,13 +8,17 @@ status: draft
 
 # Review handoff preview
 
-Status: proposed for owner review; no runtime implementation approval.
+Status: owner-accepted interaction design; no runtime implementation approval.
 Tracking: [#1899](https://github.com/Rambolarsen/orkworks/issues/1899), within
 [#610](https://github.com/Rambolarsen/orkworks/issues/610) and
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 The owner authorized preparing this design and mockups on 2026-11-18.
-Layout and interaction choices below are the author's proposals, not recorded
-owner acceptance.
+The owner approved the full proposed design on 2026-11-18 with “go ahead”
+after receiving draft PR #1905 and its review/validation handoff. This accepts
+the interaction choices below, including in-place Recommendations detail, the
+complete instruction expanded by default, and refresh before approval after
+material context changes. Protocol qualification, adapter eligibility and the
+scoped implementation plan remain separate gates.
 
 ## Intent and existing boundaries
 
@@ -173,7 +177,7 @@ types and sidecar authority. No production adapter eligibility is assumed.
 | Close or refresh by keyboard | Focus returns predictably; no selection, unread, acceptance or PTY effects |
 | Narrow window, zoom and long text | All context, full instruction, notices and existing action remain readable/reachable |
 
-Current deliverable is this proposed contract and two static mockups. Product
+Current deliverable is this accepted interaction contract and two static mockups. Product
 runtime, artifact codecs, custody/storage, model selection policy, child launch,
 new permissions, live model calls and installed settings are outside this task.
-#1899 remains open for owner agreement and the subsequent gated handoff.
+#1899 remains open for the subsequent gated implementation handoff.
