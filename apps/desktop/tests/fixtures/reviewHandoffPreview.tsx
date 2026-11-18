@@ -57,7 +57,7 @@ export default function ReviewHandoffScenario() {
     <div className="handoff-fixture-controls"><label>Review scenario <select data-handoff-scenario value={scenario} onChange={event => {
       setScenario(event.target.value); setLatest(scenarioSnapshot(event.target.value)); setRemoved(false); dispatch({ type: "reset" });
     }}><option value="current">Shared branch</option><option value="missing">No selected plan</option><option value="unavailable">Unavailable context</option><option value="long">Long labels and instruction</option></select></label>
-      {!removed && <button ref={invoker} data-handoff-open onClick={open}>Preview review handoff</button>}
+      {!removed && <button ref={invoker} data-handoff-open disabled={state.snapshot !== null} onClick={open}>Preview review handoff</button>}
       <button data-change-plan onClick={() => { setLatest({ ...latest, revision: "2", artifact: { state: "available", path: "specs/retry.md", anchor: "/work/demo", version: "B", pinned: false }, instruction: "Review S41 against specs/retry.md (version B). Report findings and evidence." }); dispatch({ type: "changed", reason: "Plan changed from version A to version B" }); }}>Change plan</button>
       <button data-replace-runtime onClick={() => { setLatest({ ...latest, source: { ...latest.source, runtime: latest.source.runtime + "-replaced" } }); dispatch({ type: "reset" }); restoreFocus(); }}>Replace runtime</button>
       <button data-replace-workspace onClick={() => { setLatest({ ...latest, scope: latest.scope + "-replaced" }); dispatch({ type: "reset" }); restoreFocus(); }}>Replace workspace</button>

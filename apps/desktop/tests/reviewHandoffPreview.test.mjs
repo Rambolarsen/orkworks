@@ -39,6 +39,14 @@ if (process.versions.electron) {
     await click('[data-change-plan]');
     await wait('document.querySelector("[data-handoff-status]").innerText.includes("Plan changed")');
     assert.match(await evaluate('document.querySelector("[data-handoff-detail]").innerText'), /version A/);
+    assert.deepEqual(await evaluate(`({
+      invokerDisabled: document.querySelector('[data-handoff-open]').disabled,
+      noticeBeforeFields: Boolean(document.querySelector('[data-handoff-status]').compareDocumentPosition(document.querySelector('.handoff-fields')) & Node.DOCUMENT_POSITION_FOLLOWING),
+      previousFieldsLabel: Boolean(document.querySelector('[data-previous-context]')),
+    })`), { invokerDisabled:true, noticeBeforeFields:true, previousFieldsLabel:true });
+    await click('[data-handoff-open]');
+    assert.match(await evaluate('document.querySelector("[data-handoff-detail]").innerText'), /version A/);
+    assert.match(await evaluate('document.querySelector("[data-handoff-status]").innerText'), /Plan changed/);
     assert.equal(await evaluate('document.activeElement.matches("[data-handoff-refresh]")'), true, 'background change cannot steal focus');
     await click('[data-handoff-refresh]');
     await wait('document.querySelector("[data-handoff-detail]").innerText.includes("version B")');
@@ -53,6 +61,7 @@ if (process.versions.electron) {
     await click('[data-handoff-refresh]');
     await click('[data-handoff-close]');
     await wait('document.activeElement.matches("[data-handoff-open]")');
+    assert.equal(await evaluate('document.querySelector("[data-handoff-open]").disabled'), false);
     await click('[data-complete-oldest]');
     assert.equal(await evaluate('!!document.querySelector("[data-handoff-detail]")'), false);
     await open();
