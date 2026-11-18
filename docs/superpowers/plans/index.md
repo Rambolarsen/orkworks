@@ -4,7 +4,7 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
-- [Owned packet process cleanup](2026-11-17-packet-owned-cleanup.md) — Proposed original-child cleanup and safe failure receipts for #1741; offline implementation awaits approval.
+- [Owned packet process cleanup](2026-11-17-packet-owned-cleanup.md) — Approved original-child cleanup and safe failure receipts for #1741; offline implementation and verification underway.
 
 - [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
 - [Responsive session refresh inspection](2026-11-10-session-refresh-lag.md) — Focused lock-scope repair and deterministic stale-result/input regressions for #1222.

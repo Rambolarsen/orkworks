@@ -232,12 +232,18 @@ class PacketTests(unittest.TestCase):
                     observer.supervise(["never"], root, {}, root, 0, 1024, 8192, lambda: None)
                 launch.assert_not_called()
             from unittest.mock import Mock
-            fake = Mock(pid=123456, returncode=0)
-            fake.poll.return_value = 0
+            fake = Mock(pid=123456, returncode=None)
+            def reap(timeout):
+                fake.returncode = 0
+                return 0
+            fake.wait.side_effect = reap
+            times = iter([0, 2])
             with patch("subprocess.Popen", return_value=fake), patch("os.killpg", create=True), \
-                    patch("time.monotonic", side_effect=[0, 2]):
-                with self.assertRaises(ValueError):
+                    patch.object(observer, "_process_api", return_value=(lambda _: 0, None)), \
+                    patch("time.monotonic", side_effect=lambda: next(times, 2)):
+                with self.assertRaises(ValueError) as stopped:
                     observer.supervise(["never"], root, {}, root, 1, 1024, 8192, lambda: None)
+            self.assertEqual(stopped.exception.supervisor_check_code, "supervisor-deadline")
 
     def test_failed_second_discovery_is_counted(self):
         with tempfile.TemporaryDirectory() as root:
@@ -364,8 +370,11 @@ class SupervisorCheckTests(unittest.TestCase):
             details = observer.failure_details({"stage": "native-prompt", "process": receipt}, caught.exception)
             self.assertEqual(details.get("supervisorCheckCode"), "supervisor-exit")
             self.assertEqual(details["category"], "check-failed")
-            self.assertEqual(details["process"], {"started": True, "exitCode": 17,
-                                                 "terminationStepsCompleted": True})
+            self.assertTrue(details["process"]["started"])
+            self.assertEqual(details["process"]["exitCode"], 17)
+            self.assertTrue(details["process"]["terminationStepsCompleted"])
+            self.assertIn(details["process"]["cleanupDisposition"],
+                          ("signaled", "exited-leader-confirmed"))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups require POSIX")
     def test_deadline_and_independent_raw_caps_have_distinct_codes(self):
@@ -785,21 +794,6 @@ class StopReportingTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE", json.dumps(value))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
-    def test_failed_fake_process_retains_exit_even_when_termination_raises(self):
-        with tempfile.TemporaryDirectory() as root:
-            root = Path(root).resolve()
-            receipt = {}
-            with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE_MESSAGE")):
-                with self.assertRaises(PermissionError) as stopped:
-                    observer.supervise([sys.executable, "-I", "-B", "-c", "raise SystemExit(17)"],
-                                        root, {}, root, 2, 1024, 8192, lambda: None, receipt=receipt)
-            value = observer.failure_details({"phase": 1, "stage": "native-prompt", "process": receipt},
-                                            stopped.exception)
-            self.assertEqual(value.get("process", {}).get("exitCode"), 17)
-            self.assertEqual(value.get("process", {}).get("started"), True)
-            self.assertEqual(value.get("process", {}).get("terminationStepsCompleted"), False)
-            self.assertNotIn("PRIVATE", json.dumps(value))
-
     def _failed_run(self, fail_cleanup=False):
         import shutil
         directory = Path(__file__).parent
@@ -869,3 +863,267 @@ class StopReportingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnedCleanupRegressionTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Owned groups require POSIX")
+    def test_primary_exit_survives_genuine_group_permission_failure(self):
+        receipt = {}
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            with patch("os.killpg", side_effect=PermissionError(13, "PRIVATE_MESSAGE")):
+                with self.assertRaises(ValueError) as stopped:
+                    observer.supervise([sys.executable, "-I", "-B", "-c", "raise SystemExit(17)"],
+                                       root, {}, root, 2, 1024, 8192, lambda: None, receipt=receipt)
+        self.assertEqual(stopped.exception.supervisor_check_code, "supervisor-exit")
+        self.assertEqual(receipt["exitCode"], 17)
+        self.assertFalse(receipt["terminationStepsCompleted"])
+        details = observer.failure_details({"stage": "native-prompt", "process": receipt}, stopped.exception)
+        self.assertEqual(details["process"]["cleanupFailure"]["osError"], 13)
+        self.assertNotIn("PRIVATE", json.dumps(details))
+
+    @unittest.skipUnless(os.name == "posix", "Owned groups require POSIX")
+    def test_no_group_signal_after_original_child_is_reaped(self):
+        import subprocess
+        original = subprocess.Popen
+        owned = []
+        def start(*args, **kwargs):
+            process = original(*args, **kwargs)
+            owned.append(process)
+            return process
+        killpg = os.killpg
+        def signal_group(group, sig):
+            self.assertEqual(group, owned[0].pid)
+            self.assertIsNone(owned[0].returncode, "group signal after original child reap")
+            return killpg(group, sig)
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            with patch("subprocess.Popen", side_effect=start), patch("os.killpg", side_effect=signal_group):
+                self.assertEqual(observer.supervise([sys.executable, "-I", "-B", "-c", "pass"],
+                                                   root, {}, root, 2, 1024, 8192, lambda: None), 0)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Deterministic Darwin fast-exit boundary")
+    def test_fast_exit_during_cap_handling_keeps_primary_failure(self):
+        import select
+        receipt = {}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            gate = root / "release"
+            queue = select.kqueue()
+            released = []
+            def started(pid):
+                queue.control([select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                    flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT, fflags=select.KQ_NOTE_EXIT)], 0, 0)
+            stat = Path.stat
+            def release_during_bounds(path, *args, **kwargs):
+                value = stat(path, *args, **kwargs)
+                if path == root / "stdout.raw" and value.st_size > 100 and not released:
+                    released.append(True)
+                    gate.write_bytes(b"exit")
+                    self.assertTrue(queue.control([], 1, 2), "owned fake client did not exit")
+                return value
+            client = "import pathlib,time; print('x'*4096,flush=True); p=pathlib.Path('release'); "                      "exec('while not p.exists(): time.sleep(.005)')"
+            try:
+                with patch.object(Path, "stat", release_during_bounds):
+                    with self.assertRaises(ValueError) as stopped:
+                        observer.supervise([sys.executable, "-I", "-B", "-c", client], root, {}, root,
+                                           3, 100, 8192, lambda: None, started, receipt)
+                self.assertEqual(stopped.exception.supervisor_check_code, "supervisor-file-cap")
+                self.assertTrue(released)
+                self.assertEqual(receipt["exitCode"], 0)
+                self.assertTrue(receipt["terminationStepsCompleted"])
+                self.assertEqual(receipt["cleanupDisposition"], "exited-leader-confirmed")
+            finally:
+                queue.close()
+
+    def test_cleanup_projection_has_closed_optional_fields(self):
+        process = {"started": True, "exitCode": 0, "terminationStepsCompleted": False,
+                   "cleanupDisposition": "unconfirmed", "cleanupFailure": {
+                       "stage": "kill", "category": "os-error", "osError": 13,
+                       "message": "PRIVATE_MESSAGE", "pid": 123}}
+        value = observer.failure_details({"stage": "native-prompt", "process": process}, ValueError("PRIVATE"))
+        self.assertEqual(value["process"]["cleanupDisposition"], "unconfirmed")
+        self.assertEqual(value["process"]["cleanupFailure"], {"stage": "kill", "category": "os-error", "osError": 13})
+        self.assertNotIn("PRIVATE", json.dumps(value))
+
+
+@unittest.skipUnless(os.name == "posix", "Owned process state targets POSIX")
+class OwnedCleanupBoundaryTests(unittest.TestCase):
+    class Proc:
+        pid = 12345
+        returncode = None
+        def __init__(self, code=0, fail=False):
+            self.code, self.fail, self.waits = code, fail, []
+        def wait(self, timeout):
+            self.waits.append(timeout)
+            if self.fail:
+                import subprocess
+                raise subprocess.TimeoutExpired("PRIVATE", timeout)
+            self.returncode = self.code
+            return self.code
+
+    def owner(self, peek, members=None, proc=None):
+        clock = [0.0]
+        def sleep(seconds): clock[0] += seconds
+        owner = observer._ProcessOwner(proc or self.Proc(), peek, members,
+                                       clock=lambda: clock[0], sleep=sleep)
+        return owner, clock
+
+    def test_permission_refusal_needs_exited_original_and_valid_membership(self):
+        for state, members, accepted in [(0, lambda _: True, True),
+                                          (None, lambda _: True, False),
+                                          (0, lambda _: False, False),
+                                          (0, None, False)]:
+            with self.subTest(state=state, membership=members):
+                owner, clock = self.owner(lambda _: state, members)
+                receipt = {}
+                with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE")) as signals:
+                    error = owner.cleanup(receipt)
+                self.assertEqual(receipt["terminationStepsCompleted"], accepted)
+                self.assertEqual(error is None, accepted)
+                self.assertLessEqual(signals.call_count, 2)
+                self.assertLessEqual(clock[0], 4.0001)
+                self.assertIsNotNone(owner.proc.returncode)
+
+    def test_unknown_membership_never_confirms_permission_failure(self):
+        for failure in (OSError(5, "PRIVATE"), ValueError("PRIVATE")):
+            owner, _ = self.owner(lambda _: 0, lambda _: (_ for _ in ()).throw(failure))
+            receipt = {}
+            with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE")) as signals:
+                self.assertIsNotNone(owner.cleanup(receipt))
+            self.assertFalse(receipt["terminationStepsCompleted"])
+            self.assertEqual(signals.call_count, 1)
+            self.assertEqual(receipt["cleanupFailure"]["stage"], "exit-confirmation")
+
+    def test_membership_result_is_bounded_and_never_an_identity_source(self):
+        self.assertTrue(observer._leader_only_result(7, 0, []))
+        self.assertTrue(observer._leader_only_result(7, 4, [7, 0]))
+        self.assertFalse(observer._leader_only_result(7, 4, [8, 0]))
+        for size in (-1, 1, 3, 8, 12):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                observer._leader_only_result(7, size, [7, 8])
+
+    def test_status_loss_or_prior_reap_forbids_signal_and_wait(self):
+        import errno
+        for failure in (ChildProcessError(errno.ECHILD, "PRIVATE"), ValueError("PRIVATE")):
+            owner, _ = self.owner(lambda _: (_ for _ in ()).throw(failure))
+            receipt = {}
+            with patch("os.killpg") as signals:
+                self.assertIsNotNone(owner.cleanup(receipt))
+            signals.assert_not_called()
+            self.assertEqual(owner.proc.waits, [])
+            self.assertFalse(receipt["terminationStepsCompleted"])
+        proc = self.Proc(); proc.returncode = 0
+        owner, _ = self.owner(lambda _: 0, proc=proc)
+        with patch("os.killpg") as signals:
+            owner.cleanup({})
+        signals.assert_not_called()
+        self.assertEqual(proc.waits, [])
+
+    def test_identity_loss_during_confirmation_forbids_escalation(self):
+        import errno
+        values = iter([0, 0, ChildProcessError(errno.ECHILD, "PRIVATE")])
+        def peek(_):
+            value = next(values)
+            if isinstance(value, BaseException): raise value
+            return value
+        owner, _ = self.owner(peek, lambda _: True)
+        with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE")) as signals:
+            owner.cleanup({})
+        self.assertEqual(signals.call_count, 1)
+        self.assertEqual(owner.proc.waits, [])
+
+    def test_expired_confirmation_and_reap_never_accept(self):
+        owner, clock = self.owner(lambda _: 0)
+        def late(_): clock[0] += 3; return True
+        owner.members = late
+        receipt = {}
+        with patch("os.killpg", side_effect=PermissionError(1, "PRIVATE")):
+            self.assertIsNotNone(owner.cleanup(receipt))
+        self.assertFalse(receipt["terminationStepsCompleted"])
+        self.assertEqual(receipt["cleanupFailure"]["stage"], "reap")
+        owner, _ = self.owner(lambda _: 0, proc=self.Proc(fail=True))
+        receipt = {}
+        with patch("os.killpg"):
+            self.assertIsNotNone(owner.cleanup(receipt))
+        self.assertFalse(receipt["terminationStepsCompleted"])
+        self.assertEqual(receipt["cleanupFailure"]["category"], "process-timeout")
+
+    def test_final_status_mismatch_is_not_cleanup_success(self):
+        owner, _ = self.owner(lambda _: 17, proc=self.Proc(code=0))
+        receipt = {}
+        with patch("os.killpg"):
+            self.assertIsNotNone(owner.cleanup(receipt))
+        self.assertFalse(receipt["terminationStepsCompleted"])
+        with patch("os.killpg") as signals, self.assertRaises(ChildProcessError):
+            owner.observe()
+        signals.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "SIGCHLD requires POSIX")
+    def test_automatic_reaping_and_unavailable_observation_refuse_before_spawn(self):
+        import signal
+        with tempfile.TemporaryDirectory() as root:
+            with patch("signal.getsignal", return_value=signal.SIG_IGN), patch("subprocess.Popen") as spawn:
+                with self.assertRaises(ValueError):
+                    observer.supervise(["never"], root, {}, root, 1, 1024, 8192, lambda: None)
+            spawn.assert_not_called()
+            with patch.object(observer, "_process_api", side_effect=OSError(95, "PRIVATE")), \
+                    patch("subprocess.Popen") as spawn:
+                with self.assertRaises(OSError):
+                    observer.supervise(["never"], root, {}, root, 1, 1024, 8192, lambda: None)
+            spawn.assert_not_called()
+
+    def test_unknown_cleanup_fields_are_not_reflected(self):
+        for bad in ("PRIVATE", [], True):
+            raw = {"cleanupDisposition": bad, "cleanupFailure": {"stage": bad, "category": "PRIVATE", "osError": 99999}}
+            value = observer.failure_details({"process": raw}, RuntimeError("PRIVATE"))
+            self.assertNotIn("cleanupDisposition", value["process"])
+            self.assertNotIn("cleanupFailure", value["process"])
+            self.assertNotIn("PRIVATE", json.dumps(value))
+
+
+class OwnedCleanupIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "Owned groups require POSIX")
+    def test_cleanup_does_not_signal_unrelated_owned_sentinel(self):
+        import subprocess
+        sentinel = subprocess.Popen([sys.executable, "-I", "-B", "-c", "import time; time.sleep(20)"],
+                                    start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        original = os.killpg
+        calls = []
+        def signal(group, sig):
+            self.assertNotEqual(group, sentinel.pid)
+            calls.append((group, sig))
+            return original(group, sig)
+        try:
+            with tempfile.TemporaryDirectory() as root, patch("os.killpg", side_effect=signal):
+                self.assertEqual(observer.supervise([sys.executable, "-I", "-B", "-c", "pass"],
+                                                   root, {}, root, 2, 1024, 8192, lambda: None), 0)
+            self.assertIsNone(sentinel.poll())
+            self.assertTrue(calls)
+        finally:
+            sentinel.kill(); sentinel.wait(timeout=2)
+
+    @unittest.skipUnless(os.name == "posix", "Native wait status requires POSIX")
+    def test_native_status_decoder_rejects_unknown_identity_and_values(self):
+        self.assertIsNone(observer._exit_code(7, 0, 0, 0))
+        self.assertEqual(observer._exit_code(7, 7, os.CLD_EXITED, 17), 17)
+        self.assertEqual(observer._exit_code(7, 7, os.CLD_KILLED, 15), -15)
+        for pid, kind, status in ((8, os.CLD_EXITED, 0), (7, 9999, 0),
+                                   (7, os.CLD_EXITED, -1), (7, os.CLD_EXITED, 256),
+                                   (7, os.CLD_KILLED, 0), (7, os.CLD_KILLED, 9999)):
+            with self.subTest(pid=pid, kind=kind, status=status), self.assertRaises(ValueError):
+                observer._exit_code(7, pid, kind, status)
+
+    def test_started_unconfirmed_process_makes_batch_incomplete(self):
+        # No native process is launched: reuse the existing synthetic run's denied discovery.
+        original = StopReportingTests._failed_run
+        real_details = observer.failure_details
+        def details(diagnostic, error):
+            diagnostic["process"] = {"started": True, "exitCode": 0,
+                "terminationStepsCompleted": False, "cleanupDisposition": "unconfirmed"}
+            return real_details(diagnostic, error)
+        with patch.object(observer, "failure_details", side_effect=details):
+            result, retained = original(self)
+        self.assertTrue(result["rawRootsRemoved"])
+        self.assertEqual(result["outcome"], "incomplete-cleanup")
+        self.assertNotIn("PRIVATE", retained)

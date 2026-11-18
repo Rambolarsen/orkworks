@@ -1,10 +1,10 @@
 ---
 type: Implementation Plan
 title: Preserve packet failures through owned process cleanup
-description: Proposed offline correction for fast-exit Darwin cleanup, original-child ownership and safe cleanup reporting.
+description: Approved offline correction for fast-exit Darwin cleanup, original-child ownership and safe cleanup reporting.
 tags: [orchestration, testing, processes, macos, safety]
 status: draft
-workflow_status: awaiting-owner-design-approval
+workflow_status: implementation-in-progress
 ---
 
 # Preserve packet failures through owned process cleanup
@@ -12,7 +12,8 @@ workflow_status: awaiting-owner-design-approval
 Outcome: synthetic packet tests retain their original cap, deadline or exit
 failure while cleanup targets only the original owned group and reports its
 actual disposition. Tracking: [#1741](https://github.com/Rambolarsen/orkworks/issues/1741).
-This is a proposed design and concise delivery plan, not implementation approval.
+The owner approved this concrete offline design on 2026-11-18 ("yes, go ahead").
+Approval covers implementation and synthetic verification only.
 The [packet](../../validation/parent-native-packet.md) has zero live budget;
 this change authorizes no native/model/discovery command or new canary attempt.
 
@@ -45,7 +46,7 @@ Evidence stays in `/private/tmp/orkworks-packet-root-1o3mlgav/`: baseline,
 controlled-reproduction.json/driver, native-wait-proof.json, membership-proof.json
 and SDK layout/compile evidence. The temporary anchor-process experiment also
 worked, but adds a process/identity and IPC boundary that this existing proof
-pattern avoids. No repository executable source or manifest has changed.
+pattern avoids. At that investigation checkpoint, no repository executable source or manifest had changed.
 These controls establish the current failure mechanism; historical schedules
 and native-canary outcomes remain unclassified.
 
@@ -138,17 +139,17 @@ sidecar runtime, installed tool or release artifact changes.
 
 One owner performs these coupled steps; no parallel writers are needed.
 
-- [ ] Add deterministic failing regressions for exit between an alive observation
+- [x] Add deterministic failing regressions for exit between an alive observation
   and cap handling, primary plus cleanup failure, and every signal after reaping
   or ECHILD. Keep the original cap/deadline/clean-exit and stdio tests.
-- [ ] Implement the private original-child observer and bounded cleanup state
+- [x] Implement the private original-child observer and bounded cleanup state
   transitions. Reproduce the original controlled failure on restored old code,
   then show green on the correction without suppressing genuine refusal.
-- [ ] Add denial coverage for a live leader, remaining group member, invalid or
+- [x] Add denial coverage for a live leader, remaining group member, invalid or
   truncated native result, unsupported observation, status mismatch, expired
   confirmation/reap budget and automatic reaping. Retain an unrelated sentinel
   and assert no signal targets it or a released numeric identifier.
-- [ ] Add safe projection tests with private sentinels; demonstrate that forced
+- [x] Add safe projection tests with private sentinels; demonstrate that forced
   lost-primary and permission-acceptance mutations are caught. Refresh only
   changed pins/current docs, keeping exact-approval denial before subprocesses.
 - [ ] Run all synthetic packet tests on macOS and Linux, docs checks/build,
@@ -186,10 +187,20 @@ wall-clock guarantees. The plan now explicitly retains cooperative native-call
 semantics from the existing probe contract. No other material question or
 source-contract contradiction was reported. Implementation, cross-platform
 qualification and current-code review remain future checks.
-Owner design decision: pending. Dependent implementation remains blocked until
-approval of this original-child cleanup and receipt contract. Approval of this
-offline correction supplies no live canary budget.
+Owner design decision: approved on 2026-11-18. This offline correction supplies
+no live canary budget.
 
 Primary API references: [Python waitid](https://docs.python.org/3.9/library/os.html#os.waitid),
 [Apple killpg](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/killpg.2.html),
 and the installed Darwin SDK sys/signal.h, sys/wait.h and sys/proc_info.h.
+
+## Implementation evidence — 2026-11-18
+
+The approved original-child observer, fixed cleanup endpoints and closed receipt
+projection are implemented in the test-only packet. The macOS synthetic suite
+passes all 61 tests (8.958 seconds). Both mutation controls fail as intended:
+replacing the primary error and accepting EPERM without membership proof.
+Repository verification passed, including Rust (3,597 passed / 21 ignored),
+desktop (1,777 passed / 5 skipped), docs (2,056 passed) and both builds.
+The unchanged 30-second packet wrapper passed in 9.43 seconds. Current-code
+`/code-review medium` approved with no P1/P2 findings; Linux CI remains pending. These checks supply no live native budget or qualification.
