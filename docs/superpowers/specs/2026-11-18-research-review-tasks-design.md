@@ -140,9 +140,12 @@ reviewTask: {
 The standard researcher variant keeps the accepted shape: a mandatory
 researcher `task` member, optional `reviewTask`, and
 `batches=[[researcherTaskId]]` or `[[researcherTaskId],[reviewerTaskId]]`.
-The **reviewer-only replacement variant** exists solely to replace a stale
-review after a report correction, under the replacement-revision rules below.
-In that variant the mandatory researcher `task` member is absent and instead
+The **reviewer-only replacement variant** exists to replace a declared
+review outcome in either of exactly two cases: after a report correction made
+the review stale, or after user-dispositioned escalation of a disputed or
+erroneous verdict for an **unchanged** report. It is never an automatic
+correction loop. In that variant the mandatory researcher `task` member is
+absent and instead
 exactly one `researchDependency` member binds the original researcher:
 
 ```text
@@ -370,8 +373,12 @@ digests are provenance, not a current read or publication grant.
   canonical body excluding only `reviewDigest`. Complete body ≤16 KiB.
 
 The outcome is immutable, one per reviewer TaskKey, with no correction loop in
-this slice. A changed verdict about the same report requires a new declared
-reviewer task in an independently approved plan revision; the original outcome
+this slice: no automatic re-review, retry-with-changes or outcome rewrite is
+ever admitted. A changed verdict about the same report — whether after a
+report correction made the review stale, or after user-dispositioned
+escalation of a disputed or erroneous verdict for an unchanged report —
+requires a new declared reviewer task in an independently approved plan
+revision (the reviewer-only replacement variant below); the original outcome
 is never overwritten, averaged or deleted. An exact identical retry returns
 its original binding without writes. The outcome is not a #744 evaluation,
 result, artifact or receipt-credit event: no evaluation slot, artifact pool or
@@ -505,7 +512,20 @@ prove currentness.
   declaring one replacement reviewer plus retaining the stale reviewer as
   history is two reviewer declarations only across distinct revisions, never
   within one. Multiple successive corrections produce a chain of replacement
-  revisions under the same rules, each with exactly one reviewer task.
+  revisions under the same rules, each with exactly one reviewer task. The
+  same variant serves a **same-report verdict replacement**: when a dispute is
+  escalated and the user directs a replacement review (or an owner disposition
+  replaces a proven erroneous verdict), the replacement reviewer task's
+  dependency condition resolves identically — the original researcher
+  `reported_complete` and the current selected report equals the exact report
+  under review, which is unchanged — so the original outcome stays immutable
+  history and the replacement reviewer produces its own outcome for the same
+  report. Citation rules select the outcome of the **current** (latest)
+  completed reviewer declaration in the chain; earlier outcomes are retained
+  history, never erased, and a later report correction stales every outcome in
+  the chain under the unchanged currency rules. A user decision alone never
+  creates the replacement: the revision still needs its own exact approval,
+  and no automatic route replaces a verdict.
 - **Reviewer expectation row is not a mutating consumer.** The reviewer
   expectation row is unchanged by a researcher report correction: its
   `selectedReport` stays null (the review outcome is not a report), its
@@ -687,7 +707,8 @@ and two-task collection shapes (`reviewTask` null and present); review
 admission under the exact target binding, exact retry and conflict cases;
 stale review after a report correction with the unchanged reviewer
 expectation row and the reviewer-only replacement plan variant's declaration,
-batches and expectation chain; summary citation with the typed review
+batches and expectation chain (for both the stale-review and the same-report
+verdict-replacement cases); summary citation with the typed review
 evidence source, empty-vs-required reviewReferences and denial cases (wrong
 task, cross-task scope, unlisted excerpt, stale target,
 conflict-as-satisfaction, unverifiable excerpt bytes, wrapper overflow). All
@@ -742,6 +763,13 @@ plan variant is explicitly encoded (researcher `task` replaced by
 `researchDependency`, `batches=[[reviewerTaskId]]`, mandatory `reviewTask`
 and `variant` discriminator), with matching collection/expectation binding
 and packet examples.
+
+A second bounded cycle confirmed the researcher-completion ordering fix and
+reported one further P2, also addressed: the reviewer-only replacement
+variant now covers the same-report verdict-replacement case (user- or
+owner-dispositioned replacement of a disputed or erroneous verdict for an
+unchanged report), with the citation rules selecting the latest completed
+declaration and all earlier outcomes retained as history.
 
 ## Remaining gates
 
