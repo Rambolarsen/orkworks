@@ -181,3 +181,13 @@ Current deliverable is this accepted interaction contract and two static mockups
 runtime, artifact codecs, custody/storage, model selection policy, child launch,
 new permissions, live model calls and installed settings are outside this task.
 #1899 remains open for the subsequent gated implementation handoff.
+
+## Scoped implementation plan
+
+The [review-handoff preview plan](../plans/2026-11-18-review-handoff-preview.md)
+traces current read/approval owners and proposes an isolated interactive
+development slice. The owner accepted its fixture-only scope exception and tasks 1–3 on
+2026-11-18 with “keep going” after the #1906 plan handoff. This is a separate
+approval from the earlier hierarchy preview, not inherited authority.
+Production recommendation/launch coherence and #610/#746 gates remain open.
+The accepted interaction design above is unchanged.

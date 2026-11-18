@@ -378,3 +378,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Explicit branch document recovery](2026-11-17-branch-document-recovery.md) — Preserve invalid branch records before a confirmed, snapshot-bound reset.
 - [Session projection CPU](2026-11-18-session-projection-cpu.md) — Evidence and delivery boundaries for reducing refresh cost.
+
+- [Review handoff preview implementation](2026-11-18-review-handoff-preview.md) — Proposed isolated interactive preview slice and explicit production read/approval prerequisites.
