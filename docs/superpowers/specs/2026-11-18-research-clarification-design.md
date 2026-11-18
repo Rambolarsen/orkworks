@@ -300,14 +300,22 @@ parent runtime under its own accepted rules, and the resumed parent's
 assessment uses that new runtime. That next outcome owns its own effect
 union below. This preserves the accepted report precedent byte-for-byte:
 report-induced manifests copy the stale decision, and only the parent's own
-reassessment is current. A fresh assessment manifest's record set is derived
-by its own outcome, matching its decision: a fresh research assessment
-publishes the configuration record plus its newly prepared scope and capture
-records exactly as the accepted preparation rule derives them; a fresh
-clarification assessment publishes the clarification record set defined
-above. Records are never "gained" across different decision variants — each
-fresh manifest derives its complete set from its own decision, and the
-closed record union bounds every variant.
+reassessment is current. A fresh assessment manifest's record set is the
+**retained applicable clarification-answer entries plus the records derived
+by its own decision**: every clarification-answer record entry from the prior
+revision chain that the fresh assessment uses stays bound in the new manifest
+(sorted under the unchanged record rules), followed by the decision-derived
+records — a fresh research assessment publishes the configuration record
+plus its newly prepared scope and capture records exactly as the accepted
+preparation rule derives them; a fresh clarification assessment publishes
+the configuration record set defined above with no research records. The
+lifecycle requires proposal input revisions to bind the request/answer
+records they use, so a fresh assessment never silently drops the answers
+that informed it; earlier answers stay bound until a fresh assessment
+supersedes them, and the closed record union plus the unchanged 32 KiB input
+bound deny — rather than truncate — a chain that no longer fits. Records are
+never "gained" across decision variants beyond the retained answer entries:
+each fresh manifest derives its non-answer records from its own decision.
 
 `ResearchClarificationAnswerRef` is exactly
 `{run:RunKey,questionId,questionVersion,answerId,answerDigest}`. Revision-64
@@ -327,8 +335,9 @@ configuration record when the run's bootstrap binds one, otherwise empty for
 this slice); the answer publishes input-3 with the same record set plus the
 clarification-answer record, the byte-identical copied decision and the user
 origin as producer; the active parent then publishes input-4 with its fresh
-decision — a `ResearchDecisionV1` whose records now include the newly
-prepared scope/captures when research is needed, the next
+decision and the **retained clarification-answer entry** — a
+`ResearchDecisionV1` whose records additionally include the newly prepared
+scope/captures when research is needed, the next
 `ResearchClarificationDecisionV1` at `questionVersion+1`, or another
 supported assessment variant. Each revision is immutable and independently
 keyed; no revision is patched.
@@ -436,8 +445,9 @@ Accept or revise these proposed choices for **offline components only**:
    record variant and the byte-unchanged copied decision plus user-origin
    producer, pendingClarification clear, current-input/runVersion advance,
    consumer invalidation and gate-respecting state selection — with the fresh
-   parent assessment as a separate later outcome owning its own effect union
-   and record derivation.
+   parent assessment as a separate later outcome that **retains the
+   applicable clarification-answer entries** in its manifest alongside its
+   per-decision record derivation.
 5. Two new catalog families (conditional 59→61), shared existing pools,
    unchanged projections and the membership recipes above.
 
@@ -448,7 +458,8 @@ attributes. Required examples: the clarification assessment manifest with its
 request row and pending binding (including the gated/blocked retained-state
 case and the stage-fence denial); the two-revision answer chain — answer
 manifest with copied decision and user-origin producer, then the separate
-fresh-assessment revision with its own record derivation and provenance;
+fresh-assessment revision with retained answer entries, its own record
+derivation and provenance;
 answer admission under exact current request/input binding, identical retry,
 conflict, stale request version and stale input cases; gate-respecting state
 selection (blocked retained, paused retained with `resumeTarget=assessing`,
@@ -509,6 +520,14 @@ placed with Main authority before retry lookup; and the
 No accepted technical definition changed and no runtime qualification
 follows. Neither reviewer executed code, a fixture, database or
 native/runtime process.
+
+After the hosted review of head `e70bd6dc`, one further P2 was addressed in
+this revision: fresh assessment manifests now **retain the applicable
+clarification-answer record entries** from the prior revision chain alongside
+their per-decision derived records, so the input eligible to bind the next
+proposal keeps binding the request/answer records it used, as the accepted
+material-clarification contract requires; a chain that no longer fits the
+unchanged 32 KiB input bound denies rather than truncates.
 
 ## Remaining gates
 
