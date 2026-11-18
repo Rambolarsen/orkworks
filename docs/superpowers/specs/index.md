@@ -343,3 +343,5 @@ Dated design records; these do not establish current product behavior.
 - [Research reporting across stage cancellation and continuation](2026-11-16-research-stage-report-design.md) — Proposed original-cancellation collecting roles, retained report input and exact current-context Main continuation under unchanged authority.
 
 - [Review handoff preview](2026-11-18-review-handoff-preview-design.md) — Proposed read-only reviewer, work context, artifact and instruction preview before existing approval.
+
+- [Research review tasks and report-consuming outcomes](2026-11-18-research-review-tasks-design.md) — Proposed declared reviewer tasks, retained review input, immutable review outcomes and summary review references; scoped offline-component choices pending.
