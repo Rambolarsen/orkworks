@@ -321,8 +321,25 @@ pub(crate) fn publish(
     store.report(&id, doc)
 }
 
+#[cfg(test)]
+thread_local! {
+    // Counts branch-document repository opens on this test's thread, excluding
+    // independent content/base helpers and private scratch repositories.
+    pub(crate) static REPOSITORY_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub(crate) fn open_repository(cwd: &Path) -> Result<Repository, git2::Error> {
+    #[cfg(test)]
+    REPOSITORY_OPENS.with(|count| count.set(count.get() + 1));
+    Repository::discover(cwd)
+}
+
 pub(crate) fn identity(cwd: &Path) -> Result<Identity, String> {
-    let repo = Repository::discover(cwd).map_err(|_| "Git worktree unavailable.")?;
+    let repo = open_repository(cwd).map_err(|_| "Git worktree unavailable.")?;
+    identity_in_repository(&repo)
+}
+
+pub(crate) fn identity_in_repository(repo: &Repository) -> Result<Identity, String> {
     if repo.is_bare() || repo.head_detached().unwrap_or(false) {
         return Err("No shared branch at detached HEAD.".into());
     }
@@ -615,9 +632,16 @@ fn tree_documents(
     Ok(out)
 }
 
+#[cfg(test)]
 pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
-    let identity = identity(cwd)?;
-    let repo = Repository::discover(cwd).map_err(|e| e.to_string())?;
+    let repo = open_repository(cwd).map_err(|e| e.to_string())?;
+    discover_in_repository(&repo)
+}
+
+/// Reuse setup inspection within this scan only. The final identity check below
+/// deliberately opens fresh repository state before returning a result.
+pub(crate) fn discover_in_repository(repo: &Repository) -> Result<Scan, String> {
+    let identity = identity_in_repository(repo)?;
     let root = repo
         .workdir()
         .ok_or("No worktree.")?
@@ -632,7 +656,7 @@ pub(crate) fn discover(cwd: &Path) -> Result<Scan, String> {
         .map(|id| repo.find_commit(id).and_then(|c| c.tree()))
         .transpose()
         .map_err(|e| e.to_string())?;
-    let tracked = tree_documents(&repo, head_tree.as_ref(), &mut budget)?;
+    let tracked = tree_documents(repo, head_tree.as_ref(), &mut budget)?;
     let mut notice = None;
     let mut committed = Vec::new();
     if let Some(head) = head {
@@ -1262,6 +1286,106 @@ mod tests {
         assert_eq!(a, identity(&dir.path().join("child")).unwrap());
         let (other, _) = fixture();
         assert_ne!(a, identity(other.path()).unwrap());
+    }
+
+    #[test]
+    #[ignore = "manual before/after timing; operation counts are checked by normal regressions"]
+    fn document_scan_repository_reuse_benchmark() {
+        use std::io::Write;
+        let (dir, repo) = fixture();
+        let mut config = std::fs::OpenOptions::new()
+            .append(true)
+            .open(repo.path().join("config"))
+            .unwrap();
+        for n in 0..800 {
+            writeln!(
+                config,
+                "[branch \"fixture-{n}\"]\n remote = origin\n merge = refs/heads/fixture-{n}"
+            )
+            .unwrap();
+        }
+        drop(config);
+        let sibling = tempfile::tempdir().unwrap();
+        let linked = sibling.path().join("linked");
+        repo.worktree("linked", &linked, None).unwrap();
+        for round in 0..5 {
+            for (name, roots, fresh) in [
+                ("shared-warm", vec![dir.path()], false),
+                ("distinct-warm", vec![dir.path(), linked.as_path()], false),
+                ("shared-forced", vec![dir.path()], true),
+            ] {
+                let storage = tempfile::tempdir().unwrap();
+                let store = crate::branch_documents_store::Store::new(storage.path());
+                // Warm caches before timing; forced scans intentionally bypass them.
+                for root in &roots {
+                    store.scan(root, false).unwrap();
+                }
+                REPOSITORY_OPENS.with(|count| count.set(0));
+                let start = Instant::now();
+                for n in 0..20 {
+                    store.scan(roots[n % roots.len()], fresh).unwrap();
+                }
+                eprintln!(
+                    "SCAN_BENCH round={round} case={name} calls=20 opens={} elapsed_us={}",
+                    REPOSITORY_OPENS.with(|count| count.get()),
+                    start.elapsed().as_micros()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cached_document_scans_open_once_per_request_plus_fresh_discovery_validation() {
+        let (dir, repo) = fixture();
+        write(dir.path(), "specs/current.md", "# Current design\n");
+        let storage = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(storage.path());
+        REPOSITORY_OPENS.with(|count| count.set(0));
+        let first = store.scan(dir.path(), false).unwrap();
+        assert_eq!(first.documents[0].title, "Current design");
+        assert_eq!(REPOSITORY_OPENS.with(|count| count.get()), 2);
+        REPOSITORY_OPENS.with(|count| count.set(0));
+        for _ in 0..20 {
+            let scan = store.scan(dir.path(), false).unwrap();
+            assert_eq!(scan.identity, first.identity);
+        }
+        assert_eq!(REPOSITORY_OPENS.with(|count| count.get()), 20);
+
+        // A warm cache must still notice a branch change on its next request.
+        repo.set_head("refs/heads/main").unwrap();
+        REPOSITORY_OPENS.with(|count| count.set(0));
+        let changed = store.scan(dir.path(), false).unwrap();
+        assert_eq!(changed.identity.branch, "refs/heads/main");
+        assert_eq!(REPOSITORY_OPENS.with(|count| count.get()), 2);
+        repo.set_head_detached(repo.head().unwrap().target().unwrap())
+            .unwrap();
+        assert!(store.scan(dir.path(), false).is_err());
+    }
+
+    #[test]
+    fn document_scan_repository_reuse_does_not_cross_worktree_requests() {
+        let (dir, repo) = fixture();
+        let sibling = tempfile::tempdir().unwrap();
+        let path = sibling.path().join("linked");
+        repo.worktree("linked", &path, None).unwrap();
+        let storage = tempfile::tempdir().unwrap();
+        let store = crate::branch_documents_store::Store::new(storage.path());
+        REPOSITORY_OPENS.with(|count| count.set(0));
+        let first = store.scan(dir.path(), false).unwrap();
+        let second = store.scan(&path, false).unwrap();
+        assert_ne!(first.identity.branch, second.identity.branch);
+        assert_eq!(REPOSITORY_OPENS.with(|count| count.get()), 4);
+        REPOSITORY_OPENS.with(|count| count.set(0));
+        for _ in 0..10 {
+            assert_eq!(
+                store.scan(dir.path(), false).unwrap().identity,
+                first.identity
+            );
+            assert_eq!(store.scan(&path, false).unwrap().identity, second.identity);
+        }
+        assert_eq!(REPOSITORY_OPENS.with(|count| count.get()), 20);
+        std::fs::remove_dir_all(&path).unwrap();
+        assert!(store.scan(&path, false).is_err());
     }
 
     #[test]
