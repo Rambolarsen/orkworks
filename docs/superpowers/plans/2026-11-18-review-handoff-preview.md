@@ -45,7 +45,7 @@ The production composer is still scoped by
 Start and reconciled lifecycle/identity contracts. #610 additionally requires
 exact approved plans, qualified configuration/adapters and child admission.
 Therefore a production-connected preview cannot yet be described as a small
-renderer-only change. The first slice is a proposed fixture-only development
+renderer-only change. The first slice is an owner-approved fixture-only development
 exception, following the existing
 [hierarchy preview pattern](2026-10-26-hierarchy-ui-preview.md). That earlier
 approval does not automatically authorize this new slice.
@@ -154,7 +154,7 @@ update this plan with actual evidence after implementation.
   regression and production renderer build. Inspect the production Vite/Rollup chunk module graph
   for production entry exclusion of both fixture modules and this unused
   component; a string-only bundle grep is supporting evidence, not the sole check.
-- [ ] Run `bash scripts/verify-repo.sh`, docs build/checks, doc/worktree currency
+- [x] Run `bash scripts/verify-repo.sh`, docs build/checks, doc/worktree currency
   checks and the required current-code `/code-review low` (escalate only for
   documented size/risk). Update #1899 with observations and empirical limits.
 
@@ -216,8 +216,8 @@ coherent admission remain unresolved. Ratings grant no authority.
 
 Reviewed once against the accepted design and the exact source seams above.
 Disposition: **Owner-approved and implemented for fixture-only presentation;
-Investigate for production connection**. Final repository verification and
-current-code review are still pending at this checkpoint. Mandatory interaction requirements map
+Investigate for production connection**. Final repository verification passed and the required current-code review
+completed with no remaining findings; exact evidence is recorded below. Mandatory interaction requirements map
 to tasks 1–3; real source/approval requirements map to the explicit prerequisite
 table. No implementation tests or native capability probes ran in this planning
 task. Existing design acceptance is retained and is not requested again.
@@ -251,3 +251,30 @@ These observations do not establish native screen-reader or packaged behavior.
 The module-graph regression inspects the real production renderer Vite/Rollup
 chunks in memory and finds no fixture or review-preview modules. No production
 App, API, Electron, sidecar, launch or selection behavior changed.
+
+### Final verification and review
+
+`bash scripts/verify-repo.sh` passed under Node 22: Rust 3,600 passed,
+0 failed, 21 ignored, plus integration tests; 31 reporter tests; renderer
+type-check; native ABI repair; desktop 1,786 passed, 0 failed, 5 skipped;
+desktop build; 2,056 documentation tests and site build; whitespace and
+documentation/worktree currency checks. Existing Rust and Vite/VitePress
+compile/chunk warnings concern unchanged sources/configuration. Foreign
+worktree warnings were left to their owners; generated pnpm metadata is
+excluded from this change.
+
+Required `/code-review low` initially reviewed `3a3db965` and found two required
+issues. Both were reproduced RED and corrected: an open preview's invoker
+can no longer replace stale context without refresh, and the stale notice now
+precedes visibly labelled previous fields. The 11-test focused suite passed
+afterward. Correction review at code head
+`22108798dd0eea30f599051a6228a6c4f6f96e4c` approved with no new findings.
+Hosted Codex review of that same head also completed without findings.
+Subsequent evidence-only documentation edits do not change the reviewed code.
+
+Authenticated Taskmaster inventory contained 37 records; none proposed this
+preview implementation, so no recommendation mutation was warranted. Native
+Copilot review was requested once but remains unconfirmed and is not credited.
+Required CI and terminal PR disposition are recorded in
+[#1906](https://github.com/Rambolarsen/orkworks/pull/1906). #1899 remains open
+for the production prerequisite handoff; no runtime authority is inferred.
