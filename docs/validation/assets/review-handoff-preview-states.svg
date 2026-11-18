@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="890" viewBox="0 0 1000 890" role="img" aria-labelledby="title desc"><title id="title">Proposed changed-plan and missing-plan previews</title><desc id="desc">Two narrow layouts: changed plan A to B preserves the old instruction as stale and offers refresh. Missing-plan alternative states no plan selected and leaves plan review unavailable. Neither action sends terminal input.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e9edf4;font-size:17px}.muted{fill:#b5c1d2;font-size:15px}.title{font-size:27px;font-weight:700}.head{font-size:19px;font-weight:700}.warn{fill:#ffda97}.mono{font-family:monospace;font-size:15px}</style>
+<rect width="1000" height="890" fill="#101820"/>
+<text x="24" y="38" class="title">Review handoff / narrow states</text>
+<text x="24" y="68" class="muted">PROPOSED · synthetic data · columns are alternative states, not app panes</text>
+<rect x="24" y="92" width="460" height="770" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="44" y="128" class="head">A · Plan changed</text>
+<text x="44" y="165" class="">Recommendations / review handoff</text>
+<text x="388" y="165" class="muted">Close</text>
+<text x="44" y="209" class="">Source: Retry implementation · S41</text>
+<text x="44" y="239" class="">Reviewer: R7 · not started</text>
+<text x="44" y="269" class="muted">Coding tool: Copilot</text>
+<text x="44" y="300" class="mono">Worktree: /work/demo</text>
+<text x="44" y="328" class="mono">Branch: feature/retry</text>
+<rect x="516" y="92" width="460" height="770" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="536" y="128" class="head">B · No selected plan</text>
+<text x="536" y="165" class="">Recommendations / review handoff</text>
+<text x="880" y="165" class="muted">Close</text>
+<text x="536" y="209" class="">Source: Retry implementation · S41</text>
+<text x="536" y="239" class="">Reviewer: R7 · not started</text>
+<text x="536" y="269" class="muted">Coding tool: Copilot</text>
+<text x="536" y="300" class="mono">Worktree: /work/demo</text>
+<text x="536" y="328" class="mono">Branch: feature/retry</text>
+<rect x="40" y="350" width="428" height="114" rx="8" fill="#342c23" stroke="#405469"/>
+<text x="54" y="380" class="warn">Review context changed</text>
+<text x="54" y="411" class="warn">specs/retry.md changed: A → B</text>
+<text x="54" y="441" class="muted">Previous context below is stale.</text>
+<text x="44" y="503" class="head">Previous proposed instruction</text>
+<text x="44" y="537" class="">Review S41’s retry change against</text>
+<text x="44" y="564" class="">specs/retry.md (version A). Check</text>
+<text x="44" y="591" class="">requirements and unsafe assumptions.</text>
+<text x="44" y="618" class="">Report findings and evidence.</text>
+<rect x="44" y="668" width="218" height="42" rx="8" fill="#24404e" stroke="#405469"/>
+<text x="58" y="695" class="">Refresh preview</text>
+<text x="44" y="740" class="muted">Refresh shows new context; no approval.</text>
+<rect x="44" y="768" width="420" height="40" rx="8" fill="#28323b" stroke="#405469"/>
+<text x="58" y="794" class="muted">Existing approval unavailable</text>
+<text x="44" y="838" class="muted">Recheck is also required at approval.</text>
+<rect x="532" y="350" width="428" height="114" rx="8" fill="#342c23" stroke="#405469"/>
+<text x="546" y="380" class="warn">No plan selected</text>
+<text x="546" y="411" class="warn">This proposal requires a plan.</text>
+<text x="546" y="441" class="muted">No plan inferred from the branch.</text>
+<text x="536" y="503" class="head">Proposed instruction</text>
+<text x="536" y="537" class="">Review the selected plan for missing</text>
+<text x="536" y="564" class="">requirements and risky assumptions.</text>
+<text x="536" y="591" class="">Plan reference: missing.</text>
+<text x="536" y="618" class="">This instruction cannot be dispatched.</text>
+<rect x="536" y="668" width="218" height="42" rx="8" fill="#24404e" stroke="#405469"/>
+<text x="550" y="695" class="">Refresh preview</text>
+<text x="536" y="740" class="muted">Select a plan through its existing flow.</text>
+<rect x="536" y="768" width="420" height="40" rx="8" fill="#28323b" stroke="#405469"/>
+<text x="550" y="794" class="muted">Existing approval unavailable</text>
+<text x="536" y="838" class="muted">Reading changes no session state.</text>
+</svg>

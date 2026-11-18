@@ -125,6 +125,28 @@ Good:
 
 > Start Codex for an independent review. The implementation session reports completion, all 42 tests passed, the change affects retry behavior, and no review session is linked to this work.
 
+### Review-handoff preview design (#1899)
+
+Before approving a review transition, the user should be able to inspect the
+exact source session, proposed reviewer/tool/model, source and reviewer work
+locations, selected anchored plan/spec or explicit missing state, and complete
+proposed instruction in the existing Recommendations detail. Inspection is
+read-only and preserves selected-session, unread and attention state. A shared
+branch never substitutes for session or artifact identity.
+
+The [review-handoff preview proposal](../docs/superpowers/specs/2026-11-18-review-handoff-preview-design.md)
+contains synthetic wide/narrow mockups and changed/missing-plan behavior.
+Material source, reviewer, worktree, artifact or instruction changes invalidate
+the inspected approval context; the consuming authenticated action must reject
+stale inputs before effects. Refresh is inspection, never approval or retry.
+
+Status: interaction design owner-accepted on 2026-11-18; implementation pending.
+Acceptance covers the in-place detail layout, full instruction expanded by
+default and refresh-before-approval behavior, not runtime implementation.
+This changes neither the existing selected-session fixed review prompt nor
+#610's exact-plan, capability and implementation gates. It adds no launch route;
+ordinary session creation remains subject to its explicit Start contract.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.

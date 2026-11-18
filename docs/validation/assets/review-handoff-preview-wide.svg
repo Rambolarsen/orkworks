@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="930" viewBox="0 0 1240 930" role="img" aria-labelledby="title desc"><title id="title">Proposed review handoff preview: shared branch</title><desc id="desc">Synthetic wide Recommendations page. Source S41 and companion S42 share a branch but retain separate identities. Proposed reviewer R7 has not started. Continuation is unavailable under existing launch gates.</desc>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#e9edf4;font-size:17px}.muted{fill:#b5c1d2;font-size:15px}.title{font-size:27px;font-weight:700}.head{font-size:19px;font-weight:700}.warn{fill:#ffda97}.mono{font-family:monospace;font-size:15px}</style>
+<rect width="1240" height="930" fill="#101820"/>
+<text x="28" y="38" class="head">OrkWorks / demo</text>
+<text x="28" y="70" class="muted">PROPOSED DESIGN · synthetic data · no runtime feature claimed</text>
+<rect x="20" y="95" width="210" height="810" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="38" y="130" class="head">Sessions</text>
+<rect x="32" y="151" width="186" height="96" rx="8" fill="#26384b" stroke="#405469"/>
+<text x="44" y="178" class="">Retry implementation</text>
+<text x="44" y="205" class="muted">S41 · Codex</text>
+<text x="44" y="230" class="muted">Selected terminal</text>
+<text x="44" y="285" class="">Companion checks</text>
+<text x="44" y="311" class="muted">S42 · Copilot</text>
+<text x="44" y="352" class="warn">Same branch ≠ same</text>
+<text x="44" y="376" class="warn">source session</text>
+<text x="44" y="855" class="muted">Selection unchanged</text>
+<text x="258" y="128" class="title">Recommendations / Review retry handling</text>
+<text x="258" y="160" class="head">Preview review handoff</text>
+<text x="1132" y="160" class="muted">Close</text>
+<rect x="258" y="183" width="950" height="130" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="278" y="211" class="">Source: Retry implementation · S41</text>
+<text x="278" y="239" class="muted">Coding tool: Codex · live runtime S41/3</text>
+<text x="278" y="266" class="mono">Source worktree: /work/demo · branch feature/retry</text>
+<text x="278" y="294" class="warn">S42 shares this worktree; attribution of concurrent edits is unknown.</text>
+<rect x="258" y="329" width="950" height="114" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="278" y="357" class="">Reviewer: proposed new session R7 · Review</text>
+<text x="278" y="386" class="muted">Coding tool: Copilot · model: configured reviewer (availability unverified)</text>
+<text x="278" y="415" class="mono">Review working directory: /work/demo · feature/retry · Not started</text>
+<rect x="258" y="459" width="950" height="98" rx="8" fill="#1a2632" stroke="#405469"/>
+<text x="278" y="489" class="">Plan: specs/retry.md · anchored to /work/demo</text>
+<text x="278" y="520" class="muted">Inspected version A · content identity supplied by artifact owner</text>
+<text x="278" y="544" class="muted">Change subject: S41 proposal · shared edits remain inconclusive</text>
+<text x="258" y="595" class="head">Proposed instruction  ▾</text>
+<rect x="258" y="610" width="950" height="132" rx="8" fill="#12202c" stroke="#405469"/>
+<text x="278" y="639" class="">Review S41’s retry change against specs/retry.md (inspected version A).</text>
+<text x="278" y="666" class="">Check missing requirements, unsafe retry assumptions and verification gaps.</text>
+<text x="278" y="693" class="">Report findings and evidence. Shared worktree edits have unknown authorship.</text>
+<text x="278" y="720" class="">Do not infer that companion session S42 owns or approved this change.</text>
+<text x="258" y="776" class="muted">Role / skill configuration is separate from this user instruction.</text>
+<rect x="258" y="795" width="950" height="47" rx="8" fill="#2a2930" stroke="#405469"/>
+<text x="278" y="825" class="warn">Unavailable: reviewer capability and launch approval gates are not satisfied.</text>
+<rect x="258" y="855" width="300" height="36" rx="8" fill="#27313b" stroke="#405469"/>
+<text x="274" y="879" class="muted">Continue to existing approval</text>
+<text x="580" y="879" class="muted">Opening or reading sends no prompt.</text>
+</svg>

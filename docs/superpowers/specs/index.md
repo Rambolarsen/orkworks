@@ -341,3 +341,5 @@ Dated design records; these do not establish current product behavior.
 - [Research reports after revision rejection](2026-11-16-research-post-rejection-report-design.md) — Proposed original-disposition role joins, retained B-derived input updates and completed-plan summary invalidation without task rewrites.
 
 - [Research reporting across stage cancellation and continuation](2026-11-16-research-stage-report-design.md) — Proposed original-cancellation collecting roles, retained report input and exact current-context Main continuation under unchanged authority.
+
+- [Review handoff preview](2026-11-18-review-handoff-preview-design.md) — Proposed read-only reviewer, work context, artifact and instruction preview before existing approval.
