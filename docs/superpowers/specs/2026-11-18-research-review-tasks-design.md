@@ -422,6 +422,21 @@ blocks ready execution, not coordination itself. Plan completion still
 requires every declared task `reported_complete`, so a never-completing
 reviewer blocks completion exactly as the baseline predicate requires.
 
+**Researcher completion is report-only.** The accepted continuation rule
+("the parent checks the report contract and all declared review gates before
+reporting completed") applies per task, not recursively downstream. For a
+plan with a declared reviewer, the researcher task's coordination `completed`
+checks only the researcher's own accepted report contract; the declared
+review gate is enforced at the reviewer task's coordination `completed`
+(requiring its current review outcome) and by plan completion plus the
+ready-execution gate. The reverse precondition — the reviewer's outcome
+requires the researcher task `reported_complete` — is therefore admissible
+and no two-task chain can fail to make its first completion: the researcher
+completes on its report, which is exactly what unblocks the reviewer's
+reservation, review input and outcome. A rule that made the researcher's
+completion wait for its downstream review would create an admission cycle
+and is not part of this proposal.
+
 Propose one new immutable logical family in the eventual single fresh catalog
 (no physical table, layout or format is selected):
 
