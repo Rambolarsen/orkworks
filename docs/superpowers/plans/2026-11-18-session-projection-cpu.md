@@ -150,3 +150,10 @@ ignored. The failures were outside this diff: startup work-signal expiry and
 SQL-origin batch storage expiry. Both passed in isolated reruns. Their original
 failures and rerun evidence are recorded in issue #957; this is not a claim
 that the full local unit suite passed.
+
+The remaining verifier stages passed separately: Rust integration, reporter
+checks, desktop type/native/tests/build, documentation validation (2,056 tests)
+and build, and diff/doc/worktree checks. Current-session `/code-review low`
+found no actionable issue in code head `46d9b2fb`; GitHub Codex independently
+reported no findings for the same head in PR #1909. GitHub's separate AI
+security scan could not run because its monthly quota was exhausted.
