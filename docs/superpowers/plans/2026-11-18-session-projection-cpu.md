@@ -64,7 +64,7 @@ rejection. No schema, lifecycle, protocol or storage migration belongs to #1893.
   selected daemon; report it as diagnostic evidence, not improvement.
 - [x] Run repository verification, documentation validation/build and close-out
   checks. Record unrelated environment/check failures without claiming success.
-- [ ] Open one PR for #1893; leave #1894 and #1895 as separately owned work.
+- [x] Open one PR for #1893; leave #1894 and #1895 as separately owned work.
 
 Plan review: scope is restricted to observation and documentation; no runtime
 changes or new dependency. Tests verify wrong-process rejection and measurement
@@ -93,4 +93,67 @@ indexes and rendered-page link checks. Six diagnostic tests and diff/close-out
 checks passed. Build emitted circular/large-chunk warnings unrelated to this
 text-only site change. The configured Luna reviewer is unavailable in this
 session; no stronger-model substitution was authorized. Independent review
-remains outstanding at PR handoff.
+was outstanding at the initial handoff; PR #1896 subsequently merged after
+current-session review and passing required checks.
+
+## Repository inspection reuse (#1894)
+
+The owner requested continuation after #1893 merged in PR #1896. This phase
+starts from `abb7262d` and changes only branch-document scan setup, not session
+update scheduling. `Store::scan` opens one repository per request and borrows it
+for root/identity/HEAD inspection and cache-miss discovery. No repository handle
+enters the persistent scan cache. Discovery's final identity re-open and the
+projection's independent location/workspace validation remain fresh. TTL,
+selection generation, scan budgets, pins and containment rules are unchanged.
+
+A regression first failed with five counted repository opens on a cold scan,
+versus the expected two. The counted seam covers branch-document identity,
+store setup and discovery opens; it excludes independent base/content helpers,
+private scratch repositories, and the former `git::worktree_root` open. It is
+not a count of all filesystem activity or all process-wide repository opens.
+
+The same manual fixture benchmark ran before and after the change: temporary
+repositories, one linked worktree, 800 synthetic branch config entries, five
+rounds of 20 calls per case, debug test build. Warm cases prime the cache first;
+forced cases bypass it. Source changes between runs are the borrowed-handle
+implementation; timing results also include normal machine/load/cache noise.
+The final after run did not overlap another test command from this session.
+
+| 20-call fixture | Counted opens before → after | Median elapsed before → after |
+| --- | --- | --- |
+| One shared worktree, warm | 40 → 20 | 325.641 → 182.686 ms |
+| Two distinct worktrees, warm | 40 → 20 | 332.166 → 193.303 ms |
+| One worktree, forced discovery | 100 → 40 | 990.088 → 946.804 ms |
+
+These fixtures show less repeated setup work, especially cache hits. They do
+not establish a whole-app CPU improvement; forced discovery still performs the
+existing bounded filesystem/history work. No live session was restarted, no
+running sidecar replaced, and no cache freshness contract relaxed.
+
+Reproduce the timing diagnostic (ignored by ordinary CI; no timing threshold):
+
+```bash
+CARGO_BUILD_JOBS=2 cargo test --manifest-path crates/orkworksd/Cargo.toml \
+  --bin orkworksd document_scan_repository_reuse_benchmark -- --ignored --nocapture
+```
+
+The ordinary tests assert operation counts, next-request branch/detached-HEAD
+changes, separation of linked worktrees, and unavailable removed worktrees.
+Focused checks passed: 57 branch-document tests (one manual benchmark ignored),
+35 projection tests (three existing ignored). Existing projection regressions
+exercise input responsiveness and changed branch/location/runtime/workspace
+rejection before publication. Full verification and current-diff review are
+recorded in the implementation PR; #1895 remains separate design-gated work.
+
+The full local Rust unit run completed with 3,600 passed, two failed and 22
+ignored. The failures were outside this diff: startup work-signal expiry and
+SQL-origin batch storage expiry. Both passed in isolated reruns. Their original
+failures and rerun evidence are recorded in issue #957; this is not a claim
+that the full local unit suite passed.
+
+The remaining verifier stages passed separately: Rust integration, reporter
+checks, desktop type/native/tests/build, documentation validation (2,056 tests)
+and build, and diff/doc/worktree checks. Current-session `/code-review low`
+found no actionable issue in code head `46d9b2fb`; GitHub Codex independently
+reported no findings for the same head in PR #1909. GitHub's separate AI
+security scan could not run because its monthly quota was exhausted.

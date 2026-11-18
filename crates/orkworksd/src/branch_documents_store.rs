@@ -68,12 +68,16 @@ impl Store {
                 hook();
             }
         }
-        let root = crate::git::worktree_root(root)
+        // One fresh handle per request; never retain it in the scan cache or
+        // share it with the projection's later optimistic validation pass.
+        let repo =
+            crate::branch_documents::open_repository(root).map_err(|_| "Worktree unavailable.")?;
+        let root = repo
+            .workdir()
             .ok_or("Worktree unavailable.")?
             .canonicalize()
             .map_err(|_| "Worktree unavailable.")?;
-        let id = crate::branch_documents::identity(&root)?;
-        let repo = git2::Repository::open(&root).map_err(|_| "Worktree unavailable.")?;
+        let id = crate::branch_documents::identity_in_repository(&repo)?;
         let head = repo.head().ok().and_then(|h| h.target());
         let now = std::time::Instant::now();
         {
@@ -92,7 +96,7 @@ impl Store {
                 }
             }
         }
-        let mut result = crate::branch_documents::discover(&root)?;
+        let mut result = crate::branch_documents::discover_in_repository(&repo)?;
         result.generation = Some(generation);
         let mut scans = self
             .scans
