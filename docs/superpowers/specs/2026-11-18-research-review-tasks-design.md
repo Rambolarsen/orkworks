@@ -123,10 +123,12 @@ declares more than one reviewer task is unavailable, never trimmed.
 
 ## Research source plan and configuration extension
 
-`ResearchSourcePlanV1` gains exactly one optional member; every existing
-member, bound and digest rule is unchanged:
+`ResearchSourcePlanV1` gains exactly one optional member plus one optional
+variant discriminator; every existing member, bound and digest rule is
+unchanged for the standard researcher variant:
 
 ```text
+variant:"researcher"|"reviewer-only-replacement"|absent
 reviewTask: {
   taskId,
   configuration:{configurationId,configurationDigest},
@@ -134,6 +136,38 @@ reviewTask: {
   initialPrompt,group,dependsOn:TaskKey
 }|absent
 ```
+
+The standard researcher variant keeps the accepted shape: a mandatory
+researcher `task` member, optional `reviewTask`, and
+`batches=[[researcherTaskId]]` or `[[researcherTaskId],[reviewerTaskId]]`.
+The **reviewer-only replacement variant** exists solely to replace a stale
+review after a report correction, under the replacement-revision rules below.
+In that variant the mandatory researcher `task` member is absent and instead
+exactly one `researchDependency` member binds the original researcher:
+
+```text
+researchDependency:{task:TaskKey,scope:ResearchScopeRef,
+                    configuration:ConfigurationRef}
+```
+
+`researchDependency.task` is the original revision's researcher TaskKey — full
+members, including the original planRevision — and `scope`/`configuration`
+resolve that task's exact approved scope and configuration references.
+`batches` is exactly `[[reviewerTaskId]]`; `reviewTask` is mandatory and its
+`dependsOn` equals `researchDependency.task`. No new researcher task,
+reservation, attempt or worktree is declared by this variant; the original
+researcher's records stay complete immutable history and no frozen identity is
+reused. The plan-completion predicate for this revision applies to its
+declared tasks — exactly the replacement reviewer — so the replacement
+reviewer's own reported_complete completes this revision; the original plan
+remains complete and the lifecycle selector's `completedResearchPlan` selects
+the replacement revision when it completes. `variant` is absent for the
+standard researcher shape, so existing one-task/one-reviewer plans keep their
+accepted encoding; a replacement body without the variant discriminator is
+invalid. The plan digest domain, 64 KiB body bound and 2 MiB complete
+approved-plan accounting are unchanged; in the replacement variant the budget
+counts the reviewer configuration, the referenced scope/configuration
+references and every referenced capability artifact occurrence.
 
 `reviewTask.taskId` differs from the researcher task. `dependsOn` is exactly
 the researcher taskId; the reviewer task's worktree group, base commit and
@@ -235,6 +269,7 @@ existing atomicity and one-attempt semantics.
 ```text
 {schemaVersion:1,task:TaskKey,target:ResearchReportEvidenceSource,
  report:ResearchReport,scope:ResearchScopeRef,
+ questions:ResearchQuestionV1[],
  citedExcerpts:ResearchCitedExcerptV1[],inputDigest}
 ```
 
@@ -244,8 +279,11 @@ existing atomicity and one-attempt semantics.
 equals `reference`'s excerpt digest. `contentBase64` is strict padded Base64 of
 the exact raw retained excerpt bytes (1..2048), and `sizeBytes` is their exact
 length. Bounds: each excerpt ≤2 KiB raw; the citedExcerpts aggregate ≤128 KiB
-raw; `report` ≤32 KiB canonical; `scope` ≤32 KiB; the whole snapshot body
-≤256 KiB, and the composed startup bound above also wins independently.
+raw; `report` ≤32 KiB canonical; `scope` ≤32 KiB; the complete `questions`
+bytes are within the scope's own 32 KiB bound (they intentionally duplicate
+the approved scope content so the reviewer can read the questions it must
+assess); the whole snapshot body ≤256 KiB, and the composed startup bound
+above also wins independently.
 
 Required joins:
 
@@ -271,6 +309,14 @@ Required joins:
   yields `citedExcerpts: []` (the array is present and empty); under the
   report codec an established finding requires at least one resolved
   reference, so such a report's findings are all `inferred`/`unverified`.
+- `questions` is present and byte-equal to the approved scope's complete
+  sorted question set: the same `ResearchQuestionV1` bodies, in the scope's
+  own questionId order, each with its exact questionText, sourceIds,
+  knownInputs, expectedEvidence, stoppingConditions and uncertainty. The
+  reference alone is not enough — the reviewer needs the authoritative
+  question content to assess completeness and produce per-question statuses.
+  No capture body beyond the cited excerpts is delivered, and the question
+  text grants no source access.
 - The snapshot contains no reviewer configuration digest, session identity,
   bearer, currentness flag, capture bodies beyond the cited excerpts, or
   transitive content fetched because a descriptor cites it. Excerpt bytes are
@@ -428,20 +474,23 @@ prove currentness.
   research plan revision under the accepted revision rules (a subsequent plan
   is proposed only after the preceding plan is complete or cancelled, each
   revision needs its own exact approval, and revisions stay within the 1–64
-  bound). The replacement revision declares only the replacement reviewer
-  task, whose `dependsOn` is the **original revision's** researcher TaskKey:
-  the original researcher task is never retried, its frozen identity, chain
-  records and coordination outcome stay complete immutable history, and its
-  currently selected report supplies the dependency condition. The original
-  plan is not reopened; when the replacement reviewer completes, its own plan
-  revision completes and the lifecycle selector's
-  `completedResearchPlan` selects that revision. A revision that declares no
-  reviewer simply has none; the "more than one reviewer task is unavailable"
-  rule applies per revision, so a revision declaring one replacement reviewer
-  plus retaining the stale reviewer as history is two reviewer declarations
-  only across distinct revisions, never within one. Multiple successive
-  corrections produce a chain of replacement revisions under the same rules,
-  each with exactly one reviewer task.
+  bound). The replacement revision uses the **reviewer-only replacement plan
+  variant** defined in the plan section: it declares exactly the replacement
+  reviewer task, whose `dependsOn` is the **original revision's** researcher
+  TaskKey carried by `researchDependency`. The original researcher task is
+  never retried — its frozen identity, chain records and coordination outcome
+  stay complete immutable history, and its currently selected report supplies
+  the dependency condition. The original plan is not reopened; when the
+  replacement reviewer completes, its own plan revision completes and the
+  lifecycle selector's `completedResearchPlan` selects that revision. The
+  original reviewer task and its stale outcome stay declared/complete in the
+  original revision's history; they are not redeclared, retargeted or erased.
+  A revision that declares no reviewer simply has none; the "more than one
+  reviewer task is unavailable" rule applies per revision, so a revision
+  declaring one replacement reviewer plus retaining the stale reviewer as
+  history is two reviewer declarations only across distinct revisions, never
+  within one. Multiple successive corrections produce a chain of replacement
+  revisions under the same rules, each with exactly one reviewer task.
 - **Reviewer expectation row is not a mutating consumer.** The reviewer
   expectation row is unchanged by a researcher report correction: its
   `selectedReport` stays null (the review outcome is not a report), its
@@ -518,17 +567,24 @@ array, and no second current-input pointer appears. `collectionVersion`
 increments once for any owned membership/binding/selection change across
 either task — including reviewer expectation creation at proposal and any
 later owned change — coalescing compound changes as the accepted rule
-requires. Expectations exist for every declared task of the active
-collection's current plan (one or two in this slice), created atomically at
-proposal time. The reviewer expectation binds `dependsOn` context through its
-task configuration/plan sources; its `selectedReport` remains null through
-this slice because the review outcome is not a report; its stream resolves
-only after its own reservation binds, through the original reservation and
-configuration. Collecting membership for both declared tasks remains
-source-owned state until accepted finish/cancel retirement; plan pause and
-completion do not implicitly retire it. This is a new author choice revising
-the accepted prefix record for scoped review; the packet must show both the
-one-task (null `reviewTask`) and two-task shapes.
+requires. Expectations exist for every declared task across the run's
+research plans: each plan's proposal creates expectations for the tasks it
+declares (one or two for a researcher variant, exactly the replacement
+reviewer for a reviewer-only replacement revision), created atomically at
+proposal time, with retained history for superseded revisions' tasks. The
+collection's `task` member remains the researcher task bound by the current
+plan's `researchDependency` when the current plan is a replacement variant;
+the original researcher task remains that binding across a chain of
+replacement revisions. The reviewer expectation binds `dependsOn` context
+through its task configuration/plan sources; its `selectedReport` remains
+null through this slice because the review outcome is not a report; its
+stream resolves only after its own reservation binds, through the original
+reservation and configuration. Collecting membership for declared tasks
+remains source-owned state until accepted finish/cancel retirement; plan
+pause and completion do not implicitly retire it. This is a new author choice
+revising the accepted prefix record for scoped review; the packet must show
+both the one-task (null `reviewTask`) and two-task shapes, plus a replacement
+variant's expectation chain.
 
 The accepted first-report slice permits publication only with the producer
 run's one active collection and its exact collecting expectation as the
@@ -604,7 +660,7 @@ Accept or revise these proposed choices for **offline components only**:
    to every declared task and the closed reviewer consumer effect, the summary
    `ResearchReviewEvidenceSource` and review-reference
    currentness/citation rules, and stale-review replacement only through a
-   newly approved plan revision.
+   newly approved **reviewer-only replacement plan variant**.
 
 After scoped acceptance, the bounded packet covers `docs/validation/` only:
 an independent Python generator, retained JSON, data-only JavaScript
@@ -615,9 +671,10 @@ ordering denial for a configuration that embeds a snapshot digest); one-task
 and two-task collection shapes (`reviewTask` null and present); review
 admission under the exact target binding, exact retry and conflict cases;
 stale review after a report correction with the unchanged reviewer
-expectation row and the replacement-revision declaration; summary citation
-with the typed review evidence source, empty-vs-required reviewReferences and
-denial cases (wrong task, cross-task scope, unlisted excerpt, stale target,
+expectation row and the reviewer-only replacement plan variant's declaration,
+batches and expectation chain; summary citation with the typed review
+evidence source, empty-vs-required reviewReferences and denial cases (wrong
+task, cross-task scope, unlisted excerpt, stale target,
 conflict-as-satisfaction, unverifiable excerpt bytes, wrapper overflow). All
 auth, transport, coverage, currentness, C/command/proof and outcome facts
 remain explicitly supplied and unqualified. No legal event history, complete
@@ -661,6 +718,15 @@ coordination order; dependencies are full TaskKey objects; and citedExcerpt
 uniqueness uses the approved excerpt's reference ID. No accepted technical
 definition changed and no runtime qualification follows. Neither reviewer
 executed code, a fixture, database or native/runtime process.
+
+After the rebase onto `ce32c757`, the hosted current-head review reported two
+P2 findings, both addressed in this revision: the reviewer snapshot now
+delivers the approved scope's complete question set (the reference alone
+cannot support per-question assessment), and the reviewer-only replacement
+plan variant is explicitly encoded (researcher `task` replaced by
+`researchDependency`, `batches=[[reviewerTaskId]]`, mandatory `reviewTask`
+and `variant` discriminator), with matching collection/expectation binding
+and packet examples.
 
 ## Remaining gates
 
