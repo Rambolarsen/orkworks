@@ -55,3 +55,5 @@ needed. This index is a routing map; do not load the entire bundle for every tas
   `.serena/project.yml`.
 
 - [Isolated headless replay](headless-replay.md) — Fixed container fixture, qualification, ownership and cleanup evidence.
+
+- [Session CPU diagnostics](session-cpu-diagnostics.md) — Bounded macOS CPU measurements and profile interpretation.
