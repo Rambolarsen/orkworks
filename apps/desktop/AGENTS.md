@@ -88,7 +88,9 @@ loopback-only preview defaults to port 5276; set
 `ORKWORKS_WORKFLOW_PREVIEW_PORT` for another strict port (0 chooses an available
 port). Stop with Ctrl+C. The preview is an explicit development entry, excluded
 from the production renderer bundle. It does not qualify orchestration or change
-ordinary-session behavior. See the
+ordinary-session behavior. Choose **Review handoff** in its scenario selector
+to exercise the synthetic reviewer/plan preview, stale refresh and missing
+context states; every continuation remains disabled. See the
 [approved preview plan](../../docs/superpowers/plans/2026-10-26-hierarchy-ui-preview.md).
 
 ## Electron and renderer boundary

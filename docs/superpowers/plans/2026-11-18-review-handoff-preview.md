@@ -19,9 +19,10 @@ acknowledge or submit anything.
 [#746](https://github.com/Rambolarsen/orkworks/issues/746).
 **Spec:** [accepted interaction design](../specs/2026-11-18-review-handoff-preview-design.md),
 merged in [#1905](https://github.com/Rambolarsen/orkworks/pull/1905).
-**Status:** proposed implementation plan. The owner authorized preparing this
-plan after design acceptance; the new fixture-only delivery boundary below
-still needs scoped owner approval before code. Production remains **Investigate**.
+**Status:** owner-approved fixture-only implementation plan. The owner replied
+“keep going” after draft PR #1906 presented this concrete boundary and its
+production prerequisites on 2026-11-18. That approves tasks 1–3 only; production
+connection remains **Investigate**.
 
 ## Evidence and delivery decision
 
@@ -94,15 +95,15 @@ completion/status and close; background updates announce without stealing focus.
 Files: create `apps/desktop/src/components/review/reviewHandoffPresentation.ts`
 and `apps/desktop/tests/reviewHandoffPresentation.test.ts`.
 
-- [ ] Write failing behavioral tests for shared branch but distinct source IDs,
+- [x] Write failing behavioral tests for shared branch but distinct source IDs,
   plan content change at the same path, changed anchor/pin identity, changed
   reviewer/instruction/work location and explicit missing/unavailable fields.
-- [ ] Implement the small immutable state model above. Preserve the inspected
+- [x] Implement the small immutable state model above. Preserve the inspected
   snapshot on change; require refresh to install one complete replacement.
-- [ ] Test close/removal and workspace/backend/runtime replacement during refresh,
+- [x] Test close/removal and workspace/backend/runtime replacement during refresh,
   out-of-order refresh completion, and A→B→A context changes. Old completions
   cannot reopen detail, clear staleness or install a partial snapshot.
-- [ ] Run the focused test under Node 22; observe red before implementation and
+- [x] Run the focused test under Node 22; observe red before implementation and
   green after it. Do not add protocol decoding or a generic state framework.
 
 Pass: `pnpm --dir apps/desktop exec node --experimental-strip-types --test tests/reviewHandoffPresentation.test.ts`.
@@ -114,17 +115,17 @@ Files: create `apps/desktop/src/components/review/ReviewHandoffPreview.tsx`,
 `apps/desktop/tests/fixtures/reviewHandoffPreview.tsx`; modify only the existing
 `apps/desktop/tests/fixtures/workflowPreview.tsx` to offer a review scenario.
 
-- [ ] Implement source/reviewer identity, separate work locations, anchored
+- [x] Implement source/reviewer identity, separate work locations, anchored
   artifact display or missing state, complete instruction expanded by default,
   textual status, refresh, close and permanently disabled continuation.
-- [ ] Add selectable synthetic scenarios: current shared-branch source/companion;
+- [x] Add selectable synthetic scenarios: current shared-branch source/companion;
   changed plan with old instruction retained; no selected plan; unavailable
   reviewer/location; replaced workspace/runtime; delayed/out-of-order refresh;
   removed recommendation; long labels/paths and markup-looking instruction.
-- [ ] Keep fixture callbacks memory-only. Opening, disclosure, refresh, scenario
+- [x] Keep fixture callbacks memory-only. Opening, disclosure, refresh, scenario
   switches and close perform no backend, IPC, storage, selection, acknowledgement
   or launch operation. Closing restores the invoker or surviving heading.
-- [ ] Reuse the current `preview:workflow` command/strict port behavior. Preserve
+- [x] Reuse the current `preview:workflow` command/strict port behavior. Preserve
   existing hierarchy scenarios and server restrictions; no server refactor.
 
 Pass: `pnpm --dir apps/desktop preview:workflow` exposes the new scenario with
@@ -132,23 +133,24 @@ its persistent synthetic label and no enabled execution control.
 
 ### 3. Interaction, isolation and verification
 
-Files: create `apps/desktop/tests/reviewHandoffPreview.test.mjs`, following the
+Files: create `apps/desktop/tests/reviewHandoffPreview.test.mjs` and
+`apps/desktop/tests/reviewHandoffBundleIsolation.test.mjs`, following the
 existing isolated Electron/esbuild test pattern in `workflowOverview.test.mjs`;
 update this plan with actual evidence after implementation.
 
-- [ ] Write DOM/keyboard tests before component implementation for heading focus,
+- [x] Write DOM/keyboard tests before component implementation for heading focus,
   native disclosure, stable focus on asynchronous change, readable polite status,
   refresh completion, close fallback and ordinary Tab escape without a trap.
-- [ ] Assert exact source/reviewer labels even when titles/branches match; full
+- [x] Assert exact source/reviewer labels even when titles/branches match; full
   long instruction remains selectable text, markup is inert, and stale/missing
   explanations remain visible with disabled continuation.
-- [ ] Exercise the real component at 1280, 700 and 360 CSS px, 200% text zoom and
+- [x] Exercise the real component at 1280, 700 and 360 CSS px, 200% text zoom and
   reduced motion. Assert no document-wide horizontal overflow and reachable
   close/refresh/status; capture and inspect wide/compact screenshots.
-- [ ] Fail on unexpected fetch, WebSocket, bridge or renderer storage access;
+- [x] Fail on unexpected fetch, WebSocket, bridge or renderer storage access;
   assert no terminal mount and no action callback. Exercise refresh races via
   controlled promise ordering, not arbitrary sleeps.
-- [ ] Run renderer type-check, focused tests, existing workflow tests/server
+- [x] Run renderer type-check, focused tests, existing workflow tests/server
   regression and production renderer build. Inspect the production Vite/Rollup chunk module graph
   for production entry exclusion of both fixture modules and this unused
   component; a string-only bundle grep is supporting evidence, not the sole check.
@@ -213,8 +215,39 @@ Fixture slice: 7/25. Production is not scored as ready: dependencies and
 coherent admission remain unresolved. Ratings grant no authority.
 
 Reviewed once against the accepted design and the exact source seams above.
-Disposition: **Ready for owner review of this fixture-only scope/plan;
-Investigate for production connection**. Mandatory interaction requirements map
+Disposition: **Owner-approved and implemented for fixture-only presentation;
+Investigate for production connection**. Final repository verification and
+current-code review are still pending at this checkpoint. Mandatory interaction requirements map
 to tasks 1–3; real source/approval requirements map to the explicit prerequisite
 table. No implementation tests or native capability probes ran in this planning
 task. Existing design acceptance is retained and is not requested again.
+
+## Execution evidence
+
+The owner approved the proposed fixture-only scope with “keep going” after
+PR #1906. Seven pure state regressions observed RED on the missing module,
+then GREEN. The DOM fixture observed RED before the component/fixture existed;
+the real shared preview entry now exercises the new scenario.
+
+Under Node 22, the focused suite passed 11 tests: state transitions, real
+Electron interaction/layout, production module-graph isolation, existing
+hierarchy interaction and existing loopback preview-server restrictions.
+The strengthened workspace-reset/immediate-reopen regression reproduced an
+old animation-frame focus return stealing the new heading focus; cancelling
+that return on a new explicit open made the unchanged assertion pass.
+
+The new Electron runner initially timed out awaiting readiness during module
+initialization; it now follows the existing whenReady callback pattern and
+retains startup diagnostics. Its DOM serialization follows the established
+runner. Original 5-second condition and 60-second child deadlines are unchanged.
+
+Wide and 360px screenshots, including the lower instruction/action area, were
+rendered and inspected. Labels wrap; full instructions remain scrollable and
+selectable; disabled continuation has a readable reason. DOM checks include
+200% text zoom, reduced motion, explicit Tab exit, close fallback, replaced
+workspace/runtime, late completions and forbidden network/bridge/storage access.
+These observations do not establish native screen-reader or packaged behavior.
+
+The module-graph regression inspects the real production renderer Vite/Rollup
+chunks in memory and finds no fixture or review-preview modules. No production
+App, API, Electron, sidecar, launch or selection behavior changed.

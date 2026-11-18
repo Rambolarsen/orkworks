@@ -1,3 +1,4 @@
+import ReviewHandoffScenario from "./reviewHandoffPreview";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import WorkflowOverview from "../../src/components/workflow/WorkflowOverview";
@@ -36,10 +37,10 @@ const dense: Workflow = { id: "preview-dense", goal: "Review a large workflow wi
 ] };
 const scenarios = { mixed, edge, dense };
 function Preview() {
-  const [scenario, setScenario] = useState<keyof typeof scenarios>("mixed");
+  const [scenario, setScenario] = useState<keyof typeof scenarios | "handoff">("mixed");
   return <main className="workflow-preview"><div className="workflow-preview-banner"><strong>Synthetic workflow preview</strong>
-    <label>Scenario <select data-scenario value={scenario} onChange={event => setScenario(event.target.value as keyof typeof scenarios)}>
-      <option value="mixed">Research → execution</option><option value="edge">Missing sessions & revisions</option><option value="dense">Many tasks & long labels</option>
-    </select></label></div><WorkflowOverview workflow={scenarios[scenario]} /></main>;
+    <label>Scenario <select data-scenario value={scenario} onChange={event => setScenario(event.target.value as keyof typeof scenarios | "handoff")}>
+      <option value="handoff">Review handoff</option><option value="mixed">Research → execution</option><option value="edge">Missing sessions & revisions</option><option value="dense">Many tasks & long labels</option>
+    </select></label></div>{scenario === "handoff" ? <ReviewHandoffScenario /> : <WorkflowOverview workflow={scenarios[scenario]} />}</main>;
 }
 createRoot(document.getElementById("root")!).render(<Preview />);
