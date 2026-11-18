@@ -93,6 +93,8 @@ jobs:
       - run: node --test docs/.vitepress/*.test.mjs scripts/docs-audit-scope.test.mjs
       - name: Test compile-only qualification workflow contract
         run: node --test scripts/qualification/pair-sqlite-compile-evidence.test.mjs
+      - name: Test passive session CPU diagnostics
+        run: python3 -B scripts/session-cpu-baseline_test.py
       - name: Test workspace signal qualification probe
         run: python3 scripts/qualify-workspace-signals.test.py
       - name: Test repository verifier prerequisites and ordering
