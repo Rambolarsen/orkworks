@@ -3044,7 +3044,10 @@ impl SessionApplication {
             .lock()
             .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
-        let Some(workspace) = workspace_guard.as_ref() else {
+        let Some(workspace) = workspace_guard
+            .as_ref()
+            .filter(|workspace| workspace.path == workspace_path)
+        else {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
                 if handle.runtime.matches_identity(runtime_identity) {
                     handle.runtime.prompt_tuple_clear_retry_scheduled = false;
@@ -3052,14 +3055,6 @@ impl SessionApplication {
             }
             return false;
         };
-        if workspace.path != workspace_path {
-            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
-                if handle.runtime.matches_identity(runtime_identity) {
-                    handle.runtime.prompt_tuple_clear_retry_scheduled = false;
-                }
-            }
-            return false;
-        }
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id) else {
             return false;
@@ -18989,6 +18984,73 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .prompt_tuple_clear_pending
         );
         authority.remove(id);
+    }
+
+    #[test]
+    fn prompt_tuple_clear_retry_stops_at_a_missing_or_replaced_workspace() {
+        for (workspace_replaced, runtime_replaced) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let root = tempfile::tempdir().unwrap();
+            let other_root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let other = crate::test_support::test_app_state_with_workspace(other_root.path());
+            let original_workspace = state.workspace.lock().unwrap().take().unwrap();
+            let replacement_workspace = other.workspace.lock().unwrap().take().unwrap();
+            let id = "prompt-tuple-clear-workspace-replaced";
+            let mut meta = crate::test_support::test_session_metadata(
+                id,
+                "Prompt retry",
+                root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.metadata_source = "claude_hook".into();
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.attention = Some("needs_you".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Retain this question?".into());
+            meta.suggested_options = Some(vec!["Retain".into()]);
+            for workspace in [&original_workspace, &replacement_workspace] {
+                workspace.metadata.write_session(&meta);
+            }
+            let paths = [&original_workspace, &replacement_workspace]
+                .map(|workspace| workspace.metadata.sessions_dir().join(format!("{id}.json")));
+            let before = paths.each_ref().map(|path| std::fs::read(path).unwrap());
+            *state.workspace.lock().unwrap() = workspace_replaced.then_some(replacement_workspace);
+            let mut handle = attention_test_handle(id, root.path());
+            let original_runtime = handle.runtime.identity();
+            if runtime_replaced {
+                handle.runtime = attention_test_handle(id, root.path()).runtime;
+            }
+            handle.runtime.prompt_tuple_clear_pending = true;
+            handle.runtime.prompt_tuple_clear_retry_scheduled = true;
+            handle.info.observed_status = meta.observed_status.clone();
+            handle.info.attention = meta.attention.clone();
+            handle.info.needs_user_input = meta.needs_user_input;
+            handle.info.detected_question = meta.detected_question.clone();
+            handle.info.suggested_options = meta.suggested_options.clone();
+            let live_before = serde_json::to_value(&handle.info).unwrap();
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+
+            assert!(
+                !SessionApplication::new(state.clone()).retry_prompt_tuple_clear_once(
+                    id,
+                    &original_runtime,
+                    root.path(),
+                )
+            );
+            let sessions = state.sessions.lock().unwrap();
+            let handle = &sessions[id];
+            assert_eq!(
+                handle.runtime.prompt_tuple_clear_retry_scheduled,
+                runtime_replaced
+            );
+            assert!(handle.runtime.prompt_tuple_clear_pending);
+            assert_eq!(serde_json::to_value(&handle.info).unwrap(), live_before);
+            assert_eq!(paths.map(|path| std::fs::read(path).unwrap()), before);
+        }
     }
 
     #[test]
