@@ -2575,6 +2575,9 @@ html, body, #root {
   background: var(--accent-focus);
 }
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
+.shell-utility-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.shell-utility-header > .shell-utility-scope { grid-area: 2 / 1 / auto / -1; }
+.shell-utility-header > [data-shell-return] { grid-area: 1 / 2; justify-self: end; }
 .shell-region--inspector > .shell-region-header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; }
 .shell-region--inspector > .shell-region-header h2 { grid-area: 1 / 1; align-self: center; overflow-wrap: anywhere; }
 .shell-region--inspector > .shell-region-header [data-shell-pin] { grid-area: 1 / 2; }
