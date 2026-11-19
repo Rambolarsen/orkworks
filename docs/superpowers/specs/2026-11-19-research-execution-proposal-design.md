@@ -535,3 +535,25 @@ native/runtime participation, complete physical catalog/version/initializer/
 proof closure and separately approved executable plans remain open.
 #1689/#1089/#610 stay open; #740 stays closed research. Gate 2 remains
 **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-19
+
+The owner answered "Accept all" to the explicit twenty-choice question
+covering this and the review-task, clarification and terminal-completion
+proposals. This accepts the five choices above — the no-new-input-revision
+boundary with the context-bound proposal publication, the
+`single-task-execution-source` plan shape with its new digest domain and
+accepted common leaf shapes, the coalesced publication union with the
+`awaiting_execution_approval` positive writer and one-grant guard, the exact
+approval records plus the `reject-execution-proposal` lifecycle kind with
+pause-retaining rejection, and the fresh server-held grant boundary with no
+launch closed (conditional candidate 63) — **for offline documentation
+components only**.
+
+It does not close the execution launch chain, qualify an execution role/
+profile, authorize any runtime/native/model execution, or complete Gate 2
+(still Investigate). #1689/#1089/#610 stay open; #740 stays closed research.
+The bounded offline packet may now follow under this acceptance, labeling
+auth, transport, coverage, currentness, grant, launch-chain and outcome
+facts as supplied.

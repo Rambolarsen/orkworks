@@ -538,3 +538,24 @@ execution and review source codecs, parallel/multi-question clarification,
 clarification interplay with stage-cancel replacement chains, and separately
 approved executable plans remain open. #1689/#1089 stay open; #740 stays
 closed research. Gate 2 remains **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-19
+
+The owner answered "Accept all" to the explicit twenty-choice question
+covering this and the review-task, execution-proposal and
+terminal-completion proposals. This accepts the five choices above — the
+one-question clarification decision variant, immutable request/answer
+records with the closed pendingClarification binding and the
+`awaiting_clarification` positive writer, the Main-authorized answer
+operation with the `ResearchUserActionOriginV1` user-origin provenance, the
+event-pattern answer effect union with the separate fresh-assessment outcome
+that retains the answers it uses, and the two catalog families (conditional
+61→with this acceptance the shared pools and 64-revision/32-pairs bounds) —
+**for offline documentation components only**.
+
+It does not close clarification UI presentation (#746), answer
+transport/adapter qualification, any runtime/native/model execution, or Gate
+2 (still Investigate). #1689/#1089 stay open; #740 stays closed research.
+The bounded offline packet may now follow under this acceptance, labeling
+auth, transport, coverage, currentness, proof and outcome facts as supplied.
