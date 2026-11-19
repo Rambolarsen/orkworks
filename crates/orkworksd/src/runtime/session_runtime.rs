@@ -3273,7 +3273,7 @@ async fn run_session_runtime(
                                     if let Some(output_at) = output_at {
                                         let output_persist_at = tokio::time::Instant::now();
                                         handle.info.last_output_at = Some(output_at.clone());
-                                        driver_state.updates.sessions_changed();
+                                        driver_state.updates.output_changed();
                                         output_recency_to_persist = handle
                                             .runtime
                                             .record_output_recency(output_at, output_persist_at);

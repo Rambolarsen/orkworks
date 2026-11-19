@@ -146,8 +146,15 @@ struct WorkspaceSnapshot {
     workspace_path: PathBuf,
 }
 
+pub(crate) struct StreamProjection {
+    pub(crate) infos: Vec<SessionInfo>,
+    pub(crate) locations: HashMap<String, Option<LocationInputs>>,
+    pub(crate) plans: HashMap<String, Option<metadata::PlanReference>>,
+}
+
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
+    plans: HashMap<String, Option<metadata::PlanReference>>,
 }
 
 /// Only location-relevant state participates in optimistic validation. Output,
@@ -328,6 +335,7 @@ impl SessionProjection {
         Self { state }
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> io::Result<ProjectionSnapshot> {
         let mut plans = PlanAvailabilityResolver::default();
         self.snapshot_with_plan_resolver(&mut |workspace, reference| {
@@ -426,6 +434,15 @@ impl SessionProjection {
                 .collect()
         };
 
+        let plans = metadata_map
+            .iter()
+            .map(|(id, meta)| (id.clone(), meta.plan_path.clone()))
+            .chain(
+                remembered_sessions
+                    .iter()
+                    .map(|meta| (meta.id.clone(), meta.plan_path.clone())),
+            )
+            .collect();
         let mut infos = live_sessions
             .into_iter()
             .map(|info| {
@@ -464,15 +481,18 @@ impl SessionProjection {
             ));
         }
 
-        Ok(ProjectionSnapshot { infos })
+        Ok(ProjectionSnapshot { infos, plans })
     }
 
     pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
         self.list_with_capacity_analysis(|cache, inputs| cache.analyze(inputs))
     }
 
-    // The compute dependency is private and used by the real projection path;
-    // tests can stall it without adding a runtime race-injection switch.
+    pub(crate) fn stream_projection(&self, enrich: bool) -> io::Result<StreamProjection> {
+        self.prepare_projection(|cache, inputs| cache.analyze(inputs), enrich)
+    }
+
+    // Tests can stall capacity analysis without adding runtime race switches.
     fn list_with_capacity_analysis(
         &self,
         analyze: impl FnOnce(
@@ -480,6 +500,18 @@ impl SessionProjection {
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
     ) -> io::Result<Vec<SessionInfo>> {
+        self.prepare_projection(analyze, true)
+            .map(|prepared| prepared.infos)
+    }
+
+    fn prepare_projection(
+        &self,
+        analyze: impl FnOnce(
+            &mut CapacityAnalysisCache,
+            Vec<CapacityInput>,
+        ) -> HashMap<String, PreparedCapacity>,
+        enrich: bool,
+    ) -> io::Result<StreamProjection> {
         let analysis = self
             .state
             .session_directory_state
@@ -512,7 +544,11 @@ impl SessionProjection {
                 ));
             }
         }
-        let mut infos = self.project_capacity(self.snapshot()?, &prepared)?;
+        // Capture metadata only under the input fence. Even legacy plan
+        // availability can inspect Git and belongs outside that fence.
+        let snapshot = self.snapshot_with_plan_resolver(&mut |_, _| Err("not inspected".into()))?;
+        let plans = snapshot.plans.clone();
+        let mut infos = self.project_capacity(snapshot, &prepared)?;
         self.project_organization(&mut infos);
         let documents = self
             .state
@@ -530,7 +566,26 @@ impl SessionProjection {
                 )
             })
             .collect();
+        if !enrich {
+            return Ok(StreamProjection {
+                infos,
+                locations: captured,
+                plans,
+            });
+        }
         drop(_fence);
+        let mut plan_resolver = PlanAvailabilityResolver::default();
+        for info in &mut infos {
+            info.has_openable_plan =
+                plans
+                    .get(&info.id)
+                    .and_then(Option::as_ref)
+                    .and_then(|reference| {
+                        workspace.as_ref().map(|workspace| {
+                            plan_resolver.resolve(&workspace.path, reference).is_ok()
+                        })
+                    });
+        }
         let mut locations = DocumentLocations::default();
         let contexts: HashMap<_, _> = captured
             .iter()
@@ -570,7 +625,11 @@ impl SessionProjection {
                 "workspace or session location changed during document inspection",
             ));
         }
-        Ok(infos)
+        Ok(StreamProjection {
+            infos,
+            locations: captured,
+            plans,
+        })
     }
 
     fn capture_capacity(&self) -> io::Result<(Option<CapacityWorkspace>, Vec<CapacityInput>)> {
@@ -1403,6 +1462,24 @@ mod tests {
             },
         );
         (dir, state, receiver)
+    }
+
+    #[test]
+    fn status_projection_does_not_inspect_repository_or_resolve_plans() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        crate::branch_documents::REPOSITORY_OPENS.with(|n| n.set(0));
+        let prepared = SessionProjection::new(state)
+            .stream_projection(false)
+            .unwrap();
+        assert_eq!(prepared.infos.len(), 1);
+        assert!(prepared.infos[0].branch.is_none());
+        assert!(prepared.infos[0].plan_documents.is_none());
+        assert_eq!(
+            crate::branch_documents::REPOSITORY_OPENS.with(|n| n.get()),
+            0
+        );
+        assert!(prepared.locations.contains_key("lag-test"));
     }
 
     #[tokio::test]

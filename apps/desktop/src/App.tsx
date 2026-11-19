@@ -364,8 +364,8 @@ function App() {
         || navigationIntent.current === reviewLoadIntent.current);
   const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
   const lastReviewDocument = useRef<ReviewDocument | null>(null);
-  const reviewLocation = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
-  const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
+  const reviewLocation = JSON.stringify([activeSession?.enrichmentRevision, activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
+  const reviewScope = JSON.stringify([activeSession?.enrichmentRevision, activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
     activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId, step.available])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.

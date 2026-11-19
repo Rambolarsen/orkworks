@@ -233,6 +233,13 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
           </button>
         </nav>
       )}
+      {!showingActivity && active.enrichment && active.enrichment.state !== "ready" && (
+        <p className="detail-muted" role="status">
+          {active.enrichment.state === "pending" ? "Checking Git and documents…"
+            : active.enrichment.state === "unavailable" ? "Some Git or document information is unavailable"
+            : "Git and document information may be out of date"}
+        </p>
+      )}
       {!showingActivity && active.planDocuments && onReviewPlan && <BranchDocumentSteps key={active.id}
         sessionId={active.id} documents={active.planDocuments} onOpen={kind => onReviewPlan(kind)}
         onRetry={() => onTitleUpdated?.()}

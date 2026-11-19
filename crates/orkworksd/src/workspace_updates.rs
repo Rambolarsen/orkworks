@@ -1,5 +1,6 @@
 //! Read-only workspace synchronization. Dirty revisions are hints; the shared
 //! complete session query remains authoritative. No terminal ownership here.
+mod split;
 use crate::{http::session_handlers::query_sessions, AppState};
 use axum::{
     extract::Request,
@@ -25,6 +26,7 @@ use tokio::sync::watch;
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub(crate) struct Revisions {
     sessions: u64,
+    enrichment: u64,
     recommendations: u64,
     workspace: u64,
     watcher: u64,
@@ -34,12 +36,18 @@ pub(crate) struct Revisions {
 pub(crate) struct UpdateHub {
     revisions: watch::Sender<Revisions>,
     instance: String,
+    shared: Arc<std::sync::Mutex<Option<split::Shared>>>,
+    #[cfg(test)]
+    inspections: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl Default for UpdateHub {
     fn default() -> Self {
         Self {
             revisions: watch::channel(Revisions::default()).0,
             instance: uuid::Uuid::new_v4().to_string(),
+            shared: Default::default(),
+            #[cfg(test)]
+            inspections: Default::default(),
         }
     }
 }
@@ -47,9 +55,15 @@ impl UpdateHub {
     fn subscribe(&self) -> watch::Receiver<Revisions> {
         self.revisions.subscribe()
     }
-    pub(crate) fn sessions_changed(&self) {
+    pub(crate) fn output_changed(&self) {
         self.revisions
             .send_modify(|r| r.sessions = r.sessions.wrapping_add(1));
+    }
+    pub(crate) fn sessions_changed(&self) {
+        self.revisions.send_modify(|r| {
+            r.sessions = r.sessions.wrapping_add(1);
+            r.enrichment = r.enrichment.wrapping_add(1);
+        });
     }
     pub(crate) fn recommendations_changed(&self) {
         self.revisions
@@ -111,6 +125,7 @@ fn origin_allowed(origin: Option<&str>) -> bool {
 #[derive(Deserialize)]
 pub(crate) struct Subscription {
     workspace: String,
+    capability: Option<String>,
 }
 
 pub(crate) async fn subscribe(
@@ -129,8 +144,21 @@ pub(crate) async fn subscribe(
     let Some((workspace, root)) = identity.filter(|(path, _)| path == &query.workspace) else {
         return StatusCode::CONFLICT.into_response();
     };
+    if query
+        .capability
+        .as_deref()
+        .is_some_and(|capability| capability != split::CAPABILITY)
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     ws.max_message_size(4096)
-        .on_upgrade(move |socket| run(socket, state, workspace, root))
+        .on_upgrade(move |socket| async move {
+            if query.capability.is_some() {
+                split::run(socket, state, workspace, root).await
+            } else {
+                run(socket, state, workspace, root).await
+            }
+        })
         .into_response()
 }
 
@@ -203,6 +231,7 @@ fn watch_metadata(
                                 "sessions"
                                     | "session-state"
                                     | "capacity"
+                                    | "branch-documents"
                                     | "workflow-observations"
                                     | "recommendations"
                                     | "taskmaster"
@@ -214,7 +243,8 @@ fn watch_metadata(
                     match first {
                         Some(
                             "sessions" | "session-state" | "capacity" | "workflow-observations",
-                        ) => hub.sessions_changed(),
+                        ) => hub.output_changed(), // Captured location/plan inputs determine enrichment invalidation.
+                        Some("branch-documents") => hub.sessions_changed(),
                         Some("recommendations" | "taskmaster" | "assessment.json") => {
                             hub.recommendations_changed()
                         }
@@ -235,6 +265,7 @@ fn watch_metadata(
         root.join("sessions"),
         root.join("session-state"),
         root.join("capacity"),
+        root.join("branch-documents"),
         root.join("workflow-observations"),
         root.join("recommendations"),
         root.join("taskmaster"),
@@ -383,6 +414,57 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn seed_sessions(
+        state: &Arc<AppState>,
+        directory: &Path,
+        count: usize,
+    ) -> crate::metadata::MetadataStore {
+        let root = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .root_path();
+        let metadata = crate::metadata::MetadataStore::new(&root);
+        for index in 0..count {
+            metadata.write_session(&crate::test_support::test_session_metadata(
+                format!("session-{index}"),
+                format!("History {index}"),
+                directory.display().to_string(),
+                "ended",
+                "2026-10-24T10:00:00Z",
+                "2026-10-24T10:00:00Z",
+            ));
+        }
+        metadata
+    }
+    async fn serve(state: Arc<AppState>) -> (tokio::task::JoinHandle<()>, std::net::SocketAddr) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = crate::build_router(state);
+        (
+            tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            }),
+            address,
+        )
+    }
+
+    #[test]
+    fn output_dirties_status_without_invalidating_enrichment() {
+        let hub = UpdateHub::default();
+        let receiver = hub.subscribe();
+        let before = *receiver.borrow();
+        hub.output_changed();
+        let after = *receiver.borrow();
+        assert_ne!(before.sessions, after.sessions);
+        assert_eq!(before.enrichment, after.enrichment);
+        hub.sessions_changed();
+        assert_ne!(receiver.borrow().enrichment, after.enrichment);
+    }
+
     #[test]
     fn delta_sends_only_changed_rows_and_explicit_removals() {
         let old = vec![json!({"id":"a","label":"old"}), json!({"id":"b"})];
@@ -466,6 +548,56 @@ mod tests {
         })
         .await
         .expect("session update deadline")
+    }
+
+    #[tokio::test]
+    async fn negotiated_socket_receives_capability_and_status_only_updates() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(directory.path());
+        let metadata = seed_sessions(&state, directory.path(), 4);
+        let (server, address) = serve(state.clone()).await;
+        let mut url = url::Url::parse(&format!("ws://{address}/workspace/updates")).unwrap();
+        url.query_pairs_mut()
+            .append_pair("workspace", &directory.path().display().to_string())
+            .append_pair("capability", "status-enrichment-v1");
+        let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .unwrap();
+        let snapshot = next_json(&mut socket).await;
+        assert_eq!(snapshot["capability"], "status-enrichment-v1");
+        let mut record = metadata
+            .try_read_revisioned_session("session-1")
+            .unwrap()
+            .unwrap()
+            .metadata;
+        record.label = "Status only".into();
+        metadata.write_session(&record);
+        let mut cursor = snapshot["sequence"].as_u64().unwrap();
+        loop {
+            let message = next_json(&mut socket).await;
+            if message["type"] == "heartbeat" {
+                continue;
+            }
+            assert_eq!(message["base"], cursor);
+            cursor += 1;
+            assert_eq!(message["sequence"], cursor);
+            if message["type"] == "session-status-delta" {
+                assert!(message["changed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|row| row.get("branch").is_none()));
+                if message["changed"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["label"] == "Status only")
+                {
+                    break;
+                }
+            }
+        }
+        server.abort();
     }
 
     #[tokio::test]

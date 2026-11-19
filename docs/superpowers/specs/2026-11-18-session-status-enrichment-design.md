@@ -4,14 +4,14 @@ title: Separate session status updates from repository enrichment
 description: Proposed status-only stream updates with independently scheduled, freshly validated Git and document summaries.
 tags: [orkworks, performance, sessions, architecture]
 status: draft
-workflow_status: awaiting-owner-approval
+workflow_status: approved-for-implementation
 ---
 
 # Separate session status updates from repository enrichment
 
 Proposed for [#1895](https://github.com/Rambolarsen/orkworks/issues/1895).
-This document is reviewable design, not authorization to implement or a claim
-about installed behavior. The owner requested continued CPU work after
+The owner approved this design for implementation on 2026-11-19. This is not
+a claim about installed behavior. The owner requested continued CPU work after
 [scan reuse #1909](https://github.com/Rambolarsen/orkworks/pull/1909) merged.
 
 ## Outcome and evidence
@@ -64,7 +64,9 @@ whole-list status projection or remove history scaling.
 Define explicit typed field groups rather than accepting arbitrary partial
 `SessionInfo` objects. Enrichment owns `cwd`, `worktreeBinding`,
 `gitContextSource`, `repoRoot`, `branch`, `dirty`, `changedFiles`, `lineChanges`,
-`isWorktree`, `conflictWarning`, `hasOpenablePlan` and `planDocuments`.
+`isWorktree`, `conflictWarning`, `recommendation`, `hasOpenablePlan` and `planDocuments`.
+Implementation inspection identified `recommendation` as Git-derived in
+`enrich_sessions_with_git_context`, so it follows enrichment rather than status.
 The remaining current fields belong to the status projection, including capacity,
 attention, organization and provenance. Review newly added fields explicitly.
 
@@ -196,7 +198,7 @@ regression outweighs busy savings, revise the cadence before enabling the change
 
 ## Design review
 
-Current-session review: ready for owner decision, not implementation. Checked
+Current-session design review completed; owner approved implementation on 2026-11-19. Checked
 scope, freshness, late-worker rejection, mixed-version recovery and storage
 separation. Material concerns addressed in this draft: a five-second schedule
 is not a freshness guarantee for slow scans; full worker results cannot replace
