@@ -349,3 +349,5 @@ Dated design records; these do not establish current product behavior.
 - [Research material clarification and changed answers](2026-11-18-research-clarification-design.md) — Proposed clarification decision/request/answer records, Main-authorized user provenance, atomic input/state effects and gate precedence; scoped offline-component choices pending.
 
 - [Production review preview binding](2026-11-19-review-handoff-binding-design.md) — Owner-accepted inspection/draft design; production source and Start admission qualification remain gated.
+
+- [Research-to-execution proposal and approval source](2026-11-19-research-execution-proposal-design.md) — Proposed execution decision/plan source with exact summary bindings, approval/rejection/invalidation records and a fresh server-held grant; scoped offline-component choices pending.
