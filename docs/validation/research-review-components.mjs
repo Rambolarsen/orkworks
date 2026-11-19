@@ -35,13 +35,19 @@ export function validateReviewWidths(r,jobBytes){
 function checkOutcome(outcome,questions){
  for(const s of outcome.questionStatuses)
   assert(['consistent','conflict','unverified'].includes(s.status),'question status enum');
+ const cited=outcome.citedEvidenceIds;
+ assert(Array.isArray(cited)&&new Set(cited).size===cited.length,'cited evidence ids unique');
+ assert.deepEqual(cited,[...cited].sort(),'cited evidence ids sorted');
+ const reportRefs=new Set(outcome.reviewedReport===null?[]:
+  (outcome.reportEvidenceIds||[]));
+ for(const id of cited)assert(reportRefs.has(id),'citations subset of the reviewed report references');
  const anyConflict=outcome.questionStatuses.some(s=>s.status==='conflict');
  const allConsistent=outcome.questionStatuses.every(s=>s.status==='consistent');
  assert.equal(outcome.verdict,anyConflict?'conflict':allConsistent?'consistent':'uncertain','aggregate verdict rule');
  if(outcome.verdict!=='consistent')
   assert(outcome.rationale.includes(outcome.questionStatuses.filter(s=>s.status!=='consistent').map(s=>s.questionId).join(','))||outcome.questionStatuses.every(s=>s.status==='consistent'),'rationale names unresolved questions');}
 export function validateResearchReview(p){
- exact(p,'prefixSha256 startupSha256 assumptions twoTaskPlan reviewerConfiguration collectionShapes reviewInput correctedSelection reviewAdmission staleReview summaryCitation effects measurements');
+ exact(p,'prefixSha256 startupSha256 assumptions twoTaskPlan reviewerConfiguration collectionShapes reviewInput correctedSelection reviewAdmission staleReview summaryCitation effects reviewerExpectationChain measurements');
  assert.equal(p.prefixSha256,hash(prefixRaw));assert.equal(p.startupSha256,hash(startupRaw));
  validateResearchPrefix(prefix);validateResearchStartup(startup);
  same(p.assumptions,[
@@ -138,7 +144,8 @@ export function validateResearchReview(p){
  assert.deepEqual(p.reviewInput.emptyCase.citedExcerpts,[],'empty-citedExcerpts case present');
  // outcome: status enum, aggregate verdict, digest
  const outcome=p.reviewAdmission.outcome;
- checkOutcome(outcome,scope.questions);
+ const outcomeCheck=clone(outcome);outcomeCheck.reportEvidenceIds=snap.report.evidenceReferences.map(r=>r.id);
+ checkOutcome(outcomeCheck,scope.questions);
  assert.deepEqual(outcome.questionStatuses.map(x=>x.questionId),scope.questions.map(q=>q.questionId),'one status per approved question');
  assert.equal(outcome.verdict,'consistent');
  const outcomeForHash=clone(outcome);delete outcomeForHash.reviewDigest;
@@ -174,7 +181,21 @@ export function validateResearchReview(p){
  assert.deepEqual(p.staleReview.expectationAfter.value.body.task,researcherTask,'expectation task unchanged');
  assert.deepEqual(p.staleReview.expectationAfter.value.body.selectedReport,row.value.request.review.reviewedReport,
   'expectation follows the corrected selection without reviewer-row mutation');
+ const expectationChain=p.reviewerExpectationChain;
+ assert.deepEqual(expectationChain.before.value.body.task,reviewerTask,'reviewer expectation binds the reviewer task');
+ assert.equal(expectationChain.before.value.body.selectedReport,null,'reviewer selectedReport null before correction');
+ assert.deepEqual(expectationChain.after.value.body,clone(expectationChain.before.value.body),'reviewer expectation unchanged through the correction');
+ assert.equal(expectationChain.after.value.body.expectationVersion,expectationChain.before.value.body.expectationVersion,'no version advance without mutation');
+ assert.deepEqual(expectationChain.replacement.value.body.task.taskId,'review-task-2','replacement expectation binds the replacement task');
+ assert.equal(expectationChain.replacement.value.body.reservation,null,'replacement expectation pre-reservation');
+ assert.equal(expectationChain.expected,'reviewer-selectedReport-null-through-corrections/replacement-expectation-created-at-proposal');
  assert.equal(p.staleReview.expectationAfter.value.body.expectationVersion,3,'coalesced selection version');
+ const stale=p.staleReview.stale,original=stale.originalOutcome;
+ const originalForHash=clone(original);delete originalForHash.reviewDigest;
+ assert.equal(original.reviewDigest,digest('orkworks.research-review-outcome.v1',originalForHash),'original outcome reseals');
+ assert.notDeepEqual(original.reviewedReport,row.value.request.review.reviewedReport,'original outcome reviewed the superseded report');
+ assert.deepEqual(stale.reviewedReport,original.reviewedReport,'stale binding matches the original outcome');
+ assert.equal(stale.reviewDigest,original.reviewDigest,'stale digest resolves to the original outcome');
  const replacement=p.staleReview.replacementPlan;
  assert.equal(replacement.variant,'reviewer-only-replacement');
  assert(!('task' in replacement),'mandatory reviewTask member, researcher task absent');
@@ -196,7 +217,9 @@ export function validateResearchReview(p){
  same(p.effects.map(x=>x.id),['plan-approval','reviewer-reservation','review-admission','review-publication',
   'conflict','report-correction','replacement','summary-citation'],'effect label set');
  const rows=[p.reviewInput.snapshot,p.reviewAdmission.row,p.summaryCitation.row,
-  p.collectionShapes.expectations[0],p.staleReview.expectationAfter,p.correctedSelection.row];
+  p.collectionShapes.expectations[0],p.staleReview.expectationAfter,
+  p.reviewerExpectationChain.before,p.reviewerExpectationChain.after,p.reviewerExpectationChain.replacement,
+  p.correctedSelection.row];
  const measurements=rows.map(r=>{validateReviewWidths(r,size(r));return {table:r.table,key:r.key,...measureReviewRow(r)};});
  same(p.measurements,measurements,'exact key plus committed occurrence projection');return measurements;}
 // All facts below are supplied assertions. These functions do not establish

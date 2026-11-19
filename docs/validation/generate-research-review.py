@@ -186,6 +186,15 @@ def packet():
     expectation_after=row('research_expectations',researcher_task,
         dict(schemaVersion=1,task=clone(researcher_task),collection=run,collecting=True,configuration=clone(config_ref),
              scope=scope_ref,reservation=reservation_ref,selectedReport=reviewed_source,expectationVersion=3),'review-collection',4)
+    reviewer_reservation=dict(task=reviewer_task,reservationId='review-reservation',reservationDigest=sha('UNQUALIFIED review reservation'))
+    reviewer_expectation_before=row('research_expectations',reviewer_task,
+        dict(schemaVersion=1,task=reviewer_task,collection=run,collecting=True,configuration=dict(configurationId=cfg_ok['configurationId'],configurationDigest=cfg_ok['configurationDigest']),
+             scope=scope_ref,reservation=reviewer_reservation,selectedReport=None,expectationVersion=1),'review-collection',2)
+    reviewer_expectation_after=clone(reviewer_expectation_before)
+    replacement_expectation=row('research_expectations',dict(researcher_task,taskId='review-task-2'),
+        dict(schemaVersion=1,task=dict(researcher_task,taskId='review-task-2'),collection=run,collecting=True,
+             configuration=dict(configurationId='review-config-2',configurationDigest=sha('UNQUALIFIED replacement config digest')),
+             scope=scope_ref,reservation=None,selectedReport=None,expectationVersion=1),'review-collection',5)
     # review outcome, request, receipt row
     statuses=[dict(questionId=q['questionId'],status='consistent') for q in sc['questions']]
     outcome=dict(schemaVersion=1,task=reviewer_task,
@@ -217,7 +226,13 @@ def packet():
     summary_row=row('research_summaries',dict(**run,summaryVersion=3),summary_body,'summary-3',3)
     summary_row['value']['digest']=digest('orkworks.research-summary.v1',summary_body)
     # stale review and reviewer-only replacement with its own configuration
-    stale=dict(reviewedReport=report_source,reviewDigest=outcome['reviewDigest'],
+    original_outcome=dict(outcome,reviewedReport=report_source,questionStatuses=[dict(questionId=q['questionId'],
+        status='consistent' if q['questionId']=='q-a' else 'unverified') for q in sc['questions']],
+        rationale='Question q-a is consistent; q-b remains unverified by the version-1 report.',
+        citedEvidenceIds=[])
+    original_outcome.pop('reviewDigest',None)
+    original_outcome['reviewDigest']=digest('orkworks.research-review-outcome.v1',original_outcome)
+    stale=dict(originalOutcome=original_outcome,reviewedReport=report_source,reviewDigest=original_outcome['reviewDigest'],
         currentSelection=dict(reportVersion=2),expected='stale-review/retain-history/replace-via-new-revision')
     replacement_cfg,_=reviewer_configuration(cfg,researcher_task,'review-task-2','review-config-2',
         'fixture-review-adapter','fixture-review-generation',sha(canonical(settings_ok)),'review-group-2')
@@ -231,7 +246,7 @@ def packet():
         batches=[['review-task-2']],maxParallelChildren=1,
         scopeText='Replace the stale review of the corrected report.')
     replacement['planDefinitionDigest']=digest('orkworks.research-source-plan.v1',replacement)
-    rows=[snapshot_row,review_row,summary_row,expectation_before,expectation_after,input3_row]
+    rows=[snapshot_row,review_row,summary_row,expectation_before,expectation_after,reviewer_expectation_before,reviewer_expectation_after,replacement_expectation,input3_row]
     return dict(prefixSha256=sha(prefix_raw),startupSha256=sha(startup_raw),assumptions=[
         'separate decoded examples, not a store or legal event history',
         'reviewer child authority, generation, lease, rate and current Main shown context supplied, never authenticated here',
@@ -270,6 +285,8 @@ def packet():
             ('report-correction','new-input-revision/stale-review/expectation-row-unchanged'),
             ('replacement','reviewer-only-variant/no-automatic-rereview/original-retained'),
             ('summary-citation','128-combined-ceiling/current-consistent-only/binds-current-selection')]],
+        reviewerExpectationChain=dict(before=reviewer_expectation_before,after=reviewer_expectation_after,
+            replacement=replacement_expectation,expected='reviewer-selectedReport-null-through-corrections/replacement-expectation-created-at-proposal'),
         measurements=[dict(table=r['table'],key=r['key'],**measure(r)) for r in rows])
 
 if __name__=='__main__':

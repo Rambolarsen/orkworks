@@ -1758,6 +1758,64 @@
   },
   "staleReview": {
     "stale": {
+      "originalOutcome": {
+        "schemaVersion": 1,
+        "task": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "prefix-plan",
+          "planRevision": 1,
+          "taskId": "review-task"
+        },
+        "reservation": {
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "review-task"
+          },
+          "reservationId": "review-reservation",
+          "reservationDigest": "92910c4f7ca00970945ca5568146892cd69a220e8b5a43bf289cfa38361fb777"
+        },
+        "childSessionId": "review-child",
+        "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reviewedReport": {
+          "schemaVersion": 1,
+          "sourceKind": "research-report",
+          "reportIdentity": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "prefix-task",
+            "reservationId": "prefix-reservation",
+            "childSessionId": "prefix-child",
+            "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "reportId": "prefix-report",
+            "reportVersion": 1
+          },
+          "sizeBytes": 886,
+          "contentDigest": "e9c6ccc58cb5f306b9b7c09ef0cf253c5cfa0e44ff1ac8e91212febfa43972ec"
+        },
+        "verdict": "consistent",
+        "questionStatuses": [
+          {
+            "questionId": "q-a",
+            "status": "consistent"
+          },
+          {
+            "questionId": "q-b",
+            "status": "unverified"
+          }
+        ],
+        "rationale": "Question q-a is consistent; q-b remains unverified by the version-1 report.",
+        "citedEvidenceIds": [],
+        "reviewDigest": "269ba08ba8d541247b55dded37df2629fed3274742bd3ba3ccc41f60ebd117ce"
+      },
       "reviewedReport": {
         "schemaVersion": 1,
         "sourceKind": "research-report",
@@ -1778,7 +1836,7 @@
         "sizeBytes": 886,
         "contentDigest": "e9c6ccc58cb5f306b9b7c09ef0cf253c5cfa0e44ff1ac8e91212febfa43972ec"
       },
-      "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052",
+      "reviewDigest": "269ba08ba8d541247b55dded37df2629fed3274742bd3ba3ccc41f60ebd117ce",
       "currentSelection": {
         "reportVersion": 2
       },
@@ -2548,6 +2606,179 @@
       "expected": "128-combined-ceiling/current-consistent-only/binds-current-selection"
     }
   ],
+  "reviewerExpectationChain": {
+    "before": {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "review-task"
+          },
+          "collection": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "collecting": true,
+          "configuration": {
+            "configurationId": "review-config",
+            "configurationDigest": "5939ff0e2c7de8d0940917fe101e0b6c55ebcd3d356a4f463345110fe5b71883"
+          },
+          "scope": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "review-task"
+            },
+            "reservationId": "review-reservation",
+            "reservationDigest": "92910c4f7ca00970945ca5568146892cd69a220e8b5a43bf289cfa38361fb777"
+          },
+          "selectedReport": null,
+          "expectationVersion": 1
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "4c9909dd21f4dbf762a90866e509e1dd2005b98b30286842b75811fa3fb05c8b"
+        }
+      }
+    },
+    "after": {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "review-task"
+          },
+          "collection": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "collecting": true,
+          "configuration": {
+            "configurationId": "review-config",
+            "configurationDigest": "5939ff0e2c7de8d0940917fe101e0b6c55ebcd3d356a4f463345110fe5b71883"
+          },
+          "scope": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "review-task"
+            },
+            "reservationId": "review-reservation",
+            "reservationDigest": "92910c4f7ca00970945ca5568146892cd69a220e8b5a43bf289cfa38361fb777"
+          },
+          "selectedReport": null,
+          "expectationVersion": 1
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "4c9909dd21f4dbf762a90866e509e1dd2005b98b30286842b75811fa3fb05c8b"
+        }
+      }
+    },
+    "replacement": {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task-2"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "review-task-2"
+          },
+          "collection": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "collecting": true,
+          "configuration": {
+            "configurationId": "review-config-2",
+            "configurationDigest": "904997205685372343bf7957c15c173448ee38de75e2826dbd2c350789d96e93"
+          },
+          "scope": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+          },
+          "reservation": null,
+          "selectedReport": null,
+          "expectationVersion": 1
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "5",
+          "changeDigest": "4c9909dd21f4dbf762a90866e509e1dd2005b98b30286842b75811fa3fb05c8b"
+        }
+      }
+    },
+    "expected": "reviewer-selectedReport-null-through-corrections/replacement-expectation-created-at-proposal"
+  },
   "measurements": [
     {
       "table": "objects",
@@ -2610,6 +2841,42 @@
       },
       "chargeBytes": 2034,
       "wrapperBytes": 2234
+    },
+    {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task"
+      },
+      "chargeBytes": 1318,
+      "wrapperBytes": 1518
+    },
+    {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task"
+      },
+      "chargeBytes": 1318,
+      "wrapperBytes": 1518
+    },
+    {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "review-task-2"
+      },
+      "chargeBytes": 1026,
+      "wrapperBytes": 1226
     },
     {
       "table": "objects",
