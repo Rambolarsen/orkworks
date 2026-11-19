@@ -1369,8 +1369,17 @@ html, body, #root {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: var(--space-2);
+  margin: var(--space-2);
+  padding: 14px;
   position: relative;
+  background: var(--term-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.terminal-container .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }
 
 .terminal-container .xterm {

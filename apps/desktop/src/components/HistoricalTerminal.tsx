@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
-import { orkworksTerminalTheme } from "../terminalTheme";
+import { orkworksTerminalOptions } from "../terminalTheme";
 import { createTerminalPlanLinkProvider, terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
@@ -44,7 +44,7 @@ export default function HistoricalTerminal({ sessionId, onSelectPlan }: {
           const hasFixedSize = cols !== undefined && rows !== undefined;
           if (hasFixedSize) loadedSize = { cols, rows };
           terminal = new Terminal({
-            theme: orkworksTerminalTheme,
+            ...orkworksTerminalOptions,
             disableStdin: true,
             cursorBlink: false,
             scrollback: 2000,
