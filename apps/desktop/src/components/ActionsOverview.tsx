@@ -54,13 +54,18 @@ export default function ActionsOverview({
     </p>}
     {[...new Set(model.rows.map(row => row.group))].map(group => <section key={group} aria-label={group}>
       <h3>{group}</h3>
-      {model.rows.filter(row => row.group === group).map(row => <div key={row.key} className="actions-row">
-        {row.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
-        <button type="button" data-action-key={row.key} aria-pressed={current?.key === row.key}
-          onClick={() => onInspectAction(row)}>{row.title}</button>
-        <span>{row.source === "session" ? "Session" : "Recommendation"}
-          {row.unavailable ? " · Unavailable — refresh pending" : ""}</span>
-      </div>)}
+      {model.rows.filter(row => row.group === group).map(row => {
+        const sourceLabel = (row.source === "session" ? "Session" : "Recommendation")
+          + (row.unavailable ? " · Unavailable — refresh pending" : "");
+        return <div key={row.key} className="actions-row">
+          {row.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
+          <button type="button" data-action-key={row.key} aria-pressed={current?.key === row.key}
+            aria-label={row.title} aria-description={sourceLabel} onClick={() => onInspectAction(row)}>
+            <span className="actions-row-title">{row.title}</span>
+            <span className="actions-row-source" aria-hidden="true">{sourceLabel}</span>
+          </button>
+        </div>;
+      })}
     </section>)}
     {inspected && !current && <div className="actions-row" role="status">
       <span>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</span>
