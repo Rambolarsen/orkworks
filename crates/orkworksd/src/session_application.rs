@@ -4368,7 +4368,7 @@ impl SessionApplication {
         handle.info.suggested_options = stored.suggested_options;
         handle.info.provenance = stored.provenance;
         handle.pending_work_signal = None;
-        self.state.updates.sessions_changed();
+        self.state.updates.output_changed();
         true
     }
 

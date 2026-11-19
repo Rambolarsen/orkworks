@@ -550,17 +550,27 @@ skills do not establish native loading/use or change session lifecycle authority
 
 ## Frontend → backend API
 
-[ADR 0092](../adr/0092-workspace-update-stream.md) adds one workspace-scoped
+[ADR 0092](../adr/0092-workspace-update-stream.md) defines the workspace-scoped
 read-only update socket owned by `workspaceSessionController.ts`. An initial
-complete session snapshot is followed by complete changed rows, removals and
-ordering changes. Stream messages share a versioned instance/workspace cursor;
-a gap or reconnect requires a new snapshot. The sidecar reuses the complete REST
-query, including the live Peon/observation overlay, and never infers removal from
-an incomplete query. Metadata watches and runtime/mutation signals coalesce
-projections to two-second starts; thirty-second reconciliation covers Git/cwd,
-clock and external changes. Native watcher paths are canonicalized, and directory
-replacement/overflow rearms watches. Stream failure restores existing polling.
-The source API does not imply these changes are in a published installer.
+complete snapshot establishes the instance/workspace cursor; gaps and reconnects
+require a new snapshot. Legacy clients receive complete changed rows. Clients
+negotiating `status-enrichment-v1` instead receive typed status and enrichment
+groups under that same cursor. One workspace-owned publisher shares inspection
+across negotiated subscribers; two-second status updates do not inspect Git or
+documents. Enrichment runs every five seconds when an existing row has changed
+its output timestamp in the past ten seconds, otherwise every 30 seconds. These
+passes retain independent fresh location and publication validation, cannot
+overlap, and cannot replace newer status. Explicit refresh and known mutations
+bypass the periodic wait; output events never postpone the start clock.
+
+Metadata watches trigger status capture; changed location/plan inputs invalidate
+enrichment. Known mutations and unknown scope invalidate conservatively. Thirty-
+second reconciliation and watcher rearming recover missed metadata events.
+Pending/stale/unavailable enrichment is explicit and never authorizes an action;
+selected document reads/actions and full REST queries retain their fresh checks.
+Slow consumers reconnect; incomplete status queries never imply removal. Stream
+failure restores existing polling. No terminal ownership or format-2 activation
+changes. Source behavior does not establish published-installer availability.
 
 `recommendationSource.ts` shares one workspace-scoped recommendation list across
 the shell Actions overview and mounted recommendations panel. Stream invalidation
@@ -1259,7 +1269,7 @@ Single binary. Top-level modules:
 - `taskmaster_handlers.rs` — recommendation list/detail/dismiss/accept/complete adapters. `accept` (ADR 0048) sends a generated fix prompt into a caller-specified, already-live session; it starts no session of its own. `complete` accepts only a capability-authenticated optional summary and derives the target session from `ORKWORKS_REPORT_TOKEN`, so agents cannot complete a recommendation on behalf of another session.
 - `harness_integration_application.rs` — typed application seam for integration inspection, mutation, workspace listing, unreferenced cleanup and synchronous launch readiness. It coordinates existing adapters, probe/revalidation locks and prompt-authority snapshots without duplicating state. Inspection can demote stale authority; HTTP handlers own transport mapping. See [ADR 0030](../adr/0030-integration-lock-check-await-helper.md).
 - `session_application.rs` — typed application seam for workspace opening, session lifecycle commands, attention and plan selection, and delete/forget workflows. It coordinates the existing `AppState` and runtime/metadata modules without owning a second session map; workspace opening retains the `WorkspaceLease` in `WorkspaceState` for the lifetime of the owner; `http/session_handlers.rs` remains responsible for request extraction, authorization, compatibility mapping, and serialization.
-- `session_projection.rs` — stateful `GET /sessions` projection. It snapshots live and durable session state, performs capacity/provider write-back and cwd/Git/conflict enrichment, and serializes metadata/organization projection and capacity commit with workspace replacement under `AppState.projection_lock`. Pure capacity computation runs outside that fence; the lock order is projection lock, workspace or sessions lock, then provider-manager internal locks. It releases state locks before filesystem, process-cwd, or Git I/O. Its process-local Git-context cache lives in `AppState`, reuses results per resolved worktree root for five seconds from scan start, and retains at most 512 roots. Workspace adoption clears it; expired entries are pruned and a full cache evicts the oldest scan. The dedicated cache lock serializes misses without holding workspace or session locks. Session recommendations and worktree-conflict warnings are derived afresh on each listing from the newly enriched checkout root (effective CWD remains the non-Git fallback). Participant counts exclude archived/inactive sessions and unavailable Git context. Counting reuses the existing request-local root/context maps without additional repository discovery. Shared dirty-worktree advice takes precedence over linked-worktree isolation advice. `session_view.rs` remains pure and reusable for field derivation.
+- `session_projection.rs` — stateful `GET /sessions` projection. It snapshots live and durable session state, performs capacity/provider write-back and cwd/Git/conflict enrichment, and serializes metadata/organization projection and capacity commit with workspace replacement under `AppState.projection_lock`. Pure capacity computation runs outside that fence; the lock order is projection lock, workspace or sessions lock, then provider-manager internal locks. It releases state locks before filesystem, process-cwd, or Git I/O. Its process-local Git-context cache lives in `AppState`, reuses results per resolved worktree root for five seconds from scan start, and retains at most 512 roots. Workspace adoption clears it; expired entries are pruned and a full cache evicts the oldest scan. The dedicated cache lock serializes misses without holding workspace or session locks. Session recommendations and worktree-conflict warnings are derived afresh on each full listing or negotiated enrichment pass from the newly enriched checkout root (effective CWD remains the non-Git fallback). Participant counts exclude archived/inactive sessions and unavailable Git context. Counting reuses the existing request-local root/context maps without additional repository discovery. Shared dirty-worktree advice takes precedence over linked-worktree isolation advice. `session_view.rs` remains pure and reusable for field derivation.
 - `capacity_analysis.rs` — process-local capacity evidence cache, with one serialized analysis admission per application state. Overlapping listings wait outside all state locks, so ordinary contention does not become an HTTP 500 response (#1295). It shares immutable retained output, reuses unchanged line evidence by runtime/line revision and resolved capability fingerprint, and computes outside the input fence. Commit validates workspace lease/store ownership, runtime/control identity, capability fingerprint and capacity control revision; output-only counter growth preserves captured-prefix results and newer counters. Accepted input, hook clear and capacity transitions invalidate old evidence. Commit never waits on the per-runtime input-owner gate: busy sessions retain current capacity through delivery/bookkeeping. Metadata/organization retains its existing fenced ordering; session-list Git/cwd/document inspection runs outside the fence with current-input and workspace revalidation under the branch projection amendment. No history or observation-retention policy changes. See [ADR 0102](../adr/0102-terminal-projection-input-fence.md).
 - `runtime/` — background-task and PTY submodules:
   - `observed_status.rs` — shared attention field operations and `ProcessTransition` decisions; `SessionApplication` owns application and persistence/live-mirror sequencing for ordinary hook/debug, idle and process-attention changes. Committed input retains its combined freshness/attention critical section. See [ADR 0027](../adr/0027-observed-status-attention-owning-module.md) and [transition observation windows](domain-entities.md#transition-ownership-and-observation-windows).

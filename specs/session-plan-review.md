@@ -77,7 +77,13 @@ information. Use the validated explicit worktree binding before existing
 harness/process/launch directory fallbacks. An unavailable explicit binding is
 unavailable; never silently inspect a different root.
 
-Resolve the branch from the current validated worktree on each refresh/read.
+Resolve the branch from the current validated worktree on every enrichment
+refresh, explicit full refresh, document read and action. Negotiated status-only
+updates do not refresh Git/document information or establish its validity;
+retain its separate freshness state and revalidate before every read/action.
+The owner-approved [status/enrichment design](../docs/superpowers/specs/2026-11-18-session-status-enrichment-design.md)
+defines scheduling, stale display, compatibility and recovery. Legacy clients
+retain full-projection refresh semantics until they negotiate the capability.
 Switching branches uses the new branch's pair without copying the old pair.
 Detached HEAD has no shared branch key: retain a revalidated session-local
 explicit/reported artifact, but do not invent a branch or share by commit ID.

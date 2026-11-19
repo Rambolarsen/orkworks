@@ -294,7 +294,15 @@ Pure renames contribute no line changes. Binary files count toward files but
 contribute no lines. Sessions sharing a
 worktree show the same totals; the counter does not identify which agent made
 each edit. Git results are reused for five seconds; committing or undoing
-changes updates the counter on the first session refresh after that window.
+changes updates the counter on the next Git refresh after that window.
+Current source builds update activity separately from Git and document summaries.
+Details shows when those summaries are being checked, may be out of date, or
+are unavailable. Git/document checks normally start every five seconds during
+output activity and every 30 seconds when quiet; slow checks can take longer.
+Information is marked out of date after five seconds, including between idle
+checks. Explicit refresh requests a new check immediately. Opening a document or performing an action
+still validates its current location. Older app/sidecar combinations retain the
+previous full-refresh behavior. This does not establish installer availability.
 Line totals are omitted when they cannot be read. A stalled Git scan is stopped after
 five seconds, leaving Git facts unavailable instead of displaying clean or zero
 counts. Session refreshes can recover after the filesystem problem is fixed.

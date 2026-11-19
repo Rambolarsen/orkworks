@@ -1155,6 +1155,17 @@ pub(crate) fn query_sessions(state: &Arc<AppState>) -> std::io::Result<Vec<Sessi
     Ok(infos)
 }
 
+pub(crate) fn query_stream_sessions(
+    state: &Arc<AppState>,
+    enrich: bool,
+) -> std::io::Result<crate::session_projection::StreamProjection> {
+    let mut prepared = SessionProjection::new(state.clone()).stream_projection(enrich)?;
+    for info in &mut prepared.infos {
+        project_live_peon_diagnostics(state, info);
+    }
+    Ok(prepared)
+}
+
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let result = tokio::task::spawn_blocking(move || query_sessions(&state)).await;
 
