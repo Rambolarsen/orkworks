@@ -15,6 +15,7 @@ import {
   validateStartupFailure,
   type StartupFailure,
 } from "./startupDiagnostics.ts";
+import { backendFetch } from "./backendAccess.ts";
 
 export type { StartupFailure, StartupFailureCode } from "./startupDiagnostics.ts";
 
@@ -171,7 +172,7 @@ export async function createSession(
   opts?: import("./harnessTypes").CreateSessionOptions,
 ): Promise<SessionInfo> {
   if (opts?.initialImages?.length) return window.orkworks.createSessionWithImages(baseUrl, opts);
-  const resp = await fetch(`${baseUrl}/sessions`, {
+  const resp = await backendFetch(`${baseUrl}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(opts ?? {}),
@@ -181,7 +182,7 @@ export async function createSession(
 }
 
 export async function listHarnesses(baseUrl: string): Promise<HarnessListResponse> {
-  const resp = await fetch(`${baseUrl}/harnesses`);
+  const resp = await backendFetch(`${baseUrl}/harnesses`);
   if (!resp.ok) throw new Error(`list harnesses failed: ${resp.status}`);
   const body = await resp.json() as {
     documentRevision?: unknown;
@@ -269,7 +270,7 @@ export async function duplicateHarness(
   baseUrl: string,
   sourceId: string,
 ): Promise<DuplicateHarnessResponse> {
-  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(sourceId)}/duplicate`, { method: "POST" });
+  const resp = await backendFetch(`${baseUrl}/harnesses/${encodeURIComponent(sourceId)}/duplicate`, { method: "POST" });
   if (!resp.ok) await throwHarnessApiError(resp, "duplicate harness failed");
   const body = await resp.json() as Partial<DuplicateHarnessResponse>;
   if (
@@ -307,7 +308,7 @@ export async function saveHarnessConfiguration(
       ? { kind: "CustomReplace", definition: editable, expectedRevision: request.expectedRevision }
       : { kind: "BuiltinPatch", patch: editable, expectedRevision: request.expectedRevision };
   }
-  const resp = await fetch(url, {
+  const resp = await backendFetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -321,7 +322,7 @@ export async function removeHarnessProfile(
   harnessId: string,
   expectedRevision: string | null,
 ): Promise<HarnessMutationResponse> {
-  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}/remove-profile`, {
+  const resp = await backendFetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}/remove-profile`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expectedRevision }),
@@ -335,7 +336,7 @@ export async function deleteHarness(
   harnessId: string,
   expectedRevision: string | null,
 ): Promise<HarnessDeleteResponse> {
-  const resp = await fetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}`, {
+  const resp = await backendFetch(`${baseUrl}/harnesses/${encodeURIComponent(harnessId)}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expectedRevision }),
@@ -417,13 +418,13 @@ function mapHarnessEntry(
 export async function listSessions(
   baseUrl: string,
 ): Promise<SessionInfo[]> {
-  const resp = await fetch(`${baseUrl}/sessions`);
+  const resp = await backendFetch(`${baseUrl}/sessions`);
   if (!resp.ok) throw new Error(`list sessions failed: ${resp.status}`);
   return resp.json();
 }
 
 export async function sessionAction(baseUrl: string, id: string, action: SessionAction, token: string): Promise<void> {
-  const resp = await fetch(`${baseUrl}/sessions/${encodeURIComponent(id)}/state`, {
+  const resp = await backendFetch(`${baseUrl}/sessions/${encodeURIComponent(id)}/state`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, token }),
@@ -455,7 +456,7 @@ export async function setWorkspace(
   baseUrl: string,
   path: string,
 ): Promise<WorkspaceInfo> {
-  const resp = await fetch(`${baseUrl}/workspace`, {
+  const resp = await backendFetch(`${baseUrl}/workspace`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
@@ -468,7 +469,7 @@ export async function setActiveWorkspaceSession(
   baseUrl: string,
   sessionId: string,
 ): Promise<void> {
-  const resp = await fetch(`${baseUrl}/workspace/active-session`, {
+  const resp = await backendFetch(`${baseUrl}/workspace/active-session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId }),
@@ -481,7 +482,7 @@ export async function resumeSession(
   id: string,
   strategy?: ResumeStrategy,
 ): Promise<SessionInfo> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/resume`, {
+  const resp = await backendFetch(`${baseUrl}/sessions/${id}/resume`, {
     method: "POST",
     ...(strategy ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ strategy }) } : {}),
   });
@@ -550,7 +551,7 @@ export async function getTerminalOutput(
   baseUrl: string,
   id: string,
 ): Promise<{ lines: TerminalOutputRecord[]; cols?: number; rows?: number }> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/terminal-output`);
+  const resp = await backendFetch(`${baseUrl}/sessions/${id}/terminal-output`);
   if (!resp.ok) throw new Error(`get terminal output failed: ${resp.status}`);
   const data = await resp.json();
   return { lines: data.lines ?? [], cols: data.cols, rows: data.rows };
@@ -568,7 +569,7 @@ export async function getSummaryLog(
   baseUrl: string,
   id: string,
 ): Promise<SummaryLogEntry[]> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/summary-log`);
+  const resp = await backendFetch(`${baseUrl}/sessions/${id}/summary-log`);
   if (!resp.ok) throw new Error(`get summary log failed: ${resp.status}`);
   const data = await resp.json();
   return data.entries ?? [];
@@ -591,7 +592,7 @@ export async function getSessionWorkflowObservations(
   baseUrl: string,
   id: string,
 ): Promise<WorkflowObservationEntry[]> {
-  const resp = await fetch(`${baseUrl}/sessions/${id}/workflow-observations`);
+  const resp = await backendFetch(`${baseUrl}/sessions/${id}/workflow-observations`);
   if (!resp.ok) throw new Error(`get workflow observations failed: ${resp.status}`);
   const data = await resp.json();
   return data.observations ?? [];
@@ -618,7 +619,7 @@ export interface ProviderRuntimeResponse {
 }
 
 export async function getProviders(baseUrl: string): Promise<ProviderRuntimeResponse> {
-  const resp = await fetch(`${baseUrl}/providers`);
+  const resp = await backendFetch(`${baseUrl}/providers`);
   if (!resp.ok) throw new Error(`get providers failed: ${resp.status}`);
   return resp.json();
 }
@@ -883,7 +884,7 @@ export interface TaskmasterAssessmentRequestResponse {
 
 
 async function taskmasterRequest(baseUrl: string, path: string, init?: RequestInit): Promise<Response> {
-  const response = await fetch(`${baseUrl}${path}`, init);
+  const response = await backendFetch(`${baseUrl}${path}`, init);
   if (!response.ok) throw new ApiError(`Taskmaster request failed: ${response.status}`, response.status);
   return response;
 }

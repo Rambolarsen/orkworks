@@ -159,3 +159,4 @@ Decision records and their original rationale and consequences.
 - [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Superseded for the new producer by ADR 0116; policy-2 records retain their original contract.
 
 - [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.
+- [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.

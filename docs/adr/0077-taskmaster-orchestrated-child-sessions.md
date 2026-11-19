@@ -102,8 +102,9 @@ These are workflow and coding-tool controls. OrkWorks does not claim native
 filesystem/process confinement, credential isolation, hard CPU/memory/token/cost
 ceilings or crash-surviving ownership for orchestration. Ordinary sessions
 retain their existing host permissions and login behavior. Same-user processes
-may inspect/replay environment credentials; generic `POST /sessions` remains
-an unauthenticated ordinary-session route. Withholding the UI token from
+may inspect/replay environment credentials; generic `POST /sessions` is an
+ordinary-session route that requires the renderer credential from
+[ADR 0117](0117-authenticated-sidecar-listener.md), not the UI token. Withholding the UI token from
 renderer and coding-tool environments does not establish OS process identity.
 The independent-instance cleanup/replacement proof requirements in ADR 0060
 remain unchanged; this proposal does not claim they have passed.

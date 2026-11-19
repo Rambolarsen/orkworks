@@ -20,7 +20,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 | [0114](./0114-brain-guided-improvement-investigation.md) | Brain-guided manual improvement investigation | accepted; implementation/activation pending |
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
 | [0002](./0002-electron-react-typescript-desktop.md) | Electron + React + TypeScript desktop shell | superseded by [0078](./0078-fixed-desktop-shell-and-central-navigation.md) |
-| [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS | accepted |
+| [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS |accepted; access posture superseded by [0117](./0117-authenticated-sidecar-listener.md) |
 | [0004](./0004-orkworks-metadata-protocol.md) | `.orkworks/` metadata protocol directory structure | superseded by [0018](./0018-global-metadata-store.md) |
 | [0018](./0018-global-metadata-store.md) | Move metadata store from workspace directory to global config directory | accepted; ordinary session authority superseded in part by [0103](0103-sqlite-session-storage.md) |
 | [0005](./0005-metadata-source-priority.md) | Metadata source priority | accepted |
@@ -165,3 +165,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Superseded for the new producer by ADR 0116; policy-2 records retain their original contract.
 
 - [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.
+- [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.

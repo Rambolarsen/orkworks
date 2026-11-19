@@ -139,6 +139,9 @@ pub(crate) async fn session_terminal_handler(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    // Every branch must select the offered subprotocol: a browser fails the
+    // handshake otherwise and never sees the refusal message.
+    let ws = ws.protocols([crate::http::api_auth::WEBSOCKET_PROTOCOL]);
     let session_status = {
         let sessions = state.sessions.lock().unwrap();
         sessions.get(&id).map(|h| h.info.status.clone())

@@ -176,12 +176,13 @@ export default {
     const postHarnessSession = async () => {
       const port = process.env.ORKWORKS_PORT;
       const orkworksSessionId = process.env.ORKWORKS_SESSION_ID;
-      if (!port || !orkworksSessionId) return;
+      const token = process.env.ORKWORKS_REPORT_TOKEN;
+      if (!port || !orkworksSessionId || !token) return;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const response = await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/harness-session`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({
               harnessSessionId: openCodeSessionId,
               source: "opencode_hook",

@@ -8,6 +8,8 @@ fi
 escaped_session_id=$(printf '%s' "$OPENCODE_SESSION_ID" | sed 's/[\\"]/\\&/g')
 payload=$(printf '{"harnessSessionId":"%s","source":"opencode_env","confidence":0.98}' "$escaped_session_id")
 
-curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
+# The token travels on stdin so it never appears in argv.
+printf '%b' "header = \"Authorization: Bearer ${ORKWORKS_REPORT_TOKEN:-}\"\n" |
+curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/harness-session" \
   -H "Content-Type: application/json" \
   -d "$payload" >/dev/null || exit 0
