@@ -357,3 +357,5 @@ Dated design records; these do not establish current product behavior.
 - [Execution final completion and terminal continuation](2026-11-19-research-execution-completion-design.md) — Proposed typed execution-plan completion trigger, absorbing run-terminal transition with authority revocation and collection disposition under the sole run owner; scoped offline-component choices pending.
 
 - [Review artifact revision and Start admission sources](2026-11-19-review-source-qualification-design.md) — Accepted artifact epoch and bounded ordinary-review admission/recovery contract; offline logical evidence, with production qualification gated.
+
+- [Ordinary plan-review proposal and prepared input](2026-11-19-review-launch-input-design.md) — Accepted typed request/proposal, narrow reviewer profile and logical prepared-input commitment; production source/native qualification remains gated.
