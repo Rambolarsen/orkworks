@@ -191,3 +191,11 @@ development slice. The owner accepted its fixture-only scope exception and tasks
 approval from the earlier hierarchy preview, not inherited authority.
 Production recommendation/launch coherence and #610/#746 gates remain open.
 The accepted interaction design above is unchanged.
+
+## Proposed production binding
+
+The [production binding proposal](2026-11-19-review-handoff-binding-design.md)
+defines the next read/approval contract for owner review. It proposes ordinary
+plan-review-only support, bounded volatile inspection entries and exact draft
+consumption by the separately gated #68 Start owner. Its choices are not covered
+by the accepted interaction or fixture-only approvals above.
