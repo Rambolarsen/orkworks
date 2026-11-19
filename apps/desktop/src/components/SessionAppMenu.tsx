@@ -23,12 +23,9 @@ export default function SessionAppMenu({ workspacePath, session, disabled, compa
   useEffect(() => {
     setAvailability(null);
     setFolderAvailability(null);
-  }, [disabled, workspacePath, sessionId, session.harnessId, session.resume?.harnessSessionId, session.lifecycle, session.cwd, session.worktreeBinding?.root]);
-
-  useEffect(() => {
-    if (disabled) return;
-    let current = true;
     setError(null);
+    if (!open || disabled) return;
+    let current = true;
     const timers: number[] = [];
     for (const destination of ["native", "vscode"] as const) {
       let settled = false;
