@@ -148,9 +148,10 @@ This changes neither the existing selected-session fixed review prompt nor
 ordinary session creation remains subject to its explicit Start contract.
 
 The [production preview binding proposal](../docs/superpowers/specs/2026-11-19-review-handoff-binding-design.md)
-defines a candidate authenticated read and consuming Start boundary. Its
-ordinary plan-review/current-root scope, volatile inspection cache, numerical
-limits and reference-only artifact transport remain proposed for owner review.
+defines the authenticated read and consuming Start design accepted by the
+owner on 2026-11-19. Acceptance covers ordinary plan-review/current-root scope,
+volatile inspection/cache bounds, visible status validation and reference-only
+artifact transport; source/attempt codecs and runtime implementation remain gated.
 It does not implement a review recommendation type or change passive accept.
 
 ### Independence is valuable

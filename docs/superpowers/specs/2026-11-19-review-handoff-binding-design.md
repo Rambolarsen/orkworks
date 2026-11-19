@@ -8,9 +8,15 @@ status: draft
 
 # Production review preview binding
 
-**Status: proposed for owner review.** The owner authorized preparing this
-contract after [#1906](https://github.com/Rambolarsen/orkworks/pull/1906), not
-runtime implementation. The accepted [interaction design](2026-11-18-review-handoff-preview-design.md)
+**Status: owner-accepted design for source-contract qualification; runtime
+implementation remains gated.** The owner replied “go ahead” on 2026-11-19
+after reviewing draft [#1913](https://github.com/Rambolarsen/orkworks/pull/1913)
+and its concrete scope, cache limits and validation contract. This accepts the
+ordinary plan-review/current-root boundary, authenticated volatile inspection
+cache and numerical defaults, status validation, reference-only transport,
+artifact revision/pin prerequisite, immutable Start draft and stated filesystem
+guarantee. It does not accept missing producer/attempt codecs, qualify adapters
+or approve an executable runtime plan. The accepted [interaction design](2026-11-18-review-handoff-preview-design.md)
 and delivered isolated preview remain unchanged. Track this proposal under
 [#1899](https://github.com/Rambolarsen/orkworks/issues/1899), with the ordinary
 launch consumer owned by [#68](https://github.com/Rambolarsen/orkworks/issues/68).
@@ -24,7 +30,7 @@ Explicit Start consumes the inspected view after fresh validation. Reading,
 refreshing, closing or changing fields never accepts a recommendation or starts
 work. Preserve the existing selected-session fixed review prompt unchanged.
 
-Proposed first production scope: one new ordinary reviewer, one exact source
+Accepted first production scope: one new ordinary reviewer, one exact source
 session/runtime and one selected plan/spec. No existing-reviewer retargeting,
 code-only review without a plan, images, recursive delegation, child launch,
 new selection engine or cross-workspace operation. Those are not silently
@@ -92,7 +98,7 @@ worktree display identity and opaque selection ID. This is a proposed narrow
 display projection, not an extension of content-only access into a filesystem
 read API. No credentials, role secrets or provider-internal prompts are included.
 
-Proposed finite defaults, requiring owner acceptance: at most 8 entries per
+Owner-accepted finite defaults: at most 8 entries per
 workspace incarnation; 30 seconds from preparation with no sliding renewal;
 at most 64 KiB encoded entry/response, 24 KiB encoded request and 16 KiB user
 instruction. Count complete UTF-8 bytes before storing/returning; bound the raw
@@ -177,7 +183,7 @@ without revealing another workspace's data. A changed entry is permanently
 invalidated in this cache; a later equality cannot reactivate it.
 
 The renderer polls only while the detail is open and visible, once every
-5 seconds (a proposed default), with at most one request in flight. The sidecar
+5 seconds (owner-accepted default), with at most one request in flight. The sidecar
 admits at most one validation per entry at a time and returns busy rather than
 queueing more work. Existing owner-projected changes invalidate the displayed
 binding immediately when their exact identity is available; no existing event
@@ -241,7 +247,7 @@ user result acceptance.
 
 ## Approval, compatibility and handoff
 
-Owner choices requested by this proposal: ordinary plan-review-only/current-root
+Owner-accepted choices: ordinary plan-review-only/current-root
 initial support; authenticated volatile inspection cache and its numerical caps;
 reference-only artifact transport; 5-second visible status validation;
 artifact-owner revision/pin prerequisite; immutable exact draft at Start; the explicitly
@@ -272,7 +278,7 @@ a future cache can be removed by restart, while admitted attempts remain under
 | Close, workspace/backend/source-runtime replacement | Old responses and preview IDs cannot restore or launch context |
 | Invalid/oversized input, auth failure, unsupported version | Bounded rejection, no source mutation, prompt submission or creation effect |
 
-The next work after scoped acceptance is source-owner contract closure and its
+The next work is source-owner contract closure and its
 finite codec/admission fixtures, followed by an executable implementation plan.
 No model call, native probe, production adapter or runtime test is authorized
 by this design's existence or merge.
