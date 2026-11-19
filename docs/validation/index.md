@@ -159,6 +159,8 @@ Capability research, validation results, and evidence fixtures.
 
 - [Offline reports after revision rejection](research-post-report-components.md) — Independent original disposition/report/input/summary alternatives and exact retry/denial checks; no publisher or history qualification.
 
+- [Offline research review-task components](research-review-components.md) — Accepted declared-reviewer-task source examples: two-task plan, digest-free delivery entry, snapshot/outcome/request/receipt joins, stale-review replacement and typed summary citation; supplied reviewer and authority facts stay unqualified.
+
 - [Offline ordinary-review source components](ordinary-review-source-components.md) — Canonical registry bytes, conservative artifact binding and serialized logical admission/fault traces; no runtime or durability qualification.
 
 - [Offline ordinary-review launch inputs](ordinary-review-launch-input-components.md) — Exact proposal/configuration/prepared bytes and digest, finite bounds and conditional owner/draft joins; no production qualification.
