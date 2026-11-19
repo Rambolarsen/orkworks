@@ -50,7 +50,8 @@ including the decision union's existing members, the sole run owner and
 paired revisions; the
 [completion/lifecycle records](2026-11-15-research-completion-design.md)
 including the selector's `completedResearchPlan`/`currentSummary`, finish and
-cancel fencing; the accepted
+cancel fencing, and the summary's exact input binding and currentness rule;
+the accepted
 [scope-rejection](2026-11-16-research-scope-rejection-design.md),
 [prospective-membership](2026-11-16-research-prospective-membership-design.md),
 [post-rejection](2026-11-16-research-post-rejection-report-design.md),
@@ -105,41 +106,37 @@ the proposal creates the grant and nothing launches. This is a deliberate
 boundary — the next gate closes the execution launch chain under #610's
 ordinary-child rules, and no eligible execution task profile is claimed.
 
-## Execution decision variant
+## No new input revision: the summary currentness boundary
 
-`ResearchPreparedInputV1`'s decision union gains one sibling:
+The parent's decision to propose execution is represented by the proposal
+publication itself, bound to the exact current context — **no new input
+revision is published and no decision-union sibling is added**. The input
+decision union stays exactly as the clarification contract closed it
+(`ResearchDecisionV1 | ResearchClarificationDecisionV1`), with both members
+unchanged.
 
-```text
-decision: ResearchDecisionV1 | ResearchClarificationDecisionV1
-        | ResearchExecutionDecisionV1
-```
+This is deliberate, not an omission. `ResearchSummaryV1.input` pins the exact
+input at synthesis, and the accepted currentness rule clears `currentSummary`
+when that binding becomes stale. Publishing a fresh assessment manifest for
+the execution transition would advance the input revision, stale the summary
+by that rule, and leave the proposal pinned to a summary that approval's
+current-summary revalidation would then deny — while re-publishing the
+summary afterwards cannot repair it, because the proposal would pin the older
+ref. It would also create a summary→input→decision→summary digest cycle,
+which the accepted completion contract explicitly avoided by making summary
+publication derived output rather than a current-input record. The accepted
+lifecycle instead prepares the summary and the execution proposal
+automatically after successful research, with no intervening assessment
+revision; this proposal follows that ordering exactly. The proposal source's
+own binding (below) carries the assessment context: the exact current
+summary, completed plan and input refs, plus the proposing parent's declared
+reasons.
 
-`ResearchExecutionDecisionV1` is exactly:
-
-```text
-{schemaVersion:1,inputRevision,clarificationNeeded:false,researchNeeded:false,
- summary:ResearchSummaryRef,completedPlan:PlanRef,reasons:Text[]}
-```
-
-`inputRevision` equals the containing manifest's revision — a fresh
-authenticated parent assessment, never a stale copy. `reasons` is 1..4
-nonempty UTF-8 strings through 2 KiB each, explaining the proposed approach;
-they never carry hidden reasoning or executable task text.
-`summary`/`completedPlan` must equal the lifecycle selector's exact
-`currentSummary`/`completedResearchPlan` at assessment time, resolved through
-complete source-owned selection; a stale summary or a different completed
-plan denies the assessment. The existing two decision variants are unchanged,
-including `ResearchDecisionV1`'s fixed pair and the clarification variant's
-exactly-one-question rule; this adds a third sibling only. A direct-task skip
-assessment remains unavailable in this profile.
-
-The fresh execution-assessment manifest's record set is the retained
-applicable clarification-answer entries (per the accepted clarification
-contract) plus exactly the configuration record when the run's bootstrap
-binds one; it contains no research-scope, capture or report records. The
-unchanged input domain, 32 KiB bound, paired revisions, exact-key historical
-lookup and producer rules apply; the manifest's producer is the current
-parent runtime.
+The audit's "fresh assessment including skip-research" obligation is
+discharged by this authenticated, context-bound proposal publication for the
+research-to-execution branch; the small direct-task path's skip assessment
+and its execution sources remain separately unclosed and cannot reuse this
+branch.
 
 ## Execution proposal plan source
 
@@ -151,14 +148,20 @@ parent runtime.
                   input:PreparedInputRef},
  task:{taskId,configuration:{configurationId,configurationDigest},
        initialPrompt,group},
+ reasons:Text[],
  batches:[[taskId]],maxParallelChildren:1,scopeText,planDefinitionDigest}
 ```
 
 - `parentPlanBinding` is the exact accepted ten-field shape; its
-  `preparationRevision`/`inputDigest` resolve the fresh execution-assessment
-  manifest. `task.taskId` is new (never a research taskId);
+  `preparationRevision`/`inputDigest` resolve the **current** input manifest —
+  the manifest at synthesis time, which the summary pins. No new input
+  revision is published by this transition, so the summary's exact input
+  binding stays current (see the currentness boundary above).
+  `task.taskId` is new (never a research taskId);
   `initialPrompt` equals the referenced configuration's assignment
-  description; `scopeText` is nonempty UTF-8 through 4 KiB describing the
+  description; `reasons` is 1..4 nonempty UTF-8 strings through 2 KiB each,
+  explaining the proposed approach without hidden reasoning or executable
+  task text; `scopeText` is nonempty UTF-8 through 4 KiB describing the
   proposed task scope; `group` is the exact common group shape
   (`{groupId,branchName,absolutePath,baseCommit}`), declaring a new independent
   plan-owned worktree — never a research group, existing directory or
@@ -184,11 +187,9 @@ parent runtime.
   configuration and every referenced capability artifact occurrence, with no
   sharing credit.
 
-The proposal is published with the fresh assessment's input revision in one
-outcome. Assessment and proposal preparation are **one coalesced event**,
-matching the accepted prepare-proposal recipe: the fresh execution-assessment
-manifest publication and the execution proposal publication share one
-compound outcome and one `runVersion` advance. Admission precedes lookup:
+The proposal is published with the run's **current** input revision in one
+outcome — the proposal preparation is one coalesced event that publishes no
+new manifest. Admission precedes lookup:
 current parent planning authority (bearer/scope/generation under the existing
 rules) and the existing parent mutation rate discipline; publication is
 unavailable while a current unanswered clarification request exists (a
@@ -223,7 +224,9 @@ retain the exact gated state (`blocked`, `paused` with any pauseReason, or
 `awaiting_resume_approval`, per the accepted precedence rows) with the pending
 proposal recorded; invalidate every
 recognized earlier pending proposal under the accepted source-owned
-invalidation; and publish the cursor event. While paused during this state,
+invalidation; and publish the cursor event. The current input pointer, its
+paired revisions and every retained clarification-answer binding stay
+byte-unchanged. While paused during this state,
 the retained `resumeTarget` is `awaiting_execution_approval`: that value is
 already in the closed resume-target vocabulary (`assessing`,
 `awaiting_execution_approval`, `executing`), and the accepted retain rule
@@ -281,16 +284,60 @@ members. This proposal closes no launch: the
 run state remains `awaiting_execution_approval` until the separately gated
 execution launch chain closes, and the grant simply exists unexercised.
 
-Rejection is the existing version-bound Main rejection: no grant; the
-pending proposal stays rejected with its original bytes retained; a
-replacement is a new proposal publication bound to the then-current
-input/summary. Invalidation: any genuinely changed report source, new input
-revision or summary currentness change invalidates the pending proposal
-under the accepted membership contract before it can be approved — the
-stale-binding denial above is its admission-time backstop. `finish-research`,
-`cancel-stage` and `cancel-run` retain their accepted effects, each
-invalidating the recognized pending execution proposal; stage fencing rejects
-proposal publication and approval while `stageContinueRequired` is set.
+Rejection is an explicit lifecycle decision, not the scope-revision rejection
+contract: the accepted `reject-scope-revision` kind requires a nonnull
+active/paused current research plan and a pending replacement with a
+`replaces` relationship — preconditions this proposal's prestate (completed
+research, `currentPlan` null, fresh execution plan identity) cannot satisfy.
+Propose extending the accepted closed `ResearchLifecycleRequestV1` union with
+exactly one new kind:
+
+| kind | Additional fields |
+| --- | --- |
+| reject-execution-proposal | `decisionId,proposal:PlanRef,reason,reviewContextId,sidecarGeneration` |
+
+`decisionId` is Main/sidecar-issued nonsecret ID under the accepted UI-decision
+rules; `reason` is nonempty UTF-8 through 2 KiB; the request's common fields
+(`run`, `expectedRunVersion`, `input`) bind the exact current input — byte-identical
+to the proposal's `researchBinding.input`, since this transition publishes no
+new manifest. Keys reconstruct as for every UI kind
+(`{kind:"ui-decision",run,decisionId}`); the decision/readSet/receipt machinery,
+the unchanged `ResearchLifecycleReadSetV1` (with `pendingPlan` capturing the
+execution plan control read at status `proposed` and `currentPlan` null) and
+the ≤4 KiB receipt (with `planVersion` null, matching the accepted rule that
+only completion/cancel-stage report the current plan's version) are reused
+unchanged. Admission: current Main authority/workspace/epoch/owner/lease/
+health and the exact shown context before original retry lookup; the exact
+pending proposal still exists at status `proposed` under its original
+`PlanRef`; no active grant exists for it (rejection applies to a pending
+proposal; revoking an active, unexercised grant is a separately gated
+decision); no retained blocker; `stageContinueRequired` false; run not
+terminal. An authorized identical retry returns the original receipt before
+live-version CAS with no mutation, even after the run becomes terminal.
+
+The rejection outcome, in one authenticated union following the accepted
+scope-rejection effect pattern: insert the immutable lifecycle
+decision/receipt; mark **only** the rejected execution plan `cancelled` and
+advance its `planVersion` once — `cancelled` denotes a non-executable
+rejected proposal here, not cancel-stage of an approved plan — retaining its
+task at pending/version 1 with no reservation, as historical unreachable
+declared work; clear `run.pendingPlan`; create no collection/expectation
+effects (this slice's execution proposal creates none); retain the rejected
+proposal object, approval-less history and all source charges; advance the
+sole `runVersion` once; retain the run state `awaiting_execution_approval`
+(the accepted "same approval-wait state": the run remains post-research and a
+replacement proposal is a new publication bound to the then-current context,
+never a mutation of the rejected bytes); and publish the cursor event.
+`finish-research`, `cancel-stage` and `cancel-run` retain their accepted
+effects, each invalidating the recognized pending execution proposal; stage
+fencing rejects proposal publication, approval and rejection while
+`stageContinueRequired` is set. Invalidation remains the accepted
+source-owned rule: any genuinely changed report source or summary
+currentness change invalidates the pending proposal under the accepted
+membership contract before it can be approved — the stale-binding denial
+above is its admission-time backstop, and because this transition publishes
+no input revision, an unchanged report/summary history cannot stale the
+binding on its own.
 
 ## Families, accounting and membership
 
@@ -319,7 +366,7 @@ no new dependency purpose:
 
 | Owner / key | Complete required typed references |
 | --- | --- |
-| research-execution-plan / PlanRef | Original run/bootstrap, the fresh execution-assessment manifest and its decision, the exact `researchBinding` members (summary with its report/review provenance, completed plan with its completion record, input ref), the referenced configuration and capability artifacts, and original/new direct proofs |
+| research-execution-plan / PlanRef | Original run/bootstrap, the current input manifest the proposal binds (no new manifest is published), the exact `researchBinding` members (summary with its report/review provenance, completed plan with its completion record, input ref), the referenced configuration and capability artifacts, and original/new direct proofs |
 | research_execution_plan_approvals / `{plan,approvalId}` | The exact proposal object, the shown Main context, the grant-binding generation facts as historical data (never live authority), the original receipt/new C, and the run/plan-control outcomes that consumed the approval |
 
 Unknown or unsupported consumers deny; absence of a pointer never proves
@@ -331,7 +378,7 @@ unchanged.
 
 No existing source digest, wire field, report identity, dependency purpose,
 version default, cap, receipt version or volatile credential serialization
-changes beyond the explicitly proposed decision-union sibling, the new plan
+changes beyond the explicitly proposed lifecycle-request kind, the new plan
 kind/domain, the proposal publication record, the new object kind and
 family, and the `awaiting_execution_approval` positive writer. The accepted
 64-revision and 32 question/answer pairs bounds, 16-plan-reference run
@@ -344,9 +391,13 @@ proposal can be reverted without store effects.
 
 Accept or revise these proposed choices for **offline components only**:
 
-1. The `ResearchExecutionDecisionV1` sibling in the input decision union,
-   binding the exact current summary/completed plan with fresh-assessment
-   provenance; the direct-task skip assessment stays unavailable.
+1. The **no-new-input-revision boundary**: the input decision union stays
+   exactly as the clarification contract closed it; the execution transition
+   is represented by the authenticated, context-bound proposal publication
+   itself (exact current summary/completed plan/input binding, no fresh
+   assessment manifest), preserving the summary's exact input currentness
+   and avoiding the summary→input→decision→summary digest cycle; the
+   direct-task skip assessment stays unavailable.
 2. The `single-task-execution-source` plan shape with the exact
    `researchBinding`, new plan domain and unchanged parent-binding/budget
    rules; exactly one declared task; no research-worktree or cross-plan reuse.
@@ -355,7 +406,10 @@ Accept or revise these proposed choices for **offline components only**:
    invalidation and gate-respecting state selection.
 4. Exact approval/rejection/invalidation records under unchanged Main
    authority/retry rules, with the stale-binding denial and inherited
-   settled-reservation preconditions.
+   settled-reservation preconditions, plus the proposed
+   `reject-execution-proposal` lifecycle kind (marking only the rejected
+   plan `cancelled` as a non-executable rejected proposal, clearing
+   `pendingPlan`, retaining the approval-wait state).
 5. One fresh server-held `PlanExecutionGrant` per approval under the accepted
    grant record, with no launch closed here and the execution launch chain
    remaining separately gated; two catalog additions (conditional 61→63) and
@@ -364,11 +418,12 @@ Accept or revise these proposed choices for **offline components only**:
 After scoped acceptance, the bounded packet covers `docs/validation/` only:
 an independent Python generator, retained JSON, data-only JavaScript
 checker/tests and evidence prose, plus documentation routing and LF
-attributes. Required examples: the fresh execution-assessment manifest bound
-to the exact summary/completed plan; proposal publication with pending
-binding and gated/blocked retained-state cases; approval under the exact
+attributes. Required examples: the proposal publication bound to the exact
+current summary/completed plan/input (including the summary-currentness
+preservation and gated/blocked retained-state cases); approval under the exact
 shown bytes with identical retry and conflict; stale-binding denial after a
-summary/report change; rejection and replacement; finish/cancel-stage/
+summary/report change; the `reject-execution-proposal` decision with its
+cancelled-plan/pendingPlan/state effects and replacement; finish/cancel-stage/
 cancel-run invalidation of the pending proposal; grant-boundary examples
 (labelled unqualified: the grant is a supplied volatile fact represented as
 label assertions only, never persisted); the positive approval example
@@ -429,6 +484,21 @@ retry wording matches the accepted rule; and the approval outcome advances
 `planVersion` once. No accepted technical definition changed and no runtime
 qualification follows. Neither reviewer executed code, a fixture, database
 or native/runtime process.
+
+After the hosted review of head `f27c84bb`, two further P2 findings were
+addressed in this revision: (1) the proposed fresh-assessment input advance
+would have staled the summary's exact input binding and created a
+summary→input→decision→summary digest cycle — the transition now publishes
+**no new input revision and no decision-union sibling**; the input decision
+union stays as the clarification contract closed it, and the proposal's own
+context-bound publication (with `reasons` moved into the plan source)
+discharges the research-to-execution assessment while the direct-task skip
+path stays separately unclosed; (2) the referenced "existing rejection" was
+the scope-revision rejection, whose preconditions this prestate cannot
+satisfy — the proposal now defines the explicit `reject-execution-proposal`
+lifecycle-request kind, following the accepted scope-rejection effect
+pattern (rejected plan `cancelled`/planVersion+1, task retained pending,
+`pendingPlan` cleared, approval-wait state retained, no grant touched).
 
 ## Remaining gates
 
