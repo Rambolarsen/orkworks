@@ -154,6 +154,15 @@ volatile inspection/cache bounds, visible status validation and reference-only
 artifact transport; source/attempt codecs and runtime implementation remain gated.
 It does not implement a review recommendation type or change passive accept.
 
+The [source/admission contract](../docs/superpowers/specs/2026-11-19-review-source-qualification-design.md)
+is owner-accepted with offline logical epoch/registry/admission fixtures; it does
+not qualify actual source custody, physical storage or runtime Start. The
+[typed launch-input candidate](../docs/superpowers/specs/2026-11-19-review-launch-input-design.md)
+proposes the missing ordinary plan-review proposal, narrow configuration and
+prepared-input byte/digest rules, with a coupled offline plan. These new choices
+await owner acceptance; automatic #66 intent producers, effective configuration
+leaf codecs, capability evidence and actual launch behavior remain gated.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.

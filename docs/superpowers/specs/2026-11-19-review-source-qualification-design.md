@@ -264,3 +264,11 @@ processes or production integration. Independent correctness and builder review
 found no material issue in the source proposal; the plan was self-reviewed once
 under the local plan policy. The [offline evidence](../../validation/ordinary-review-source-components.md)
 records finite logical checks and their explicit source/physical limits.
+
+## Launch-input follow-up
+
+The [typed launch-input proposal](2026-11-19-review-launch-input-design.md)
+defines candidate logical proposal/configuration values and the exact prepared
+digest composition. Its narrower initial profile and source/byte choices await
+separate owner acceptance; this accepted source/admission contract does not
+qualify those actual producers, effective leaf inputs or runtime delivery.
