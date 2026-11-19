@@ -437,3 +437,24 @@ results, actual native/runtime participation, complete physical
 catalog/version/initializer/proof closure and separately approved executable
 plans remain open. #1689/#1089/#610 stay open; #740 stays closed research.
 Gate 2 remains **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-19
+
+The owner answered "Accept all" to the explicit twenty-choice question
+covering this and the review-task, clarification and execution-proposal
+proposals. This accepts the five choices above — the typed-trigger/lifecycle
+reuse for the execution plan's completion with the execution-task codec
+reuse and ordinary-child result/turn admission, the absorbing run-terminal
+transition with complete authority revocation and collection retirement, the
+terminal-only-in-`research_run_controls` mapping with no TerminalReportRunV1
+cast, the membership recipes through existing families (conditional
+candidate 63 unchanged), and the failed/blocked non-completion rule — **for
+offline documentation components only**.
+
+It does not close the execution launch chain, execution recovery revisions,
+the broader terminal UI correction profile mapping, or any runtime/native
+qualification, and Gate 2 remains Investigate. #1689/#1089/#610 stay open;
+#740 stays closed research. The bounded offline packet may now follow under
+this acceptance, labeling auth, transport, coverage, currentness, grant,
+launch-chain and outcome facts as supplied.
