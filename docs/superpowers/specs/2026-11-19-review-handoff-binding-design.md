@@ -295,8 +295,9 @@ this review is not evidence that those prerequisites exist.
 
 ## Source qualification follow-up
 
-The [artifact and Start source proposal](2026-11-19-review-source-qualification-design.md)
+The [artifact and Start source contract](2026-11-19-review-source-qualification-design.md)
 audits the existing volatile document generation and ordinary creation seams.
-It proposes conservative artifact epoch binding and a separate durable attempt
-owner. These new source/record/budget/compatibility choices require scoped review;
-the accepted preview-cache design does not itself accept or qualify them.
+The owner separately accepted conservative artifact epoch binding, the bounded
+durable attempt contract and offline qualification scope on 2026-11-19. Logical
+component evidence does not qualify the producer, actual sources, physical
+persistence, compatibility or runtime admission.

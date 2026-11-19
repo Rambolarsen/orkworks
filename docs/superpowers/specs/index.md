@@ -353,4 +353,5 @@ Dated design records; these do not establish current product behavior.
 - [Research-to-execution proposal and approval source](2026-11-19-research-execution-proposal-design.md) — Proposed execution decision/plan source with exact summary bindings, approval/rejection/invalidation records and a fresh server-held grant; scoped offline-component choices pending.
 
 - [Execution final completion and terminal continuation](2026-11-19-research-execution-completion-design.md) — Proposed typed execution-plan completion trigger, absorbing run-terminal transition with authority revocation and collection disposition under the sole run owner; scoped offline-component choices pending.
-- [Review artifact revision and Start admission sources](2026-11-19-review-source-qualification-design.md) — Proposed reuse of the artifact store epoch and bounded durable ordinary-review admission/recovery owner.
+
+- [Review artifact revision and Start admission sources](2026-11-19-review-source-qualification-design.md) — Accepted artifact epoch and bounded ordinary-review admission/recovery contract; offline logical evidence, with production qualification gated.

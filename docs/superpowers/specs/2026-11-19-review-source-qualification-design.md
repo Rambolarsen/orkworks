@@ -3,17 +3,18 @@ type: Design
 title: Review artifact revision and Start admission sources
 description: Proposed source bindings and fail-closed durable admission contract required by the accepted review preview design.
 tags: [orkworks, review, source-contracts, admission]
-status: draft
+status: stable
 ---
 
 # Review artifact revision and Start admission sources
 
-**Status: proposed for owner review; no runtime implementation or migration.**
+**Status: source choices and offline plan accepted 2026-11-19; no runtime implementation or migration.**
 The owner authorized this qualification follow-up after accepting
 [#1913](https://github.com/Rambolarsen/orkworks/pull/1913). Existing
 [production binding approval](2026-11-19-review-handoff-binding-design.md)
-remains valid. This document proposes the missing source mechanics and new
-durable-record choices; it does not claim they are already qualified.
+remains valid. The owner accepted the missing source mechanics, durable-record choices and
+bounded offline plan with “keep going”. Acceptance does not qualify production
+integration or physical durability.
 Tracking: [#1899](https://github.com/Rambolarsen/orkworks/issues/1899) and
 [#68](https://github.com/Rambolarsen/orkworks/issues/68).
 
@@ -245,8 +246,8 @@ new registry, so activation/downgrade compatibility must be resolved before use.
 | Counter/byte/count saturation and malformed state | Finite denial with retained exact retry; no eviction/empty fallback |
 | Forget/GC/backup/cutover/downgrade | Duplicate protection survives, or admission remains visibly unavailable |
 
-Disposition: **Ready for scoped owner review of these source choices; production
-admission remains Investigate.** After acceptance, qualify the artifact binding
+Disposition: **Source choices accepted; production admission remains Investigate.**
+The accepted offline scope qualifies the artifact binding
 and registry codec/state machine with finite offline oracles and denial/fault
 vectors under a concise implementation plan. Those fixtures may prove logical
 transitions/encoding only; source integration, physical durability, complete
@@ -256,10 +257,10 @@ this proposal's existence or merge.
 
 ## Coupled offline qualification plan
 
-The [finite component plan](../plans/2026-11-19-review-source-components.md) is
-proposed for the same owner decision as this source contract. Acceptance may
-authorize those logical-only codec/state fixtures without another approval of
-the unchanged design. It does not authorize application metadata writes, native
+The [finite component plan](../plans/2026-11-19-review-source-components.md) was
+accepted in the same owner decision as this source contract. That acceptance
+authorizes the logical-only codec/state fixtures under the unchanged design. It does not authorize application metadata writes, native
 processes or production integration. Independent correctness and builder review
 found no material issue in the source proposal; the plan was self-reviewed once
-under the local plan policy. No executable qualification is claimed yet.
+under the local plan policy. The [offline evidence](../../validation/ordinary-review-source-components.md)
+records finite logical checks and their explicit source/physical limits.
