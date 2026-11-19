@@ -358,4 +358,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Review artifact revision and Start admission sources](2026-11-19-review-source-qualification-design.md) — Accepted artifact epoch and bounded ordinary-review admission/recovery contract; offline logical evidence, with production qualification gated.
 
-- [Ordinary plan-review proposal and prepared input](2026-11-19-review-launch-input-design.md) — Proposed typed request/proposal, narrow reviewer profile and complete logical prepared-input commitment; production source/native qualification remains gated.
+- [Ordinary plan-review proposal and prepared input](2026-11-19-review-launch-input-design.md) — Accepted typed request/proposal, narrow reviewer profile and logical prepared-input commitment; production source/native qualification remains gated.

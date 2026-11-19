@@ -1,0 +1,143 @@
+{
+  "assumption": "All values and owners are synthetic; no producer, profile, path or native launch is qualified.",
+  "proposal": {
+    "schemaVersion": 1,
+    "intent": "ordinary_plan_review",
+    "recommendationId": "review-1",
+    "proposalRevision": "1",
+    "sourceSessionId": "source-1",
+    "sourceRuntime": {
+      "runtimeInstanceId": "00000001-1111-4111-8111-111111111111",
+      "runGeneration": "1"
+    },
+    "request": {
+      "requestId": "00000002-1111-4111-8111-111111111111",
+      "requestRevision": "1",
+      "text": "Please review this plan. Keep this separator. "
+    },
+    "chain": {
+      "chainId": "chain-1",
+      "depth": 0
+    },
+    "proposedDraft": {
+      "codingToolId": "fixture-reviewer",
+      "modelId": "fixture-model",
+      "userInstruction": "Review docs/plan.md.\nKeep café 🛠 and é distinct.\r\n\tDo not edit."
+    }
+  },
+  "configuration": {
+    "profile": "ordinary-plan-review-instruction-v1",
+    "ownerInstanceId": "00000003-1111-4111-8111-111111111111",
+    "ownerRevision": "1",
+    "codingToolId": "fixture-reviewer",
+    "modelId": "fixture-model",
+    "platform": "linux_x64",
+    "executable": "/fixture/bin/reviewer",
+    "argv": [
+      "--model",
+      "fixture-model"
+    ],
+    "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "integrationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "capabilityEvidenceId": "fixture-only-evidence",
+    "capabilityEvidenceRevision": "1",
+    "role": "reviewer",
+    "assurance": "instruction_only",
+    "skills": [],
+    "reasoningEffort": null,
+    "images": []
+  },
+  "prepared": {
+    "schemaVersion": 1,
+    "previewId": "00000004-1111-4111-8111-111111111111",
+    "workspace": {
+      "workspaceId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "sidecarInstanceId": "00000005-1111-4111-8111-111111111111",
+      "workspaceGeneration": "1",
+      "canonicalRoot": "/fixture/repo"
+    },
+    "proposal": {
+      "schemaVersion": 1,
+      "intent": "ordinary_plan_review",
+      "recommendationId": "review-1",
+      "proposalRevision": "1",
+      "sourceSessionId": "source-1",
+      "sourceRuntime": {
+        "runtimeInstanceId": "00000001-1111-4111-8111-111111111111",
+        "runGeneration": "1"
+      },
+      "request": {
+        "requestId": "00000002-1111-4111-8111-111111111111",
+        "requestRevision": "1",
+        "text": "Please review this plan. Keep this separator. "
+      },
+      "chain": {
+        "chainId": "chain-1",
+        "depth": 0
+      },
+      "proposedDraft": {
+        "codingToolId": "fixture-reviewer",
+        "modelId": "fixture-model",
+        "userInstruction": "Review docs/plan.md.\nKeep café 🛠 and é distinct.\r\n\tDo not edit."
+      }
+    },
+    "source": {
+      "sessionId": "source-1",
+      "runtimeInstanceId": "00000001-1111-4111-8111-111111111111",
+      "runGeneration": "1",
+      "eligibilityRevision": "1",
+      "lifecycle": "live",
+      "organization": "active",
+      "effectiveWorktree": "/fixture/repo",
+      "git": {
+        "commonDirectory": "/fixture/repo/.git",
+        "head": {
+          "kind": "branch",
+          "reference": "main"
+        }
+      }
+    },
+    "artifact": {
+      "ownerCaptureId": "00000006-1111-4111-8111-111111111111",
+      "generation": "0",
+      "branchIdentity": "main",
+      "kind": "design",
+      "anchor": "/fixture/repo",
+      "reference": "docs/plan.md",
+      "pinned": false,
+      "selectionId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "configuration": {
+      "profile": "ordinary-plan-review-instruction-v1",
+      "ownerInstanceId": "00000003-1111-4111-8111-111111111111",
+      "ownerRevision": "1",
+      "codingToolId": "fixture-reviewer",
+      "modelId": "fixture-model",
+      "platform": "linux_x64",
+      "executable": "/fixture/bin/reviewer",
+      "argv": [
+        "--model",
+        "fixture-model"
+      ],
+      "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "integrationDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "capabilityEvidenceId": "fixture-only-evidence",
+      "capabilityEvidenceRevision": "1",
+      "role": "reviewer",
+      "assurance": "instruction_only",
+      "skills": [],
+      "reasoningEffort": null,
+      "images": []
+    },
+    "userInstruction": "Review docs/plan.md.\nKeep café 🛠 and é distinct.\r\n\tDo not edit."
+  },
+  "canonicalProposal": "{\"schemaVersion\":1,\"intent\":\"ordinary_plan_review\",\"recommendationId\":\"review-1\",\"proposalRevision\":\"1\",\"sourceSessionId\":\"source-1\",\"sourceRuntime\":{\"runtimeInstanceId\":\"00000001-1111-4111-8111-111111111111\",\"runGeneration\":\"1\"},\"request\":{\"requestId\":\"00000002-1111-4111-8111-111111111111\",\"requestRevision\":\"1\",\"text\":\"Please review this plan. Keep this separator. \"},\"chain\":{\"chainId\":\"chain-1\",\"depth\":0},\"proposedDraft\":{\"codingToolId\":\"fixture-reviewer\",\"modelId\":\"fixture-model\",\"userInstruction\":\"Review docs/plan.md.\\nKeep café 🛠 and é distinct.\\r\\n\\tDo not edit.\"}}",
+  "canonicalConfiguration": "{\"profile\":\"ordinary-plan-review-instruction-v1\",\"ownerInstanceId\":\"00000003-1111-4111-8111-111111111111\",\"ownerRevision\":\"1\",\"codingToolId\":\"fixture-reviewer\",\"modelId\":\"fixture-model\",\"platform\":\"linux_x64\",\"executable\":\"/fixture/bin/reviewer\",\"argv\":[\"--model\",\"fixture-model\"],\"catalogDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"integrationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"capabilityEvidenceId\":\"fixture-only-evidence\",\"capabilityEvidenceRevision\":\"1\",\"role\":\"reviewer\",\"assurance\":\"instruction_only\",\"skills\":[],\"reasoningEffort\":null,\"images\":[]}",
+  "canonicalPrepared": "{\"schemaVersion\":1,\"previewId\":\"00000004-1111-4111-8111-111111111111\",\"workspace\":{\"workspaceId\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"sidecarInstanceId\":\"00000005-1111-4111-8111-111111111111\",\"workspaceGeneration\":\"1\",\"canonicalRoot\":\"/fixture/repo\"},\"proposal\":{\"schemaVersion\":1,\"intent\":\"ordinary_plan_review\",\"recommendationId\":\"review-1\",\"proposalRevision\":\"1\",\"sourceSessionId\":\"source-1\",\"sourceRuntime\":{\"runtimeInstanceId\":\"00000001-1111-4111-8111-111111111111\",\"runGeneration\":\"1\"},\"request\":{\"requestId\":\"00000002-1111-4111-8111-111111111111\",\"requestRevision\":\"1\",\"text\":\"Please review this plan. Keep this separator. \"},\"chain\":{\"chainId\":\"chain-1\",\"depth\":0},\"proposedDraft\":{\"codingToolId\":\"fixture-reviewer\",\"modelId\":\"fixture-model\",\"userInstruction\":\"Review docs/plan.md.\\nKeep café 🛠 and é distinct.\\r\\n\\tDo not edit.\"}},\"source\":{\"sessionId\":\"source-1\",\"runtimeInstanceId\":\"00000001-1111-4111-8111-111111111111\",\"runGeneration\":\"1\",\"eligibilityRevision\":\"1\",\"lifecycle\":\"live\",\"organization\":\"active\",\"effectiveWorktree\":\"/fixture/repo\",\"git\":{\"commonDirectory\":\"/fixture/repo/.git\",\"head\":{\"kind\":\"branch\",\"reference\":\"main\"}}},\"artifact\":{\"ownerCaptureId\":\"00000006-1111-4111-8111-111111111111\",\"generation\":\"0\",\"branchIdentity\":\"main\",\"kind\":\"design\",\"anchor\":\"/fixture/repo\",\"reference\":\"docs/plan.md\",\"pinned\":false,\"selectionId\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"},\"configuration\":{\"profile\":\"ordinary-plan-review-instruction-v1\",\"ownerInstanceId\":\"00000003-1111-4111-8111-111111111111\",\"ownerRevision\":\"1\",\"codingToolId\":\"fixture-reviewer\",\"modelId\":\"fixture-model\",\"platform\":\"linux_x64\",\"executable\":\"/fixture/bin/reviewer\",\"argv\":[\"--model\",\"fixture-model\"],\"catalogDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"integrationDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"capabilityEvidenceId\":\"fixture-only-evidence\",\"capabilityEvidenceRevision\":\"1\",\"role\":\"reviewer\",\"assurance\":\"instruction_only\",\"skills\":[],\"reasoningEffort\":null,\"images\":[]},\"userInstruction\":\"Review docs/plan.md.\\nKeep café 🛠 and é distinct.\\r\\n\\tDo not edit.\"}",
+  "digest": "0b3a6903331610e9e25f0f3662efb58573c748ebf3996cd0e0cb55870faf4e62",
+  "bytes": {
+    "proposal": 587,
+    "configuration": 627,
+    "prepared": 2202
+  }
+}

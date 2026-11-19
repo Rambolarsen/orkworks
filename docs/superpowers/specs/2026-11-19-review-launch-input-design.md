@@ -1,17 +1,17 @@
 ---
 type: Design
 title: Ordinary plan-review proposal and prepared input
-description: Candidate typed proposal, narrow reviewer configuration and complete logical launch-input commitment for ordinary review.
+description: Accepted logical proposal, narrow reviewer configuration and launch-input commitment with offline component evidence.
 tags: [orkworks, review, proposals, admission]
-status: draft
+status: stable
 ---
 
 # Ordinary plan-review proposal and prepared input
 
-**Proposed for owner acceptance, with the coupled offline plan.** The owner
-requested the next prerequisite after [#1919](https://github.com/Rambolarsen/orkworks/pull/1919).
-That accepts investigation/design preparation, not these new source/profile/byte
-choices or runtime implementation. Track [#68](https://github.com/Rambolarsen/orkworks/issues/68),
+**Owner accepted these source/profile/byte choices and the coupled offline plan
+on 2026-11-19 with “keep going”, after reviewing draft #1922.** This follows
+[#1919](https://github.com/Rambolarsen/orkworks/pull/1919); actual runtime
+implementation remains gated. Track [#68](https://github.com/Rambolarsen/orkworks/issues/68),
 [#66](https://github.com/Rambolarsen/orkworks/issues/66) and
 [#1899](https://github.com/Rambolarsen/orkworks/issues/1899).
 
@@ -218,11 +218,14 @@ container, native delivery receipt, process identity or verified result.
 
 ## Canonical encoding and byte bounds
 
-Use compact closed JSON in the listed key order; arrays retain their stated
+For proposal/configuration/prepared values, use compact closed JSON in the listed key order; arrays retain their stated
 order. Fixed literals/numbers are exactly encoded; u64 domains are decimal
 strings with no leading zero. No floats, negative zero, unknown/missing keys,
 duplicates, sparse arrays or null except the explicit effort field. The Git
-head union uses its variant-specific key order stated above. UUIDs are
+head union uses its variant-specific key order stated above. The accepted
+preview request has ordered keys schemaVersion/expectedProposalRevision/draft,
+with draft null or the strict three-field value. Its canonical offline component
+is not a production HTTP parser or a new runtime canonical-request requirement. UUIDs are
 canonical lowercase v4. Full-string validation rejects alternative representations.
 
 All text must be Unicode scalar UTF-8: reject malformed UTF-8, lone surrogates,
@@ -253,8 +256,9 @@ separate future work, not lossy conversion.
 ## Coupled qualification and remaining gates
 
 The [offline plan](../plans/2026-11-19-review-launch-input-components.md) is
-proposed for the same owner decision. It will add only Node 22 standard-library
-logical codecs/vectors and joins. A passing golden digest establishes that exact
+accepted in the same owner decision. It adds only Node 22 standard-library
+logical codecs/vectors and joins. The [component evidence](../../validation/ordinary-review-launch-input-components.md)
+records executed checks and their source/native/storage limitations. A passing golden digest establishes that exact
 fixture bytes were committed, not that a source produced them or a process used
 them. Existing #1919 fixtures and their registry digest field remain unchanged.
 
@@ -278,4 +282,4 @@ actual platform/executable/model eligibility, source/Store capture and lock
 ordering, Start/recommendation lifecycle joins, durable admission initialization/
 retention/export/compatibility and the private exact prepared creation seam.
 No new native probe, permission, storage activation or production import is
-authorized. Disposition: **Ready for scoped owner review; production Investigate.**
+authorized. Disposition: **Logical source choices accepted; offline component slice verified; production Investigate.**

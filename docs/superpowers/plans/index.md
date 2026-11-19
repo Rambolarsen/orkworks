@@ -385,4 +385,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Offline review source qualification components](2026-11-19-review-source-components.md) — Accepted finite artifact/registry/admission oracles; no application storage or process effects.
 
-- [Offline ordinary-review launch-input components](2026-11-19-review-launch-input-components.md) — Proposed finite proposal/prepared byte, digest and source/draft join oracles without runtime effects.
+- [Offline ordinary-review launch-input components](2026-11-19-review-launch-input-components.md) — Accepted finite proposal/prepared byte, digest and source/draft join oracles without runtime effects.
