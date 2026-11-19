@@ -498,9 +498,12 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'open-session-app') {
         await waitFor('document.querySelector("[data-session-app-trigger]").textContent.includes("Open in")');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.deepEqual(await evaluate('fixture.nativeInspections'), [], 'rendering a selected session does not inspect destinations');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [], 'rendering never opens an application');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector(".session-app-menu").textContent.includes("Native ID not captured")');
+        assert.deepEqual(await evaluate('fixture.nativeInspections'), [['/real/test','coding','native'],['/real/test','coding','vscode']]);
         assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true);
         assert.equal(await evaluate('document.querySelector("[data-session-app-vscode]")'), null, 'VS Code is hidden without installation');
         await evaluate('fixture.vscodeInstalled=true;document.querySelector("[data-session-app-trigger]").click()');
@@ -545,9 +548,10 @@ if (process.versions.electron) {
         await waitFor('!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!document.querySelector(".session-app-popover")');
-        await evaluate('fixture.deferNative=true;document.querySelector("[data-session-app-trigger]").click()');
+        await evaluate('fixture.finishNative=null;fixture.deferNative=true;document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!!fixture.finishNative');
-        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), false, 'opening uses the prefetched availability while rechecking');
+        assert.match(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/);
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true, 'reopening waits for a fresh inspection');
         await evaluate('fixture.deferNative=false;fixture.nativeUnavailable=true;fixture.setSessionState({harnessId:"claude-code",lifecycle:"alive"})');
         await waitFor('document.querySelector(".session-app-menu").textContent.includes("Close this session first")');
         await evaluate('fixture.finishNative()');
@@ -561,8 +565,11 @@ if (process.versions.electron) {
         await evaluate('document.querySelector("[data-session-app-open]").click()');
         await waitFor('fixture.nativeOpened.length===1');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [['/real/test','coding','native']]);
+        const inspectionsBeforeSelection = await evaluate('fixture.nativeInspections.length');
         await evaluate('fixture.select("other")');
         await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('fixture.nativeInspections.length'), inspectionsBeforeSelection, 'changing the selected session does not inspect destinations');
         await evaluate('fixture.nativeFailure=true;document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-open]").click()');
@@ -2501,8 +2508,9 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {getSkillInventory:async()=>({skills:[],diagnostics:[],roots:[],apm:{available:true,compatible:true,path:"/usr/local/bin/apm",version:"0.33.0",executableOverride:null,message:"APM 0.33.0 supports reviewed installation."}}),pickSkillSource:async()=>'/tmp/skill',previewSkillAdd:async request=>{fixture.skillRequest=request;return null},notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
-          fixture.nativeOpened=[];fixture.nativeMissing=${javascriptLiteral(scenario)}==='open-session-app';
-          window.orkworks.inspectSessionApp=async(_workspace,_id,destination)=>{
+          fixture.nativeInspections=[];fixture.nativeOpened=[];fixture.nativeMissing=${javascriptLiteral(scenario)}==='open-session-app';
+          window.orkworks.inspectSessionApp=async(workspace,id,destination)=>{
+            fixture.nativeInspections.push([workspace,id,destination]);
             if(destination==='vscode')return {label:'Visual Studio Code',installed:!!fixture.vscodeInstalled,available:!!fixture.vscodeInstalled};
             if(fixture.nativeInspectionFailure)throw new Error('Destination lookup failed');
             const value=fixture.nativeMissing?{label:'ChatGPT',available:false,reason:'Native ID not captured'}:fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:fixture.nativeHarness==='claude-code'?'Claude':'ChatGPT',available:true};
