@@ -1420,7 +1420,7 @@ impl SessionApplication {
                     packet_mutation.is_some(),
                 )
                 .map_err(|_| RecommendationAcceptError::Conflict)?;
-                let prompt = if let Some(prompt) = fixed {
+                let begin_execution = || {
                     workspace
                         .recommendation_store
                         .begin_execution(
@@ -1429,58 +1429,54 @@ impl SessionApplication {
                             chrono::Utc::now().to_rfc3339(),
                         )
                         .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
-                } else if crate::taskmaster::is_improvement_investigation(&recommendation) {
-                    if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
-                        return Err(RecommendationAcceptError::Conflict);
+                        .ok_or(RecommendationAcceptError::Conflict)
+                };
+                let prompt = match (fixed, recommendation.completion_packet.as_ref()) {
+                    (Some(prompt), _) => {
+                        begin_execution()?;
+                        prompt
                     }
-                    let prompt = crate::taskmaster::build_fix_prompt(&recommendation);
-                    workspace
-                        .recommendation_store
-                        .begin_execution(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
-                } else if let Some(packet) = &recommendation.completion_packet {
-                    if prompt_override.is_some() {
-                        return Err(RecommendationAcceptError::Conflict);
+                    (None, _)
+                        if crate::taskmaster::is_improvement_investigation(&recommendation) =>
+                    {
+                        if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
+                            return Err(RecommendationAcceptError::Conflict);
+                        }
+                        let prompt = crate::taskmaster::build_fix_prompt(&recommendation);
+                        begin_execution()?;
+                        prompt
                     }
-                    let mutation = packet_mutation
-                        .as_ref()
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    workspace
-                        .recommendation_store
-                        .begin_execution_checked(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                            mutation,
-                            "user".into(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
-                } else {
-                    let prompt = prompt_override
-                        .map(|prompt| {
-                            ensure_recommendation_handoff_contract(prompt, &recommendation)
-                        })
-                        .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
-                    workspace
-                        .recommendation_store
-                        .begin_execution(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
+                    (None, Some(packet)) => {
+                        if prompt_override.is_some() {
+                            return Err(RecommendationAcceptError::Conflict);
+                        }
+                        let mutation = packet_mutation
+                            .as_ref()
+                            .ok_or(RecommendationAcceptError::Conflict)?;
+                        workspace
+                            .recommendation_store
+                            .begin_execution_checked(
+                                id,
+                                session_id.to_string(),
+                                chrono::Utc::now().to_rfc3339(),
+                                mutation,
+                                "user".into(),
+                            )
+                            .map_err(RecommendationAcceptError::Store)?
+                            .ok_or(RecommendationAcceptError::Conflict)?;
+                        format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
+                    }
+                    (None, None) => {
+                        let prompt = prompt_override
+                            .map(|prompt| {
+                                ensure_recommendation_handoff_contract(prompt, &recommendation)
+                            })
+                            .unwrap_or_else(|| {
+                                crate::taskmaster::build_fix_prompt(&recommendation)
+                            });
+                        begin_execution()?;
+                        prompt
+                    }
                 };
                 let delivery_guard =
                     RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
@@ -16873,6 +16869,47 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             panic!("expected terminal input");
         };
         assert_eq!(data, expected_prompt);
+        let reserved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reserved.status, RecommendationStatus::Executing);
+        assert_eq!(reserved.target_session_id.as_deref(), Some(session_id));
+        let duplicate = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            SessionApplication::new(state.clone()).accept_recommendation_with_packet(
+                &recommendation_id,
+                session_id,
+                None,
+                None,
+            ),
+        )
+        .await
+        .expect("a reserved recommendation must reject duplicate acceptance");
+        assert!(matches!(
+            duplicate,
+            Err(RecommendationAcceptError::Conflict)
+        ));
+        assert!(matches!(
+            control_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .all(|event| event.event_type != "taskmaster_fix_requested"));
         accepted.unwrap().send(Ok(())).unwrap();
 
         let accepted_recommendation = request.await.unwrap().unwrap().unwrap();
@@ -16893,9 +16930,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .read_events(session_id);
-        assert!(events
-            .iter()
-            .any(|event| event.event_type == "taskmaster_fix_requested"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "taskmaster_fix_requested")
+                .count(),
+            1
+        );
     }
 
     #[test]
