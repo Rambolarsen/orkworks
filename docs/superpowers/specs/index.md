@@ -347,3 +347,5 @@ Dated design records; these do not establish current product behavior.
 - [Research review tasks and report-consuming outcomes](2026-11-18-research-review-tasks-design.md) — Proposed declared reviewer tasks, retained review input, immutable review outcomes and summary review references; scoped offline-component choices pending.
 
 - [Research material clarification and changed answers](2026-11-18-research-clarification-design.md) — Proposed clarification decision/request/answer records, Main-authorized user provenance, atomic input/state effects and gate precedence; scoped offline-component choices pending.
+
+- [Production review preview binding](2026-11-19-review-handoff-binding-design.md) — Owner-accepted inspection/draft design; production source and Start admission qualification remain gated.
