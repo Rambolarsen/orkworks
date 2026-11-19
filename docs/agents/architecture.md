@@ -557,8 +557,11 @@ require a new snapshot. Legacy clients receive complete changed rows. Clients
 negotiating `status-enrichment-v1` instead receive typed status and enrichment
 groups under that same cursor. One workspace-owned publisher shares inspection
 across negotiated subscribers; two-second status updates do not inspect Git or
-documents. Five-second enrichment passes retain independent fresh location and
-publication validation, cannot overlap, and cannot replace newer status.
+documents. Enrichment runs every five seconds when an existing row has changed
+its output timestamp in the past ten seconds, otherwise every 30 seconds. These
+passes retain independent fresh location and publication validation, cannot
+overlap, and cannot replace newer status. Explicit refresh and known mutations
+bypass the periodic wait; output events never postpone the start clock.
 
 Metadata watches trigger status capture; changed location/plan inputs invalidate
 enrichment. Known mutations and unknown scope invalidate conservatively. Thirty-

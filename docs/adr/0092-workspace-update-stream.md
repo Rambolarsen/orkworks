@@ -61,8 +61,11 @@ to address the active-projection CPU cost reserved in the consequences above.
 Negotiated `status-enrichment-v1` subscribers receive separate typed status and
 repository-enrichment messages under the existing cursor. One workspace-owned
 publisher shares work across those subscribers. Status retains two-second
-coalescing; enrichment starts on a separate five-second cadence with no overlap
-or unbounded catch-up queue. Expired display information is visibly stale, not
+coalescing; enrichment starts every five seconds during recent output activity
+and every 30 seconds when idle, with no overlap or unbounded catch-up queue.
+A changed output timestamp on an existing row selects the active cadence for
+ten seconds; ordinary metadata changes and open-session count do not. Explicit
+refresh and known location/document mutations bypass the periodic wait. Expired display information is visibly stale, not
 newly validated by a status event. Explicit refresh and document/action validation
 stay fresh. Legacy clients and REST retain the complete projection and recovery.
 

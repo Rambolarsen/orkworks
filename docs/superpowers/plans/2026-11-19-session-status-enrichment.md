@@ -20,7 +20,7 @@ for [#1895](https://github.com/Rambolarsen/orkworks/issues/1895). Execute inline
 - [x] Add one workspace-owner publisher for negotiated subscribers in `workspace_updates/`.
   Status, enrichment and recovery use separate single-flight work and one ordered cursor.
   Output and persisted-output watcher events must not schedule extra enrichment; compare
-  captured location inputs and invalidate known changes conservatively. Five-second
+  captured location inputs and invalidate known changes conservatively. Adaptive five/30-second
   enrichment, two-second status and 30-second recovery timers must not queue missed ticks.
 - [x] Extend the desktop reducer/transport and freshness presentation. Keep old server/client
   behavior, atomic optional-field clearing, stale timers, reader invalidation and backpressure.
@@ -103,3 +103,62 @@ rollout qualification remains the explicit gate above. Reviewed code-diff SHA-25
 `35dedded43ecf6dc9a5a1575d78d31564662e97f6e8e4191e3f9834770955b37`.
 Medium effort is justified by the cross-component protocol, concurrency and
 lifecycle changes. This was a current-session review, not an independent review.
+
+## Adaptive follow-up
+
+The owner requested continuation after the adaptive-refresh recommendation on
+2026-11-19. Keep this work in #1910. Revise periodic enrichment to five seconds
+when an existing row's output timestamp changed in the past ten seconds,
+otherwise 30 seconds. Keep explicit refresh immediate, status coalescing at two
+seconds, five-second stale presentation and fresh action validation. No new
+configuration surface or persisted activity state is needed.
+
+Checks: demonstrate the old idle scan in a failing publisher test; verify idle,
+active, quiet-again and resumed deadlines deterministically; freeze the
+output-only counter test's clock to separate scheduled work from output-driven
+invalidations on slower Windows runners. Repeat identical idle/busy fixtures,
+then full repository checks and current-diff review. Compare results before
+marking the PR ready. The initial fixed-cadence measurements above remain
+historical evidence, not the adaptive implementation's qualification.
+
+### Adaptive measurement result
+
+Repeated the identical 35-second socket workload twice with the final adaptive
+scheduler, reversing mode order on the second run. Compilation and other checks
+from this task were stopped during measurement. User + system CPU seconds:
+
+| Workload | Legacy, runs 1 / 2 | Adaptive, runs 1 / 2 |
+| --- | --- | --- |
+| Idle | 0.18 / 0.18 | 0.18 / 0.18 |
+| Busy | 1.28 / 1.26 | 0.99 / 1.01 |
+
+Idle CPU was equal at the timer's 0.01-second reporting precision; busy CPU
+improved by 19.8–22.7% (21.3% comparing means). Adaptive idle runs started three
+shared inspections versus nine for both busy runs; 350 output writes did not
+increase inspection frequency. One legacy run had 351 writes because the final
+100 ms tick coincided with the measurement deadline. This small count difference
+does not establish precise percentage accuracy.
+
+The adaptive cadence removes the observed fixed-cadence idle penalty in this
+fixture and supports source enablement under the amended design. It remains
+unqualified for installed-app/release performance: no live daemon was replaced,
+and empty-repository results do not establish whole-app savings.
+
+The idle publisher test failed against fixed cadence, then the final focused
+suite passed 17 tests (two manual benchmarks ignored). Pure deadline cases cover
+idle, repeated output, quiet-again and resumed activity; unchanged metadata and
+initial history do not count as output. The Windows counter regression now waits
+for both subscriptions' fresh baseline and fixes virtual time throughout startup
+and status capture, avoiding false failures when a slow runner crosses a valid
+periodic deadline.
+
+Adaptive amendment review: completed current-session `/code-review medium` for
+source and tests under `apps/desktop/src`, `apps/desktop/tests` and
+`crates/orkworksd`, relative to the original design commit `c9d5d994`.
+Code-diff SHA-256:
+`7ae28e9b78cdfcdd6caca5f01987944e0493ac42e28d66a47fd91a5be57fc3cb`.
+Checked deadline anchoring, no queued periodic work, activity expiration,
+explicit-refresh recovery, initial-history classification, watcher behavior and
+unchanged legacy transport. No remaining correctness findings. The production
+build and 17 focused stream tests pass; full repository validation is running.
+The earlier review fingerprint describes the superseded fixed-cadence code.

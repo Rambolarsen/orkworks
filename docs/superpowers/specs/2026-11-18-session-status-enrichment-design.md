@@ -1,7 +1,7 @@
 ---
 type: Design
 title: Separate session status updates from repository enrichment
-description: Proposed status-only stream updates with independently scheduled, freshly validated Git and document summaries.
+description: Approved status-only stream updates with adaptive, freshly validated Git and document summaries.
 tags: [orkworks, performance, sessions, architecture]
 status: draft
 workflow_status: approved-for-implementation
@@ -44,17 +44,33 @@ as authoritative operations. Do not extend existing five-second scan cache TTLs.
 | --- | --- |
 | Status | Existing metadata/runtime/capacity/organization projection, without Git/document inspection; coalesce at the existing two-second cadence. |
 | Enrichment | One in-flight worker per workspace owner, shared by opted-in subscribers; inspect current locations and Git/documents independently of status. |
-| Periodic enrichment | Start a pass every five seconds while at least one opted-in subscription exists; never overlap passes or queue missed ticks. If a pass exceeds five seconds, mark its old results stale and run one pending follow-up when it finishes. |
+| Periodic enrichment | Start a pass every five seconds during recent output activity, otherwise every 30 seconds, while at least one opted-in subscription exists. Never overlap passes or queue missed ticks. Freshness still expires after five seconds; a slow worker does not imply current data. |
 | Explicit refresh | Request a fresh full validation pass immediately, subject to the single-flight bound; preserve refresh request identity until it completes or fails. |
 | Reconciliation | Keep the existing 30-second complete metadata reconciliation, watcher rearm and reconnect recovery. |
 
-The five-second cadence is a proposed display policy, not a promise that a
-slow scan finishes within five seconds. It can do more background work than
-the old 30-second reconciliation in an idle workspace; measure that tradeoff
-before enabling it. Do not implement recursive worktree watchers in this change.
+### Adaptive cadence amendment
 
-Status-only events do not reset the enrichment timer, invalidate repository
-caches or start extra enrichment passes. The status projection may still inspect
+After the initial fixed-cadence fixture showed an idle regression, the owner
+requested continuation after the adaptive-refresh recommendation on 2026-11-19.
+Use five-second enrichment during output activity and 30-second enrichment when
+quiet. The implementation defines recent activity as a changed output timestamp
+on an existing row within the last ten seconds, measured with a monotonic clock.
+Open/alive session count and ordinary metadata changes do not establish activity.
+A resumed output stream advances the idle deadline to five seconds after the last
+inspection start; it does not schedule a pass for each output event. Ten seconds
+without a new observed output timestamp returns to the idle interval. This
+window is an implementation choice, not a new session lifecycle state.
+
+Known location/document mutations and explicit refresh remain immediate subject
+to single-flight execution. Thirty-second metadata reconciliation does not start
+an additional repository inspection if the independent cadence already covers
+it. No scan cache TTL, action-validation rule or five-second display freshness
+limit changes. Idle summaries can therefore be visibly stale between scans.
+No recursive worktree watchers are introduced.
+
+Status-only events do not reset the inspection-start clock or invalidate repository
+caches. Only changed output timestamps select the faster periodic cadence; repeated
+events cannot create extra passes inside that interval. The status projection may still inspect
 all rows for harness-wide capacity and grouping correctness. This phase bounds
 repository work independently of output rate; it does not promise constant-time
 whole-list status projection or remove history scaling.
@@ -162,7 +178,7 @@ status-only display updates from enrichment refreshes. Proposed wording:
 Preserve all existing scan budgets, cache bounds and final validation clauses.
 Amend [ADR 0092](../../adr/0092-workspace-update-stream.md): its consequences
 already reserve active projection CPU as a separate optimization. Document the
-opt-in field-group messages, workspace publisher, five-second enrichment cadence
+opt-in field-group messages, workspace publisher, adaptive enrichment cadence
 and independent status delivery, retaining legacy complete-row behavior and
 ADR 0103's scoped supersession. Synchronize the desktop stream contract and
 runtime guide in that implementation PR. Approval of this proposal precedes

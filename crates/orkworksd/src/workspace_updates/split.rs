@@ -21,8 +21,27 @@ const FIELDS: &[&str] = &[
     "planDocuments",
 ];
 const ENRICHMENT_INTERVAL: Duration = Duration::from_secs(5);
+const IDLE_ENRICHMENT_INTERVAL: Duration = Duration::from_secs(30);
+const OUTPUT_ACTIVITY_WINDOW: Duration = Duration::from_secs(10);
 const STATUS_INTERVAL: Duration = Duration::from_secs(2);
 type Job = JoinHandle<std::io::Result<StreamProjection>>;
+
+// A periodic deadline is anchored to the last start, never to each output
+// event. Quiet workspaces retain reconciliation without five-second scans.
+fn inspection_deadline(
+    last_started: tokio::time::Instant,
+    last_output_change: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> tokio::time::Instant {
+    let active = last_output_change
+        .is_some_and(|last| now.saturating_duration_since(last) < OUTPUT_ACTIVITY_WINDOW);
+    last_started
+        + if active {
+            ENRICHMENT_INTERVAL
+        } else {
+            IDLE_ENRICHMENT_INTERVAL
+        }
+}
 
 #[derive(Clone)]
 struct Owner {
@@ -55,6 +74,7 @@ struct Display {
     recommendations: u64,
     epoch: u64,
     validated_epoch: Option<u64>,
+    last_output_change: Option<tokio::time::Instant>,
 }
 fn key(prepared: &StreamProjection, id: &str, epoch: u64) -> String {
     use sha2::{Digest, Sha256};
@@ -87,6 +107,19 @@ impl Display {
     // Membership comes only from the current status capture, never a late scan.
     fn status(&mut self, prepared: &StreamProjection, epoch: u64) -> bool {
         let next = status_rows(prepared, epoch);
+        let previous: HashMap<_, _> = self
+            .status
+            .iter()
+            .map(|row| (row["id"].as_str().unwrap(), row))
+            .collect();
+        if next.iter().any(|row| {
+            row["lastOutputAt"].as_str().is_some()
+                && previous
+                    .get(row["id"].as_str().unwrap())
+                    .is_some_and(|old| old["lastOutputAt"] != row["lastOutputAt"])
+        }) {
+            self.last_output_change = Some(tokio::time::Instant::now());
+        }
         let mut invalidated = false;
         let mut enrichment = HashMap::new();
         for row in &next {
@@ -236,7 +269,7 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
     let mut inspection_epoch = consumed.enrichment;
     let mut inspection_started = now_millis();
     let mut next_status = tokio::time::Instant::now();
-    let mut next_inspection = tokio::time::Instant::now() + ENRICHMENT_INTERVAL;
+    let mut last_inspection = tokio::time::Instant::now();
     let mut reconcile = tokio::time::Instant::now() + Duration::from_secs(30);
     let mut status_dirty = false;
     let mut inspection_dirty = false;
@@ -276,7 +309,6 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
         let now = tokio::time::Instant::now();
         if now >= reconcile {
             status_dirty = true;
-            inspection_dirty = true;
             watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
             reconcile = now + Duration::from_secs(30);
         }
@@ -286,12 +318,13 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
             status_dirty = false;
             next_status = now + STATUS_INTERVAL;
         }
+        let next_inspection = inspection_deadline(last_inspection, display.last_output_change, now);
         if inspection.is_none() && (inspection_dirty || now >= next_inspection) {
             inspection = Some(launch(&state, true));
             inspection_dirty = false;
             inspection_epoch = current.enrichment;
             inspection_started = now_millis();
-            next_inspection = now + ENRICHMENT_INTERVAL;
+            last_inspection = now;
         }
         // Only armed deadlines participate; a running task cannot cause a busy loop.
         let status_deadline = if initialized && status.is_none() && status_dirty {
@@ -486,6 +519,80 @@ mod tests {
         .await
         .expect("publisher made progress")
     }
+    #[test]
+    fn periodic_deadline_tracks_output_activity_without_postponing_work() {
+        let start = tokio::time::Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        assert_eq!(inspection_deadline(start, None, at(4)), at(30));
+        assert_eq!(inspection_deadline(start, Some(at(2)), at(2)), at(5));
+        assert_eq!(inspection_deadline(start, Some(at(4)), at(4)), at(5));
+        assert_eq!(inspection_deadline(at(5), Some(at(4)), at(13)), at(10));
+        assert_eq!(inspection_deadline(at(5), Some(at(4)), at(14)), at(35));
+        assert!(inspection_deadline(at(5), Some(at(20)), at(20)) <= at(20));
+        assert_eq!(inspection_deadline(at(20), Some(at(20)), at(20)), at(25));
+    }
+
+    #[test]
+    fn only_new_output_on_existing_rows_selects_the_active_cadence() {
+        let (_dir, state, _) = fixture();
+        let mut prepared =
+            crate::http::session_handlers::query_stream_sessions(&state, false).unwrap();
+        prepared.infos[0].last_output_at = Some("2026-11-19T10:00:00Z".into());
+        let mut display = Display::default();
+        display.status(&prepared, 0);
+        assert!(
+            display.last_output_change.is_none(),
+            "history is not activity"
+        );
+        prepared.infos[0].label = "Changed metadata".into();
+        display.status(&prepared, 0);
+        assert!(display.last_output_change.is_none());
+        prepared.infos[0].last_output_at = Some("2026-11-19T10:00:02Z".into());
+        display.status(&prepared, 0);
+        assert!(display.last_output_change.is_some());
+    }
+
+    // Keep virtual time fixed while blocking filesystem captures complete. A
+    // real deadline bounds failures without auto-advancing periodic timers.
+    async fn display_where_frozen(
+        rx: &mut watch::Receiver<Option<Arc<Display>>>,
+        predicate: impl Fn(&Display) -> bool,
+    ) -> Arc<Display> {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(display) = rx.borrow_and_update().clone() {
+                if predicate(&display) {
+                    return display;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "publisher made progress at fixed virtual time"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn idle_publisher_does_not_inspect_at_five_seconds() {
+        let (dir, state, metadata) = fixture();
+        let (_, required, mut rx) = subscribe_shared(
+            state.clone(),
+            dir.path().display().to_string(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        display_where(&mut rx, |d| d.validated_epoch == Some(required)).await;
+        let before = state.updates.inspections.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(
+            state.updates.inspections.load(Ordering::SeqCst),
+            before,
+            "quiet sessions must wait for idle reconciliation, not a five-second scan"
+        );
+    }
+
     #[tokio::test]
     async fn upgrade_cannot_reuse_another_workspaces_publisher() {
         let (dir, state, metadata) = fixture();
@@ -542,16 +649,17 @@ mod tests {
     async fn subscribers_share_inspection_and_persisted_output_only_updates_status() {
         let (dir, state, metadata) = fixture();
         let root = metadata.root_path();
+        tokio::time::pause();
         let (_, _, mut first) = subscribe_shared(
             state.clone(),
             dir.path().display().to_string(),
             root.clone(),
         )
         .unwrap();
-        let (_, _, second) =
+        let (_, required, second) =
             subscribe_shared(state.clone(), dir.path().display().to_string(), root).unwrap();
         assert!(first.same_channel(&second));
-        display_where(&mut first, |_| true).await;
+        display_where_frozen(&mut first, |d| d.validated_epoch == Some(required)).await;
         let before = state.updates.inspections.load(Ordering::SeqCst);
         let mut record = metadata
             .try_read_revisioned_session("row-0")
@@ -563,7 +671,8 @@ mod tests {
         for _ in 0..100 {
             state.updates.output_changed();
         }
-        let result = display_where(&mut first, |d| {
+        tokio::time::advance(STATUS_INTERVAL).await;
+        let result = display_where_frozen(&mut first, |d| {
             d.status
                 .iter()
                 .any(|r| r["lastOutputAt"] == "2026-11-19T10:00:00Z")
@@ -575,6 +684,7 @@ mod tests {
             before,
             "output/persistence must not trigger repository inspection"
         );
+        tokio::time::resume();
         drop(first);
         drop(second);
         tokio::time::timeout(Duration::from_secs(2), async {
