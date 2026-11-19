@@ -133,14 +133,14 @@ export function validateResearchReview(p){
  assert.equal(snap.report.contentDigest,digest('orkworks.research-report.v1',reportForHash),'reviewed report resealed');
  assert.deepEqual(snap.scope,scopeRef,'approved scope reference');
  assert.deepEqual(snap.questions,clone(scope.questions),'complete approved question set delivered');
- assert(snap.citedExcerpts.length===1,'cited excerpts only');
- const cited=snap.citedExcerpts[0];
- const raw=Buffer.from(cited.contentBase64,'base64');
- assert.equal(cited.sizeBytes,raw.length,'decoded excerpt byte length');
- assert.equal(sha256(raw),cited.reference.reference.excerptDigest,'excerpt bytes hash to the approved digest');
- const capture=prefix.chain.startup.captures.find(x=>x.sourceId===cited.reference.sourceId);
- assert.deepEqual(raw,Buffer.from(capture.content,'utf8').subarray(cited.reference.startByte,cited.reference.startByte+cited.reference.lengthBytes),
-  'excerpt bytes come from the retained capture range');
+ assert(snap.citedExcerpts.length===2,'cited excerpts cover both approved ranges');
+ for(const cited of snap.citedExcerpts){
+  const raw=Buffer.from(cited.contentBase64,'base64');
+  assert.equal(cited.sizeBytes,raw.length,'decoded excerpt byte length');
+  assert.equal(sha256(raw),cited.reference.reference.excerptDigest,'excerpt bytes hash to the approved digest');
+  const capture=prefix.chain.startup.captures.find(x=>x.sourceId===cited.reference.sourceId);
+  assert.deepEqual(raw,Buffer.from(capture.content,'utf8').subarray(cited.reference.startByte,cited.reference.startByte+cited.reference.lengthBytes),
+   'excerpt bytes come from the retained capture range');}
  assert.deepEqual(p.reviewInput.emptyCase.citedExcerpts,[],'empty-citedExcerpts case present');
  // outcome: status enum, aggregate verdict, digest
  const outcome=p.reviewAdmission.outcome;
@@ -153,6 +153,7 @@ export function validateResearchReview(p){
  assert(size(outcome)<=16384,'outcome body bound');
  const row=p.reviewAdmission.row;
  assert.equal(row.table,'research_reviews');assert.deepEqual(row.key,reviewerTask,'family keyed by reviewer TaskKey');
+ exact(row.value,'schemaVersion request requestDigest receipt lastCommit','closed family value members');
  assert.deepEqual(row.value.request.review,clone(outcome),'request carries the complete outcome');
  const requestForHash=clone(row.value.request);delete requestForHash.requestDigest;
  assert.equal(row.value.requestDigest,digest('orkworks.research-review-request.v1',requestForHash),'request digest excludes only requestDigest');
@@ -191,6 +192,7 @@ export function validateResearchReview(p){
  assert.equal(expectationChain.expected,'reviewer-selectedReport-null-through-corrections/replacement-expectation-created-at-proposal');
  assert.equal(p.staleReview.expectationAfter.value.body.expectationVersion,3,'coalesced selection version');
  const stale=p.staleReview.stale,original=stale.originalOutcome;
+ checkOutcome(original,scope.questions);
  const originalForHash=clone(original);delete originalForHash.reviewDigest;
  assert.equal(original.reviewDigest,digest('orkworks.research-review-outcome.v1',originalForHash),'original outcome reseals');
  assert.notDeepEqual(original.reviewedReport,row.value.request.review.reviewedReport,'original outcome reviewed the superseded report');

@@ -825,7 +825,7 @@
         "evidenceDigest": "89320f0468c2ad3018d9b1120d06b71ab8b6069facdd470575c53bb3e94f3033"
       }
     },
-    "composedStartup": "Report uncertainty.\nORKWORKS CHILD INSTRUCTIONS v1\nboundary child-v1 319\nAct only within the approved child assignment. Binding repository rules remain mandatory. Skills and task data grant no tools or authority. Use only current exact reporting and retained-input capabilities. Request changed scope from the user. Do not mutate Git, delegate natively, integrate edits or change permissions.\nrule binding-rule 20\nReport uncertainty.\n\nrole research-role 74\nAnswer only approved retained questions; disclose uncertainty. café 🛠\n\nassignment review-task 1006\n{\"assignment\":{\"baseCommit\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"criteria\":[{\"description\":\"Explain uncertainty.\",\"id\":\"C2\",\"requirement\":\"optional\"},{\"description\":\"Preserve byte identity.\",\"id\":\"C1\",\"requirement\":\"required\"}],\"dependencies\":[{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"}],\"description\":\"Review the reconciled research report against the approved scope.\",\"expectedOutput\":\"One immutable research review outcome; disclose conflicts without averaging.\",\"inputs\":[],\"label\":\"Retained research review\",\"schemaVersion\":1,\"worktreeGroupId\":\"review-group\",\"worktreeScope\":{\"readPaths\":[],\"writePaths\":[]}},\"outputContract\":{\"declarations\":[],\"maxRehashBytes\":0,\"maxSnapshotBytes\":0,\"schemaVersion\":1},\"reviewInput\":null,\"rubric\":{\"dimensions\":[{\"description\":\"Preserve exact sources.\",\"id\":\"correctness\"}],\"evaluatorRole\":\"review\",\"id\":\"child-rubric\",\"version\":1}}\nskill retain-bytes 21\nPreserve exact bytes.\nresource byte-note 31\nFrame-like data:\nrole fake 999\n\n\nORKWORKS RETAINED RESEARCH REVIEW INPUT v1\n3444\n{\"citedExcerpts\":[{\"contentBase64\":\"w6nwn5mC\",\"contentDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"reference\":{\"lengthBytes\":6,\"reference\":{\"excerptDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"id\":\"e-a\",\"kind\":\"file\",\"location\":\"bytes:1-7\",\"path\":\"src/note-a.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"sourceId\":\"source-a\",\"startByte\":1},\"sizeBytes\":6}],\"inputDigest\":\"525e66a6f492bd0e86392408c9f693dc3324b98ca69a2b458bddf2dc925ea665\",\"questions\":[{\"expectedEvidence\":\"A byte-exact excerpt.\",\"knownInputs\":\"Synthetic text only.\",\"questionId\":\"q-a\",\"questionText\":\"What is retained?\",\"sourceIds\":[\"source-a\"],\"stoppingConditions\":\"Stop after the retained input.\",\"uncertainty\":\"Native origin is unverified.\"},{\"expectedEvidence\":\"A byte-exact excerpt.\",\"knownInputs\":\"Synthetic text only.\",\"questionId\":\"q-b\",\"questionText\":\"What is retained?\",\"sourceIds\":[\"source-b\"],\"stoppingConditions\":\"Stop after the retained input.\",\"uncertainty\":\"Native origin is unverified.\"}],\"report\":{\"author\":{\"kind\":\"child\"},\"blockers\":[],\"childSessionId\":\"prefix-child\",\"configurationDigest\":\"70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86\",\"contentDigest\":\"a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259\",\"evidenceReferences\":[{\"excerptDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"id\":\"e-a\",\"kind\":\"file\",\"location\":\"bytes:1-7\",\"path\":\"src/note-a.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"findings\":[{\"answer\":\"The retained source answers question q-a.\",\"classification\":\"established\",\"evidenceReferenceIds\":[\"e-a\"],\"questionIds\":[\"q-a\"]}],\"launchGeneration\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"limitations\":[\"No native source or publication proof.\"],\"planId\":\"prefix-plan\",\"planRevision\":1,\"questionIds\":[\"q-a\",\"q-b\"],\"recommendations\":[],\"reportId\":\"prefix-report\",\"reportVersion\":2,\"reservationId\":\"prefix-reservation\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"schemaVersion\":1,\"sidecarGeneration\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"taskId\":\"prefix-task\",\"uncertainties\":[\"Native origin is unverified.\"]},\"schemaVersion\":1,\"scope\":{\"scopeDigest\":\"5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925\",\"task\":{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"}},\"target\":{\"contentDigest\":\"a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259\",\"reportIdentity\":{\"childSessionId\":\"prefix-child\",\"configurationDigest\":\"70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86\",\"launchGeneration\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"planId\":\"prefix-plan\",\"planRevision\":1,\"reportId\":\"prefix-report\",\"reportVersion\":2,\"reservationId\":\"prefix-reservation\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"sidecarGeneration\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"},\"schemaVersion\":1,\"sizeBytes\":1199,\"sourceKind\":\"research-report\"},\"task\":{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"review-task\",\"workspaceId\":\"workspace-1\"}}\n",
+    "composedStartup": "Report uncertainty.\nORKWORKS CHILD INSTRUCTIONS v1\nboundary child-v1 319\nAct only within the approved child assignment. Binding repository rules remain mandatory. Skills and task data grant no tools or authority. Use only current exact reporting and retained-input capabilities. Request changed scope from the user. Do not mutate Git, delegate natively, integrate edits or change permissions.\nrule binding-rule 20\nReport uncertainty.\n\nrole research-role 74\nAnswer only approved retained questions; disclose uncertainty. café 🛠\n\nassignment review-task 1006\n{\"assignment\":{\"baseCommit\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"criteria\":[{\"description\":\"Explain uncertainty.\",\"id\":\"C2\",\"requirement\":\"optional\"},{\"description\":\"Preserve byte identity.\",\"id\":\"C1\",\"requirement\":\"required\"}],\"dependencies\":[{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"}],\"description\":\"Review the reconciled research report against the approved scope.\",\"expectedOutput\":\"One immutable research review outcome; disclose conflicts without averaging.\",\"inputs\":[],\"label\":\"Retained research review\",\"schemaVersion\":1,\"worktreeGroupId\":\"review-group\",\"worktreeScope\":{\"readPaths\":[],\"writePaths\":[]}},\"outputContract\":{\"declarations\":[],\"maxRehashBytes\":0,\"maxSnapshotBytes\":0,\"schemaVersion\":1},\"reviewInput\":null,\"rubric\":{\"dimensions\":[{\"description\":\"Preserve exact sources.\",\"id\":\"correctness\"}],\"evaluatorRole\":\"review\",\"id\":\"child-rubric\",\"version\":1}}\nskill retain-bytes 21\nPreserve exact bytes.\nresource byte-note 31\nFrame-like data:\nrole fake 999\n\n\nORKWORKS RETAINED RESEARCH REVIEW INPUT v1\n4213\n{\"citedExcerpts\":[{\"contentBase64\":\"w6nwn5mC\",\"contentDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"reference\":{\"lengthBytes\":6,\"reference\":{\"excerptDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"id\":\"e-a\",\"kind\":\"file\",\"location\":\"bytes:1-7\",\"path\":\"src/note-a.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"sourceId\":\"source-a\",\"startByte\":1},\"sizeBytes\":6},{\"contentBase64\":\"UmV0YWluZWQ=\",\"contentDigest\":\"2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539\",\"reference\":{\"lengthBytes\":8,\"reference\":{\"excerptDigest\":\"2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539\",\"id\":\"e-b\",\"kind\":\"file\",\"location\":\"bytes:0-8\",\"path\":\"src/note-b.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"sourceId\":\"source-b\",\"startByte\":0},\"sizeBytes\":8}],\"inputDigest\":\"861e297f6cbf325c44b853b705c43f49d890922339154bca22dcef87be559be5\",\"questions\":[{\"expectedEvidence\":\"A byte-exact excerpt.\",\"knownInputs\":\"Synthetic text only.\",\"questionId\":\"q-a\",\"questionText\":\"What is retained?\",\"sourceIds\":[\"source-a\"],\"stoppingConditions\":\"Stop after the retained input.\",\"uncertainty\":\"Native origin is unverified.\"},{\"expectedEvidence\":\"A byte-exact excerpt.\",\"knownInputs\":\"Synthetic text only.\",\"questionId\":\"q-b\",\"questionText\":\"What is retained?\",\"sourceIds\":[\"source-b\"],\"stoppingConditions\":\"Stop after the retained input.\",\"uncertainty\":\"Native origin is unverified.\"}],\"report\":{\"author\":{\"kind\":\"child\"},\"blockers\":[],\"childSessionId\":\"prefix-child\",\"configurationDigest\":\"70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86\",\"contentDigest\":\"31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79\",\"evidenceReferences\":[{\"excerptDigest\":\"7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9\",\"id\":\"e-a\",\"kind\":\"file\",\"location\":\"bytes:1-7\",\"path\":\"src/note-a.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},{\"excerptDigest\":\"2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539\",\"id\":\"e-b\",\"kind\":\"file\",\"location\":\"bytes:0-8\",\"path\":\"src/note-b.txt\",\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"findings\":[{\"answer\":\"The retained source answers question q-a.\",\"classification\":\"established\",\"evidenceReferenceIds\":[\"e-a\"],\"questionIds\":[\"q-a\"]},{\"answer\":\"The retained source answers question q-b.\",\"classification\":\"established\",\"evidenceReferenceIds\":[\"e-b\"],\"questionIds\":[\"q-b\"]}],\"launchGeneration\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"limitations\":[\"No native source or publication proof.\"],\"planId\":\"prefix-plan\",\"planRevision\":1,\"questionIds\":[\"q-a\",\"q-b\"],\"recommendations\":[],\"reportId\":\"prefix-report\",\"reportVersion\":2,\"reservationId\":\"prefix-reservation\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"schemaVersion\":1,\"sidecarGeneration\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"taskId\":\"prefix-task\",\"uncertainties\":[\"Native origin is unverified.\"]},\"schemaVersion\":1,\"scope\":{\"scopeDigest\":\"5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925\",\"task\":{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"}},\"target\":{\"contentDigest\":\"31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79\",\"reportIdentity\":{\"childSessionId\":\"prefix-child\",\"configurationDigest\":\"70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86\",\"launchGeneration\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"planId\":\"prefix-plan\",\"planRevision\":1,\"reportId\":\"prefix-report\",\"reportVersion\":2,\"reservationId\":\"prefix-reservation\",\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"sidecarGeneration\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"taskId\":\"prefix-task\",\"workspaceId\":\"workspace-1\"},\"schemaVersion\":1,\"sizeBytes\":1549,\"sourceKind\":\"research-report\"},\"task\":{\"planId\":\"prefix-plan\",\"planRevision\":1,\"runId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1\",\"taskId\":\"review-task\",\"workspaceId\":\"workspace-1\"}}\n",
     "composedStartupLimit": 262144
   },
   "collectionShapes": {
@@ -959,7 +959,7 @@
           "planRevision": 1,
           "taskId": "review-task"
         },
-        "inputDigest": "525e66a6f492bd0e86392408c9f693dc3324b98ca69a2b458bddf2dc925ea665"
+        "inputDigest": "861e297f6cbf325c44b853b705c43f49d890922339154bca22dcef87be559be5"
       },
       "value": {
         "schemaVersion": 1,
@@ -989,8 +989,8 @@
               "reportId": "prefix-report",
               "reportVersion": 2
             },
-            "sizeBytes": 1199,
-            "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+            "sizeBytes": 1549,
+            "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
           },
           "report": {
             "schemaVersion": 1,
@@ -1019,6 +1019,16 @@
                   "e-a"
                 ],
                 "classification": "established"
+              },
+              {
+                "questionIds": [
+                  "q-b"
+                ],
+                "answer": "The retained source answers question q-b.",
+                "evidenceReferenceIds": [
+                  "e-b"
+                ],
+                "classification": "established"
               }
             ],
             "uncertainties": [
@@ -1033,6 +1043,14 @@
                 "location": "bytes:1-7",
                 "path": "src/note-a.txt",
                 "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "excerptDigest": "2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539",
+                "id": "e-b",
+                "kind": "file",
+                "location": "bytes:0-8",
+                "path": "src/note-b.txt",
+                "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
               }
             ],
             "recommendations": [],
@@ -1042,7 +1060,7 @@
             "author": {
               "kind": "child"
             },
-            "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+            "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
           },
           "scope": {
             "task": {
@@ -1096,9 +1114,27 @@
               "contentBase64": "w6nwn5mC",
               "sizeBytes": 6,
               "contentDigest": "7382f537af6a53054b6a72792df00fa0be0f5d2e8214db9cd6ebbcc3d57d02b9"
+            },
+            {
+              "reference": {
+                "lengthBytes": 8,
+                "reference": {
+                  "excerptDigest": "2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539",
+                  "id": "e-b",
+                  "kind": "file",
+                  "location": "bytes:0-8",
+                  "path": "src/note-b.txt",
+                  "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "sourceId": "source-b",
+                "startByte": 0
+              },
+              "contentBase64": "UmV0YWluZWQ=",
+              "sizeBytes": 8,
+              "contentDigest": "2a64df82cdaad5511bea0259973c8e12cdf3e6a99a62974f7ff46cb948a1f539"
             }
           ],
-          "inputDigest": "525e66a6f492bd0e86392408c9f693dc3324b98ca69a2b458bddf2dc925ea665"
+          "inputDigest": "861e297f6cbf325c44b853b705c43f49d890922339154bca22dcef87be559be5"
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -1250,8 +1286,8 @@
                   "reportId": "prefix-report",
                   "reportVersion": 2
                 },
-                "sizeBytes": 1199,
-                "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+                "sizeBytes": 1549,
+                "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
               }
             },
             {
@@ -1268,7 +1304,7 @@
               }
             }
           ],
-          "inputDigest": "afe00f05bec3706f3e2885eeb121eb254cce043a630df8e2f020a18f540777f0"
+          "inputDigest": "e0dfbb401e276e19f8e1b202d5ec9a366558feea8533ac9852fb8edc096c4a20"
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -1366,8 +1402,8 @@
               "reportId": "prefix-report",
               "reportVersion": 2
             },
-            "sizeBytes": 1199,
-            "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+            "sizeBytes": 1549,
+            "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
           }
         },
         {
@@ -1384,7 +1420,7 @@
           }
         }
       ],
-      "inputDigest": "afe00f05bec3706f3e2885eeb121eb254cce043a630df8e2f020a18f540777f0"
+      "inputDigest": "e0dfbb401e276e19f8e1b202d5ec9a366558feea8533ac9852fb8edc096c4a20"
     }
   },
   "reviewAdmission": {
@@ -1461,8 +1497,8 @@
                 "reportId": "prefix-report",
                 "reportVersion": 2
               },
-              "sizeBytes": 1199,
-              "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+              "sizeBytes": 1549,
+              "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
             },
             "verdict": "consistent",
             "questionStatuses": [
@@ -1477,13 +1513,14 @@
             ],
             "rationale": "Every approved question is consistent with the cited evidence.",
             "citedEvidenceIds": [
-              "e-a"
+              "e-a",
+              "e-b"
             ],
-            "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052"
+            "reviewDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995"
           },
-          "requestDigest": "8e00ac8209cc67baacedf15445db78e923dc1be33cbf500a4f23725d4d71f1d5"
+          "requestDigest": "7ba79cc81e34bfdba4a208a9bfa5a17c9ba13253ed153f89abdfb0ff8c20e5da"
         },
-        "requestDigest": "8e00ac8209cc67baacedf15445db78e923dc1be33cbf500a4f23725d4d71f1d5",
+        "requestDigest": "7ba79cc81e34bfdba4a208a9bfa5a17c9ba13253ed153f89abdfb0ff8c20e5da",
         "receipt": {
           "schemaVersion": 1,
           "task": {
@@ -1493,7 +1530,7 @@
             "planRevision": 1,
             "taskId": "review-task"
           },
-          "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052",
+          "reviewDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995",
           "acceptedTaskVersion": 8,
           "commit": {
             "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -1570,8 +1607,8 @@
             "reportId": "prefix-report",
             "reportVersion": 2
           },
-          "sizeBytes": 1199,
-          "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+          "sizeBytes": 1549,
+          "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
         },
         "verdict": "consistent",
         "questionStatuses": [
@@ -1586,11 +1623,12 @@
         ],
         "rationale": "Every approved question is consistent with the cited evidence.",
         "citedEvidenceIds": [
-          "e-a"
+          "e-a",
+          "e-b"
         ],
-        "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052"
+        "reviewDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995"
       },
-      "requestDigest": "8e00ac8209cc67baacedf15445db78e923dc1be33cbf500a4f23725d4d71f1d5"
+      "requestDigest": "7ba79cc81e34bfdba4a208a9bfa5a17c9ba13253ed153f89abdfb0ff8c20e5da"
     },
     "outcome": {
       "schemaVersion": 1,
@@ -1632,8 +1670,8 @@
           "reportId": "prefix-report",
           "reportVersion": 2
         },
-        "sizeBytes": 1199,
-        "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+        "sizeBytes": 1549,
+        "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
       },
       "verdict": "consistent",
       "questionStatuses": [
@@ -1648,9 +1686,10 @@
       ],
       "rationale": "Every approved question is consistent with the cited evidence.",
       "citedEvidenceIds": [
-        "e-a"
+        "e-a",
+        "e-b"
       ],
-      "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052"
+      "reviewDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995"
     },
     "receipt": {
       "schemaVersion": 1,
@@ -1661,7 +1700,7 @@
         "planRevision": 1,
         "taskId": "review-task"
       },
-      "reviewDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052",
+      "reviewDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995",
       "acceptedTaskVersion": 8,
       "commit": {
         "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -1670,7 +1709,7 @@
       }
     },
     "exactRetry": {
-      "requestDigest": "8e00ac8209cc67baacedf15445db78e923dc1be33cbf500a4f23725d4d71f1d5",
+      "requestDigest": "7ba79cc81e34bfdba4a208a9bfa5a17c9ba13253ed153f89abdfb0ff8c20e5da",
       "advancedTaskVersion": 9,
       "supersededSelection": {
         "schemaVersion": 1,
@@ -1736,8 +1775,8 @@
           "reportId": "prefix-report",
           "reportVersion": 2
         },
-        "sizeBytes": 1199,
-        "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+        "sizeBytes": 1549,
+        "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
       },
       "expected": "deny-stale-target"
     },
@@ -1801,7 +1840,7 @@
           "sizeBytes": 886,
           "contentDigest": "e9c6ccc58cb5f306b9b7c09ef0cf253c5cfa0e44ff1ac8e91212febfa43972ec"
         },
-        "verdict": "consistent",
+        "verdict": "uncertain",
         "questionStatuses": [
           {
             "questionId": "q-a",
@@ -1812,9 +1851,9 @@
             "status": "unverified"
           }
         ],
-        "rationale": "Question q-a is consistent; q-b remains unverified by the version-1 report.",
+        "rationale": "q-b unverified by the version-1 report.",
         "citedEvidenceIds": [],
-        "reviewDigest": "269ba08ba8d541247b55dded37df2629fed3274742bd3ba3ccc41f60ebd117ce"
+        "reviewDigest": "c879e321d38b2d542fe54d1ce65113263d8b2dc29dc09db74c5093861a94413b"
       },
       "reviewedReport": {
         "schemaVersion": 1,
@@ -1836,7 +1875,7 @@
         "sizeBytes": 886,
         "contentDigest": "e9c6ccc58cb5f306b9b7c09ef0cf253c5cfa0e44ff1ac8e91212febfa43972ec"
       },
-      "reviewDigest": "269ba08ba8d541247b55dded37df2629fed3274742bd3ba3ccc41f60ebd117ce",
+      "reviewDigest": "c879e321d38b2d542fe54d1ce65113263d8b2dc29dc09db74c5093861a94413b",
       "currentSelection": {
         "reportVersion": 2
       },
@@ -1909,8 +1948,8 @@
               "reportId": "prefix-report",
               "reportVersion": 2
             },
-            "sizeBytes": 1199,
-            "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+            "sizeBytes": 1549,
+            "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
           },
           "expectationVersion": 3
         },
@@ -2473,7 +2512,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "preparationRevision": 3,
             "inputRevision": 3,
-            "inputDigest": "afe00f05bec3706f3e2885eeb121eb254cce043a630df8e2f020a18f540777f0"
+            "inputDigest": "e0dfbb401e276e19f8e1b202d5ec9a366558feea8533ac9852fb8edc096c4a20"
           },
           "producer": {
             "workspaceId": "workspace-1",
@@ -2512,8 +2551,8 @@
                 "reportId": "prefix-report",
                 "reportVersion": 2
               },
-              "sizeBytes": 1199,
-              "contentDigest": "a730beeacc458c2ce0397b176c7b19568edc32bd8692f886cf43c0e2cc548259"
+              "sizeBytes": 1549,
+              "contentDigest": "31555ee0a1c8b880c8010dce5dc32d5b0153bccdb45a889bebee017e3c11bc79"
             }
           ],
           "reviewReferences": [
@@ -2532,8 +2571,8 @@
                 "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                 "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               },
-              "sizeBytes": 1765,
-              "contentDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052"
+              "sizeBytes": 1771,
+              "contentDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995"
             }
           ]
         },
@@ -2542,7 +2581,7 @@
           "commitSequence": "3",
           "changeDigest": "30e63a20859b80584803d034560c73b998d6f5bfa41e0c8337f6c2967b34aa02"
         },
-        "digest": "7229edbcaa149668213c9ee63ea60b57cea8a66c27ba8a924979b9c252e12285"
+        "digest": "3b0d35ddfb83aa6cf7b8c021e93b378cf4eacf3ef0ae15515f95711b992dedcb"
       }
     },
     "evidence": {
@@ -2560,8 +2599,8 @@
         "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
-      "sizeBytes": 1765,
-      "contentDigest": "a0662240c99e14aaef50e2e8b19c5fbe5cd665543b622d94ff409cc5e5632052"
+      "sizeBytes": 1771,
+      "contentDigest": "c4651fadc00adf4cfadfbb9418e95c535e3a070d37b1803a8c8e3c0415056995"
     },
     "emptyVsRequired": {
       "emptyReferences": [],
@@ -2791,10 +2830,10 @@
           "planRevision": 1,
           "taskId": "review-task"
         },
-        "inputDigest": "525e66a6f492bd0e86392408c9f693dc3324b98ca69a2b458bddf2dc925ea665"
+        "inputDigest": "861e297f6cbf325c44b853b705c43f49d890922339154bca22dcef87be559be5"
       },
-      "chargeBytes": 3778,
-      "wrapperBytes": 3978
+      "chargeBytes": 4547,
+      "wrapperBytes": 4747
     },
     {
       "table": "research_reviews",
@@ -2805,8 +2844,8 @@
         "planRevision": 1,
         "taskId": "review-task"
       },
-      "chargeBytes": 3039,
-      "wrapperBytes": 3435
+      "chargeBytes": 3045,
+      "wrapperBytes": 3441
     },
     {
       "table": "research_summaries",

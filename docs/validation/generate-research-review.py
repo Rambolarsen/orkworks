@@ -123,6 +123,10 @@ def packet():
     excerpt_a=next(e for e in sc['excerpts'] if e['reference']['id']=='e-a')
     raw_excerpt=source_a['content'].encode('utf-8')[excerpt_a['startByte']:excerpt_a['startByte']+excerpt_a['lengthBytes']]
     assert sha(raw_excerpt)==excerpt_a['reference']['excerptDigest'],'retained excerpt bytes must hash to the approved digest'
+    source_b=next(c for c in captures if c['sourceId']=='source-b')
+    excerpt_b=next(e for e in sc['excerpts'] if e['reference']['id']=='e-b')
+    raw_excerpt_b=source_b['content'].encode('utf-8')[excerpt_b['startByte']:excerpt_b['startByte']+excerpt_b['lengthBytes']]
+    assert sha(raw_excerpt_b)==excerpt_b['reference']['excerptDigest'],'retained e-b bytes must hash to the approved digest'
     # reviewer configuration/settings, then the two-task plan
     profile=dict(tools=clone(REVIEW_TOOLS),readPaths=[],writePaths=[],commands=[],externalSources=[],connectors=[],
         coordinationActions=[],nativeDelegation='denied',accessChanges='request-only')
@@ -136,9 +140,12 @@ def packet():
     bad_settings['deliveryOrder'][-1]['inputDigest']=sha('Embedded snapshot digest violates the accepted ordering rule.')
     composed_len=len((canonical(pre_leaves['settings'])+canonical(pre_leaves['projection'])+canonical(pre_leaves['policy'])).encode('utf-8'))
     # snapshot: exact target binding, approved questions, cited excerpts from the retained bytes
-    finding=dict(questionIds=['q-a'],answer='The retained source answers question q-a.',
+    finding_a=dict(questionIds=['q-a'],answer='The retained source answers question q-a.',
         evidenceReferenceIds=['e-a'],classification='established')
-    reviewed=dict(report,reportVersion=2,findings=[finding],evidenceReferences=[clone(excerpt_a['reference'])],
+    finding_b=dict(questionIds=['q-b'],answer='The retained source answers question q-b.',
+        evidenceReferenceIds=['e-b'],classification='established')
+    reviewed=dict(report,reportVersion=2,findings=[finding_a,finding_b],
+        evidenceReferences=[clone(excerpt_a['reference']),clone(excerpt_b['reference'])],
         uncertainties=['Native origin is unverified.'],limitations=['No native source or publication proof.'],
         blockers=[],recommendations=[])
     reviewed.pop('contentDigest',None)
@@ -148,8 +155,10 @@ def packet():
     cited_excerpt=dict(reference=clone(excerpt_a),
         contentBase64=base64.b64encode(raw_excerpt).decode('ascii'),sizeBytes=len(raw_excerpt),
         contentDigest=excerpt_a['reference']['excerptDigest'])
+    cited_excerpt_b=dict(reference=clone(excerpt_b),contentBase64=base64.b64encode(raw_excerpt_b).decode('ascii'),
+        sizeBytes=len(raw_excerpt_b),contentDigest=excerpt_b['reference']['excerptDigest'])
     snapshot=dict(schemaVersion=1,task=reviewer_task,target=reviewed_source,report=reviewed,scope=scope_ref,
-        questions=clone(sc['questions']),citedExcerpts=[cited_excerpt])
+        questions=clone(sc['questions']),citedExcerpts=[cited_excerpt,cited_excerpt_b])
     snapshot['inputDigest']=digest('orkworks.research-review-input.v1',snapshot)
     snapshot_row=row('objects',dict(kind='research-review-input',task=reviewer_task,inputDigest=snapshot['inputDigest']),snapshot,'review-input',2)
     # composed startup delivers the actual snapshot payload after the supplied entry
@@ -202,7 +211,7 @@ def packet():
         childSessionId='review-child',sidecarGeneration='e'*64,launchGeneration='a'*64,
         reviewedReport=reviewed_source,verdict='consistent',questionStatuses=statuses,
         rationale='Every approved question is consistent with the cited evidence.',
-        citedEvidenceIds=['e-a'])
+        citedEvidenceIds=['e-a','e-b'])
     outcome['reviewDigest']=digest('orkworks.research-review-outcome.v1',outcome)
     request=dict(schemaVersion=1,task=reviewer_task,reservation=outcome['reservation'],childSessionId='review-child',
         expectedTaskVersion=8,review=outcome)
@@ -226,9 +235,10 @@ def packet():
     summary_row=row('research_summaries',dict(**run,summaryVersion=3),summary_body,'summary-3',3)
     summary_row['value']['digest']=digest('orkworks.research-summary.v1',summary_body)
     # stale review and reviewer-only replacement with its own configuration
-    original_outcome=dict(outcome,reviewedReport=report_source,questionStatuses=[dict(questionId=q['questionId'],
+    original_outcome=dict(outcome,reviewedReport=report_source,verdict='uncertain',
+        questionStatuses=[dict(questionId=q['questionId'],
         status='consistent' if q['questionId']=='q-a' else 'unverified') for q in sc['questions']],
-        rationale='Question q-a is consistent; q-b remains unverified by the version-1 report.',
+        rationale='q-b unverified by the version-1 report.',
         citedEvidenceIds=[])
     original_outcome.pop('reviewDigest',None)
     original_outcome['reviewDigest']=digest('orkworks.research-review-outcome.v1',original_outcome)

@@ -30,7 +30,7 @@ for(const [name,change,reseal] of [
  ['snapshot carries an unlisted excerpt',p=>{p.reviewInput.snapshot.value.body.citedExcerpts.push({reference:{...p.reviewInput.snapshot.value.body.citedExcerpts[0].reference,id:'e-b'},contentBase64:'U3ludGg=',sizeBytes:5,contentDigest:p.reviewInput.snapshot.value.body.citedExcerpts[0].reference.reference.excerptDigest})},'snapshot'],
  ['snapshot cites bytes outside the retained range',p=>{p.reviewInput.snapshot.value.body.citedExcerpts[0].contentBase64='XXXX';p.reviewInput.snapshot.value.body.citedExcerpts[0].sizeBytes=3},'snapshot'],
  ['outcome keeps consistent verdict with an unverified question',p=>{p.reviewAdmission.outcome.questionStatuses[1].status='unverified'},'outcome'],
- ['family duplicates the outcome body',p=>{p.reviewAdmission.row.value.body={...p.reviewAdmission.outcome}},'row'],
+ ['family duplicates the outcome body',p=>{p.reviewAdmission.row.value.body={...p.reviewAdmission.outcome}},null],
  ['summary cites a stale review digest',p=>{p.summaryCitation.row.value.body.reviewReferences[0].contentDigest=hash('stale')},'summary'],
  ['summary keeps the superseded report reference',p=>{p.summaryCitation.row.value.body.reportReferences=[p.collectionShapes.expectations[0].value.body.selectedReport]},'summary'],
  ['replacement keeps the researcher task member',p=>{p.staleReview.replacementPlan.task={taskId:'prefix-task'}},'replacement'],
