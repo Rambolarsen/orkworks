@@ -324,10 +324,15 @@ task at pending/version 1 with no reservation, as historical unreachable
 declared work; clear `run.pendingPlan`; create no collection/expectation
 effects (this slice's execution proposal creates none); retain the rejected
 proposal object, approval-less history and all source charges; advance the
-sole `runVersion` once; retain the run state `awaiting_execution_approval`
-(the accepted "same approval-wait state": the run remains post-research and a
-replacement proposal is a new publication bound to the then-current context,
-never a mutation of the rejected bytes); and publish the cursor event.
+sole `runVersion` once; select the run state exactly as publication does —
+`awaiting_execution_approval` only when the actual parent runtime is
+active/eligible and no retained blocker or stage gate remains, otherwise
+**retain the exact paused/blocked/gated state with its pauseReason and
+`resumeTarget` unchanged** (an interrupted parent stays paused through a
+rejection, per the accepted scope-rejection rule; the exact-identity resume
+gate still governs any later resumption, and the retained
+`resumeTarget=awaiting_execution_approval` persists across the pause); and
+publish the cursor event.
 `finish-research`, `cancel-stage` and `cancel-run` retain their accepted
 effects, each invalidating the recognized pending execution proposal; stage
 fencing rejects proposal publication, approval and rejection while
@@ -423,7 +428,8 @@ current summary/completed plan/input (including the summary-currentness
 preservation and gated/blocked retained-state cases); approval under the exact
 shown bytes with identical retry and conflict; stale-binding denial after a
 summary/report change; the `reject-execution-proposal` decision with its
-cancelled-plan/pendingPlan/state effects and replacement; finish/cancel-stage/
+cancelled-plan/pendingPlan/state effects and replacement (including the
+interrupted-parent pause-retention case); finish/cancel-stage/
 cancel-run invalidation of the pending proposal; grant-boundary examples
 (labelled unqualified: the grant is a supplied volatile fact represented as
 label assertions only, never persisted); the positive approval example
@@ -498,7 +504,12 @@ the scope-revision rejection, whose preconditions this prestate cannot
 satisfy — the proposal now defines the explicit `reject-execution-proposal`
 lifecycle-request kind, following the accepted scope-rejection effect
 pattern (rejected plan `cancelled`/planVersion+1, task retained pending,
-`pendingPlan` cleared, approval-wait state retained, no grant touched).
+`pendingPlan` cleared, no grant touched); a second bounded cycle reported one
+further P2, also addressed: the rejection outcome now selects
+`awaiting_execution_approval` only when the parent runtime is active/eligible
+and no retained blocker or stage gate remains — an interrupted parent stays
+paused with its pauseReason and `resumeTarget=awaiting_execution_approval`
+unchanged through a rejection, per the accepted scope-rejection rule.
 
 ## Remaining gates
 
