@@ -292,3 +292,11 @@ operation, polling bound and artifact-owner revision prerequisite resolve the
 consumer contract while retaining the explicit external-filesystem limitation.
 Source codecs, durable attempt admission and runtime qualification remain gates;
 this review is not evidence that those prerequisites exist.
+
+## Source qualification follow-up
+
+The [artifact and Start source proposal](2026-11-19-review-source-qualification-design.md)
+audits the existing volatile document generation and ordinary creation seams.
+It proposes conservative artifact epoch binding and a separate durable attempt
+owner. These new source/record/budget/compatibility choices require scoped review;
+the accepted preview-cache design does not itself accept or qualify them.
