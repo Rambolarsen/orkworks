@@ -1602,61 +1602,32 @@ impl SessionApplication {
             return Err(RecommendationCompleteError::Conflict);
         }
 
-        if existing.completion_packet.is_some() {
-            let mutation = packet_mutation
-                .as_ref()
-                .ok_or(RecommendationCompleteError::Conflict)?;
-            let completed = workspace
-                .recommendation_store
-                .complete_accepted_checked(id, chrono::Utc::now().to_rfc3339(), mutation)
-                .map_err(RecommendationCompleteError::Store)?
-                .ok_or(RecommendationCompleteError::Conflict)?;
-            // A retry after the agent has already reported completion is safe
-            // only when it carries the same packet revision, evidence
-            // fingerprint, and idempotency key.
-            if existing.status == RecommendationStatus::Completed {
-                return Ok(Some(completed));
-            }
-            let event = metadata::Event {
-                event_type: "taskmaster_fix_completed".into(),
-                timestamp: iso_now(),
-                status: "working".into(),
-                observed_status: Some("working".into()),
-                confidence: None,
-                summary: Some(completion_summary(&existing, summary)),
-                source: Some("agent".into()),
-                recommendation_id: Some(id.to_string()),
-            };
-            if let Err(error) = workspace.metadata.try_append_event(session_id, &event) {
-                if let Err(rollback_error) = workspace.recommendation_store.put(&existing) {
-                    tracing::error!(
-                        recommendation_id = %id,
-                        %error,
-                        %rollback_error,
-                        "failed to roll back recommendation after completion event persistence failure"
-                    );
+        let completed = match (&existing.completion_packet, &existing.status) {
+            (Some(_), _) => {
+                let mutation = packet_mutation
+                    .as_ref()
+                    .ok_or(RecommendationCompleteError::Conflict)?;
+                let completed = workspace
+                    .recommendation_store
+                    .complete_accepted_checked(id, chrono::Utc::now().to_rfc3339(), mutation)
+                    .map_err(RecommendationCompleteError::Store)?
+                    .ok_or(RecommendationCompleteError::Conflict)?;
+                // A completed packet retry still needs the same revision,
+                // evidence fingerprint, and idempotency key checked above.
+                if existing.status == RecommendationStatus::Completed {
+                    return Ok(Some(completed));
                 }
-                return Err(RecommendationCompleteError::Store(
-                    crate::taskmaster::store::StoreError::Io(error),
-                ));
+                completed
             }
-            return Ok(Some(completed));
-        }
-
-        // A retry after an agent has already reported completion is safe and
-        // does not append a duplicate history event.
-        if existing.status == RecommendationStatus::Completed {
-            return Ok(Some(existing));
-        }
-        if existing.status != RecommendationStatus::Accepted {
-            return Err(RecommendationCompleteError::Conflict);
-        }
-
-        let completed = workspace
-            .recommendation_store
-            .complete_accepted(id, chrono::Utc::now().to_rfc3339())
-            .map_err(RecommendationCompleteError::Store)?
-            .ok_or(RecommendationCompleteError::Conflict)?;
+            // Completed legacy retries never append another history event.
+            (None, RecommendationStatus::Completed) => return Ok(Some(existing)),
+            (None, RecommendationStatus::Accepted) => workspace
+                .recommendation_store
+                .complete_accepted(id, chrono::Utc::now().to_rfc3339())
+                .map_err(RecommendationCompleteError::Store)?
+                .ok_or(RecommendationCompleteError::Conflict)?,
+            (None, _) => return Err(RecommendationCompleteError::Conflict),
+        };
         let event = metadata::Event {
             event_type: "taskmaster_fix_completed".into(),
             timestamp: iso_now(),
@@ -16977,68 +16948,134 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .any(|event| event.event_type == "taskmaster_fix_completed"));
     }
 
-    #[test]
-    fn complete_recommendation_records_id_and_summary_in_session_history() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let recommendation_id = proposed_recommendation_id(&state, "complete-happy");
-        let session_id = "complete-target-session";
-        write_alive_session(&state, root.path(), session_id);
-
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let store = &workspace.as_ref().unwrap().recommendation_store;
+    fn accept_completion_test_recommendation(
+        state: &Arc<AppState>,
+        recommendation_id: &str,
+        session_id: &str,
+        with_packet: bool,
+    ) -> Option<CompletionMutationRequest> {
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        let mutation = if with_packet {
+            let mut item = store.get(recommendation_id).unwrap().unwrap();
+            let mut packet = crate::taskmaster::completion_tests::test_packet();
+            packet.source_session_id = item.source_session_ids[0].clone();
+            packet.provenance.source_session_id = packet.source_session_id.clone();
+            packet.provenance.workspace_id = item.workspace_id.clone();
+            packet.subject.workspace_id = item.workspace_id.clone();
+            packet.evidence_fingerprint = packet.computed_evidence_fingerprint();
+            let mutation = CompletionMutationRequest {
+                packet_revision: packet.revision,
+                evidence_fingerprint: packet.evidence_fingerprint.clone(),
+                idempotency_key: "completion-test-approval".into(),
+            };
+            item.completion_packet = Some(packet);
+            store.put(&item).unwrap();
+            store
+                .begin_execution_checked(
+                    recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                    &mutation,
+                    "user".into(),
+                )
+                .unwrap();
+            Some(mutation)
+        } else {
             store
                 .begin_execution(
-                    &recommendation_id,
+                    recommendation_id,
                     session_id.into(),
                     "2026-09-07T10:00:00Z".into(),
                 )
                 .unwrap();
-            store
-                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
-                .unwrap();
-        }
+            None
+        };
+        store
+            .complete_execution(recommendation_id, "2026-09-07T10:00:01Z".into())
+            .unwrap();
+        mutation
+    }
 
-        let application = SessionApplication::new(state.clone());
-        let completed = application
-            .complete_recommendation_with_packet(
+    #[test]
+    fn complete_recommendation_records_id_and_summary_in_session_history() {
+        for with_packet in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let recommendation_id = proposed_recommendation_id(&state, "complete-happy");
+            let session_id = "complete-target-session";
+            write_alive_session(&state, root.path(), session_id);
+            let mutation = accept_completion_test_recommendation(
+                &state,
                 &recommendation_id,
                 session_id,
-                Some("Verified the fix in the target session.".into()),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(completed.status, RecommendationStatus::Completed);
-
-        let repeated = application
-            .complete_recommendation_with_packet(&recommendation_id, session_id, None, None)
-            .unwrap()
-            .unwrap();
-        assert_eq!(repeated.status, RecommendationStatus::Completed);
-
-        let events = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_events(session_id);
-        let completions: Vec<_> = events
-            .iter()
-            .filter(|event| event.event_type == "taskmaster_fix_completed")
-            .collect();
-        assert_eq!(completions.len(), 1);
-        assert_eq!(
-            completions[0].recommendation_id.as_deref(),
-            Some(recommendation_id.as_str())
-        );
-        assert_eq!(
-            completions[0].summary.as_deref(),
-            Some("Verified the fix in the target session.")
-        );
+                with_packet,
+            );
+            let application = SessionApplication::new(state.clone());
+            let completed = application
+                .complete_recommendation_with_packet(
+                    &recommendation_id,
+                    session_id,
+                    Some("Verified the fix in the target session.".into()),
+                    mutation.clone(),
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(completed.status, RecommendationStatus::Completed);
+            if let Some(mutation) = &mutation {
+                assert!(matches!(
+                    application.complete_recommendation_with_packet(
+                        &recommendation_id,
+                        session_id,
+                        None,
+                        None,
+                    ),
+                    Err(RecommendationCompleteError::Conflict)
+                ));
+                let mut stale = mutation.clone();
+                stale.packet_revision += 1;
+                assert!(matches!(
+                    application.complete_recommendation_with_packet(
+                        &recommendation_id,
+                        session_id,
+                        None,
+                        Some(stale),
+                    ),
+                    Err(RecommendationCompleteError::Store(
+                        crate::taskmaster::store::StoreError::StalePacket { .. }
+                    ))
+                ));
+            }
+            let repeated = application
+                .complete_recommendation_with_packet(&recommendation_id, session_id, None, mutation)
+                .unwrap()
+                .unwrap();
+            assert_eq!(repeated, completed);
+            let events = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_events(session_id);
+            let completions: Vec<_> = events
+                .iter()
+                .filter(|event| event.event_type == "taskmaster_fix_completed")
+                .collect();
+            assert_eq!(completions.len(), 1);
+            assert_eq!(
+                completions[0].recommendation_id.as_deref(),
+                Some(recommendation_id.as_str())
+            );
+            assert_eq!(
+                completions[0].summary.as_deref(),
+                Some("Verified the fix in the target session.")
+            );
+            assert_eq!(completions[0].status, "working");
+            assert_eq!(completions[0].observed_status.as_deref(), Some("working"));
+            assert_eq!(completions[0].source.as_deref(), Some("agent"));
+        }
     }
 
     #[test]
@@ -17143,51 +17180,45 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
 
     #[test]
     fn complete_recommendation_keeps_accepted_state_when_completion_event_fails() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
-        let session_id = "complete-event-failure-session";
-        write_alive_session(&state, root.path(), session_id);
-
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let store = &workspace.as_ref().unwrap().recommendation_store;
-            store
-                .begin_execution(
-                    &recommendation_id,
-                    session_id.into(),
-                    "2026-09-07T10:00:00Z".into(),
+        for with_packet in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
+            let session_id = "complete-event-failure-session";
+            write_alive_session(&state, root.path(), session_id);
+            let mutation = accept_completion_test_recommendation(
+                &state,
+                &recommendation_id,
+                session_id,
+                with_packet,
+            );
+            let (events_dir, accepted) = {
+                let workspace = state.workspace.lock().unwrap();
+                let workspace = workspace.as_ref().unwrap();
+                (
+                    workspace.metadata.events_dir(),
+                    workspace
+                        .recommendation_store
+                        .get(&recommendation_id)
+                        .unwrap()
+                        .unwrap(),
                 )
-                .unwrap();
-            store
-                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
-                .unwrap();
-        }
-
-        let events_dir = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .events_dir();
-        std::fs::write(events_dir, "not a directory").unwrap();
-
-        let result = SessionApplication::new(state.clone()).complete_recommendation_with_packet(
-            &recommendation_id,
-            session_id,
-            Some("The event cannot be persisted.".into()),
-            None,
-        );
-        assert!(matches!(
-            result,
-            Err(RecommendationCompleteError::Store(
-                crate::taskmaster::store::StoreError::Io(_)
-            ))
-        ));
-        assert_eq!(
-            state
+            };
+            std::fs::write(events_dir, "not a directory").unwrap();
+            let result = SessionApplication::new(state.clone())
+                .complete_recommendation_with_packet(
+                    &recommendation_id,
+                    session_id,
+                    Some("The event cannot be persisted.".into()),
+                    mutation,
+                );
+            assert!(matches!(
+                result,
+                Err(RecommendationCompleteError::Store(
+                    crate::taskmaster::store::StoreError::Io(_)
+                ))
+            ));
+            let saved = state
                 .workspace
                 .lock()
                 .unwrap()
@@ -17196,10 +17227,9 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .recommendation_store
                 .get(&recommendation_id)
                 .unwrap()
-                .unwrap()
-                .status,
-            RecommendationStatus::Accepted
-        );
+                .unwrap();
+            assert_eq!(saved, accepted);
+        }
     }
 
     #[tokio::test]
