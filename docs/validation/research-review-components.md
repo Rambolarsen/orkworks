@@ -79,9 +79,30 @@ separate bounded tasks under their own acceptances.
 
 ## Verification and measurements
 
-Node 22 `node --test` runs all prior documentation packets unchanged (2,147
-tests before this packet; the packet's own 14 regressions pass, including
-independent regeneration equality, semantic-mutation denials, supplied-fact
-helpers and literal domain/bound pins). The generator-derived measurements
-record the exact key plus committed occurrence projection for the retained
-rows; they are not storage charges or a legal transaction witness.
+Node 22 `node --test` runs all prior documentation packets unchanged (the
+packet's own 20 regressions pass, including independent regeneration
+equality, fourteen semantic-mutation denials with correct reseals and
+asserted rejection reasons, supplied-fact helper oracles distinguishing
+retained identical retries from new admissions, and literal domain/bound
+pins). The generator-derived measurements record the exact key plus
+committed occurrence projection for the retained rows; they are not storage
+charges or a legal transaction witness.
+
+## Hosted review corrections — 2026-11-19
+
+The hosted review of the first packet head reported nine P2 findings, all
+addressed in this revision: the reviewer-only replacement now uses the
+mandatory `reviewTask` member with a replacement-specific configuration
+binding `review-task-2`; the summary evidence `reviewIdentity` carries the
+complete reviewer TaskKey (plan members included); the composed startup
+frames the actual canonical snapshot with its exact UTF-8 length and the
+checker verifies framing and total size; the mutation tests reseal cloned
+bodies properly and assert intended rejection reasons; the cited excerpt
+bytes are derived from the retained capture range and verified by decoded
+length and SHA-256; the reviewer capability evidence and settings/model
+leaves are rebuilt and resealed with their exact joins validated; the
+exact-retry helper now returns the original receipt before live CAS and
+currentness checks with advanced-version and superseded-selection retry
+cases; the summary binds the corrected-selection input and the reviewed
+report version; and the outcome checker enforces the status enum and the
+aggregate verdict rule.
