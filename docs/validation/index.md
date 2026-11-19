@@ -158,3 +158,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline reserved research membership and report invalidation](research-prospective-components.md) — Independent finite A/B roles, immutable report-input invalidation and exact original rejection/retry comparisons.
 
 - [Offline reports after revision rejection](research-post-report-components.md) — Independent original disposition/report/input/summary alternatives and exact retry/denial checks; no publisher or history qualification.
+
+- [Offline ordinary-review source components](ordinary-review-source-components.md) — Canonical registry bytes, conservative artifact binding and serialized logical admission/fault traces; no runtime or durability qualification.

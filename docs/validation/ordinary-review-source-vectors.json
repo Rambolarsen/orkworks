@@ -1,0 +1,147 @@
+{
+  "registry": {
+    "schemaVersion": 1,
+    "workspaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "revision": "1",
+    "attempts": [
+      {
+        "attemptId": "11111111-1111-4111-8111-111111111111",
+        "previewId": "22222222-2222-4222-8222-222222222222",
+        "allocatedSessionId": "33333333-3333-4333-8333-333333333333",
+        "recommendationId": "rec_1",
+        "sourceSessionId": "source_1",
+        "proposalRevision": "1",
+        "preparedInputDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "state": "reserved",
+        "recordRevision": "1",
+        "reason": null
+      }
+    ]
+  },
+  "canonical": "{\"schemaVersion\":1,\"workspaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"revision\":\"1\",\"attempts\":[{\"attemptId\":\"11111111-1111-4111-8111-111111111111\",\"previewId\":\"22222222-2222-4222-8222-222222222222\",\"allocatedSessionId\":\"33333333-3333-4333-8333-333333333333\",\"recommendationId\":\"rec_1\",\"sourceSessionId\":\"source_1\",\"proposalRevision\":\"1\",\"preparedInputDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"state\":\"reserved\",\"recordRevision\":\"1\",\"reason\":null}]}",
+  "binding": {
+    "owner": "synthetic-owner-A",
+    "generation": "0",
+    "branch": "main",
+    "kind": "plan",
+    "anchor": "anchor-1",
+    "pinned": false,
+    "selectionId": "selection-A"
+  },
+  "traces": [
+    {
+      "name": "successful original and replay",
+      "steps": [
+        "reserve",
+        "dispatch",
+        "enter",
+        "link",
+        "retry",
+        "settle",
+        "retry"
+      ],
+      "states": [
+        "reserved",
+        "dispatchCommitted",
+        "dispatchCommitted",
+        "linked",
+        "linked",
+        "settled",
+        "settled"
+      ],
+      "calls": [
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "revisions": [
+        "1",
+        "2",
+        "2",
+        "3",
+        "3",
+        "4",
+        "4"
+      ],
+      "registryRevisions": [
+        "2",
+        "3",
+        "3",
+        "4",
+        "4",
+        "5",
+        "5"
+      ]
+    },
+    {
+      "name": "source changed before admission",
+      "steps": [
+        "reserve",
+        "dispatch",
+        "stale",
+        "retry"
+      ],
+      "states": [
+        "reserved",
+        "dispatchCommitted",
+        "rejectedBeforeCreate",
+        "rejectedBeforeCreate"
+      ],
+      "calls": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "revisions": [
+        "1",
+        "2",
+        "3",
+        "3"
+      ],
+      "registryRevisions": [
+        "2",
+        "3",
+        "4",
+        "4"
+      ]
+    },
+    {
+      "name": "owner lost after dispatch",
+      "steps": [
+        "reserve",
+        "dispatch",
+        "restart",
+        "retry"
+      ],
+      "states": [
+        "reserved",
+        "dispatchCommitted",
+        "unknown",
+        "unknown"
+      ],
+      "calls": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "revisions": [
+        "1",
+        "2",
+        "3",
+        "3"
+      ],
+      "registryRevisions": [
+        "2",
+        "3",
+        "4",
+        "4"
+      ]
+    }
+  ]
+}

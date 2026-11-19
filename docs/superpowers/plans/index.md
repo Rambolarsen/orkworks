@@ -380,3 +380,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Session projection CPU](2026-11-18-session-projection-cpu.md) — Evidence and delivery boundaries for reducing refresh cost.
 
 - [Review handoff preview implementation](2026-11-18-review-handoff-preview.md) — Proposed isolated interactive preview slice and explicit production read/approval prerequisites.
+
+- [Offline review source qualification components](2026-11-19-review-source-components.md) — Accepted finite artifact/registry/admission oracles; no application storage or process effects.

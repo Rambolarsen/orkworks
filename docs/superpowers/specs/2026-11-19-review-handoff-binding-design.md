@@ -292,3 +292,12 @@ operation, polling bound and artifact-owner revision prerequisite resolve the
 consumer contract while retaining the explicit external-filesystem limitation.
 Source codecs, durable attempt admission and runtime qualification remain gates;
 this review is not evidence that those prerequisites exist.
+
+## Source qualification follow-up
+
+The [artifact and Start source contract](2026-11-19-review-source-qualification-design.md)
+audits the existing volatile document generation and ordinary creation seams.
+The owner separately accepted conservative artifact epoch binding, the bounded
+durable attempt contract and offline qualification scope on 2026-11-19. Logical
+component evidence does not qualify the producer, actual sources, physical
+persistence, compatibility or runtime admission.
