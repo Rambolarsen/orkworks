@@ -116,6 +116,7 @@ export default {
       } catch { /* Optional context delivery must not disable legacy reporting. */ }
     }
     let openCodeSessionId = null;
+    const childrenCreatedBeforeCapture = new Set();
     let identityDelivered = false;
     let turnStatus = 'idle';
     let lastReported = null;
@@ -165,6 +166,7 @@ export default {
 
     const resetCaptureState = (harnessSessionId) => {
       openCodeSessionId = harnessSessionId;
+      childrenCreatedBeforeCapture.clear();
       identityDelivered = false;
       turnStatus = 'idle';
       permissionIds.clear();
@@ -212,7 +214,7 @@ export default {
       // OpenCode 2.2.5 replaced question.* with form.*. Creation nests
       // ownership inside data.form; resolution uses data.sessionID/id.
       const sessionID = type === 'form.created' ? data.form?.sessionID : data.sessionID;
-      // An explicit session.created announcement re-captures (matching the
+      // An explicit root session.created announcement re-captures (matching the
       // V1 behavior for a TUI hosting several sessions); otherwise the
       // first session-scoped event establishes the capture, because V2 run
       // mode emitted no session.created at all. Teardown events for a
@@ -222,6 +224,10 @@ export default {
           ? data.info.id
           : (typeof sessionID === 'string' && sessionID ? sessionID : null);
         if (!capturedId || capturedId === openCodeSessionId) return;
+        if (data.parentID != null || data.info?.parentID != null) {
+          if (!openCodeSessionId) childrenCreatedBeforeCapture.add(capturedId);
+          return;
+        }
         resetCaptureState(capturedId);
         await postHarnessSession();
         // The capture attention POST carries a normalized event name so the
@@ -233,7 +239,8 @@ export default {
       let capturedNow = false;
       if (!openCodeSessionId) {
         if (typeof sessionID !== 'string' || !sessionID || !type.startsWith('session.')) return;
-        if (type === 'session.deleted' || type === 'session.error') return;
+        if (type === 'session.deleted' || type === 'session.error' ||
+            childrenCreatedBeforeCapture.has(sessionID)) return;
         resetCaptureState(sessionID);
         capturedNow = true;
         await postHarnessSession();

@@ -1829,6 +1829,20 @@ impl SessionApplication {
             }
 
             Some(handle)
+                if handle.active_work_hook
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref())
+                        == Some("opencode") =>
+            {
+                metadata::PeonAttentionPolicy::PreserveAttention
+            }
+
+            Some(handle)
                 if matches!(
                     handle
                         .info
@@ -18035,7 +18049,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn peon_nonprompt_preserves_opencode_hook_attention_past_overwrite_window() {
+    fn peon_preserves_opencode_hook_attention_past_overwrite_window() {
         for (status, attention) in [
             ("waiting_for_input", "needs_you"),
             ("working", "working"),
@@ -18059,6 +18073,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             metadata.attention = Some(attention.into());
             metadata.metadata_source = "agent".into();
             metadata.metadata_confidence = 0.97;
+            metadata.provenance.attention_source = Some("agent".into());
+            metadata.provenance.attention_origin = Some("direct_agent".into());
+            metadata.provenance.attention_confidence = Some(0.97);
+            metadata.provenance.attention_updated_at = Some("2026-09-26T12:00:00Z".into());
             let path = {
                 let workspace = state.workspace.lock().unwrap();
                 let store = &workspace.as_ref().unwrap().metadata;
@@ -18087,10 +18105,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             state.sessions.lock().unwrap().insert(id.into(), handle);
             let inference = crate::peon::PeonInference {
                 observed_status: Some(
-                    if status == "idle" {
-                        "working"
-                    } else {
-                        "waiting_for_input"
+                    match status {
+                        "idle" => "working",
+                        "working" => "done",
+                        _ => "stale",
                     }
                     .into(),
                 ),
@@ -18132,9 +18150,14 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .unwrap();
             assert_eq!(stored.observed_status.as_deref(), Some(status));
             assert_eq!(stored.attention.as_deref(), Some(attention));
-            assert_eq!(stored.attention_source(), "peon");
+            assert_eq!(stored.attention_source(), "agent");
+            assert_eq!(stored.attention_origin(), "direct_agent");
+            assert_eq!(
+                stored.provenance.attention_updated_at.as_deref(),
+                Some("2026-09-26T12:00:00Z")
+            );
             assert_eq!(stored.metadata_source, "peon");
-            assert_eq!(stored.attention_confidence(), 0.8);
+            assert_eq!(stored.attention_confidence(), 0.97);
             assert_eq!(stored.summary.as_deref(), Some("New summary"));
             assert_eq!(
                 stored.blocker_description.as_deref(),

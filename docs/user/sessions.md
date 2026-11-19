@@ -223,7 +223,11 @@ Published installers may still use the earlier panel layout.
 Peon is OrkWorks’ AI observer. With a provider configured, it reads recent
 terminal output and produces summaries and attention signals. Some coding
 tools can also report events through an explicitly installed integration.
-For OpenCode, an active integration reports prompt-driven **Needs You**.
+In current source builds, the OpenCode integration follows the main conversation.
+It reports **Working** during model steps and **Needs You** for an explicit
+question or permission request. Once the integration reports attention, Peon
+continues to update summaries while OpenCode controls the status. Update the
+OpenCode integration through Settings and start a fresh session for this behavior.
 Current source builds also read Codex's own terminal status: manual prompts
 show **Needs You**, while automatic approval review stays **Working**.
 This works without reinstalling hooks. Codex versions that do not emit this
