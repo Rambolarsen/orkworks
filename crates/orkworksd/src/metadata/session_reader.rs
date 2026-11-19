@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+#[derive(Debug)]
 pub(crate) struct SessionReader {
     root: PathBuf,
     admission: Arc<Semaphore>,
@@ -48,7 +49,6 @@ impl SessionReader {
             });
         })
     }
-    #[cfg(test)]
     pub(crate) fn root(&self) -> &Path {
         &self.root
     }
@@ -74,17 +74,36 @@ pub(super) fn with_session_write_lock<T>(
     let guard = lock.lock().unwrap();
     let result = operation();
     drop(guard);
+    release_session_write_lock(locks, id, &lock);
+    result
+}
+
+pub(super) fn try_with_session_write_lock<T>(
+    locks: &SessionWriteLocks,
+    id: &str,
+    operation: impl FnOnce() -> T,
+) -> Option<T> {
+    let lock = session_write_lock(locks, id);
+    let result = match lock.try_lock() {
+        Ok(_guard) => Some(operation()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+        Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+    };
+    release_session_write_lock(locks, id, &lock);
+    result
+}
+
+fn release_session_write_lock(locks: &SessionWriteLocks, id: &str, lock: &Arc<Mutex<()>>) {
     let mut locks = locks.lock().unwrap();
     let remove = locks
         .get(id)
         .and_then(Weak::upgrade)
         .is_some_and(|registered| {
-            Arc::ptr_eq(&registered, &lock) && Arc::strong_count(&registered) == 2
+            Arc::ptr_eq(&registered, lock) && Arc::strong_count(&registered) == 2
         });
     if remove {
         locks.remove(id);
     }
-    result
 }
 
 #[cfg(test)]

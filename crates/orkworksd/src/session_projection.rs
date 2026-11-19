@@ -2014,6 +2014,111 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_output_recency_file_sync_allows_other_session_input() {
+        check_input_during_recency_sync(crate::metadata::atomic_write::testing::SyncPoint::File)
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_output_recency_directory_sync_allows_other_session_input() {
+        check_input_during_recency_sync(
+            crate::metadata::atomic_write::testing::SyncPoint::Directory,
+        )
+        .await;
+    }
+
+    async fn check_input_during_recency_sync(
+        point: crate::metadata::atomic_write::testing::SyncPoint,
+    ) {
+        use crate::runtime::session_runtime::RuntimeCommand;
+        use std::time::Duration;
+
+        const OUTPUT_ID: &str = "recency-output";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        let (dir, state, mut receiver) = input_fixture();
+        let output_meta = crate::test_support::test_session_metadata(
+            OUTPUT_ID,
+            "Output",
+            &dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        let (identity, sender) = {
+            let sessions = state.sessions.lock().unwrap();
+            let runtime = &sessions["lag-test"].runtime;
+            (runtime.identity(), runtime.control_tx.clone())
+        };
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&output_meta);
+        }
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let writer_state = state.clone();
+        let writer = tokio::task::spawn_blocking(move || {
+            let mut entered_tx = Some(entered_tx);
+            let _hook = crate::metadata::atomic_write::testing::install(move |event, _| {
+                if event == point {
+                    if let Some(tx) = entered_tx.take() {
+                        let _ = tx.send(());
+                        let _ = release_rx.recv_timeout(Duration::from_secs(10));
+                    }
+                }
+                Ok(())
+            });
+            crate::session_application::SessionApplication::new(writer_state)
+                .persist_test_output_recency(OUTPUT_ID, TIMESTAMP.into());
+        });
+        let entered = tokio::time::timeout(Duration::from_secs(5), entered_rx).await;
+        let mut input = tokio::spawn(async move {
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
+                &state,
+                "lag-test",
+                &identity,
+                &sender,
+                "x".into(),
+            )
+            .await
+        });
+        let delivered = if let Ok(Some(RuntimeCommand::Input {
+            accepted: Some(ack),
+            data,
+        })) = tokio::time::timeout(Duration::from_secs(2), receiver.recv()).await
+        {
+            let _ = ack.send(Ok(()));
+            data == "x"
+        } else {
+            false
+        };
+        let completed = delivered
+            && matches!(
+                tokio::time::timeout(Duration::from_secs(2), &mut input).await,
+                Ok(Ok(Ok(())))
+            );
+        let _ = release_tx.send(());
+        writer.await.unwrap();
+        input.abort();
+        assert!(
+            matches!(entered, Ok(Ok(()))),
+            "recency write must reach the sync hook"
+        );
+        assert!(
+            delivered,
+            "input must reach the writer while another session's recency sync is paused"
+        );
+        assert!(
+            completed,
+            "input bookkeeping must finish while recency sync is paused"
+        );
+    }
+
     #[test]
     fn shared_worktree_document_inspection_runs_once_even_when_discovery_fails() {
         use std::sync::{
