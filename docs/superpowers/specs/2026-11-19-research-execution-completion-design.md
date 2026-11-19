@@ -186,7 +186,19 @@ part of its authenticated source trigger (not a new parent request/rate
 allowance); an exact original coordination/recovery retry returns its
 original outcome and never appends a second completion; rechecking an
 already completed execution plan verifies its original record and is
-read-only.
+read-only. **Terminal retry boundary:** that retry guarantee is a
+source-level idempotence property — the retained original outcome/receipt is
+the durable resolution of the trigger, and internal source-owner
+reconciliation resolves it without new authority. A parent-level retry
+through the coordination operation after completion is **denied by the
+preserved authentication rules**: the same outcome revoked the run bearer and
+the run is terminal, and the accepted continuation contract explicitly
+forbids replay by a terminal run or revoked parent. Recovery of a lost
+response uses the owning recovery/reconciliation path (complete old/new
+state or unavailable reconciliation), never a parent retry that would bypass
+those rules — execution completion, unlike research-plan completion, revokes
+run authority in the same outcome, so the research-stage retry behavior does
+not carry over.
 
 The accepted trigger union now has three variants — coordination, recovery
 and the accepted scope-rejection form. For the execution plan in this slice,
@@ -200,9 +212,17 @@ is unavailable until that variant is separately closed.
 ## Absorbing run-terminal transition
 
 Plan completion and run terminal transition share the trigger's one compound
-outcome. Beyond the accepted plan-completion effects (insert one completion
-record, mark that plan complete/version+1, revoke its grant, select
-`completedResearchPlan`, advance `runVersion` once with the trigger), the
+outcome. The accepted plan-completion effect is reused **except** for the
+selector: `completedResearchPlan` keeps pointing at the completed **research**
+plan — the selector field's accepted invariant — and the completed execution
+plan is identified through its own plan control (status `complete`, final
+version) and its completion record under the execution `PlanRef`; no
+execution ref is written into the research-plan selector, and the retained
+research summary's plan binding is not invalidated by the execution
+completion. Beyond the accepted plan-completion effects (insert one
+completion
+record, mark that plan complete/version+1, revoke its grant, advance
+`runVersion` once with the trigger), the
 same outcome carries:
 
 | Owner | Required change / preserved facts |
@@ -211,7 +231,7 @@ same outcome carries:
 | Authority | Revoke the run bearer and every launch grant (research grants are already revoked by their own completions; the execution plan's grant — active or unexercised — is revoked here), revoke parent planning authority and every child-report capability whose owner rules bind them to run liveness, under the existing nonblocking close-only rules. Grants are never serialized: the revocation is represented offline as **label assertions only** per the execution-proposal contract's rule (proposed label keys `grantExisted:"supplied"`, `grantRevokedAtCompletion:"supplied"`); the completion record's "revoked grant's historical binding facts" are exactly the already retained immutable approval facts — approval ID, approval digest, plan digest and the receipt's commit ref from the execution-proposal approval source/receipt — as historical data, never live authority |
 | Waits | Wake outstanding parent event waits with `run_closed`; the ended parent needs no further authorized read; no reconnect is automatic. `run_closed` is an effect label under the accepted wait rules, not a record the packet stores |
 | Collections | Retire every proper active collection and collecting expectation in the owned complete set (accepted finish pattern): `active`/`collecting` false with version advances coalesced once, preserving selected reports, versions and all historical relations; no ledger fabrication or counter reset. In this slice the owned complete set is exactly the research task's collection and expectation rows — the execution proposal created none, and the execution task's own expectation belongs to the separately gated launch chain, so its absence in the prestate is asserted explicitly, never inferred from a missing row |
-| Pointers | Clear `currentPlan`/`pendingPlan` and the parent runtime pointer; clear any obsolete `currentSummary` under its existing owner when the completion's selection supersedes it, retaining summary/version/history; retain `planReferences`, `completedResearchPlan`, every remaining summary/history and every raw blocker/gate/clarification value |
+| Pointers | Clear `currentPlan`/`pendingPlan` and the parent runtime pointer; clear any obsolete `currentSummary` under its existing owner when the completion's selection supersedes it, retaining summary/version/history; keep `completedResearchPlan` pointing at the completed research plan (the selector invariant — execution completion changes no selector field) and retain `planReferences`, every remaining summary/history and every raw blocker/gate/clarification value |
 | Children | Terminate nothing: live children keep consuming run capacity until their ordinary lifecycle actually ends; each subsequent ordinary end/resume remains independently observable and updates derived capacity without reopening the terminal run. Capacity is derived from the ordinary session/launch controls, not a retained resource row: the packet represents the live-child case as the execution task's session/launch control rows (supplied synthetic data, terminal=false with their actual producerRevision) plus the accepted derived-capacity policy labels; the "capacity release for nonterminal children" denial asserts the policy label against those rows |
 | Consumers | Invalidate every recognized pending proposal (none may survive terminal state) and apply the accepted source-owned summary invalidation for any binding change; retain immutable history |
 | Proofs | Commit all logical changes, required direct proof links, derived lookup maintenance, one header advance and one new complete proof outcome together; no post-commit registration or partial success |
@@ -324,7 +344,11 @@ child still consuming capacity after terminal state; `run_closed` wait
 disposition; preserved raw gates/blockers/clarification values with no
 TerminalReportRunV1 cast; the synthetic execution-proposal prestate labeled
 against that contract's pending choices (including its supplied
-`awaiting_execution_approval` post-launch state label); failed/blocked
+`awaiting_execution_approval` post-launch state label); the selector
+preservation case (`completedResearchPlan` unchanged, the execution plan
+identified through its own control/record); the terminal-retry denial
+(parent-level post-completion coordination retry denied by the preserved
+authentication rules, with the source-level idempotence retained); failed/blocked
 execution retaining the run
 nonterminal; and denial cases (unsupported trigger, second completion,
 capacity release for nonterminal children, terminal state reversal, missing
@@ -389,6 +413,18 @@ clear is restored; and the merged-proposal contracts are described as
 pending scoped acceptance. No accepted technical definition changed and no
 runtime qualification follows. Neither reviewer executed code, a fixture,
 database or native/runtime process.
+
+After the hosted review of head `e3f14833`, two further P2 findings were
+addressed in this revision: (1) execution completion keeps
+`completedResearchPlan` pointing at the completed research plan — the
+selector invariant — identifying the completed execution plan through its
+own plan control and completion record instead of reusing the research
+selector-selection effect; (2) the terminal retry guarantee is explicitly
+scoped as a source-level idempotence property, with parent-level
+post-completion coordination retries denied by the preserved authentication
+rules (bearer revoked, terminal run) and lost-response recovery routed
+through the owning reconciliation path, since execution completion — unlike
+research-plan completion — revokes run authority in the same outcome.
 
 ## Remaining gates
 
