@@ -1,0 +1,73 @@
+name: Dependency freshness
+
+"on":
+  schedule:
+    - cron: '41 7 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/dependency-freshness.yml'
+      - '.github/dependency-review.json'
+      - 'scripts/dependency-freshness*'
+      - 'apm.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-freshness
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Manual dispatches always inspect main; PRs qualify their merge ref.
+          ref: ${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test report fixtures
+        run: python3 scripts/dependency-freshness.test.py
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare pinned APM 0.35.0
+        run: |
+          python -m pip install uv
+          git init "$RUNNER_TEMP/dependency-apm-source"
+          git -C "$RUNNER_TEMP/dependency-apm-source" fetch --depth=1 https://github.com/microsoft/apm.git 17a2fc4dfff238c7d93e55cce6ef42ffa1db928e
+          git -C "$RUNNER_TEMP/dependency-apm-source" checkout --detach FETCH_HEAD
+          uv sync --project "$RUNNER_TEMP/dependency-apm-source" --frozen --no-dev
+      - name: Qualify fresh-checkout dry-run and trusted lifecycle isolation
+        env:
+          ORKWORKS_FRESHNESS_APM: ${{ runner.temp }}/dependency-apm-source/.venv/bin/apm
+        run: python3 scripts/dependency-freshness.test.py ReportTests.test_pinned_apm_fresh_checkout_does_not_run_trusted_lifecycle_or_write_files
+      - name: Collect report
+        if: github.event_name != 'pull_request'
+        run: >-
+          python3 scripts/dependency-freshness.py
+          --apm "$RUNNER_TEMP/dependency-apm-source/.venv/bin/apm"
+          --output "$RUNNER_TEMP/dependency-freshness"
+      - name: Report setup or qualification failure
+        if: always() && failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/dependency-freshness"
+          if [ ! -f "$RUNNER_TEMP/dependency-freshness/summary.md" ]; then
+            echo 'Dependency freshness collection INCOMPLETE: setup or qualification failed. Inspect the failed step; no clean audit is claimed.' | tee "$RUNNER_TEMP/dependency-freshness/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain summary and raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-freshness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/dependency-freshness/
+          retention-days: 30
+          if-no-files-found: ignore

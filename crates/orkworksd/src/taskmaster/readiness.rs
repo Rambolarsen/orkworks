@@ -793,6 +793,7 @@ fn execute(
     let data = SnapshotData::from_response(c.identity.clone(), response, facts, knowledge)
         .map_err(|_| "publication_invalid_response")?;
     let snapshot = Snapshot {
+        improvement_version: None,
         id: run.id.clone(),
         started_at: run.started_at.clone(),
         completed_at: now(),
@@ -2440,6 +2441,7 @@ mod integration_tests {
                 .run()
                 .unwrap()
                 .is_some_and(|r| !matches!(r.state, RunState::Queued | RunState::Running))
+                && runtime.try_analysis_lease().unwrap().is_some()
             {
                 break;
             }

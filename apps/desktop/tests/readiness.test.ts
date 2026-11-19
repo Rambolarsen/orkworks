@@ -115,3 +115,22 @@ test('readiness admission metadata is validated independently at renderer and pr
   await assert.rejects(taskmasterRequest(1234,'token','readiness',undefined,async()=>new Response(JSON.stringify(malformed))), /readiness.*admission/i);
  }
 });
+
+
+test('producer three history requires matching origin, identity and unverified presentation', () => {
+ const value: any = validStatus(); value.protocolVersion=3;
+ const saved=value.snapshots[0];
+ Object.assign(saved,{improvementVersion:3,protocolVersion:3,verificationStatus:'unverified'});
+ saved.data.inputManifest={version:1,purpose:'brain-improvement-v3',collector:{version:3,manifest:{purpose:'brain-improvement-v3'}}};
+ saved.data.versions={purpose:'brain-improvement-v3',collector:3,schema:1,text:3};
+ assert.equal(parseReadinessStatus(value).snapshots[0].data?.summary,'Observed repository readiness');
+ for(const mutate of [
+  (x:any)=>{delete x.protocolVersion;},
+  (x:any)=>{delete x.snapshots[0].verificationStatus;},
+  (x:any)=>{delete x.snapshots[0].improvementVersion;},
+  (x:any)=>{x.snapshots[0].data.versions.text=2;},
+  (x:any)=>{x.snapshots[0].data.inputManifest.collector.version=2;},
+ ]) {const bad=structuredClone(value);mutate(bad);assert.throws(()=>parseReadinessStatus(bad),/protocol|Unsupported|unverified/i);}
+ saved.redacted=true;saved.data=null;
+ assert.equal(parseReadinessStatus(value).snapshots[0].data,null);
+});

@@ -1,4 +1,4 @@
-//! Listener-wide API access control (ADR 0116).
+//! Listener-wide API access control (ADR 0117).
 //!
 //! Every route except `/health` requires one of three credentials:
 //!

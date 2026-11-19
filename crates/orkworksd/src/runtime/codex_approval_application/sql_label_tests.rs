@@ -31,6 +31,15 @@ async fn begin(
 }
 #[tokio::test]
 async fn sql_label_persists_and_publishes_only_display_fields_with_unchanged_noop() {
+    // Exact display publication requires an uncontended transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_persists_and_publishes_only_display_fields_with_unchanged_noop"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
     automatic(&store).await;
@@ -246,6 +255,14 @@ async fn sql_label_after_claim_is_definitive_but_cannot_publish_a_revoked_lookup
 }
 #[tokio::test]
 async fn sql_label_caller_abort_before_claim_discards_and_after_claim_finishes() {
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_caller_abort_before_claim_discards_and_after_claim_finishes"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for claimed in [false, true] {
         let (_dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
@@ -356,6 +373,15 @@ async fn sql_label_storage_failure_is_typed_and_never_falls_back_to_json() {
 
 #[tokio::test]
 async fn sql_label_scheduler_reads_real_exact_native_name_and_persists_through_sql() {
+    // Exact native-title lookup requires uncontended label admission.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_scheduler_reads_real_exact_native_name_and_persists_through_sql"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     let (dir, state, store, writes, _commands) = fixture(Some("root-one")).await;
     automatic(&store).await;
@@ -580,6 +606,15 @@ async fn sql_label_busy_publication_retries_without_rewriting_an_identical_title
 
 #[tokio::test]
 async fn sql_label_normal_observer_sync_does_not_revoke_a_published_identity_lookup() {
+    // Observer-sync assertions require uncontended identity admission.
+    let module = module_path!().split_once("::").unwrap().1;
+    if super::super::sql_tests::isolated_test(format!(
+        "{module}::sql_label_normal_observer_sync_does_not_revoke_a_published_identity_lookup"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
     for (previous, root) in [(None, "root-one"), (Some("root-one"), "root-two")] {
         let (_dir, state, store, writes, _commands) = fixture(previous).await;

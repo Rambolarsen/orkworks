@@ -401,3 +401,18 @@ the prior initializer/first-report technical bodies remain append-only. Existing
 VitePress circular/large-chunk warnings concern unchanged bundler configuration.
 Passing documentation checks supplies none of the open source/catalog/index/
 authority/ordinary/native/history qualifications above.
+
+## Scoped owner acceptance — 2026-11-15
+
+The owner answered “Go ahead” after the three choices above and the next offline
+validation packet were presented together. This accepts all three choices for
+**offline components only**: the exact original research late-save/no-spawn
+policy, the closed intent/four snapshots/auth family and shared permit sequence,
+and unchanged ordinary schema2 linkage resolved through original C/command.
+Earlier pending wording records the proposal's historical review state.
+
+The [component plan](../plans/2026-11-15-research-authorization-components.md)
+keeps source/native/coverage/currentness/permit/outcome facts explicitly supplied
+and unqualified. This acceptance selects no full storage profile, format, header,
+row/change domain, runtime adapter, physical store or product execution plan.
+Gate 2 remains Investigate; #1689/#1089 remain open.

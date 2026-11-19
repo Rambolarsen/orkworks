@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight, FileText, GitBranch, NotebookPen } from "lucide-react";
 import type { BranchDocuments, PlanDocumentKind } from "../api";
 
@@ -13,11 +13,20 @@ interface Props {
   documents: BranchDocuments;
   onOpen: (kind: PlanDocumentKind) => void;
   onUseLatest: (kind: PlanDocumentKind, selectionId?: string) => Promise<void>;
+  onReset?: (recoveryId: string) => Promise<void>;
+  onRetry?: () => void;
 }
 
-export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: Props) {
+export default function BranchDocumentSteps({ sessionId, documents, onOpen, onUseLatest, onReset, onRetry }: Props) {
   const [pending, setPending] = useState<PlanDocumentKind | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [resetPending, setResetPending] = useState(false);
+  const resetInFlight = useRef(false);
+  const currentScope = useRef("");
+  const scope = `${sessionId}:${documents.branch ?? ""}:${documents.recoveryId ?? ""}`;
+  currentScope.current = scope;
+  useEffect(() => { setConfirmation(null); setError(null); }, [scope]);
   return <details className="branch-documents" aria-label="Design and implementation documents">
     <summary className="session-menu-item">
       <span className="session-menu-icon"><NotebookPen size={16} aria-hidden="true" /></span>
@@ -38,7 +47,7 @@ export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: 
           return <li key={kind}>
             <div className="branch-document-body">
               <button type="button" className="branch-document-open" data-document-kind={kind}
-                disabled={!step?.available} onClick={() => onOpen(kind)}>
+                disabled={!step?.available || resetPending} onClick={() => onOpen(kind)}>
                 <FileText size={16} aria-hidden="true" />
                 <span className="branch-document-text">
                   <span className="branch-document-label">{kind === "design" ? "Design / specification" : "Implementation plan"}</span>
@@ -51,7 +60,7 @@ export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: 
                 <summary>{sources[step.source] || "Saved document"}{step.pinned ? " · Pinned" : ""}</summary>
                 {step.fileName && <p>{step.fileName}</p>}
               </details>}
-              {step?.pinned && <button type="button" className="branch-document-latest" disabled={pending !== null}
+              {step?.pinned && <button type="button" className="branch-document-latest" disabled={pending !== null || resetPending}
                 onClick={() => {
                   if (pending !== null) return;
                   setPending(kind); setError(null);
@@ -63,6 +72,26 @@ export default function BranchDocumentSteps({ documents, onOpen, onUseLatest }: 
         })}
       </ol>
       {documents.notice && <p className="branch-document-notice">{documents.notice}</p>}
+      {documents.notice && <button type="button" data-document-retry disabled={resetPending} onClick={onRetry}>Try again</button>}
+      {documents.recoveryId && <button type="button" data-document-reset disabled={resetPending || pending !== null}
+        onClick={() => { setError(null); setConfirmation(documents.recoveryId!); }}>Reset saved document choices</button>}
+      {confirmation && confirmation === documents.recoveryId && <div role="alertdialog" aria-label="Reset saved document choices" aria-describedby="branch-document-reset-description">
+        <p id="branch-document-reset-description">Reset saved choices for branch <strong>{documents.branch}</strong>? Both document choices and their pins will be cleared for all sessions sharing this branch. The previous record will be preserved. Your documents will remain unchanged.</p>
+        <button type="button" data-document-reset-cancel autoFocus disabled={resetPending} onClick={() => setConfirmation(null)}>Cancel</button>
+        <button type="button" data-document-reset-confirm disabled={resetPending} onClick={() => {
+          if (resetInFlight.current || pending !== null || !onReset) return;
+          resetInFlight.current = true; setResetPending(true); setError(null);
+          const submittedScope = scope;
+          void onReset(confirmation).then(() => {
+            if (currentScope.current === submittedScope) setConfirmation(null);
+          }).catch(() => {
+            if (currentScope.current === submittedScope) {
+              setConfirmation(null);
+              setError("Couldn’t reset saved choices. Reset may already have applied. Refresh before trying again.");
+            }
+          }).finally(() => { resetInFlight.current = false; setResetPending(false); });
+        }}>{resetPending ? "Resetting…" : "Reset saved document choices"}</button>
+      </div>}
       {error && <p role="alert">{error}</p>}
     </div>
   </details>;

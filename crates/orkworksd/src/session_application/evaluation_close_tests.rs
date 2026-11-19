@@ -320,8 +320,17 @@ async fn evaluation_close_failed_spawn_closes_exact_runtime() {
     assert!(!authority.can_respond());
 }
 
-#[test]
-fn evaluation_close_kill_releases_session_workspace_and_prompt_locks() {
+#[tokio::test]
+async fn evaluation_close_kill_releases_session_workspace_and_prompt_locks() {
+    // Global prompt-lock availability requires an otherwise uncontended process.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::evaluation_close_kill_releases_session_workspace_and_prompt_locks"
+    ))
+    .await
+    {
+        return;
+    }
     let (_root, state, authority, kill) = fixture();
     let entered = authority.observe_close();
     let held = authority.hold_latch();

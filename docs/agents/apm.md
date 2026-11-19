@@ -51,6 +51,67 @@ and relevant PRs exercise the latest stable source CLI with disposable fixtures.
 See [ADR 0105](../adr/0105-apm-capability-compatibility.md) for the accepted
 tradeoff: help advertises capabilities; it cannot prove future CLI semantics.
 
+## Dependency freshness report
+
+The [dependency freshness workflow](../../.github/workflows/dependency-freshness.yml)
+implements the [reviewed #973 contract](https://github.com/Rambolarsen/orkworks/issues/973#issuecomment-6948481712).
+It runs Mondays at 07:41 UTC or manually against `main`, independently of
+Taskmaster and the daily APM compatibility qualification. It reports APM ref
+changes, desktop advisory findings, and explicit dismissal follow-up conditions.
+It does not update dependencies, execute coding agents, or mutate alerts.
+
+The workflow pins APM 0.35.0 to source commit
+`17a2fc4dfff238c7d93e55cce6ef42ffa1db928e`. Before collection, a fresh-checkout
+qualification trusts harmless lifecycle markers, then proves `APM_NO_SCRIPTS=1`
+prevents their execution during dry-run and leaves files unchanged. Raw APM
+0.35.0 dry-run can execute trusted lifecycle scripts; the environment guard is
+required, not an optional optimization. PRs changing the sweep or APM
+manifest run the fixtures and this qualification without publishing a live audit.
+The collector runs `apm update --dry-run --verbose` with a disposable manifest
+and isolated APM home, with `APM_NO_SCRIPTS=1` enforced. The report distinguishes proposed ref changes from
+retained pins; a missing eligible upstream tag is not evidence of freshness.
+
+Desktop collection runs `pnpm with 12.18.0 audit --json` against the committed
+lockfile. The [explicit version invocation](https://pnpm.io/cli/with) bypasses
+package-manager bootstrapping that can otherwise rewrite the lockfile; no dependency install or native build is required. Resolved pnpm
+overrides annotate findings but never suppress them. An audit finding is a
+triage item, not a claim that production code is exploitable. Source failures,
+malformed output and unexpected file changes fail collection and are reported
+separately from advisories. The Actions summary and raw evidence are retained
+as artifacts for 30 days. The workflow has read-only repository permissions,
+requires no new secrets, and creates no issues or PRs.
+
+The versioned [watch list](../../.github/dependency-review.json) starts empty;
+withdrawn alert #79 is historical context, not an active dismissal. Add entries
+through a reviewed PR with these fields:
+
+```json
+{
+  "advisory": "GHSA-aaaa-bbbb-cccc",
+  "package": "example",
+  "manifest": "apps/desktop/pnpm-lock.yaml",
+  "rationale": "Evidence supporting the reviewed disposition",
+  "evidence": "https://example.com/review",
+  "reviewed_at": "2026-11-17",
+  "condition": { "kind": "patched" }
+}
+```
+
+Use `{"kind":"date","date":"2026-12-01"}` for a dated human review instead.
+Patch conditions query public GitHub advisory metadata and distinguish an
+available patch, no reported patch, withdrawal and inability to verify.
+Watch entries record review reminders and explicit dispositions, not current
+GitHub alert status. Matching advisories remain visible with the disposition;
+conditions that become due require human review. This initial sweep covers
+APM and desktop dependencies; docs and Rust audits remain outside its scope.
+
+Run deterministic fixtures with `python3 scripts/dependency-freshness.test.py`.
+Set `ORKWORKS_FRESHNESS_APM` to the absolute pinned APM executable to include
+live fresh-checkout qualification. On a clean disposable checkout, run
+`python3 scripts/dependency-freshness.py --output /tmp/dependency-freshness`.
+The collector exits nonzero for incomplete collection or checkout changes;
+advisory findings alone do not fail it.
+
 ## Superpowers
 
 [obra/superpowers](https://github.com/obra/superpowers) — agentic skills framework & software development methodology. Installed per-harness. OpenCode loads its skills through the repo-root `opencode.json` `skills.paths` entry `.agents/skills` — the plugin file itself is **not wired into OpenCode 2**:

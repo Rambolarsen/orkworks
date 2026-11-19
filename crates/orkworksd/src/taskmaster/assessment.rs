@@ -2308,8 +2308,16 @@ mod tests {
         assert!(!workspace_identity_matches(path, 8, path, 7));
     }
 
-    #[test]
-    fn approved_custom_assessment_provider_reaches_spawn_and_completes() {
+    #[tokio::test]
+    async fn approved_custom_assessment_provider_reaches_spawn_and_completes() {
+        if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+            "{}::approved_custom_assessment_provider_reaches_spawn_and_completes",
+            module_path!().split_once("::").unwrap().1
+        ))
+        .await
+        {
+            return;
+        }
         use crate::harness::{
             definition::{BuiltinDocument, EMBEDDED_BUILTINS},
             store::HarnessStore,

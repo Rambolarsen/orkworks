@@ -1195,6 +1195,8 @@ mod tests {
         let mut inert = serde_json::from_value::<Recommendation>(value.clone()).unwrap();
         assert!(!fence_recommendation(&mut inert, None, None, false));
         value["assessment"]["improvementReference"]["version"] = serde_json::json!(3);
+        assert!(serde_json::from_value::<Recommendation>(value.clone()).is_ok());
+        value["assessment"]["improvementReference"]["version"] = serde_json::json!(4);
         assert!(serde_json::from_value::<Recommendation>(value.clone()).is_err());
         value["assessment"]["improvementReference"] =
             serde_json::json!({"version": 1, "intent": "unknown"});

@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Owned packet process cleanup](2026-11-17-packet-owned-cleanup.md) — Approved original-child cleanup and safe failure receipts for #1741; offline implementation and verification underway.
+
 - [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
 - [Responsive session refresh inspection](2026-11-10-session-refresh-lag.md) — Focused lock-scope repair and deterministic stale-result/input regressions for #1222.
 
@@ -367,3 +369,14 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Brain-guided manual improvement investigation](2026-11-12-brain-guided-improvement.md) — Active implementation scope for approved progressive investigation, shared result and gated usefulness qualification.
 
 - [Inert improvement text implementation](2026-11-13-improvement-text-contract.md) — Approved contract implementation and coordinated validation evidence for #1694.
+
+- [Offline research authorization components](2026-11-15-research-authorization-components.md) — scoped intent, digest and ordinary-lineage component checks.
+
+- [Offline research continuation components](2026-11-15-research-continuation-components.md) — scoped turn/result/recovery source examples and denial checks.
+
+- [Unverified improvement advice implementation](2026-11-17-unverified-improvement-advice.md) — Approved producer-3 identity, compatible views and fixed warned handoffs; qualification remains gated.
+
+- [Explicit branch document recovery](2026-11-17-branch-document-recovery.md) — Preserve invalid branch records before a confirmed, snapshot-bound reset.
+- [Session projection CPU](2026-11-18-session-projection-cpu.md) — Evidence and delivery boundaries for reducing refresh cost.
+
+- [Review handoff preview implementation](2026-11-18-review-handoff-preview.md) — Proposed isolated interactive preview slice and explicit production read/approval prerequisites.

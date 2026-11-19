@@ -1,3 +1,5 @@
+import { getAdviceReadinessStatus, getAdviceImprovementStatus, requestAdviceImprovement, cancelAdviceImprovement, requestAdviceReadinessAssessment, requestAdviceReadinessSuggestion } from '../adviceApi.ts';
+import { isUnverifiedAdvice, unverifiedAdviceWarning } from '../advice.ts';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { conceptLabel, defaultBaseline, parseReadinessStatus, readinessFailureMessage, readinessFailureRecovery, readinessSuggestionMessage, type ReadinessSnapshot, type ReadinessStatus } from '../readiness';
 import ReadinessSummary from './ReadinessSummary';
@@ -63,7 +65,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const refresh = async (generation: number) => {
     const sequence = ++refreshSequence.current;
     try {
-      const result = parseReadinessStatus(await window.orkworks.getReadinessStatus());
+      const result = parseReadinessStatus(await getAdviceReadinessStatus(workspacePath));
       if (generation !== epoch.current || sequence !== refreshSequence.current || workspace.current !== workspacePath) return;
       if (result.workspacePath !== workspacePath) {
         setStatus(null);
@@ -83,7 +85,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const refreshImprovement = async (generation: number) => {
     const sequence = ++improvementRefreshSequence.current;
     try {
-      const result = parseImprovementStatus(await window.orkworks.getImprovementStatus());
+      const result = parseImprovementStatus(await getAdviceImprovementStatus(workspacePath));
       if (generation !== epoch.current || sequence !== improvementRefreshSequence.current || workspace.current !== workspacePath) return;
       const current=improvementStatusForWorkspace(result,workspacePath);
       if(!current) { setImprovement(null); return; }
@@ -123,7 +125,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
     if (!enabled || disabled || analysisActive || requesting || running || improvementActive) return;
     const generation=epoch.current; setRequesting(true); setError(undefined); setMessage(undefined);
     try {
-      const result=await window.orkworks.requestImprovement();
+      const result=await requestAdviceImprovement(workspacePath);
       if(generation!==epoch.current)return;
       setMessage(result.outcome==='scheduled'?'Improvement investigation requested. It uses up to six model calls.':result.outcome==='already_running'?'An improvement investigation is already running.':`Improvement investigation is unavailable${result.reasonCode?` (${result.reasonCode.replaceAll('_',' ')})`:''}.`);
       await refreshImprovement(generation);
@@ -133,7 +135,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
   const cancelImprovement = async () => {
     const run=improvement && improvementStatusForWorkspace(improvement, workspacePath)?.run; if(!run || (run.state!=='queued'&&run.state!=='running'))return;
     const generation=epoch.current;
-    try { await window.orkworks.cancelImprovement(run.id); if(generation===epoch.current) await refreshImprovement(generation); }
+    try { await cancelAdviceImprovement(workspacePath, run.id); if(generation===epoch.current) await refreshImprovement(generation); }
     catch(cause) { if(generation===epoch.current)setError(cause instanceof Error?cause.message:'Improvement cancellation failed'); }
   };
 
@@ -187,7 +189,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
     setError(undefined);
     setMessage(undefined);
     try {
-      const result = await (combined ? window.orkworks.requestReadinessSuggestion() : window.orkworks.requestReadinessAssessment());
+      const result = await (combined ? requestAdviceReadinessSuggestion(workspacePath) : requestAdviceReadinessAssessment(workspacePath));
       if (generation !== epoch.current) return;
       if (result.outcome === 'scheduled') {
         setMessage(combined ? 'Assessment and suggestion requested.' : 'Readiness assessment requested.');
@@ -235,6 +237,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
       {improvementActive && <p role="status">{improvementRun?.state==='pending_recommendation'?'Saving the recommendation…':improvementRun?.phase==='collecting_evidence'?'Collecting evidence…':improvementRun?.phase==='reading_evidence'?'Reading evidence…':'Assessing opportunities…'}</p>}
       {improvementError && <p className="recommendation-error" role="alert">{improvementError}</p>}
       {improvementRun?.state==='failed' || improvementRun?.state==='interrupted' ? <p role="status">Investigation {improvementRun.state==='failed'?'failed':'was interrupted'}. {improvementRun.errorCode?.replaceAll('_',' ') ?? 'No new result was saved.'}</p> : null}
+      {isUnverifiedAdvice(improvementRun?.report) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
       {preferred ? <article><h4>{preferred.title}</h4><p>{preferred.summary}</p><p>{preferred.mechanism} {preferred.benefit}</p><p>Evidence: {preferred.evidenceStrength.replaceAll('_',' ')} · Effort: {preferred.effort} · Risk: {preferred.risk} · Reversibility: {preferred.reversibility}</p>
         <p>Validate: {preferred.validation}</p><p>Rollback: {preferred.rollback}</p>
         <details><summary>Evidence for this improvement</summary>
@@ -252,6 +255,7 @@ export default function ReadinessPanel({ workspacePath, enabled = true, disabled
       </article> : improvementRun?.report ? <><p>{improvementRun.report.noProposalReason ?? 'No supported next improvement was identified.'}</p><ImprovementAssessment report={improvementRun.report} /></> : <p>{currentImprovement.reasonCode?.replaceAll('_',' ') ?? 'No current improvement investigation is available.'}</p>}
     </section>}
     {enabled && <section id="readiness-history" className="readiness-panel" aria-label="Repository agent readiness">
+    {isUnverifiedAdvice(latest) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
     <div className="readiness-heading">
       <div className={`readiness-overview-score${latestData?.overallScore == null || status?.freshness !== 'current' ? ' readiness-overview-score--empty' : ''}`} aria-label="Saved overall agent readiness">
         {latestData?.overallScore != null ? <><strong>{latestData.overallScore}</strong><span>/ 100</span></> : <span>{latest?.redacted ? 'Redacted' : latestData ? 'Partial' : '—'}</span>}

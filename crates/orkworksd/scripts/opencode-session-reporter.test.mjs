@@ -79,7 +79,7 @@ async function withReporter(run, identityStatuses = []) {
       authorization: request.headers.authorization,
       body: JSON.parse(Buffer.concat(chunks).toString()),
     });
-    // The sidecar rejects every report without the session credential (ADR 0116).
+    // The sidecar rejects every report without the session credential (ADR 0117).
     if (request.headers.authorization !== 'Bearer test-token') {
       response.writeHead(401).end();
       return;

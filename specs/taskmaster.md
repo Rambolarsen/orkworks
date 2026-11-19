@@ -125,6 +125,28 @@ Good:
 
 > Start Codex for an independent review. The implementation session reports completion, all 42 tests passed, the change affects retry behavior, and no review session is linked to this work.
 
+### Review-handoff preview design (#1899)
+
+Before approving a review transition, the user should be able to inspect the
+exact source session, proposed reviewer/tool/model, source and reviewer work
+locations, selected anchored plan/spec or explicit missing state, and complete
+proposed instruction in the existing Recommendations detail. Inspection is
+read-only and preserves selected-session, unread and attention state. A shared
+branch never substitutes for session or artifact identity.
+
+The [review-handoff preview proposal](../docs/superpowers/specs/2026-11-18-review-handoff-preview-design.md)
+contains synthetic wide/narrow mockups and changed/missing-plan behavior.
+Material source, reviewer, worktree, artifact or instruction changes invalidate
+the inspected approval context; the consuming authenticated action must reject
+stale inputs before effects. Refresh is inspection, never approval or retry.
+
+Status: interaction design owner-accepted on 2026-11-18; implementation pending.
+Acceptance covers the in-place detail layout, full instruction expanded by
+default and refresh-before-approval behavior, not runtime implementation.
+This changes neither the existing selected-session fixed review prompt nor
+#610's exact-plan, capability and implementation gates. It adds no launch route;
+ordinary session creation remains subject to its explicit Start contract.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.
@@ -1576,3 +1598,26 @@ and recommendation invalidation. Reconnect resynchronizes authoritatively; REST
 polling remains the compatibility/disconnection fallback. Thirty-second server
 reconciliation permits bounded delay for Git/cwd, clock and external changes.
 Session attention, organization and recommendation action authority are unchanged.
+
+## Accepted unverified improvement advice (2026-11-17)
+
+The owner approved [producer-3 unverified advice](../docs/superpowers/specs/2026-11-17-unverified-improvement-advice-design.md)
+and [ADR 0116](../docs/adr/0116-unverified-improvement-advice.md). Only the new
+versioned improvement producer stops classifying English execution claims.
+All its bounded generated prose remains unverified reference data, including
+false completion statements. Code derives unverified status after consistent
+producer/report/history/recommendation binding; model fields never select policy
+or establish execution evidence. Legacy and policy-1/2 records retain validation.
+
+Every supported view and fixed ID-only handoff shows the fixed warning: “Checks
+remain unverified. Run the proposed validation before relying on it.” Narrow new
+IPC methods declare `X-OrkWorks-Advice-Protocol: 3`; existing methods remain legacy.
+Without support, omit new prose from lists/history, preserve bytes and unknown
+freshness when omitted new data determines latest, and refuse new-record detail
+or mutation before effects. Keep active/dedupe/currentness accounting; exclude
+new prose from legacy synthesis and packet follow-ups. Unknown identities and
+unsupported declarations fail closed. Existing bounds, citations, privacy,
+signed guidance, six-call/eight-minute budget, lease and action authority remain.
+Implementation approval grants no provider calls, activation, release or
+retroactive qualification credit. A fresh independent paired comparison remains
+required after implementation under separate finite authorization.

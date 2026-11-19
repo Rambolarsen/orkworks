@@ -1,3 +1,4 @@
+import { javascriptLiteral } from './helpers/javascriptLiteral.mjs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
@@ -31,7 +32,7 @@ if (process.versions.electron) {
       // properties of returned nodes, and React-rendered nodes carry
       // function/cycle expandos that reject with "An object could not be
       // cloned". Serialized primitives and plain objects pass through.
-      const sanitized = `(() => { const value = eval((${JSON.stringify(source)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
+      const sanitized = `(() => { const value = eval((${javascriptLiteral(source)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
       try { return await win.webContents.executeJavaScript(sanitized); }
       catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
     };
@@ -71,13 +72,25 @@ if (process.versions.electron) {
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
       if (scenario === 'app-review-inert-improvement') {
-        for (const intent of ['implementation','investigation']) {
-          if(intent==='investigation')await fresh();
+        let firstAdviceCase=true;
+        for (const version of [2,3]) for (const intent of ['implementation','investigation']) {
+          if(!firstAdviceCase)await fresh();
+          firstAdviceCase=false;
+          await evaluate('(()=>{fixture.recommendation.assessment.improvementReference.version='+version+';'+(version===3?'Object.assign(fixture.recommendation,{protocolVersion:3,verificationStatus:"unverified"})':'delete fixture.recommendation.verificationStatus')+'})()');
           await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-          await evaluate('fixture.recommendation.assessment.improvementReference.intent='+JSON.stringify(intent));
+          await evaluate('fixture.recommendation.assessment.improvementReference.intent='+javascriptLiteral(intent));
           await evaluate('fixture.menu({action:"focus",panelId:"recommendations"})');
           await waitFor('document.querySelector(".recommendation-card")');
           assert.equal(await evaluate('document.querySelector(".recommendation-card").textContent.includes(fixture.hostile)'),true);
+          const card=await evaluate('document.querySelector(".recommendation-card").textContent');
+          const warning='Checks remain unverified. Run the proposed validation before relying on it.';
+          if(version===3){assert.ok(card.includes(warning));assert.ok(card.indexOf(warning)<card.indexOf(await evaluate('fixture.hostile')));}
+          await evaluate('[...document.querySelectorAll("summary")].find(element=>element.getAttribute("aria-label")==="Other assessment options").click()');
+          await evaluate('[...document.querySelectorAll("button")].find(button=>button.textContent==="Run discovery").click()');
+          await waitFor('document.querySelector(".recommendation-analysis-status strong")');
+          const banner=await evaluate('document.querySelector(".recommendation-analysis-status").textContent');
+          if(version===3){assert.ok(banner.includes(warning));assert.ok(banner.indexOf(warning)<banner.indexOf(await evaluate('fixture.hostile')));}
+
           assert.equal(await evaluate('!!document.querySelector("img[data-inert-probe]") || !!window.modelScriptRan'),false);
           assert.deepEqual(await evaluate('fixture.accepted'),[]);
           assert.deepEqual(await evaluate('fixture.input'),[]);
@@ -87,6 +100,7 @@ if (process.versions.electron) {
           const preview=await evaluate('document.querySelector("#fix-with-ai-prompt").value');
           assert.match(preview,/GET \/taskmaster\/recommendations\/recommendation-inert/);
           assert.doesNotMatch(preview,/MODEL_|data-inert-probe|pnpm test/);
+          if(version===3){assert.match(preview,/Checks remain unverified/);assert.match(preview,/X-OrkWorks-Advice-Protocol: 3/);}
           if(intent==='investigation')assert.match(preview,/Do not edit files/);
           assert.deepEqual(await evaluate('fixture.accepted'),[]);
           await evaluate('document.querySelector("[role=dialog] .new-session-confirm").click()');
@@ -160,6 +174,39 @@ if (process.versions.electron) {
           await assertReplay(original.natural);
           assert.deepEqual(await evaluate('fixture.errors'), []);
         }
+        return;
+      } else if (scenario === 'app-review-branch-recovery') {
+        await click('details');
+        await waitFor('document.querySelector(".branch-documents > summary")');
+        await evaluate('document.querySelector(".branch-documents > summary").click()');
+        await waitFor('document.querySelector("[data-document-reset]")');
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await waitFor('document.querySelector("[role=alertdialog]")');
+        assert.match(await evaluate('document.querySelector("[role=alertdialog]").textContent'), /both|Both/);
+        assert.match(await evaluate('document.querySelector("[role=alertdialog]").textContent'), /feature/);
+        await evaluate('document.querySelector("[data-document-reset-cancel]").click()');
+        assert.equal(await evaluate('fixture.documentResets.length'), 0);
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('fixture.sessionList=fixture.sessionList.map((s,i)=>i===0?{...s,planDocuments:{...s.planDocuments,recoveryId:"b".repeat(64)}}:s);document.querySelector("[data-document-retry]").click()');
+        await waitFor('!document.querySelector("[role=alertdialog]")');
+        await evaluate('fixture.sessionList=fixture.sessionList.map((s,i)=>i===0?{...s,planDocuments:{...s.planDocuments,recoveryId:"a".repeat(64)}}:s);document.querySelector("[data-document-retry]").click()');
+        await waitFor('document.querySelector("[data-document-reset]")');
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('document.querySelector("[data-document-reset-confirm]").click();document.querySelector("[data-document-reset-confirm]")?.click()');
+        await waitFor('fixture.documentResets.length===1 && !!fixture.rejectDocumentReset');
+        assert.equal(await evaluate('document.querySelector("[data-document-reset-confirm]").disabled'), true);
+        await evaluate('fixture.rejectDocumentReset(new Error("storage uncertain"))');
+        await waitFor('document.querySelector(".branch-documents [role=alert]")');
+        assert.match(await evaluate('document.querySelector(".branch-documents [role=alert]").textContent'), /refresh|Refresh/);
+        await evaluate('document.querySelector("[data-document-reset]").click()');
+        await evaluate('document.querySelector("[data-document-reset-confirm]").click()');
+        await waitFor('fixture.documentResets.length===2 && !!fixture.finishDocumentReset');
+        await evaluate('fixture.sessionList[0].planDocuments={branch:"feature",sharedSessions:2,steps:[{kind:"design",available:true,pinned:false,title:"Recovered design"}]};fixture.finishDocumentReset()');
+        await waitFor('document.querySelector(".branch-documents")?.textContent.includes("Recovered design")');
+        assert.equal(await evaluate('!!document.querySelector("[data-document-reset]")'), false);
+        assert.deepEqual(await evaluate('fixture.documentResets'), [['created','a'.repeat(64)],['created','a'.repeat(64)]]);
+        assert.equal(await evaluate('fixture.prompts'), 0);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
       } else if (scenario === 'app-review-branch-documents') {
         await waitFor('document.querySelector("[data-shell-selected-session]") || fixture.sessionList.length===2');
@@ -377,14 +424,25 @@ if (process.versions.electron) {
         await evaluate('fixture.deferSelection=true;fixture.selectedDocument={kind:"design",selectionId:"d".repeat(64),branch:"sibling"}');
         await waitFor('document.querySelector("[data-shell-command=changes]")?.disabled===false');
         const activatePath = async (historical = false) => {
-          const point = await evaluate(`(()=>{
+          const path = historical ? 'specs/history.md' : 'specs/clicked.md';
+          await waitFor(`[...document.querySelectorAll('.terminal-container .xterm-rows > div')].some(row=>row.textContent===${javascriptLiteral(path)})`);
+          const {point, resetPoint} = await evaluate(`(()=>{
             const screen=document.querySelector('.terminal-container .xterm-screen');
             const rect=screen.getBoundingClientRect();
             const term=fixture.runtime()?.terminal;
-            return {x:Math.round(rect.x+rect.width/${historical ? 80 : 'term.cols'}*3),y:Math.round(rect.y+rect.height/${historical ? 24 : 'term.rows'}*0.5)};
+            const cellWidth=rect.width/${historical ? 80 : 'term.cols'};
+            const cellHeight=rect.height/${historical ? 24 : 'term.rows'};
+            const x=Math.round(rect.x+cellWidth*3);
+            return {point:{x,y:Math.round(rect.y+cellHeight*0.5)},resetPoint:{x,y:Math.round(rect.y+cellHeight*1.5)}};
           })()`);
+          // An early hover can cache an empty provider result. Changing rows
+          // starts a fresh native hover after the text has actually rendered.
+          const resetAfter = await evaluate('performance.now()');
+          win.webContents.sendInputEvent({type:'mouseMove',...resetPoint});
+          await waitFor(`fixture.linkTrace.some(event=>event.type==='move' && event.at>=${resetAfter} && event.x===${resetPoint.x} && event.y===${resetPoint.y})`);
           win.webContents.sendInputEvent({type:'mouseMove',...point});
-          await waitFor('document.querySelector(".xterm-cursor-pointer")');
+          try { await waitFor('document.querySelector(".xterm-cursor-pointer")'); }
+          finally { console.error('link-trace',historical,JSON.stringify(await evaluate('({events:fixture.linkTrace,current:fixture.linkState()})'))); }
           win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
           win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
         };
@@ -419,6 +477,7 @@ if (process.versions.electron) {
         await evaluate('fixture.selectionFailure=false;fixture.deferSelection=true');
         await activatePath();
         await waitFor('!!fixture.finishSelection');
+        await evaluate('fixture.holdReplayWrite=true');
         await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
         await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
         await evaluate('fixture.finishSelection()');
@@ -426,6 +485,12 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'late selection cannot open another session');
         assert.deepEqual(await evaluate('fixture.reads'), ['created','created']);
         await evaluate('fixture.deferSelection=false');
+        await waitFor('!!fixture.releaseReplayWrite && !!fixture.linkState().transform');
+        const earlyPoint = await evaluate('(()=>{const r=document.querySelector(".terminal-container .xterm-screen").getBoundingClientRect();return {x:Math.round(r.x+r.width/80*3),y:Math.round(r.y+r.height/24*0.5)}})()');
+        const earlyAfter = await evaluate('performance.now()');
+        win.webContents.sendInputEvent({type:'mouseMove',...earlyPoint});
+        await waitFor(`fixture.linkTrace.some(event=>event.type==='provider' && event.at>=${earlyAfter} && event.y===1 && event.state.cols===80 && event.state.rows===24 && event.state.line==='' && !event.links)`);
+        await evaluate('fixture.releaseReplayWrite()');
         await activatePath(true);
         await waitFor('document.querySelector("[data-shell-region=review]")?.textContent.includes("Other session plan")');
         assert.deepEqual(await evaluate('fixture.planSelections.at(-1)'), ['other','specs/history.md']);
@@ -450,7 +515,33 @@ if (process.versions.electron) {
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [['/real/test','coding','vscode']]);
         await evaluate('fixture.nativeOpened=[];document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector("[data-session-app-open]")');
+        await evaluate('fixture.nativeInspectionFailure=true;fixture.setSessionState({cwd:"/tmp/failed-inspection"})');
+        await waitFor('document.querySelector(".session-app-menu [role=alert]")?.textContent.includes("Destination lookup failed")');
+        assert.doesNotMatch(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/, 'failed inspection leaves loading state');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true);
+        assert.equal(await evaluate('document.querySelector("[data-session-app-vscode]").disabled'), false, 'native failure does not block folder opening');
+        await evaluate('fixture.nativeInspectionFailure=false;document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        await evaluate('document.querySelector("[data-session-app-trigger]").click()');
+        await waitFor('document.querySelector(".session-app-menu").textContent.includes("Native ID not captured")');
         await evaluate('fixture.nativeMissing=false;fixture.setSessionState({resume:{harnessSessionId:"12345678-1234-1234-1234-123456789abc"}})');
+        await waitFor('!document.querySelector("[data-session-app-open]").disabled');
+        await evaluate(`
+          fixture.inspectionTimeouts=[];
+          fixture.originalSetTimeout=window.setTimeout;
+          window.setTimeout=(callback,delay,...args)=>{
+            if(delay===15000)fixture.inspectionTimeouts.push(callback);
+            return fixture.originalSetTimeout.call(window,callback,delay,...args);
+          };
+          fixture.deferNative=true;fixture.setSessionState({cwd:'/tmp/hung-inspection'});
+        `);
+        await waitFor('document.querySelector("[data-session-app-open]").textContent.includes("Checking") && !!fixture.finishNative');
+        await evaluate('fixture.inspectionTimeouts.forEach(callback=>callback())');
+        assert.doesNotMatch(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/, 'hung inspection reaches a terminal state');
+        assert.match(await evaluate('document.querySelector(".session-app-menu [role=alert]")?.textContent'), /timed out/i);
+        await evaluate('fixture.finishNative()');
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true, 'late success cannot undo timeout');
+        await evaluate('window.setTimeout=fixture.originalSetTimeout;fixture.deferNative=false;fixture.setSessionState({cwd:"/tmp/recovered-inspection"})');
         await waitFor('!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!document.querySelector(".session-app-popover")');
@@ -500,6 +591,51 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".shell-context h1").textContent==="Terminal"');
         assert.equal(await evaluate('!!document.querySelector("[data-session-app-trigger]")'),false);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
+      } else if (scenario === 'compact-menus') {
+        // Catch menus whose last action is present in the DOM but clipped off-screen.
+        const reachable = async (menuSelector, lastSelector, triggerSelector) => {
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const bounds = await evaluate(`(()=>{const r=document.querySelector(${javascriptLiteral(menuSelector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:innerWidth,height:innerHeight}})()`);
+          assert.ok(bounds.left>=0&&bounds.right<=bounds.width&&bounds.top>=0&&bounds.bottom<=bounds.height,
+            menuSelector+' stays inside the short viewport: '+JSON.stringify(bounds));
+          assert.ok(await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(triggerSelector)});const r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button, summary')===b})()`), 'open menu leaves its invoker visible');
+          await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(lastSelector)});b.focus();b.scrollIntoView({block:'nearest'})})()`);
+          assert.ok(await evaluate(`(()=>{const b=document.querySelector(${javascriptLiteral(lastSelector)});const r=b.getBoundingClientRect();return b===document.activeElement&&r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===b})()`), 'last action is visible and hit-testable');
+        };
+        await win.setContentSize(483,265);
+        await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+        await evaluate('document.getElementById("root").style.paddingTop="38px";fixture.vscodeInstalled=true;fixture.nativeUnavailable=true;fixture.setSessionState({label:"Inspect a long session title while keeping all navigation controls"})');
+        await evaluate('const b=document.querySelector("[data-session-app-trigger]");b.focus();b.click()');
+        await waitFor('document.querySelector("[data-session-app-vscode]")');
+        await reachable('.session-app-popover','[data-session-app-vscode]','[data-session-app-trigger]');
+        await win.setContentSize(360,240);
+        await waitFor('innerWidth===360');
+        await reachable('.session-app-popover','[data-session-app-vscode]','[data-session-app-trigger]');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        await waitFor('!document.querySelector(".session-app-popover")');
+        assert.ok(await evaluate('document.activeElement.hasAttribute("data-session-app-trigger")'),'Open in returns focus to its invoker');
+
+        await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+        await waitFor('document.querySelector(".shell-navigation-menu").open');
+        await reachable('.shell-navigation-popover','.shell-navigation-popover [data-shell-settings]','.shell-navigation-menu summary');
+        await evaluate('fixture.advanceWorkspace()');
+        await waitFor('fixture.workspaceGeneration===1&&!document.querySelector(".shell-navigation-menu").open');
+        await evaluate('document.querySelector(".shell-navigation-menu summary").click()');
+        await reachable('.shell-navigation-popover','.shell-navigation-popover [data-shell-settings]','.shell-navigation-menu summary');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        assert.equal(await evaluate('document.activeElement.tagName'),'SUMMARY','Workspace returns focus to its invoker');
+
+        await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:true,label:"Latest in repo"}]})');
+        await waitFor('document.querySelector("[data-resume-toggle]")');
+        await evaluate('const b=document.querySelector("[data-resume-toggle]");b.focus();b.click()');
+        await waitFor('document.querySelector("[data-resume-options]")');
+        await reachable('[data-resume-options]','[data-resume-strategy=latest_repo]','[data-resume-toggle]');
+        await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+        assert.ok(await evaluate('document.activeElement.hasAttribute("data-resume-toggle")'),'Resume returns focus to its invoker');
+        assert.deepEqual(await evaluate('fixture.resumed'),[],'navigation never resumes a session');
+        assert.deepEqual(await evaluate('fixture.nativeOpened'),[],'checking reachability never launches another app');
+        assert.deepEqual(await evaluate('fixture.errors'),[],'menu positioning produces no renderer errors');
         return;
       } else if (scenario === 'sidebar-icon-rail') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
@@ -727,8 +863,8 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector(".recommendations-panel")'), true, 'Escape closes the dropdown before leaving the view');
         for (const [label, expected] of [['Review workflow','workflow'],['Check agent readiness','readiness'],['Run discovery','discovery']]) {
           await evaluate('document.querySelector(".recommendation-menu--primary summary").click()');
-          await evaluate('[...document.querySelectorAll(".recommendation-menu--primary button")].find(b=>b.textContent==='+JSON.stringify(label)+').click()');
-          await waitFor('fixture.assessmentCalls.at(-1)==='+JSON.stringify(expected));
+          await evaluate('[...document.querySelectorAll(".recommendation-menu--primary button")].find(b=>b.textContent==='+javascriptLiteral(label)+').click()');
+          await waitFor('fixture.assessmentCalls.at(-1)==='+javascriptLiteral(expected));
           await waitFor('!document.querySelector(".recommendation-primary").disabled');
           assert.equal(await evaluate('document.querySelector(".recommendation-menu--primary").open'), false);
         }
@@ -783,7 +919,7 @@ if (process.versions.electron) {
         for (const width of [1280,1000,640]) {
           await win.setContentSize(width,700);
           await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
-          await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
+          await evaluate('fixture.command('+javascriptLiteral(destination)+',true)');
           await waitFor('document.querySelector("[data-shell-page-heading]")');
           assert.equal(await evaluate('!!document.querySelector("main [data-shell-region=utility]")'),true,'the utility occupies the main view at every width');
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=terminal], [data-shell-region=inspector], [data-shell-pin]")'),false);
@@ -798,7 +934,7 @@ if (process.versions.electron) {
             await evaluate('document.querySelector("[data-shell-return]").click()');
           }
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
-          await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
+          await evaluate('fixture.command('+javascriptLiteral(destination)+',true)');
           await waitFor('document.querySelector("[data-shell-page-heading]")');
           await evaluate('document.querySelector("[data-shell-page-heading]").dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
@@ -807,7 +943,7 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".shell-layout").dataset.mode==="wide"');
         await evaluate('fixture.openReview()');
         await waitFor('document.querySelector("[data-shell-region=review]")');
-        await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
+        await evaluate('fixture.command('+javascriptLiteral(destination)+',true)');
         await waitFor('document.querySelector("main [data-shell-region=utility]")');
         if (destination === 'skills') {
           await evaluate('fixture.command("skills")');
@@ -818,12 +954,12 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=review]")');
         await evaluate('fixture.command("terminal")');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
-        await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
+        await evaluate('fixture.command('+javascriptLiteral(destination)+',true)');
         await waitFor('document.querySelector("[data-shell-page-heading]")');
         await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).find(el=>el.textContent.includes("other")).click()');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
         assert.equal(await evaluate('fixture.activeSessionId'),'other');
-        await evaluate('fixture.command('+JSON.stringify(destination)+',true)');
+        await evaluate('fixture.command('+javascriptLiteral(destination)+',true)');
         await waitFor('document.querySelector("[data-shell-page-heading]")');
         await evaluate('fixture.advanceWorkspace()');
         await waitFor('document.querySelector("[data-shell-region=terminal]")');
@@ -1369,7 +1505,7 @@ if (process.versions.electron) {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         if (scenario === 'inspector-dismissal') {
           const nativeClick = async selector => {
-            const point = await evaluate('(()=>{const r=document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()');
+            const point = await evaluate('(()=>{const r=document.querySelector('+javascriptLiteral(selector)+').getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()');
             win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
             win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
             await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
@@ -1392,7 +1528,7 @@ if (process.versions.electron) {
             assert.equal(await evaluate('!!document.querySelector("[data-shell-region=inspector]")'),true,'outside click preserves pinned '+command);
             await evaluate('document.querySelector("[data-shell-pin]").click()');
             await waitFor('document.querySelector("[data-shell-pin]").getAttribute("aria-pressed")==="false"');
-            await evaluate('(()=>{const button=document.querySelector('+JSON.stringify('[data-shell-command='+command+']')+');button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));button.click()})()');
+            await evaluate('(()=>{const button=document.querySelector('+javascriptLiteral('[data-shell-command='+command+']')+');button.dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));button.click()})()');
             await waitFor('!document.querySelector("[data-shell-region=inspector]")');
             await win.setContentSize(1000,700);
             await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -1526,13 +1662,72 @@ if (process.versions.electron) {
           await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus();document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           await waitFor('!document.querySelector("[data-shell-region=inspector]")');
           assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'details');
+        } else if (scenario === 'toolbar-summary') {
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          const summaryPoint = await evaluate('(()=>{const group=document.querySelector(".shell-actions-controls").getBoundingClientRect();const next=document.querySelector("[data-shell-command=next-action]").getBoundingClientRect();return {x:Math.round(group.right-next.width-12),y:Math.round(group.top+group.height/2)}})()');
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...summaryPoint});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...summaryPoint});
+          await waitFor('document.querySelector(".actions-overview")');
+          assert.equal(await evaluate('fixture.selections'),0,'opening the summary does not select a session');
+          assert.equal(await evaluate('fixture.input.length'),0,'opening the summary never sends terminal input');
+          await evaluate('document.querySelector("[data-shell-return]").click()');
+          await waitFor('document.activeElement.dataset.shellCommand==="actions"');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.dataset.shellCommand==="next-action"');
+          assert.equal(await evaluate('document.activeElement.getAttribute("aria-label")||document.activeElement.textContent'),'Show next action');
+          for (const width of [1280,640,360]) {
+            await win.setContentSize(width,700);
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const bounds = await evaluate(`(() => {
+              const selectors=['[data-shell-terminal-focus]','[data-shell-command=actions]','[data-actions-counts]','[data-shell-command=next-action]','[data-shell-command=details]'];
+              return selectors.map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {selector,left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width}});
+            })()`);
+            for (const rect of bounds) assert.ok(rect.width>0&&rect.left>=0&&rect.right<=width&&rect.top>=0&&rect.bottom<=700,`${rect.selector} reachable at ${width}px: ${JSON.stringify(rect)}`);
+            assert.ok(await evaluate('(()=>{const group=document.querySelector(".shell-actions-controls").getBoundingClientRect();const next=document.querySelector("[data-shell-command=next-action]").getBoundingClientRect();return Math.abs(group.right-next.right)<=2})()'),`next action uses the trailing edge at ${width}px`);
+            for (const [status,want] of [['loading','loading'],['unavailable','unavailable'],['partial','1 known (partial)'],['ready','1']]) {
+              await evaluate(`fixture.setSessionSourceStatus(${javascriptLiteral(status)})`);
+              await waitFor(`document.querySelector('[data-actions-source="sessions"] strong')?.textContent===${javascriptLiteral(want)}`);
+              assert.ok((await evaluate('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description")')).includes('Session attention: '+want));
+              assert.match(await evaluate('document.querySelector("[data-actions-source=recommendations]").textContent'),/Recommendations.*unavailable/);
+            }
+          }
+          await win.setContentSize(640,700);
+          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",hasOpenablePlan:true,repoRoot:"/tmp/test",branch:"feature",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"}]})');
+          await waitFor('document.querySelector("[data-shell-resume]")');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const endedRows = await evaluate('(()=>{const bounds=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {top:r.top,bottom:r.bottom}};return {actions:bounds("[data-shell-command=actions]"),details:bounds("[data-shell-command=details]"),resume:bounds("[data-shell-resume]")}})()');
+          assert.ok(Math.abs((endedRows.details.top+endedRows.details.bottom)-(endedRows.actions.top+endedRows.actions.bottom))<=2,`Details shares the ended-session Actions row: ${JSON.stringify(endedRows)}`);
+          assert.ok(endedRows.actions.top>=endedRows.resume.bottom,'ended-session summary gets a full row below Resume');
+          await evaluate('document.querySelector("[data-shell-command=actions]").focus()');
+          for (const command of ['next-action','details']) {
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor(`document.activeElement.dataset.shellCommand===${javascriptLiteral(command)}`);
+          }
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'layout and keyboard navigation never resume a session');
+          await evaluate('fixture.setSessionState({})');
+          await waitFor('!document.querySelector("[data-shell-resume]")&&fixture.runtime()?.terminal.element?.isConnected');
+          win.webContents.debugger.attach('1.3');
+          try {
+            await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+            assert.equal(await evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches'),true);
+            await click('next-action');
+            await waitFor('document.activeElement.dataset.actionKey==="session:other"');
+            await evaluate('document.querySelector("[data-shell-return]").click()');
+            await waitFor('document.activeElement.dataset.shellCommand==="next-action"');
+          } finally { win.webContents.debugger.detach(); }
+          assert.equal(await evaluate('fixture.selections'),0);
+          assert.equal(await evaluate('fixture.input.length'),0);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'actions-sources') {
-          await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Recommendations: 2")');
+          await waitFor('document.querySelector("[data-shell-command=actions]")?.getAttribute("aria-description").includes("Recommendations: 2")');
           await click('actions');
           await waitFor('document.querySelector(".actions-overview")');
           assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).map(el=>el.dataset.actionKey)'),['session:coding','session:other','recommendation:r2','recommendation:r1']);
           await evaluate('fixture.setSessionSourceStatus("unavailable")');
-          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Session attention: unavailable")');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Session attention: unavailable")');
           await click('next-action');
           await waitFor('document.activeElement.dataset.actionKey === "recommendation:r2"');
           await evaluate('document.querySelector("[data-actions-detail] button").click()');
@@ -1542,14 +1737,14 @@ if (process.versions.electron) {
           await click('actions');
 
           await evaluate('fixture.partial=true;fixture.setBackendStatus("unreachable")');
-          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: unavailable")');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: unavailable")');
           await evaluate('fixture.setBackendStatus("connected")');
-          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: 2 known (partial)")');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 2 known (partial)")');
           await click('next-action');
           await waitFor('document.activeElement.dataset.actionKey === "recommendation:r2"');
           assert.equal(await evaluate('document.querySelector("[data-actions-detail] h3")?.textContent'),'r2','known partial-source items remain inspectable');
           await evaluate('fixture.pauseRecommendations=true;fixture.setBackendStatus("unreachable")');
-          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: unavailable")');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: unavailable")');
           await evaluate('fixture.setBackendStatus("connected")');
           await waitFor('fixture.pendingRecommendations.length===1');
           await evaluate('fixture.advanceWorkspace()');
@@ -1558,12 +1753,12 @@ if (process.versions.electron) {
           await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
           assert.equal(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).some(el=>el.dataset.actionKey==="recommendation:old")'),false);
           await evaluate('fixture.pendingRecommendations[1]({recommendations:[fixture.recommendation("new")],diagnostics:[]})');
-          await waitFor('document.querySelector("[data-actions-counts]").textContent.includes("Recommendations: 1")');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 1")');
           assert.equal(await evaluate('fixture.selections'),0);
           assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'actions') {
-          await waitFor('document.querySelector("[data-actions-counts]")?.textContent.includes("Session attention: 1")');
+          await waitFor('document.querySelector("[data-shell-command=actions]")?.getAttribute("aria-description").includes("Session attention: 1")');
           const attentionBefore = await evaluate('document.querySelectorAll(".session-row--unread.session-row--loud").length');
           assert.equal(attentionBefore,1);
           await click('next-action');
@@ -1582,7 +1777,7 @@ if (process.versions.electron) {
           await waitFor('document.activeElement.dataset.shellCommand === "next-action"');
           await click('sessions');
           await waitFor('!document.querySelector("[data-shell-region=sessions]")');
-          assert.match(await evaluate('document.querySelector("[data-actions-counts]").textContent'),/Session attention: 1/);
+          assert.match(await evaluate('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description")'),/Session attention: 1/);
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await click('next-action');
@@ -1746,7 +1941,7 @@ if (process.versions.electron) {
           await waitFor('document.activeElement.id==="nsd-prompt"');
           await evaluate(`(()=>{const prompt=document.querySelector('#nsd-prompt');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(prompt,'Keyboard task');prompt.dispatchEvent(new Event('input',{bubbles:true}));})()`);
           for (const modifiers of [{shiftKey:true},{ctrlKey:true},{metaKey:true},{altKey:true},{isComposing:true}]) {
-            assert.equal(await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true,...${JSON.stringify(modifiers)}}))`),true,'modified or composing Enter keeps its default behavior');
+            assert.equal(await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true,...${javascriptLiteral(modifiers)}}))`),true,'modified or composing Enter keeps its default behavior');
             assert.equal(await evaluate('!!fixture.submitted'),false,'modified or composing Enter does not start a session');
           }
           assert.equal(await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,cancelable:true}))'),false,'Enter submits instead of inserting a newline');
@@ -1949,6 +2144,31 @@ if (process.versions.electron) {
         } else if (scenario === 'region-focus') {
           // Highlight the actual keyboard destination, rather than any focused toolbar control.
           const assertFocusedRegion = async expected => {
+            if (expected === 'terminal') {
+              const gutter = await evaluate(`(()=>{
+                const header=document.querySelector('.shell-toolbar').getBoundingClientRect();
+                const main=document.querySelector('.shell-main').getBoundingClientRect();
+                return header.left-main.left;
+              })()`);
+              assert.ok(Math.abs(gutter)<1,'terminal header focus background reaches the divider; uncovered gutter: '+gutter);
+              await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+              const seam = await evaluate(`(()=>{
+                const header=document.querySelector('.shell-toolbar').getBoundingClientRect();
+                const separator=document.querySelector('.shell-grid > .shell-region-separator');
+                const rect=separator.getBoundingClientRect();
+                return {left:Math.ceil(rect.left),right:Math.floor(header.left),top:Math.ceil(header.top),bottom:Math.floor(header.bottom),resizable:document.elementFromPoint(rect.left+rect.width/2,header.top+1)?.closest('[role="separator"]')===separator};
+              })()`);
+              const screenshot=await win.webContents.capturePage();
+              const pixelScale=screenshot.getSize().width/await evaluate('innerWidth');
+              const pixel=(x,y)=>screenshot.crop({x:Math.floor((x+0.5)*pixelScale),y:Math.floor((y+0.5)*pixelScale),width:1,height:1}).toBitmap().subarray(0,4);
+              for(const y of [seam.top+1,seam.bottom-1]) {
+                const reference=pixel(seam.right+1,y);
+                for(let x=seam.left;x<seam.right;x++) {
+                  assert.deepEqual(pixel(x,y),reference,'header background and underline cover separator pixel '+x+','+y);
+                }
+              }
+              assert.equal(seam.resizable,true,'background fill preserves the separator hit target');
+            }
             const cues = await evaluate(`(()=>{
               const highlighted = selector => {
                 const header = document.querySelector(selector);
@@ -2024,6 +2244,24 @@ if (process.versions.electron) {
           const shortHeader = await evaluate('(()=>{const sidebar=document.querySelector("[data-shell-region=sessions]").getBoundingClientRect();const header=document.querySelector(".shell-sessions-header").getBoundingClientRect();return {top:header.top,bottom:header.bottom,regionTop:sidebar.top,regionBottom:sidebar.bottom}})()');
           assert.ok(shortHeader.top>=shortHeader.regionTop && shortHeader.bottom<=shortHeader.regionBottom,'Sessions focus cue stays in the visible short sidebar');
           await captureFocus('sessions-short');
+          await win.setContentSize(1280,700);
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('!document.getElementById("sessions-list")');
+          await evaluate('fixture.command("sessions",true)');
+          await waitFor('document.activeElement?.hasAttribute("data-shell-sessions-heading")');
+          await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
+          await captureFocus('sessions-empty');
+          await evaluate('document.querySelector(".session-state-filter select").focus()');
+          await assertFocusedRegion(null);
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          await evaluate('fixture.command("sessions",true)');
+          await waitFor('document.activeElement?.hasAttribute("data-shell-sessions-heading")');
+          await assertFocusedRegion('sessions');
+          await assertSessionsHeadingCentered();
+          await evaluate('document.querySelector("[data-shell-region=sessions] [data-shell-return]").focus()');
+          await assertFocusedRegion(null);
         } else if (scenario === 'focus') {
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
@@ -2067,10 +2305,10 @@ if (process.versions.electron) {
             await win.setContentSize(width,700);
             await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
             for (const destination of ['recommendations','actions']) {
-              await evaluate('fixture.command('+JSON.stringify(destination)+')');
+              await evaluate('fixture.command('+javascriptLiteral(destination)+')');
               await waitFor('document.querySelector("[data-shell-page-heading]")');
               assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/Workspace: \/tmp\/test/);
-              await evaluate('fixture.command('+JSON.stringify(destination)+')');
+              await evaluate('fixture.command('+javascriptLiteral(destination)+')');
               await waitFor('!document.querySelector("[data-shell-page-heading]")');
             }
           }
@@ -2206,13 +2444,15 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
     const replayArtifacts = scenario === 'app-review-replay'
       ? (process.env.ORKWORKS_REPLAY_ARTIFACT_DIR ? resolve(process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) : mkdtempSync(join(tmpdir(), 'orkworks-replay-artifacts-')))
-      : undefined;
+      : scenario === 'app-review-terminal-links'
+        ? mkdtempSync(join(tmpdir(), 'orkworks-terminal-links-artifacts-'))
+        : undefined;
     if (replayArtifacts) mkdirSync(replayArtifacts, { recursive: true });
     try {
       const bundle = await build({
@@ -2228,7 +2468,26 @@ if (process.versions.electron) {
           import './src/styles/tokens.css';
           import './src/App.css';
           import {getTerminal, getLiveTerminalCount} from './src/terminalStore';
+          import {Terminal as FixtureTerminal} from '@xterm/xterm';
           const fixture = window.fixture = {selections:0,prompts:0,settingsOpened:0,sessionsCreated:0,errors:[],ready:true};
+          if (${javascriptLiteral(scenario)} === 'app-review-terminal-links') {
+            fixture.linkTrace=[];
+            fixture.traceLink=value=>{fixture.linkTrace.push({at:performance.now(),...value});fixture.linkTrace=fixture.linkTrace.slice(-32)};
+            fixture.linkState=()=>{const terminal=fixture.linkTerminal;const screen=terminal?.element?.querySelector('.xterm-screen');return {cols:terminal?.cols,rows:terminal?.rows,line:terminal?.buffer.active.getLine(0)?.translateToString(true),screen:screen?.getBoundingClientRect().toJSON(),transform:terminal?.element?.style.transform,pointer:screen?.classList.contains('xterm-cursor-pointer')}};
+            const register=FixtureTerminal.prototype.registerLinkProvider;
+            FixtureTerminal.prototype.registerLinkProvider=function(provider){
+              fixture.linkTerminal=this;
+              return register.call(this,{provideLinks:(y,callback)=>provider.provideLinks(y,links=>{fixture.traceLink({type:'provider',y,links:links?.map(({text,range})=>({text,range})),state:fixture.linkState()});callback(links)})});
+            };
+            document.addEventListener('mousemove',event=>fixture.traceLink({type:'move',x:event.clientX,y:event.clientY,target:event.target?.className,state:fixture.linkState()}),true);
+            // Gate only the synthetic replay record; the real terminal parser,
+            // renderer and link provider still process it after explicit release.
+            const writeln=FixtureTerminal.prototype.writeln;
+            FixtureTerminal.prototype.writeln=function(...args){
+              if(fixture.holdReplayWrite && this!==fixture.runtime()?.terminal){fixture.releaseReplayWrite=()=>{fixture.holdReplayWrite=false;writeln.apply(this,args)};return;}
+              return writeln.apply(this,args);
+            };
+          }
           window.addEventListener('error', e => fixture.errors.push(e.error?.stack || e.message));
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
           fixture.socketCount=0;fixture.input=[];fixture.pins=0;fixture.workspaceOpens=0;
@@ -2242,9 +2501,10 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {getSkillInventory:async()=>({skills:[],diagnostics:[],roots:[],apm:{available:true,compatible:true,path:"/usr/local/bin/apm",version:"0.33.0",executableOverride:null,message:"APM 0.33.0 supports reviewed installation."}}),pickSkillSource:async()=>'/tmp/skill',previewSkillAdd:async request=>{fixture.skillRequest=request;return null},notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
-          fixture.nativeOpened=[];fixture.nativeMissing=${JSON.stringify(scenario)}==='open-session-app';
+          fixture.nativeOpened=[];fixture.nativeMissing=${javascriptLiteral(scenario)}==='open-session-app';
           window.orkworks.inspectSessionApp=async(_workspace,_id,destination)=>{
             if(destination==='vscode')return {label:'Visual Studio Code',installed:!!fixture.vscodeInstalled,available:!!fixture.vscodeInstalled};
+            if(fixture.nativeInspectionFailure)throw new Error('Destination lookup failed');
             const value=fixture.nativeMissing?{label:'ChatGPT',available:false,reason:'Native ID not captured'}:fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:fixture.nativeHarness==='claude-code'?'Claude':'ChatGPT',available:true};
             if(fixture.deferNative)await new Promise(resolve=>fixture.finishNative=resolve);
             return value;
@@ -2259,14 +2519,14 @@ if (process.versions.electron) {
             fixture.captureCount=(fixture.captureCount||0)+1;
             if(fixture.changeFailure)throw new Error('fixture refresh failed');
             const result={snapshotId:request.comparison+'-'+request.sessionId+'-'+fixture.captureCount,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:!!fixture.partialChanges,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
-            if(${JSON.stringify(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
+            if(${javascriptLiteral(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
             if(fixture.omitOtherFile)result.files=result.files.filter(f=>f.id!=='other-file');
             if(fixture.emptyChanges)result.files=[];
             if(fixture.deferChanges)await new Promise(resolve=>fixture.finishChanges=resolve);
             return result;
           };
           fixture.noticeCommands=[];fixture.preferenceWrites=0;fixture.preferenceReads=0;fixture.rebuildCalls=0;fixture.resetCalls=0;fixture.cancelRebuild=true;
-          fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${JSON.stringify(scenario)}==='preferences-recovery'?'corrupt_record':null};
+          fixture.snapshot={preferences:{sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'},revision:0,diagnostic:${javascriptLiteral(scenario)}==='preferences-recovery'?'corrupt_record':null};
           Object.assign(window.orkworks,{
             getShellLayout:async()=>{fixture.preferenceReads++;return {...fixture.snapshot}},
             getLayout:async()=>'{}',
@@ -2274,31 +2534,34 @@ if (process.versions.electron) {
             resetShellLayout:async()=>{fixture.resetCalls++;return {ok:false}},
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
-          if ((${JSON.stringify(scenario)}.startsWith('app-'))) {
-            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${JSON.stringify(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
+          if ((${javascriptLiteral(scenario)}.startsWith('app-'))) {
+            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${javascriptLiteral(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
             fixture.plan='# Current plan';fixture.planSelections=[];fixture.documentKinds=[];fixture.documentSelectionIds=[];
-            if(${JSON.stringify(scenario)}==='app-review-terminal-links')fixture.plan='# Clicked document';fixture.savedSurface=${JSON.stringify(scenario)}.includes('restore')||${JSON.stringify(scenario)}==='app-review-opening-navigation'?'review':'terminal';
+            if(${javascriptLiteral(scenario)}==='app-review-terminal-links')fixture.plan='# Clicked document';fixture.savedSurface=${javascriptLiteral(scenario)}.includes('restore')||${javascriptLiteral(scenario)}==='app-review-opening-navigation'?'review':'terminal';
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
-            fixture.sessionList=${JSON.stringify(scenario)}.startsWith('app-review')||${JSON.stringify(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
+            fixture.sessionList=${javascriptLiteral(scenario)}.startsWith('app-review')||${javascriptLiteral(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
             if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
-            if(['app-review-terminal-links','app-review-replay'].includes(${JSON.stringify(scenario)})){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
-            if(${JSON.stringify(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
-            if(${JSON.stringify(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
-            if(${JSON.stringify(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
-            if(${JSON.stringify(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
-            if(${JSON.stringify(scenario)}==='app-review-archived-stale')fixture.sessionList[1].sessionState='archived';
-            if(${JSON.stringify(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
+            fixture.documentResets=[];
+            if(${scenario === 'app-review-branch-recovery'})fixture.sessionList[0].planDocuments={branch:'feature',sharedSessions:2,steps:[],recoveryId:'a'.repeat(64),notice:'Saved choices could not be read. Reset to restore discovery.'};
+            if(['app-review-terminal-links','app-review-replay'].includes(${javascriptLiteral(scenario)})){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
+            if(${javascriptLiteral(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
+            if(${javascriptLiteral(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
+            if(${javascriptLiteral(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
+            if(${javascriptLiteral(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
+            if(${javascriptLiteral(scenario)}==='app-review-archived-stale')fixture.sessionList[1].sessionState='archived';
+            if(${javascriptLiteral(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
-              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${JSON.stringify(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${JSON.stringify(scenario)}.startsWith('app-review')?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review')?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               openWorkspace:async()=>new Promise(resolve=>{fixture.cancelWorkspacePicker=resolve}),
               openRememberedWorkspace:async()=>new Promise((resolve,reject)=>{fixture.rejectRememberedWorkspace=reject}),
               getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
-              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${JSON.stringify(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${JSON.stringify(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
-              completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${JSON.stringify(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
+              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${javascriptLiteral(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
+              completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${javascriptLiteral(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
               rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
+              resetSavedPlanDocuments:async (id,recoveryId)=>{fixture.documentResets.push([id,recoveryId]);await new Promise((resolve,reject)=>{fixture.finishDocumentReset=resolve;fixture.rejectDocumentReset=reject})},
               selectTerminalPlan:async (id,path)=>{fixture.planSelections.push([id,path]);if(fixture.selectionFailure)throw new Error('Document is unavailable');if(fixture.deferSelection)await new Promise(resolve=>fixture.finishSelection=resolve);return fixture.selectedDocument},
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
@@ -2309,31 +2572,32 @@ if (process.versions.electron) {
               if(path==='/sessions' && options.method==='POST'){
                 fixture.posts++;
                 if(fixture.failCreation)return {ok:false,status:500};
-                const created={id:fixture.createdId||'created',label:fixture.createdId||'created',hasOpenablePlan:${JSON.stringify(scenario)}==='app-review-create-persistence',harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none'};
+                const created={id:fixture.createdId||'created',label:fixture.createdId||'created',hasOpenablePlan:${javascriptLiteral(scenario)}==='app-review-create-persistence',harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none'};
                 fixture.sessionList=[created];return response(created);
               }
               if(path.endsWith('/summary-log'))return response({entries:[]});
-              if(path==='/sessions/other/terminal-output' && ${JSON.stringify(scenario)}==='app-review-replay') {
+              if(path==='/sessions/other/terminal-output' && ${javascriptLiteral(scenario)}==='app-review-replay') {
                 await new Promise(resolve=>fixture.releaseReplay=resolve);
                 return response({lines:[{text:'\\x1b[2J\\x1b[H'+'0123456789'.repeat(12)+'Z\\x1b[3;1Hsecond-row\\x1b[40;1Hlast-row',delimiter:''}],cols:120,rows:40});
               }
-              if(path==='/sessions/other/terminal-output')return response({lines:[${JSON.stringify(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
-              if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${JSON.stringify(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
+              if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
+              if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${javascriptLiteral(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
               if(path==='/workspace/active-session'){fixture.activeWrites++;return response({})}
               throw new Error('Unexpected fixture request '+path);
             };
           }
-          if (${JSON.stringify(scenario)}==='app-review-inert-improvement') {
+          if (${javascriptLiteral(scenario)}==='app-review-inert-improvement') {
             for(const session of fixture.sessionList){session.harnessId='codex';session.harness='Codex';}
             fixture.hostile='<img data-inert-probe src=x onerror="window.modelScriptRan=true"> MODEL_DATA '+String.fromCharCode(96)+'pnpm test || true'+String.fromCharCode(96);
             fixture.accepted=[];
-            fixture.recommendation={id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
+            fixture.recommendation={workspaceId:'/tmp/test',id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
             window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
             window.orkworks.getImprovementStatus=async()=>({workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
             window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return {...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
+            window.orkworks.requestTaskmasterAnalysis=async()=>({status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
+            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
             const fetchBase=window.fetch;
             window.fetch=async(url,options)=>{
               const path=new URL(String(url)).pathname;
@@ -2342,7 +2606,7 @@ if (process.versions.electron) {
               return fetchBase(url,options);
             };
           }
-          if (${JSON.stringify(scenario)}==='recommendations-inbox') {
+          if (${javascriptLiteral(scenario)}==='recommendations-inbox') {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
             const snapshot={id:'readiness-one',startedAt:'2026-11-01T10:00:00Z',completedAt:'2026-11-01T10:01:00Z',redacted:false,data:{workspacePath:'/tmp/test',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Saved assessment',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Check evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}};
@@ -2359,23 +2623,41 @@ if (process.versions.electron) {
               return {ok:true,status:200,json:async()=>path==='/taskmaster/audit/recommendations'?{recommendation:null}:{recommendations:[],diagnostics:[]}};
             };
           }
-          if (${JSON.stringify(scenario)}==='recommendation-status-error') {
+          if (${javascriptLiteral(scenario)}==='recommendation-status-error') {
             fixture.statusReads=0;
             window.orkworks.getTaskmasterRunStatus=async()=>{fixture.statusReads++;return {workspacePath:'/tmp/test',state:'idle'}};
             window.fetch=async()=>({ok:false,status:500,json:async()=>({})});
           }
-          if (${JSON.stringify(scenario)}==='actions-sources') {
+          if (${javascriptLiteral(scenario)}==='actions-sources') {
             fixture.openedRecommendations=[];fixture.pendingRecommendations=[];
-            fixture.recommendation=id=>({id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
+            fixture.recommendation=id=>({workspaceId:'/tmp/test',id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
             window.fetch=async url=>{
               if(new URL(url).pathname!=='/taskmaster/recommendations')throw new Error('Unexpected Actions request');
               const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
               return {ok:true,json:async()=>body};
             };
           }
-          if (${JSON.stringify(scenario)}==='session-menu') {
+          if (${javascriptLiteral(scenario)}==='session-menu') {
             window.fetch=async url=>({ok:true,json:async()=>({entries:[{timestamp:'2026-10-31T10:00:00Z',summary:'Checkpoint '+new URL(url).pathname.split('/')[2],source:'agent_hook'}]})});
           }
+          // Synthetic IPC replies for the modern client. These adapters are fixture-only.
+          const adviceReply=async value=>({...await value,protocolVersion:3});
+          const adviceAdmission=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
+          const adviceFetch=async path=>{const response=await window.fetch('http://127.0.0.1:12345'+path);if(!response.ok)throw Error('Fixture request failed '+response.status);return adviceReply(response.json());};
+          window.orkworks.getAdviceRecommendations=async()=>adviceFetch('/taskmaster/recommendations');
+          window.orkworks.getAdviceRecommendation=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
+          window.orkworks.runAdviceAudit=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
+          window.orkworks.getAdviceReadinessStatus=async()=>adviceReply(window.orkworks.getReadinessStatus?.()??{workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
+          window.orkworks.getAdviceImprovementStatus=async()=>adviceReply(window.orkworks.getImprovementStatus?.()??{workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
+          window.orkworks.getAdviceRunStatus=async()=>adviceReply(window.orkworks.getTaskmasterRunStatus?.()??{workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
+          window.orkworks.requestAdviceImprovement=async()=>adviceAdmission(window.orkworks.requestImprovement());
+          window.orkworks.cancelAdviceImprovement=async(_workspace,id)=>adviceAdmission(window.orkworks.cancelImprovement(id));
+          window.orkworks.requestAdviceReadinessAssessment=async()=>adviceAdmission(window.orkworks.requestReadinessAssessment());
+          window.orkworks.requestAdviceReadinessSuggestion=async()=>adviceAdmission(window.orkworks.requestReadinessSuggestion());
+          window.orkworks.requestAdviceAssessment=async()=>adviceReply(window.orkworks.requestTaskmasterAssessment());
+          window.orkworks.requestAdviceAnalysis=async()=>adviceReply(window.orkworks.requestTaskmasterAnalysis());
+          window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>adviceReply(window.orkworks.acceptTaskmasterRecommendation(id,options));
+          window.orkworks.dismissAdviceRecommendation=async(_workspace,id,reason)=>adviceReply(window.orkworks.dismissTaskmasterRecommendation(id,reason));
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
@@ -2385,7 +2667,7 @@ if (process.versions.electron) {
             const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);
             const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
-            const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setGeneration(n=>n+1)};
+            const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setGeneration(n=>n+1)};
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
             fixture.command=(command,reveal=false)=>setCommandRequest(old=>({command,reveal,sequence:(old?.sequence||0)+1}));
@@ -2394,15 +2676,15 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
-            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${JSON.stringify(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(${JSON.stringify(scenario)}==='actions' && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${JSON.stringify(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${JSON.stringify(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
+            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+              workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
-              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${JSON.stringify(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
+              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
-              inspector={inspector} onInspect={setInspector} unreadIds={new Set(${JSON.stringify(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              visibleSubjectId={['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(${JSON.stringify(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${JSON.stringify(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+              inspector={inspector} onInspect={setInspector} unreadIds={new Set(${javascriptLiteral(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
+              visibleSubjectId={['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(${javascriptLiteral(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
           }
-          createRoot(document.getElementById('root')).render(${JSON.stringify(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${JSON.stringify(scenario)}.startsWith('app-')?<App/>:<Harness/>);
+          createRoot(document.getElementById('root')).render(${javascriptLiteral(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${javascriptLiteral(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },
         bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser',
         define: { 'process.env.NODE_ENV': '"development"' },

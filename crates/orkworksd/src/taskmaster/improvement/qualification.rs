@@ -8,7 +8,10 @@ use crate::taskmaster::{
     assessment_context::improvement::ProgressiveEvidence,
     improvement::{
         engine,
-        model::{CallBudget, InvestigationStep, MAX_CALLS, RUN_TIMEOUT},
+        model::{
+            CallBudget, InvestigationStep, MAX_CALLS, MAX_RANGE_BYTES, MAX_READS, RUN_TIMEOUT,
+            STEP_RULES,
+        },
     },
     readiness_rubric::ReadinessRubric,
     runtime::{ContextLevel, TaskmasterRuntime, TaskmasterSelection, TaskmasterSettings},
@@ -791,6 +794,22 @@ impl Ledger {
         let record = outputs.last_mut().ok_or("trial_output_missing")?;
         record["state"] = json!(state);
         record["failureCategory"] = json!(category);
+        if category == "provider_or_policy_failure" {
+            // controlled_invoke returns fixed assessment_failure codes. Keep
+            // only exact known codes; never persist arbitrary error messages.
+            let code = match result.as_ref().err().map(String::as_str) {
+                Some("provider_timeout") => "provider_timeout",
+                Some("provider_authentication") => "provider_authentication",
+                Some("provider_model") => "provider_model",
+                Some("provider_unsupported") => "provider_unsupported",
+                Some("provider_request") => "provider_request",
+                Some("provider_unavailable") => "provider_unavailable",
+                Some("inputs_changed") => "inputs_changed",
+                Some("cancelled") => "cancelled",
+                _ => "unclassified",
+            };
+            record["providerFailureCode"] = json!(code);
+        }
         record["outputBytes"] = json!(output_bytes);
         record["truncated"] = json!(truncated);
         record["originalUtf8Bytes"] = json!(original_bytes);
@@ -1342,9 +1361,12 @@ fn baseline_prompt(
         "protocol":"controlled-brain-improvement-baseline-v1",
         "phase":if final_call {"advice"} else {"evidence"},
         "request":"Use Brain to suggest the next improvement towards agentic development.",
+        "selectionRules":engine::SELECTION_RULES,
+        "assessmentRules":engine::ASSESSMENT_RULES,
         "instruction":"Give natural, concise advice about the most useful next improvement toward agentic development, grounded in the supplied repository evidence and signed Brain guidance. Explain the mechanism, benefit, affected surface, effort/risk/reversibility, citations, what remains uncertain, validation scope and rollback. A specific supported hypothesis is useful; do not invent a missing capability. Unknown behavior is not absence. If evidence is insufficient, say what bounded investigation would help. The supplied rubric is assessment context, not a requirement to produce ratings or JSON. You have a data-only broker: request only catalog file IDs, byte ranges and signed page IDs. No shell, edits, network fetches, native tools, commands or claims of checks. Do not mention case labels or expected outcomes.",
         "stepSchema":{"version":1,"repositoryReads":[{"fileId":0,"offset":0,"length":8192}],"knowledgePageIds":["signed page ID"],"finish":false},
-        "stepRules":"Exactly these four fields and version 1. Set finish true with both repositoryReads and knowledgePageIds empty to request the final advice call. Set finish false only when requesting at least one item. Use at most eight total distinct requests across both lists; file IDs must be in the supplied repository catalog, and page IDs must be in the supplied signed guidance catalog. Each read length is 1..8192 bytes and offsets plus lengths must not overflow; selected text endpoints must be valid UTF-8. Unknown fields, paths, commands and unlisted IDs are invalid. Malformed or rejected evidence output is not retried.",
+        "stepRules":STEP_RULES,
+        "stepLimits":{"maxCombinedRequests":MAX_READS,"maxRangeBytes":MAX_RANGE_BYTES},
         "finishExample":{"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true},
         "finalInstruction":"The evidence phase is closed. Return plain advice, not a structured assessment and not the app's final JSON schema. Do not return evidence requests or finish markers.",
         "limits":{"calls":MAX_CALLS,"repositoryFiles":32,"repositoryRanges":32,"repositoryBytes":65536,"rangeBytes":8192,"guidancePages":16,"guidanceBytes":32768},
@@ -1358,7 +1380,7 @@ fn baseline_prompt(
     });
     if let Some(fields) = prompt.as_object_mut() {
         if final_call {
-            for field in ["stepSchema", "stepRules", "finishExample"] {
+            for field in ["stepSchema", "stepRules", "stepLimits", "finishExample"] {
                 fields.remove(field);
             }
         } else {
@@ -1502,6 +1524,39 @@ mod tests {
             value: json!({"formatVersion":1,"callsReserved":0,"callsCompleted":0,"authorization":{"callLimit":60,"appCallsPerCase":6,"baselineCallsPerCase":6},"outputs":[]}),
             _lock: lock,
         }
+    }
+
+    #[test]
+    fn provider_failures_retain_only_fixed_diagnostic_codes() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("ledger.json");
+        let mut ledger = ledger_fixture(&path, &dir.path().join("artifacts"));
+        for (error, expected) in [
+            ("provider_timeout", "provider_timeout"),
+            ("provider_authentication", "provider_authentication"),
+            ("inputs_changed", "inputs_changed"),
+            ("cancelled", "cancelled"),
+            ("provider_timeout /private/session", "unclassified"),
+            ("/secret/account provider response", "unclassified"),
+        ] {
+            assert_eq!(
+                ledger
+                    .invoke("positive-entry-command", Arm::App, "{}", || Err(
+                        error.into()
+                    ))
+                    .unwrap_err(),
+                "provider_or_policy_failure"
+            );
+            let saved: Value = read_json(&path).unwrap();
+            let record = saved["outputs"].as_array().unwrap().last().unwrap();
+            assert_eq!(record["failureCategory"], "provider_or_policy_failure");
+            assert_eq!(record["providerFailureCode"], expected);
+            assert!(record.get("outputFile").is_none());
+            assert!(!saved.to_string().contains("/private/session"));
+            assert!(!saved.to_string().contains("/secret/account"));
+        }
+        assert_eq!(ledger.value["callsReserved"], 6);
+        assert_eq!(ledger.value["callsCompleted"], 6);
     }
 
     fn plan_for_ledger(root: &Path) -> QualificationPlan {
@@ -2018,6 +2073,72 @@ mod tests {
     }
 
     #[test]
+    fn task_guidance_reaches_both_arms_before_and_after_evidence_collection() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("AGENTS.md"),
+            "The current workflow is documented here.",
+        )
+        .unwrap();
+        let evidence =
+            ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+        let rubric = app_final_rubric();
+        let page = crate::taskmaster::runtime::KnowledgePage {
+            id: "playbooks/rubric.md".into(),
+            title: "Guidance".into(),
+            page_type: "playbook".into(),
+            status: "active".into(),
+            content: "Inspect existing coverage and applicability.".into(),
+            sha256: "b".repeat(64),
+            related_ids: Vec::new(),
+        };
+        let mut prompts = Vec::new();
+        let result = engine::investigate(evidence.clone(), &rubric, &[page.clone()], &page.id,
+            &mut |raw: &str, _| {
+                let prompt: Value = serde_json::from_str(raw).unwrap();
+                prompts.push(prompt.clone());
+                if prompt["phase"] == "evidence" {
+                    return Ok(json!({"version":1,"repositoryReads":[],"knowledgePageIds":[],"finish":true}).to_string());
+                }
+                let mut response = app_final_response(prompt["repositoryFacts"][0]["sha256"].as_str().unwrap());
+                response["summary"] = json!("The inspected workflow already covers the supported need.");
+                response["opportunities"] = json!([]);
+                response["preferredOpportunityId"] = Value::Null;
+                response["noProposalReason"] = json!("Inspected current workflow already covers the supported need.");
+                Ok(response.to_string())
+            }, || false).unwrap();
+        assert!(result.result.preferred().is_none());
+        assert_eq!(prompts.len(), 2);
+        for key in ["selectionRules", "assessmentRules"] {
+            let rules = prompts[0][key]
+                .as_str()
+                .filter(|rules| !rules.trim().is_empty())
+                .unwrap_or_else(|| {
+                    panic!("model {key} guidance is absent from the evidence request")
+                });
+            assert_eq!(prompts[1][key], rules, "finalization lost {key} guidance");
+            for final_call in [false, true] {
+                let baseline: Value = serde_json::from_str(
+                    &baseline_prompt(
+                        &evidence,
+                        &rubric,
+                        &[page.clone()],
+                        &[page.id.clone()],
+                        &[],
+                        final_call,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    baseline[key], rules,
+                    "controlled baseline received different {key} guidance"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rendered_baseline_step_contract_accepts_empty_finish_and_rejects_populated_finish() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("README.md"), "A small fixture.\n").unwrap();
@@ -2081,12 +2202,14 @@ mod tests {
                 && rules.contains("finish false")
                 && rules.contains("not retried")
         }));
+        assert_eq!(prompt["stepLimits"]["maxCombinedRequests"], 8);
+        assert_eq!(prompt["stepLimits"]["maxRangeBytes"], 8192);
         let final_prompt: Value = serde_json::from_str(
             &baseline_prompt(&evidence, &rubric, &pages, &selected, &[], true).unwrap(),
         )
         .unwrap();
         assert_eq!(final_prompt["phase"], "advice");
-        for key in ["stepSchema", "stepRules", "finishExample"] {
+        for key in ["stepSchema", "stepRules", "stepLimits", "finishExample"] {
             assert!(
                 final_prompt.get(key).is_none(),
                 "advice exposes evidence contract: {key}"

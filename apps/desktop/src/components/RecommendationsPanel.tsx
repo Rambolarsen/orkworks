@@ -1,3 +1,5 @@
+import { adviceIsSupported, isUnverifiedAdvice, unverifiedAdviceWarning } from '../advice.ts';
+import { getAdviceRunStatus, requestAdviceAnalysis, requestAdviceAssessment } from '../adviceApi.ts';
 import ReadinessRecommendation from "./ReadinessRecommendation";
 import type { ReadinessSnapshot } from "../readiness";
 import ReadinessPanel from "./ReadinessPanel";
@@ -6,8 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   dismissTaskmasterRecommendation,
-  getTaskmasterRecommendation,
-  runTaskmasterAudit,
+  getAdviceRecommendation as getTaskmasterRecommendation,
+  runAdviceAudit as runTaskmasterAudit,
   type ObservationDiagnostic,
   type ProposedChange,
   type WorkflowRecommendation,
@@ -127,13 +129,15 @@ function RecommendationCard({
   error?: string;
   focused?: boolean;
 }) {
+  if (!adviceIsSupported(recommendation)) return <article className="recommendation-card"><p role="alert">This recommendation requires an updated advice protocol.</p></article>;
   const improvement = recommendation.workflowImprovement;
   const intent = readImprovementIntent(recommendation.assessment);
-  const unsupportedIntent = intent === null || (readImprovementReference(recommendation.assessment)?.version === 2 && Boolean(recommendation.completionPacket));
+  const unsupportedIntent = intent === null || ([2,3].includes(readImprovementReference(recommendation.assessment)?.version ?? 0) && Boolean(recommendation.completionPacket));
   const origin = recommendationOrigin(recommendation.dedupeKey);
   const isCleanup = recommendation.type === "cleanup";
   return (
     <article className={`recommendation-card${focused ? " recommendation-card--focused" : ""}`}>
+      {isUnverifiedAdvice(recommendation) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
       <header className="recommendation-card-header">
         <div>
           <h3>{recommendation.title}</h3>
@@ -298,7 +302,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
   const runStatusGeneration = useRef(0);
   const refreshRunStatus = useCallback((baseUrl: string) => {
     const generation = ++runStatusGeneration.current;
-    void window.orkworks.getTaskmasterRunStatus().then((status) => {
+    void getAdviceRunStatus(workspacePath ?? "").then((status) => {
       if (generation !== runStatusGeneration.current || workspacePathRef.current !== workspacePath) return;
       if (status.workspacePath !== workspacePath) { setRunStatus(null); setRunStatusError(undefined); return; }
       setRunStatus(status);
@@ -306,7 +310,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       if (status.latestManualRequest) setAnalysisMessage(undefined);
       const recommendationId = status.assessment?.report?.recommendationId;
       if (recommendationId) {
-        void getTaskmasterRecommendation(baseUrl, recommendationId).then((recommendation) => {
+        void getTaskmasterRecommendation(baseUrl, recommendationId, workspacePath ?? "").then((recommendation) => {
           if (generation !== runStatusGeneration.current || workspacePathRef.current !== workspacePath) return;
           setRecommendations((current) => current.some((item) => item.id === recommendation.id)
             ? current : [...current, recommendation]);
@@ -345,7 +349,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       let nextRecommendations = response.recommendations;
       if (blockedRecommendationId) {
         try {
-          const blocked = await getTaskmasterRecommendation(baseUrl, blockedRecommendationId);
+          const blocked = await getTaskmasterRecommendation(baseUrl, blockedRecommendationId, workspacePath ?? "");
           if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
           if (isActiveBrainRecommendation(blocked)) {
             setBlockedRecommendation(blocked);
@@ -370,7 +374,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
         && !nextRecommendations.some((item) => item.id === focusedRecommendationId)
       ) {
         try {
-          const detail = await getTaskmasterRecommendation(baseUrl, focusedRecommendationId);
+          const detail = await getTaskmasterRecommendation(baseUrl, focusedRecommendationId, workspacePath ?? "");
           if (generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
           nextRecommendations = [...nextRecommendations, detail];
         } catch {
@@ -487,9 +491,9 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     const generation = workspaceGeneration.current;
     const requestedWorkspacePath = workspacePath;
     try {
-      const baseline = currentRunStatus ?? await window.orkworks.getTaskmasterRunStatus();
+      const baseline = currentRunStatus ?? await getAdviceRunStatus(workspacePath ?? "");
       if (generation !== workspaceGeneration.current || workspacePathRef.current !== requestedWorkspacePath) return;
-      const result = await window.orkworks.requestTaskmasterAnalysis();
+      const result = await requestAdviceAnalysis(workspacePath ?? "");
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current || workspacePathRef.current !== requestedWorkspacePath) return;
       if (result.status === "active_recommendation" && result.recommendation) {
         setBlockedRecommendation(result.recommendation);
@@ -533,12 +537,12 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     setAssessmentError(undefined);
     setAssessmentMessage(undefined);
     try {
-      const result = await window.orkworks.requestTaskmasterAssessment();
+      const result = await requestAdviceAssessment(workspacePath ?? "");
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current || workspacePathRef.current !== requestedWorkspacePath) return;
       if (result.status === "active_recommendation" && result.recommendation) {
         const baseUrl = await window.orkworks.getBackendUrl();
         if (workspacePathRef.current !== requestedWorkspacePath || generation !== workspaceGeneration.current) return;
-        const recommendation = await getTaskmasterRecommendation(baseUrl, result.recommendation.id);
+        const recommendation = await getTaskmasterRecommendation(baseUrl, result.recommendation.id, workspacePath ?? "");
         if (workspacePathRef.current !== requestedWorkspacePath || generation !== workspaceGeneration.current) return;
         setRecommendations((current) => current.some((item) => item.id === recommendation.id)
           ? current : [...current, recommendation]);
@@ -571,7 +575,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
-      const result = await runTaskmasterAudit(baseUrl);
+      const result = await runTaskmasterAudit(baseUrl, workspacePath ?? "");
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
       setOriginFilter("cleanup");
       setAuditMessage(result.recommendation
@@ -593,7 +597,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     setDismissErrors((current) => ({ ...current, [id]: "" }));
     try {
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
-      await dismissTaskmasterRecommendation(id);
+      await dismissTaskmasterRecommendation(id, undefined, workspacePath ?? "");
       if (generation !== refreshGeneration.current) return;
       // A dismissed cleanup card may have been announced by Run audit; drop
       // the announcement instead of leaving it pointing at a gone card.
@@ -701,6 +705,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
         error={runStatusError}
       /></details>}
       {analysisMessage && <div className="recommendation-analysis-status" role="status">
+        {isUnverifiedAdvice(blockedRecommendation) && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
         {blockedRecommendation && <strong>{blockedRecommendation.title}</strong>}
         <p>{analysisMessage}</p>
         {blockedRecommendation?.status === "executing" && blockedRecommendationRecoveryAllowed && <button
@@ -784,7 +789,7 @@ function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecomme
       try {
         const baseUrl = await window.orkworks.getBackendUrl();
         if (cancelled) return;
-        const detail = await getTaskmasterRecommendation(baseUrl, supersedesRecommendationId);
+        const detail = await getTaskmasterRecommendation(baseUrl, supersedesRecommendationId, recommendation.workspaceId);
         if (cancelled) return;
         if (detail.id !== supersedesRecommendationId) throw new Error("Invalid lineage detail");
         setPredecessor(detail);
@@ -800,6 +805,7 @@ function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecomme
   if (predecessor?.status === "dismissed") {
     return (
       <p className="recommendation-lineage" role="status">
+        {isUnverifiedAdvice(predecessor) && <><span className="advice-warning">{unverifiedAdviceWarning}</span>{' '}</>}
         Resurfaced after you dismissed “{predecessor.title}” on {predecessor.updatedAt} — newer
         evidence qualified again. Replaces {supersedesRecommendationId.slice(0, 8)}.
       </p>
@@ -811,6 +817,7 @@ function ResurfacedLineage({ recommendation }: { recommendation: WorkflowRecomme
     // rather than hardcoded to "superseded".
     return (
       <p className="recommendation-lineage" role="status">
+        {isUnverifiedAdvice(predecessor) && <><span className="advice-warning">{unverifiedAdviceWarning}</span>{' '}</>}
         Replaces “{predecessor.title}” ({predecessor.status}, {supersedesRecommendationId.slice(0, 8)}).
       </p>
     );

@@ -200,6 +200,83 @@ fn explicit_selection(context: &Subject, kind: DocumentKind, expected: &str) -> 
 }
 
 impl SessionApplication {
+    pub(crate) fn reset_invalid_documents(
+        &self,
+        id: &str,
+        recovery_id: &str,
+    ) -> Result<(), String> {
+        use crate::session_projection::LocationInputs;
+        let inputs = {
+            let _fence = self
+                .state
+                .projection_lock
+                .lock()
+                .map_err(|_| "Workspace unavailable.")?;
+            LocationInputs::capture(&self.state, id).ok_or("Session unavailable.")?
+        };
+        let context = subject(&self.state, id)?;
+        let branch = context
+            .branch
+            .as_ref()
+            .ok_or("No shared branch to reset.")?;
+        let lease = {
+            let workspace = self
+                .state
+                .workspace
+                .lock()
+                .map_err(|_| "Workspace unavailable.")?;
+            let workspace = workspace.as_ref().ok_or("Workspace unavailable.")?;
+            if !Arc::ptr_eq(&context.store, &workspace.metadata.branch_documents) {
+                return Err("Workspace changed; refresh.".into());
+            }
+            workspace
+                .lease
+                .clone()
+                .ok_or("Workspace writer unavailable; reopen the workspace.")?
+        };
+        let snapshot = context
+            .store
+            .recovery_id(&context.root)
+            .ok_or("Saved choices changed or cannot be preserved safely; refresh.")?;
+        if inputs.bind_recovery(&snapshot) != recovery_id {
+            return Err(
+                "Saved choices or session location changed; refresh before resetting.".into(),
+            );
+        }
+        context.store.reset_invalid(&context.root, &snapshot, || {
+            // Reinspect Git/process location outside the input fence, then
+            // compare raw location inputs and exact owner without waiting.
+            if inputs.resolve_root().as_ref() != Some(&context.root)
+                || branch_documents::identity(&context.root).ok().as_ref() != Some(branch)
+            {
+                return Err("Branch or worktree changed; refresh.".into());
+            }
+            let fence = self
+                .state
+                .projection_lock
+                .try_lock()
+                .map_err(|_| "Workspace busy; refresh and try again.")?;
+            let workspace = self
+                .state
+                .workspace
+                .try_lock()
+                .map_err(|_| "Workspace busy; refresh and try again.")?;
+            let owner = workspace.as_ref().ok_or("Workspace unavailable.")?;
+            if !Arc::ptr_eq(&context.store, &owner.metadata.branch_documents)
+                || !owner
+                    .lease
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &lease))
+                || LocationInputs::try_capture_owned(&self.state, id, owner).as_ref()
+                    != Some(&inputs)
+            {
+                return Err(
+                    "Workspace or session location changed; refresh before resetting.".into(),
+                );
+            }
+            Ok((fence, workspace))
+        })
+    }
     pub(crate) fn read_document_content(
         &self,
         id: &str,

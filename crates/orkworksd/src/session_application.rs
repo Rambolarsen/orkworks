@@ -281,6 +281,7 @@ pub(crate) struct WorkspaceSnapshot {
 
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
+    unverified_advice_view: bool,
 }
 
 pub(crate) struct PromptAuthorityRevokeSnapshot {
@@ -580,7 +581,27 @@ enum PhaseCheck {
 
 impl SessionApplication {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
-        Self { state }
+        Self {
+            state,
+            unverified_advice_view: false,
+        }
+    }
+
+    pub(crate) fn with_unverified_advice_view(mut self) -> Self {
+        self.unverified_advice_view = true;
+        self
+    }
+
+    fn require_advice_view(
+        &self,
+        item: &crate::taskmaster::Recommendation,
+    ) -> Result<(), crate::taskmaster::store::StoreError> {
+        if !self.unverified_advice_view && crate::taskmaster::is_unverified_improvement(item) {
+            return Err(crate::taskmaster::store::StoreError::GraphInvariant(
+                "protocol_upgrade_required".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Evaluates the current workspace's workflow evidence and persists the
@@ -1254,6 +1275,8 @@ impl SessionApplication {
                 else {
                     return Ok(None);
                 };
+                self.require_advice_view(&existing)
+                    .map_err(RecommendationDismissError::Store)?;
                 if !matches!(
                     existing.recommendation_type,
                     RecommendationType::ImproveWorkflow | RecommendationType::Cleanup
@@ -1292,6 +1315,8 @@ impl SessionApplication {
         else {
             return Ok(None);
         };
+        self.require_advice_view(&existing)
+            .map_err(RecommendationPacketError::Store)?;
         crate::taskmaster::assessment_access::ensure_mutable(&existing)
             .map_err(RecommendationPacketError::Store)?;
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
@@ -1362,6 +1387,8 @@ impl SessionApplication {
                 else {
                     return Ok(None);
                 };
+                self.require_advice_view(&recommendation)
+                    .map_err(RecommendationAcceptError::Store)?;
                 if recommendation.recommendation_type != RecommendationType::ImproveWorkflow
                     || recommendation.status != RecommendationStatus::Proposed
                 {
@@ -1564,6 +1591,11 @@ impl SessionApplication {
             return Ok(None);
         };
 
+        self.require_advice_view(&existing)
+            .map_err(RecommendationCompleteError::Store)?;
+        if crate::taskmaster::is_unverified_improvement(&existing) && packet_mutation.is_some() {
+            return Err(RecommendationCompleteError::Conflict);
+        }
         if existing.recommendation_type != RecommendationType::ImproveWorkflow
             || existing.target_session_id.as_deref() != Some(session_id)
         {
@@ -2027,64 +2059,66 @@ impl SessionApplication {
         }
 
         let mut observation_accepted = false;
-        if let Some(inference) = scan_result.inference.as_ref() {
-            for (index, candidate) in inference.workflow_observations.iter().enumerate() {
-                if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        candidate_index = index,
-                        "dropping final peon workflow observation: evidence not grounded in captured terminal output"
-                    );
-                    continue;
-                }
-                let key = format!("final-scan:{generation}:{index}");
-                let mut recorded = false;
-                for attempt in 0..3 {
-                    let result = workspace.workflow_observations.record_observation(
-                        session_id,
-                        crate::workflow_observations::ObservationOrigin::Peon,
-                        &key,
-                        crate::workflow_observations::ObservationCandidate {
-                            kind: candidate.kind,
-                            description: candidate.description.clone(),
-                            evidence: candidate.evidence.clone(),
-                            problem_area: candidate.problem_area.clone(),
-                            reported_impact: candidate.reported_impact,
-                            confidence: Some(candidate.confidence),
-                        },
-                    );
-                    match result {
-                        Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
-                            observation_accepted = true;
-                            recorded = true;
-                            break;
-                        }
-                        Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
-                            // A retry of the live Peon path may have already
-                            // made this final-scan evidence durable.
-                            recorded = true;
-                            break;
-                        }
-                        Err(error)
-                            if attempt < 2 && is_retryable_observation_record_error(&error) => {}
-                        Err(error) => {
-                            tracing::warn!(
-                                session_id = %session_id,
-                                candidate_index = index,
-                                %error,
-                                "final peon workflow observation could not be recorded"
-                            );
-                            break;
-                        }
+        for (index, candidate) in scan_result
+            .inference
+            .iter()
+            .flat_map(|inference| &inference.workflow_observations)
+            .enumerate()
+        {
+            if !peon::evidence_is_grounded(&candidate.evidence, captured_output) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    candidate_index = index,
+                    "dropping final peon workflow observation: evidence not grounded in captured terminal output"
+                );
+                continue;
+            }
+            let key = format!("final-scan:{generation}:{index}");
+            let mut recorded = false;
+            for attempt in 0..3 {
+                let result = workspace.workflow_observations.record_observation(
+                    session_id,
+                    crate::workflow_observations::ObservationOrigin::Peon,
+                    &key,
+                    crate::workflow_observations::ObservationCandidate {
+                        kind: candidate.kind,
+                        description: candidate.description.clone(),
+                        evidence: candidate.evidence.clone(),
+                        problem_area: candidate.problem_area.clone(),
+                        reported_impact: candidate.reported_impact,
+                        confidence: Some(candidate.confidence),
+                    },
+                );
+                match result {
+                    Ok(crate::workflow_observations::RecordOutcome::Accepted(_)) => {
+                        observation_accepted = true;
+                        recorded = true;
+                        break;
+                    }
+                    Ok(crate::workflow_observations::RecordOutcome::Duplicate { .. }) => {
+                        // A retry of the live Peon path may have already
+                        // made this final-scan evidence durable.
+                        recorded = true;
+                        break;
+                    }
+                    Err(error) if attempt < 2 && is_retryable_observation_record_error(&error) => {}
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            candidate_index = index,
+                            %error,
+                            "final peon workflow observation could not be recorded"
+                        );
+                        break;
                     }
                 }
-                if !recorded {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        candidate_index = index,
-                        "final peon workflow observation remained unrecorded after retries"
-                    );
-                }
+            }
+            if !recorded {
+                tracing::warn!(
+                    session_id = %session_id,
+                    candidate_index = index,
+                    "final peon workflow observation remained unrecorded after retries"
+                );
             }
         }
 
@@ -3010,7 +3044,10 @@ impl SessionApplication {
             .lock()
             .unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
-        let Some(workspace) = workspace_guard.as_ref() else {
+        let Some(workspace) = workspace_guard
+            .as_ref()
+            .filter(|workspace| workspace.path == workspace_path)
+        else {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
                 if handle.runtime.matches_identity(runtime_identity) {
                     handle.runtime.prompt_tuple_clear_retry_scheduled = false;
@@ -3018,14 +3055,6 @@ impl SessionApplication {
             }
             return false;
         };
-        if workspace.path != workspace_path {
-            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
-                if handle.runtime.matches_identity(runtime_identity) {
-                    handle.runtime.prompt_tuple_clear_retry_scheduled = false;
-                }
-            }
-            return false;
-        }
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id) else {
             return false;
@@ -8318,6 +8347,9 @@ mod tests {
             reported_impact: crate::workflow_observations::Impact::Medium,
             confidence: 0.9,
         };
+        let mut second_candidate = candidate.clone();
+        second_candidate.description = "The final scan found another obstacle".into();
+        second_candidate.evidence = "other final output".into();
         let scan = crate::providers::ProviderRunResult {
             inference: Some(peon::PeonInference {
                 observed_status: Some("done".into()),
@@ -8335,7 +8367,7 @@ mod tests {
                 detected_harness: None,
                 detected_model: None,
                 harness_session_id: None,
-                workflow_observations: vec![candidate],
+                workflow_observations: vec![candidate, second_candidate],
             }),
             observation: Some(crate::providers::ProviderObservation {
                 provider_id: "provider-a".into(),
@@ -8347,7 +8379,7 @@ mod tests {
             runtime: std::collections::HashMap::new(),
         };
 
-        let captured_output = vec!["retry output".to_string()];
+        let captured_output = vec!["retry output".to_string(), "other final output".to_string()];
 
         let first = SessionApplication::new(state.clone()).persist_final_peon_scan(
             id,
@@ -8367,19 +8399,18 @@ mod tests {
         );
         assert!(duplicate.should_finalize);
         assert!(!duplicate.observation_accepted);
-        assert_eq!(
-            state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .workflow_observations
-                .workspace_observations()
-                .unwrap()
-                .len(),
-            1
-        );
+        let observations = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .workspace_observations()
+            .unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[0].evidence, "retry output");
+        assert_eq!(observations[1].evidence, "other final output");
     }
 
     #[test]
@@ -9077,7 +9108,7 @@ mod tests {
         let state = opencode_attention_state(root.path(), id);
         std::fs::create_dir_all(
             root.path()
-                .join(".orkworks-test/sessions/opencode-persist-failure.json.tmp"),
+                .join(".orkworks-test/sessions/opencode-persist-failure.json.write-blocked"),
         )
         .unwrap();
 
@@ -9830,7 +9861,7 @@ mod tests {
             store.write_session(&metadata);
             store.sessions_dir()
         };
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         state
             .sessions
             .lock()
@@ -10199,7 +10230,7 @@ mod tests {
         handle.info.lifecycle_phase = "ending".into();
         let generation = handle.runtime.run_generation();
         state.sessions.lock().unwrap().insert(id.into(), handle);
-        let temporary_record = sessions_dir.join(format!("{id}.json.tmp"));
+        let temporary_record = sessions_dir.join(format!("{id}.json.write-blocked"));
         std::fs::create_dir_all(&temporary_record).unwrap();
         let application = SessionApplication::new(state.clone());
         let snapshot = metadata::canonical_null_snapshot("recovery", Some("now".into()));
@@ -11529,7 +11560,7 @@ mod tests {
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_path.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_path.join(format!("{id}.json.write-blocked"))).unwrap();
 
         assert_eq!(
             SessionApplication::new(state.clone()).report_plan_path(id, plan.to_str().unwrap()),
@@ -12359,7 +12390,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .metadata
             .sessions_dir()
             .join(format!("{id}.json"));
-        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        std::fs::create_dir(path.with_extension("json.write-blocked")).unwrap();
         drop(workspace);
         assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
         assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
@@ -13236,7 +13267,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&meta);
         std::fs::create_dir_all(
             root.path()
-                .join(".orkworks-test/sessions/attention-persist-failure.json.tmp"),
+                .join(".orkworks-test/sessions/attention-persist-failure.json.write-blocked"),
         )
         .unwrap();
 
@@ -14131,7 +14162,12 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let ws_guard = state.workspace.lock().unwrap();
         let store = &ws_guard.as_ref().unwrap().metadata;
         store.write_session(&meta);
-        std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir(
+            store
+                .sessions_dir()
+                .join(format!("{id}.json.write-blocked")),
+        )
+        .unwrap();
         drop(ws_guard);
         let mut handle = attention_test_handle(id, root.path());
         handle.info.label = placeholder.clone();
@@ -16878,6 +16914,70 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
+    fn unverified_completion_requires_a_compatible_view_before_events_or_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let session_id = "unverified-completion-target";
+        write_alive_session(&state, root.path(), session_id);
+        let id = proposed_recommendation_id(&state, "unverified-completion");
+        let mut item = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&id)
+            .unwrap()
+            .unwrap();
+        item.assessment = Some(crate::taskmaster::AssessmentProvenance {
+            improvement_reference: Some(crate::taskmaster::ImprovementReference {
+                version: 3,
+                intent: crate::taskmaster::ImprovementIntent::Implementation,
+            }),
+            sql_sources: None,
+            readiness_reference: None,
+            access_redacted: false,
+            id: "improvement-fixture".into(),
+            input_fingerprint: "a".repeat(64),
+            context_level: crate::taskmaster::runtime::ContextLevel::SourceCode,
+            excluded_paths: vec![],
+        });
+        item.workspace_id = root.path().to_string_lossy().into_owned();
+        item.status = RecommendationStatus::Accepted;
+        item.target_session_id = Some(session_id.into());
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .recommendation_store
+                .put(&item)
+                .unwrap();
+        }
+        let result = SessionApplication::new(state.clone())
+            .complete_recommendation_with_packet(&item.id, session_id, None, None);
+        assert!(
+            matches!(result, Err(RecommendationCompleteError::Store(crate::taskmaster::store::StoreError::GraphInvariant(ref reason))) if reason == "protocol_upgrade_required")
+        );
+        let workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().unwrap();
+        assert_eq!(
+            workspace
+                .recommendation_store
+                .get(&item.id)
+                .unwrap()
+                .unwrap(),
+            item
+        );
+        assert!(!workspace
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .any(|event| event.event_type == "taskmaster_fix_completed"));
+    }
+
+    #[test]
     fn complete_recommendation_records_id_and_summary_in_session_history() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
@@ -18800,7 +18900,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
 
         let application = SessionApplication::new(state.clone());
         assert!(application.set_active_harnesses_at(Vec::new(), 0).is_err());
@@ -18843,7 +18943,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .runtime
                 .prompt_tuple_clear_pending
         );
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 let cleared = !state
@@ -18884,6 +18984,73 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .prompt_tuple_clear_pending
         );
         authority.remove(id);
+    }
+
+    #[test]
+    fn prompt_tuple_clear_retry_stops_at_a_missing_or_replaced_workspace() {
+        for (workspace_replaced, runtime_replaced) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let root = tempfile::tempdir().unwrap();
+            let other_root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let other = crate::test_support::test_app_state_with_workspace(other_root.path());
+            let original_workspace = state.workspace.lock().unwrap().take().unwrap();
+            let replacement_workspace = other.workspace.lock().unwrap().take().unwrap();
+            let id = "prompt-tuple-clear-workspace-replaced";
+            let mut meta = crate::test_support::test_session_metadata(
+                id,
+                "Prompt retry",
+                root.path().display().to_string(),
+                "running",
+                "now",
+                "now",
+            );
+            meta.metadata_source = "claude_hook".into();
+            meta.observed_status = Some("waiting_for_input".into());
+            meta.attention = Some("needs_you".into());
+            meta.needs_user_input = Some(true);
+            meta.detected_question = Some("Retain this question?".into());
+            meta.suggested_options = Some(vec!["Retain".into()]);
+            for workspace in [&original_workspace, &replacement_workspace] {
+                workspace.metadata.write_session(&meta);
+            }
+            let paths = [&original_workspace, &replacement_workspace]
+                .map(|workspace| workspace.metadata.sessions_dir().join(format!("{id}.json")));
+            let before = paths.each_ref().map(|path| std::fs::read(path).unwrap());
+            *state.workspace.lock().unwrap() = workspace_replaced.then_some(replacement_workspace);
+            let mut handle = attention_test_handle(id, root.path());
+            let original_runtime = handle.runtime.identity();
+            if runtime_replaced {
+                handle.runtime = attention_test_handle(id, root.path()).runtime;
+            }
+            handle.runtime.prompt_tuple_clear_pending = true;
+            handle.runtime.prompt_tuple_clear_retry_scheduled = true;
+            handle.info.observed_status = meta.observed_status.clone();
+            handle.info.attention = meta.attention.clone();
+            handle.info.needs_user_input = meta.needs_user_input;
+            handle.info.detected_question = meta.detected_question.clone();
+            handle.info.suggested_options = meta.suggested_options.clone();
+            let live_before = serde_json::to_value(&handle.info).unwrap();
+            state.sessions.lock().unwrap().insert(id.into(), handle);
+
+            assert!(
+                !SessionApplication::new(state.clone()).retry_prompt_tuple_clear_once(
+                    id,
+                    &original_runtime,
+                    root.path(),
+                )
+            );
+            let sessions = state.sessions.lock().unwrap();
+            let handle = &sessions[id];
+            assert_eq!(
+                handle.runtime.prompt_tuple_clear_retry_scheduled,
+                runtime_replaced
+            );
+            assert!(handle.runtime.prompt_tuple_clear_pending);
+            assert_eq!(serde_json::to_value(&handle.info).unwrap(), live_before);
+            assert_eq!(paths.map(|path| std::fs::read(path).unwrap()), before);
+        }
     }
 
     #[test]
@@ -18971,7 +19138,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         assert!(authority.acknowledge_reset(id).is_some());
         application.commit_prompt_identity_reset(id);
@@ -18988,7 +19155,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             assert!(handle.info.attention.is_none());
         }
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         application.persist_peon_observation_for_test(id, None, None, None, "later");
 
         let saved = state
@@ -19210,7 +19377,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.commit_prompt_identity_reset(id);
         assert!(!authority.is_active(id));
@@ -19226,7 +19393,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .prompt_tuple_clear_pending
         );
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         application.persist_peon_observation_for_test(id, None, None, None, "recovered");
         let saved = state
             .workspace
@@ -19332,13 +19499,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.persist_peon_observation_for_test(id, None, None, None, "blocked");
         assert!(authority.identity_reset_pending(id));
         assert!(!authority.is_active(id));
 
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         let saved = state
@@ -19441,7 +19608,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         assert_eq!(
             state
                 .workspace
@@ -19453,7 +19620,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .merge_prompt_authority_wait(id),
             metadata::AttentionMergeResult::PersistFailed
         );
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
 
         let observed = (newer_prompt_at - chrono::Duration::seconds(1))
             .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
@@ -19574,7 +19741,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .metadata
                 .sessions_dir();
             let path = sessions_dir.join(format!("{id}.json"));
-            let failed_write_path = sessions_dir.join(format!("{id}.json.tmp"));
+            let failed_write_path = sessions_dir.join(format!("{id}.json.write-blocked"));
             let before_bytes = std::fs::read(&path).unwrap();
             let assert_failed_write = || {
                 assert!(!authority.is_active(&id));
@@ -20063,7 +20230,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .sessions_dir();
-        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::create_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         let application = SessionApplication::new(state.clone());
         application.commit_prompt_identity_reset(id);
         assert!(authority.identity_reset_pending(id));
@@ -20081,7 +20248,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         tokio::time::sleep(std::time::Duration::from_millis(7_000)).await;
         assert!(authority.identity_reset_pending(id));
         assert!(!authority.is_active(id));
-        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.tmp"))).unwrap();
+        std::fs::remove_dir_all(sessions_dir.join(format!("{id}.json.write-blocked"))).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(7), async {
             loop {
                 if !authority.identity_reset_pending(id) && authority.is_active(id) {

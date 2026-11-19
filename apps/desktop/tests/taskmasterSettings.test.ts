@@ -4,6 +4,9 @@ import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnaly
 import { parseTaskmasterModels, taskmasterRequest } from "../electron/taskmasterSettings.ts";
 
 const settings: TaskmasterSettings = { enabled: true, selection: { provider: "ollama", model: "first" }, contextLevel: "workflow_context", excludedPaths: [], dailyEvaluationLimit: 8, minIntervalMinutes: 60, automaticKnowledgeUpdates: true, workspaceOverrides: {} };
+test("legacy empty HTTP failures retain their established invalid-response message", async () => {
+  await assert.rejects(taskmasterRequest(4321, "token", "knowledge", {}, async () => new Response(null, {status:401})), /Invalid Taskmaster response/);
+});
 test("Taskmaster selection allows declared inactive adapters but not unavailable providers", () => {
   for (const id of ["ollama", "codex", "claude-code", "copilot", "opencode", "aider", "custom"]) {
     for (const state of ["ready", "approval_required", "execution_inactive"] as const) {

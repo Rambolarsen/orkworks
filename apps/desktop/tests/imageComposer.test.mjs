@@ -15,6 +15,15 @@ if (process.versions.electron) {
       assert.equal(await evaluate('document.querySelector("#nsd-harness").getAttribute("aria-label")'),'Coding tool','the inline tool selector has an accessible product name');
       assert.equal(await evaluate('document.querySelector("#nsd-model").getAttribute("aria-label")'),'Model','the inline model selector remains named');
       assert.equal(await evaluate('document.querySelector("#nsd-prompt").getAttribute("aria-label")'),'Initial prompt','the conversational prompt remains named');
+      // A ready selected tool must not wait for an unrelated availability check.
+      await wait('!document.querySelector(".new-session-confirm").disabled');
+      assert.equal(await evaluate('document.querySelector("#nsd-harness").selectedOptions[0].textContent'),'Codex');
+      await evaluate('document.querySelector(".new-session-confirm").click()');
+      await wait('fixture.submitted.length===1');
+      assert.equal(await evaluate('fixture.submitted.pop().harnessId'),'codex','ready tool launches before the unrelated probe resolves');
+      await evaluate('fixture.finishDetection({ok:true,status:{toolDetected:true}})');
+      await wait('Array.from(document.querySelector("#nsd-harness").options).some(option=>option.value==="other")');
+      assert.equal(await evaluate('document.querySelector("#nsd-harness").value'),'codex','late detection preserves the selected tool');
       // The coding tool owns the catalog, including deferred and failed discovery.
       await wait('document.querySelector("#nsd-model")?.tagName==="SELECT"');
       await wait('document.querySelector("#nsd-model").options.length===4');
@@ -178,7 +187,7 @@ if (process.versions.electron) {
         fixture.choose=(selector,value)=>{const select=document.querySelector(selector);select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}))};
         window.addEventListener('error',event=>fixture.errors.push(event.message));
         const originalRevoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>{fixture.revoked++;originalRevoke(url)};
-        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review'],modelOptions:[{id:'codex-fast',reasoningEfforts:[{id:'low',description:'Fast'},{id:'high',description:'Deep'}]}]};if(id==='claude-code')return {models:['fable','best','opus','sonnet','haiku','opusplan','opus[1m]','sonnet[1m]','claude-opus-5-5']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async()=>{if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
+        window.orkworks={getBackendUrl:async()=>'http://fixture',getProviderModels:async id=>{if(id==='codex')return {models:['codex-fast','codex-review'],modelOptions:[{id:'codex-fast',reasoningEfforts:[{id:'low',description:'Fast'},{id:'high',description:'Deep'}]}]};if(id==='claude-code')return {models:['fable','best','opus','sonnet','haiku','opusplan','opus[1m]','sonnet[1m]','claude-opus-5-5']};if(id==='other'){if(fixture.failModels)throw new Error('offline');return new Promise(resolve=>fixture.finishOther=resolve)}return {models:[]}},getHarnessIntegrationStatus:async id=>{if(id==='other'&&!fixture.finishDetection)return new Promise(resolve=>fixture.finishDetection=resolve);if(fixture.detectionFailure==='throw')throw new Error('detection transport failed');if(fixture.detectionFailure==='error')return {ok:false,error:'detection unavailable'};return {ok:true,status:{toolDetected:fixture.detectionFailure!=='missing'}}}};
         window.fetch=async()=>new Response(JSON.stringify({version:1,supportedHarnesses:['codex']}));
         fixture.file=name=>new File([Uint8Array.from(atob(fixture.png),char=>char.charCodeAt(0))],name,{type:'image/png'});
         fixture.drop=files=>{const data=new DataTransfer();files.forEach(file=>data.items.add(file));document.querySelector('.new-session-composer').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data}))};

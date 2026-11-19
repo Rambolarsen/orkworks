@@ -9,6 +9,16 @@ const result=await build({entryPoints:[new URL('../src/components/ReadinessSumma
 const module={exports:{}};new Function('require','module','exports',result.outputFiles[0].text)(require,module,module.exports);const Summary=module.exports.default;
 const row={conceptId:'verification',maturity:3,confidence:'medium',repositoryFactHashes:['a'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented checks',limits:['Runtime behavior remains unverified'],nextTransition:'Retained failure evidence',unassessedReason:null};
 const snapshot=(id,score)=>({id,startedAt:'2026-10-25T00:00:00.000Z',completedAt:'2026-10-25T00:00:00.000Z',redacted:false,data:{coverage:14,rawTotal:42,overallScore:score,comparisonFingerprint:'same',summary:'Observed readiness',concepts:[row],git:{headOid:'abc123',dirty:true},repositoryEvidence:[{path:'README.md',sha256:'a'.repeat(64),excerpt:'A saved excerpt',observedAt:'now'}],knowledgeEvidence:[],inferenceIdentity:{selection:{provider:'codex',model:'selected'}},knowledgeIdentity:{version:'brain-2'}}});
+test('unverified history warns before prose and refuses missing presentation metadata',()=>{
+ const saved={...snapshot('new',75),improvementVersion:3,protocolVersion:3,verificationStatus:'unverified'};
+ saved.data.summary='Tests passed.';
+ const html=renderToStaticMarkup(createElement(Summary,{snapshot:saved,freshness:'unknown'}));
+ const warning='Checks remain unverified. Run the proposed validation before relying on it.';
+ assert.ok(html.indexOf(warning)>=0&&html.indexOf(warning)<html.indexOf('Tests passed.'));
+ delete saved.verificationStatus;
+ const unsupported=renderToStaticMarkup(createElement(Summary,{snapshot:saved,freshness:'unknown'}));
+ assert.match(unsupported,/updated advice protocol/);assert.doesNotMatch(unsupported,/Tests passed/);
+});
 test('summary shows overall score, comparable delta, individual evidence and historical provenance',()=>{
  const html=renderToStaticMarkup(createElement(Summary,{snapshot:snapshot('new',75),baseline:snapshot('old',50),freshness:'changed'}));
  assert.match(html,/75/);assert.match(html,/25/);assert.match(html,/Verification/);assert.match(html,/3.*4/);assert.match(html,/medium confidence/);assert.match(html,/A saved excerpt/);assert.match(html,/Changes since assessment/);assert.match(html,/uncommitted changes/);

@@ -304,9 +304,15 @@ fn completion_queue_ack_does_not_overwrite_a_raced_queue_replacement() {
         .is_err());
 }
 
-pub(crate) fn publish_native(path: &Path, event: &str, invocation: Option<&str>) {
+fn native_publisher_output(
+    path: &Path,
+    event: &str,
+    invocation: Option<&str>,
+) -> std::process::Output {
     use std::process::{Command, Stdio};
     let mut child = Command::new("python3")
+        .arg("-c")
+        .arg(include_str!("publisher_probe.py"))
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/scripts/codex-completion-report.py"
@@ -325,13 +331,53 @@ pub(crate) fn publish_native(path: &Path, event: &str, invocation: Option<&str>)
         matches!(event, "PreToolUse" | "PermissionRequest" | "PostToolUse").then_some("Bash");
     let raw = serde_json::to_vec(&serde_json::json!({"session_id":"root","turn_id":"turn","hook_event_name":event,"tool_name":tool,"tool_use_id":invocation,"tool_input":{"command":"must-not-be-retained"}})).unwrap();
     child.stdin.take().unwrap().write_all(&raw).unwrap();
-    let result = child.wait_with_output().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            other => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("completion publisher exceeded test deadline or wait failed: {other:?}");
+            }
+        }
+    }
+    child.wait_with_output().unwrap()
+}
+
+pub(crate) fn publish_native(path: &Path, event: &str, invocation: Option<&str>) {
+    let result = native_publisher_output(path, event, invocation);
     assert!(
         result.status.success(),
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn completion_publisher_probe_classifies_lock_timeout_without_payload() {
+    let relay = CodexHookReportRelay::new().unwrap();
+    let queue = CompletionQueue::create(&relay, 7, &"a".repeat(64)).unwrap();
+    fs2::FileExt::lock_exclusive(&queue.lock).unwrap();
+
+    let result = native_publisher_output(queue.path(), "PreToolUse", Some("private-input"));
+
+    assert_eq!(result.status.code(), Some(2));
+    assert!(result.stdout.is_empty());
+    let diagnostic = String::from_utf8(result.stderr).unwrap();
+    let line = diagnostic
+        .strip_prefix("completion report failed; stage=_lock; exception=Invalid; errno=none; line=")
+        .and_then(|text| text.strip_suffix('\n'))
+        .expect("only safe failure metadata is printed");
+    assert!(line.parse::<u32>().unwrap() > 0);
+    assert!(queue.path().join("poison").is_file());
+    let state: QueueState =
+        serde_json::from_slice(&std::fs::read(queue.path().join("queue.json")).unwrap()).unwrap();
+    assert!(state.records.is_empty());
 }
 
 #[test]
@@ -342,13 +388,28 @@ fn completion_queue_accepts_real_parallel_publishers_without_receive_order_count
         .map(|i| {
             let path = queue.path().to_path_buf();
             std::thread::spawn(move || {
-                publish_native(&path, "PreToolUse", Some(&format!("tool-{i}")))
+                native_publisher_output(&path, "PreToolUse", Some(&format!("tool-{i}")))
             })
         })
         .collect();
-    for thread in threads {
-        thread.join().unwrap();
-    }
+    // Keep the queue alive until every child exits, including on failure.
+    // An early panic could delete it beneath the remaining publishers.
+    let results: Vec<_> = threads.into_iter().map(|thread| thread.join()).collect();
+    let failures: Vec<_> = results
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, result)| match result {
+            Ok(output) if output.status.success() && output.stdout.is_empty() => None,
+            Ok(output) => Some(format!(
+                "publisher {index}: status={} stdout_bytes={} {}",
+                output.status,
+                output.stdout.len(),
+                String::from_utf8_lossy(&output.stderr)
+            )),
+            Err(_) => Some(format!("publisher {index}: worker panicked")),
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
     let bytes = std::fs::read(queue.path().join("queue.json")).unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains("must-not-be-retained"));
     let mut seen = vec![];

@@ -720,7 +720,8 @@ case " $* " in
  *" --remote "*)
   printf '%s\n' "$@" > "$FIXTURE_DIR/tui-args"
   echo $$ > "$FIXTURE_DIR/tui-pid"
-  if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence"
+  if [ -n "${ORKWORKS_CODEX_NATIVE_AUTH-}" ]; then echo present; else echo absent; fi > "$FIXTURE_DIR/tui-auth-presence.tmp"
+  mv "$FIXTURE_DIR/tui-auth-presence.tmp" "$FIXTURE_DIR/tui-auth-presence"
   echo fake-tui-ready
   if [ "${FIXTURE_TUI_EXIT-}" = yes ]; then exit 0; fi
   if [ "${FIXTURE_TUI_EXIT_ON_SERVER-}" = yes ]; then
@@ -741,7 +742,10 @@ if [ "${FIXTURE_REDACT_REPORT-}" = yes ]; then
 else
  printf '%s\n' "$ORKWORKS_REPORT_TOKEN" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" "$CODEX_HOME" "${ORKWORKS_CODEX_NATIVE_AUTH-absent}" > "$FIXTURE_DIR/env"
 fi
-echo $$ > "$FIXTURE_DIR/pid"
+# Tests wait for this marker's existence before parsing the PID. Publish the
+# complete value atomically so they cannot observe the redirection's empty file.
+printf '%s\n' "$$" > "$FIXTURE_DIR/pid.$$.tmp"
+mv "$FIXTURE_DIR/pid.$$.tmp" "$FIXTURE_DIR/pid"
 if [ "$FIXTURE_MODE" = fail ]; then exit 1; fi
 if [ "$FIXTURE_MODE" = hang ]; then exec sleep 30; fi
 if [ "$FIXTURE_MODE" = refuse ]; then
@@ -1637,7 +1641,11 @@ while True:
         let file = dir.path().join("pid");
         let mut command = std::process::Command::new("/bin/sh");
         command
-            .args(["-c", "sleep 30 & echo $! > \"$1\"; exit 0", "fixture"])
+            .args([
+                "-c",
+                "sleep 30 & echo $! > \"$1.tmp\"; mv \"$1.tmp\" \"$1\"; exit 0",
+                "fixture",
+            ])
             .arg(&file);
         let owner = OwnedProcess::spawn(command).unwrap();
         for _ in 0..100 {

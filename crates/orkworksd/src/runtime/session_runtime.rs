@@ -1148,6 +1148,32 @@ fn drain_persist_records(buffer: &mut Vec<u8>) -> Vec<crate::metadata::TerminalO
     records
 }
 
+fn reassemble_peon_records(
+    pending: &mut Option<String>,
+    records: &[crate::metadata::TerminalOutputRecord],
+    cols: u16,
+) -> Vec<String> {
+    let mut output = Vec::with_capacity(records.len());
+    for record in records {
+        let row = record.text().trim().to_string();
+        output.extend(peon::rejoin_hard_wrapped_rows_streaming(
+            pending,
+            &[row],
+            cols,
+        ));
+        // Empty delimiters mark bounded partial byte chunks, not physical
+        // terminal rows. Codex redraws can produce only these chunks forever;
+        // publish the held prefix now instead of waiting for a short row.
+        if matches!(record, crate::metadata::TerminalOutputRecord::Raw { delimiter, .. } if delimiter.is_empty())
+        {
+            if let Some(prefix) = pending.take() {
+                output.push(prefix);
+            }
+        }
+    }
+    output
+}
+
 pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<AttachmentClaim> {
     let mut sessions = state.sessions.lock().unwrap();
     let handle = sessions.get_mut(id)?;
@@ -3261,13 +3287,9 @@ async fn run_session_runtime(
                                     // `output_buffer` sees logical lines.
                                     // Physical rows still reach the
                                     // append-only terminal history below.
-                                    let rows: Vec<String> = raw_persist_lines
-                                        .iter()
-                                        .map(|raw| raw.text().trim().to_string())
-                                        .collect();
-                                    let reassembled = peon::rejoin_hard_wrapped_rows_streaming(
+                                    let reassembled = reassemble_peon_records(
                                         &mut handle.runtime.pending_wrap_prefix,
-                                        &rows,
+                                        &raw_persist_lines,
                                         handle.runtime.last_cols,
                                     );
                                     for line in reassembled {
@@ -3431,12 +3453,11 @@ async fn run_session_runtime(
                         String::from_utf8_lossy(&persist_buffer).into_owned(),
                         "",
                     );
-                    let rows = [trailing.text().trim().to_string()];
                     let mut sessions = driver_state.sessions.lock().unwrap();
                     if let Some(handle) = sessions.get_mut(&driver_id) {
-                        let reassembled = peon::rejoin_hard_wrapped_rows_streaming(
+                        let reassembled = reassemble_peon_records(
                             &mut handle.runtime.pending_wrap_prefix,
-                            &rows,
+                            std::slice::from_ref(&trailing),
                             handle.runtime.last_cols,
                         );
                         for line in reassembled {
@@ -3868,7 +3889,12 @@ mod tests {
             let workspace = state.workspace.lock().unwrap();
             let store = &workspace.as_ref().unwrap().metadata;
             store.write_session(&metadata);
-            std::fs::create_dir(store.sessions_dir().join(format!("{id}.json.tmp"))).unwrap();
+            std::fs::create_dir(
+                store
+                    .sessions_dir()
+                    .join(format!("{id}.json.write-blocked")),
+            )
+            .unwrap();
         }
         let before = state.sessions.lock().unwrap()[id].info.attention.clone();
         let now = tokio::time::Instant::now();
@@ -4796,7 +4822,9 @@ if [ "$isolated" = no ]; then
 else
   printf '%s\n%s\n' "$ORKWORKS_SESSION_ID" "$ORKWORKS_CODEX_SESSION_REPORT_DIR" > "$ORKWORKS_SESSION_ID.env"
 fi
-printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
+# The parent treats the final args file as readiness for all fixture evidence.
+printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
+  mv "$ORKWORKS_SESSION_ID.args.tmp" "$ORKWORKS_SESSION_ID.args"
 "#).unwrap();
         crate::test_support::make_test_executable(&executable);
         let mut mailboxes = Vec::new();
@@ -8641,6 +8669,38 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args"
             ],
         );
         assert_eq!(buffer, b"three");
+    }
+
+    #[test]
+    fn peon_observes_capped_newline_free_redraws_before_exit() {
+        let mut buffer = vec![b'x'; MAX_PARTIAL_PERSIST_BYTES * 2 + 5];
+        let records = drain_persist_records(&mut buffer);
+        let mut pending = Some("wrapped-prefix".to_string());
+        let output = reassemble_peon_records(&mut pending, &records, 134);
+
+        assert_eq!(output.len(), 2, "partial redraw records must reach Peon");
+        assert_eq!(
+            output[0],
+            format!("wrapped-prefix{}", "x".repeat(MAX_PARTIAL_PERSIST_BYTES))
+        );
+        assert_eq!(output[1], "x".repeat(MAX_PARTIAL_PERSIST_BYTES));
+        assert!(
+            pending.is_none(),
+            "partial records must not accumulate off-buffer"
+        );
+        assert_eq!(buffer, b"xxxxx");
+    }
+
+    #[test]
+    fn peon_records_preserve_newline_wrap_chaining() {
+        let mut buffer = b"abcdefghij\nklm\nnext\n".to_vec();
+        let records = drain_persist_records(&mut buffer);
+        let mut pending = None;
+        assert_eq!(
+            reassemble_peon_records(&mut pending, &records, 10),
+            vec!["abcdefghijklm", "next"]
+        );
+        assert!(pending.is_none());
     }
 
     #[test]

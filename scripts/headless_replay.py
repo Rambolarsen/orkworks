@@ -27,6 +27,7 @@ PROXY_ENV = ('HTTP_PROXY', 'HTTPS_PROXY', 'FTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
 INPUTS = {'Containerfile', 'apps/desktop/tsconfig.json', 'apps/desktop/package.json', 'apps/desktop/pnpm-lock.yaml',
           'apps/desktop/pnpm-workspace.yaml', 'apps/desktop/scripts/setup-electron.mjs',
           'apps/desktop/tests/applicationShell.test.mjs',
+          'apps/desktop/tests/helpers/javascriptLiteral.mjs',
           'apps/desktop/tests/fixtures/shellSubprocess.mjs'}
 
 
@@ -68,12 +69,21 @@ def remaining(deadline):
 
 def command(args, deadline, log, *, sink=None, limit=1024 * 1024, quiet=False):
     """Drain both pipes without unbounded buffering; kill only our live CLI group."""
+    started = time.monotonic()
+    # Fixed labels only: argv and environment can contain private values.
+    kind = args[1] if len(args) > 1 and args[1] in (
+        'info', 'build', 'image', 'create', 'container', 'start', 'inspect',
+        'stop', 'kill', 'cp', 'rm') else 'other'
+    log.write((f'\n[command={kind} event=admitted '
+               f'remaining_ms={(deadline-started)*1000:.3f}]\n').encode())
     remaining(deadline)
     process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, start_new_session=True)
     captured = bytearray()
     count = 0
     try:
+        log.write((f'[command={kind} event=spawned pid={process.pid} '
+                   f'elapsed_ms={(time.monotonic()-started)*1000:.3f}]\n').encode())
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, 'stdout')
             selector.register(process.stderr, selectors.EVENT_READ, 'stderr')
@@ -110,6 +120,10 @@ def command(args, deadline, log, *, sink=None, limit=1024 * 1024, quiet=False):
             process.wait(timeout=2)
         process.stdout.close()
         process.stderr.close()
+        finished = time.monotonic()
+        log.write((f'\n[command={kind} event=finished status={process.returncode} '
+                   f'elapsed_ms={(finished-started)*1000:.3f} '
+                   f'remaining_ms={(deadline-finished)*1000:.3f}]\n').encode())
 
 
 def prepare_context(root, destination, deadline, log):

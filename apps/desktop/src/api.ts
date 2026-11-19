@@ -1,3 +1,7 @@
+import { ApiError } from './requestError.ts';
+export { ApiError } from './requestError.ts';
+import { acceptAdviceRecommendation, dismissAdviceRecommendation } from './adviceApi.ts';
+export { getAdviceRecommendations, getAdviceRecommendation, runAdviceAudit } from './adviceApi.ts';
 import type {
   HarnessConfig,
   HarnessConfigEntry,
@@ -156,6 +160,7 @@ export interface BranchDocumentStep {
   selectionId?: string | null;
 }
 export interface BranchDocuments {
+  recoveryId?: string | null;
   branch?: string | null;
   sharedSessions: number;
   steps: BranchDocumentStep[];
@@ -795,9 +800,11 @@ export interface AssessmentProvenance {
   excludedPaths: string[];
   accessRedacted?: boolean;
   readinessReference?: ReadinessReference;
-  improvementReference?: { version: 1 | 2; intent: "implementation" | "investigation" };
+  improvementReference?: { version: 1 | 2 | 3; intent: "implementation" | "investigation" };
 }
 export interface WorkflowRecommendation {
+  protocolVersion?: 3;
+  verificationStatus?: "unverified";
   assessment?: AssessmentProvenance;
   repositoryEvidence?: RepositoryEvidence[];
   knowledgeEvidence?: KnowledgeEvidence[];
@@ -875,15 +882,6 @@ export interface TaskmasterAssessmentRequestResponse {
   message?: string;
 }
 
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-    this.name = "ApiError";
-  }
-}
 
 async function taskmasterRequest(baseUrl: string, path: string, init?: RequestInit): Promise<Response> {
   const response = await backendFetch(`${baseUrl}${path}`, init);
@@ -923,7 +921,9 @@ export async function runTaskmasterAudit(baseUrl: string): Promise<TaskmasterAud
 export async function dismissTaskmasterRecommendation(
   id: string,
   reason?: string,
+  expectedWorkspacePath?: string,
 ): Promise<void> {
+  if (expectedWorkspacePath !== undefined) return dismissAdviceRecommendation(expectedWorkspacePath, id, reason);
   await window.orkworks.dismissTaskmasterRecommendation(id, reason);
 }
 
@@ -935,10 +935,14 @@ export interface AcceptRecommendationOptions {
   idempotencyKey?: string;
 }
 
+export type RecommendationActionResult = Pick<WorkflowRecommendation, "id" | "status" | "targetSessionId">;
+
 export async function acceptTaskmasterRecommendation(
   id: string,
   opts: AcceptRecommendationOptions,
-): Promise<WorkflowRecommendation> {
+  expectedWorkspacePath?: string,
+): Promise<RecommendationActionResult> {
+  if (expectedWorkspacePath !== undefined) return await acceptAdviceRecommendation(expectedWorkspacePath, id, opts) as unknown as WorkflowRecommendation;
   return (await window.orkworks.acceptTaskmasterRecommendation(id, opts)) as WorkflowRecommendation;
 }
 
@@ -949,6 +953,8 @@ export interface CleanupAcceptResult {
 
 export async function acceptCleanupRecommendation(
   id: string,
+  expectedWorkspacePath?: string,
 ): Promise<CleanupAcceptResult> {
+  if (expectedWorkspacePath !== undefined) return await acceptAdviceRecommendation(expectedWorkspacePath, id, {}) as unknown as CleanupAcceptResult;
   return (await window.orkworks.acceptTaskmasterRecommendation(id, {})) as CleanupAcceptResult;
 }

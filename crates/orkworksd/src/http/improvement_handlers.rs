@@ -1,10 +1,10 @@
 //! Electron-authorized, selected-workspace improvement transport.
+use super::advice_protocol::View;
 use axum::{
     body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -26,12 +26,15 @@ pub(crate) async fn status(
     if let Err(status) = authorize(&headers) {
         return status.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
-    Json(crate::taskmaster::improvement::runtime::status(
+    view.json(crate::taskmaster::improvement::runtime::status(
         &state,
         runtime.root_path().to_path_buf(),
     ))
-    .into_response()
 }
 
 pub(crate) async fn start(
@@ -45,12 +48,18 @@ pub(crate) async fn start(
     if !body.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
-    Json(crate::taskmaster::improvement::runtime::schedule(
+    if let Err(response) = view.require_v3() {
+        return response;
+    }
+    view.json(crate::taskmaster::improvement::runtime::schedule(
         state,
         runtime.root_path().to_path_buf(),
     ))
-    .into_response()
 }
 
 pub(crate) async fn cancel(
@@ -74,11 +83,17 @@ pub(crate) async fn cancel(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    Json(crate::taskmaster::improvement::runtime::cancel(
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
+    if let Err(response) = view.require_v3() {
+        return response;
+    }
+    view.json(crate::taskmaster::improvement::runtime::cancel(
         &state,
         &request.run_id,
     ))
-    .into_response()
 }
 
 #[cfg(test)]

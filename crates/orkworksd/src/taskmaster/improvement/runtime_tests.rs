@@ -129,6 +129,14 @@ fn preferred_invoke() -> FixtureInvoke {
 
 #[tokio::test]
 async fn qualified_investigation_publishes_one_shared_current_report_and_fences_changed_evidence() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::qualified_investigation_publishes_one_shared_current_report_and_fences_changed_evidence",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let invoke = preferred_invoke();
     let admission = schedule_qualified(state.clone(), runtime.clone(), invoke);
@@ -184,12 +192,12 @@ async fn qualified_investigation_publishes_one_shared_current_report_and_fences_
     let history_wire = serde_json::to_value(&history).unwrap();
     assert_eq!(
         history_wire["snapshots"][0]["data"]["inputManifest"]["purpose"],
-        "brain-improvement-v2"
+        "brain-improvement-v3"
     );
     let corrupt_root = tempfile::tempdir().unwrap();
     let mut unsupported = history_wire;
     unsupported["snapshots"][0]["data"]["inputManifest"]["collector"]["version"] =
-        serde_json::json!(3);
+        serde_json::json!(4);
     std::fs::write(
         corrupt_root.path().join("readiness-history.json"),
         unsupported.to_string(),
@@ -419,7 +427,90 @@ fn no_proposal_invoke() -> FixtureInvoke {
 }
 
 #[tokio::test]
+async fn previous_prompt_no_proposal_is_retained_but_not_projected_as_current() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::previous_prompt_no_proposal_is_retained_but_not_projected_as_current",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
+    let (_dir, state, runtime) = fixture();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let invoked = calls.clone();
+    let mut inner = no_proposal_invoke();
+    assert_eq!(
+        schedule_qualified(
+            state.clone(),
+            runtime.clone(),
+            Box::new(move |prompt, remaining| {
+                invoked.fetch_add(1, Ordering::SeqCst);
+                inner(prompt, remaining)
+            })
+        )
+        .outcome,
+        "scheduled"
+    );
+    let root = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .root_path();
+    let store = ReportStore::new(&root);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut record = loop {
+        let record = store.load().unwrap().unwrap();
+        if record.state == RunState::Succeeded && runtime.try_analysis_lease().unwrap().is_some() {
+            break record;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert!(status_with_runtime(&state, &runtime, true)
+        .run
+        .unwrap()
+        .report
+        .is_some());
+    let capture = access::capture(&state, &runtime, None).unwrap();
+    record.report.as_mut().unwrap().manifest.evaluation_key = capture
+        .evaluation
+        .cache_key("brain-improvement-v3:collector-1:prompt-6:response-1:text-3")
+        .unwrap();
+    store.save(&record).unwrap();
+    let before = std::fs::read(root.join("improvement-assessment.json")).unwrap();
+
+    let old_view = status_with_runtime(&state, &runtime, true).run.unwrap();
+
+    assert!(
+        old_view.report.is_none(),
+        "a result selected under the previous prompt is still current"
+    );
+    assert_eq!(
+        std::fs::read(root.join("improvement-assessment.json")).unwrap(),
+        before
+    );
+    assert!(store.load().unwrap().unwrap().report.is_some());
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "status must not replace old results with new inference"
+    );
+}
+
+#[tokio::test]
 async fn no_proposal_report_retains_cited_signed_rubric_snapshots() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::no_proposal_report_retains_cited_signed_rubric_snapshots",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let invoke = no_proposal_invoke();
     let admission = schedule_qualified(state.clone(), runtime.clone(), invoke);
@@ -450,6 +541,14 @@ async fn no_proposal_report_retains_cited_signed_rubric_snapshots() {
 
 #[tokio::test]
 async fn history_failure_is_reported_without_hiding_committed_assessment() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::history_failure_is_reported_without_hiding_committed_assessment",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let root = state
         .workspace
@@ -668,6 +767,14 @@ fn custom_authority_gate_and_cancel_have_one_lock_order_and_no_late_dispatch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn qualified_run_uses_controlled_http_transport_against_local_fixture() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::qualified_run_uses_controlled_http_transport_against_local_fixture",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let (_dir, state, runtime) = fixture();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -739,7 +846,15 @@ async fn qualified_run_uses_controlled_http_transport_against_local_fixture() {
 }
 
 #[tokio::test]
-async fn inert_history_survives_reload_and_refuses_contradictory_producer_identities() {
+async fn unverified_history_survives_reload_and_refuses_contradictory_producer_identities() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::unverified_history_survives_reload_and_refuses_contradictory_producer_identities",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let (_dir, state, runtime) = fixture();
     let mut inner = preferred_invoke();
     let invoke = Box::new(move |prompt: &str, remaining: Duration| {
@@ -747,7 +862,7 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
         let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
         if value.get("opportunities").is_some() {
             value["summary"] = serde_json::json!("The configured command is `pnpm test || true`.");
-            value["concepts"][0]["rationale"]=serde_json::json!("No task workflow, issue breakdown, or change history is included in the supplied evidence.");
+            value["concepts"][0]["rationale"] = serde_json::json!("Tests passed.");
         }
         Ok(value.to_string())
     });
@@ -795,12 +910,17 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
         "The configured command is `pnpm test || true`."
     );
     let wire = serde_json::to_value(&history).unwrap();
+    assert_eq!(wire["snapshots"][0]["improvementVersion"], 3);
     assert_eq!(
         wire["snapshots"][0]["data"]["inputManifest"]["purpose"],
-        "brain-improvement-v2"
+        "brain-improvement-v3"
     );
     // A legacy producer keeps its original strict row policy on restart.
     let mut legacy = wire.clone();
+    legacy["snapshots"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("improvementVersion");
     let data = &mut legacy["snapshots"][0]["data"];
     data["summary"] = serde_json::json!("Documented guidance remains unverified.");
     data["concepts"][0]["rationale"] = serde_json::json!("Documented guidance");
@@ -822,6 +942,33 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
             .history()
             .is_ok()
     );
+    let mut v2 = legacy.clone();
+    let data = &mut v2["snapshots"][0]["data"];
+    data["inputManifest"]["purpose"] = serde_json::json!("brain-improvement-v2");
+    data["inputManifest"]["collector"]["version"] = serde_json::json!(2);
+    data["inputManifest"]["collector"]["manifest"]["purpose"] =
+        serde_json::json!("brain-improvement-v2");
+    data["inputFingerprint"] = serde_json::json!(crate::taskmaster::readiness_store::hash(
+        &data["inputManifest"]["collector"]["manifest"]
+    )
+    .unwrap());
+    data["versions"] =
+        serde_json::json!({"purpose":"brain-improvement-v2","collector":2,"schema":1,"text":2});
+    std::fs::write(&legacy_file, v2.to_string()).unwrap();
+    assert!(
+        crate::taskmaster::readiness_store::ReadinessStore::new(legacy_root.path())
+            .history()
+            .is_ok()
+    );
+    for rejected in ["Tests passed.", "Text\nnext line"] {
+        v2["snapshots"][0]["data"]["concepts"][0]["rationale"] = serde_json::json!(rejected);
+        std::fs::write(&legacy_file, v2.to_string()).unwrap();
+        assert!(
+            crate::taskmaster::readiness_store::ReadinessStore::new(legacy_root.path())
+                .history()
+                .is_err()
+        );
+    }
     legacy["snapshots"][0]["data"]["concepts"][0]["rationale"] =
         serde_json::json!("Run pnpm test.");
     std::fs::write(&legacy_file, legacy.to_string()).unwrap();
@@ -839,7 +986,7 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
             "/snapshots/0/data/inputManifest/collector/version",
             serde_json::json!(1),
         ),
-        ("/snapshots/0/data/versions/text", serde_json::json!(3)),
+        ("/snapshots/0/data/versions/text", serde_json::json!(2)),
         (
             "/snapshots/0/data/inputManifest/collector/manifest/purpose",
             serde_json::json!("brain-improvement-v1"),
@@ -887,7 +1034,7 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
                     .unwrap()
                     .remove("unassessedReason");
             }
-            3 => corrupt["report"]["result"]["summary"] = serde_json::json!("Tests passed."),
+            3 => corrupt["report"]["result"]["summary"] = serde_json::json!("Text\nnext line"),
             _ => {
                 corrupt["report"]["result"]["concepts"][0]["repositoryFactIds"] =
                     serde_json::json!([999])
@@ -900,4 +1047,14 @@ async fn inert_history_survives_reload_and_refuses_contradictory_producer_identi
         );
     }
     std::fs::write(path, original).unwrap();
+    store
+        .reconcile(&crate::taskmaster::runtime::TaskmasterSettings {
+            context_level: crate::taskmaster::runtime::ContextLevel::SessionObservations,
+            ..Default::default()
+        })
+        .unwrap();
+    let redacted = store.history().unwrap();
+    assert!(redacted.snapshots[0].redacted);
+    assert!(redacted.snapshots[0].data.is_none());
+    assert_eq!(redacted.snapshots[0].improvement_version, Some(3));
 }

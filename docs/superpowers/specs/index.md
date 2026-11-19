@@ -4,7 +4,9 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Proposed text-policy and handoff contract for #1694; owner approval, implementation and activation remain gated.
+- [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Owner-approved policy-3 status and consumer compatibility boundary; implementation and qualification tracked in #1694.
+
+- [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Owner-approved and implemented policy 2 and fixed handoffs for #1694; usefulness qualification and activation remain gated.
 
 - [Responsive session refresh inspection](2026-11-10-session-refresh-lag-design.md) — Capture/inspect/recheck repair for terminal lag; source implementation authorized, live replacement owner-controlled.
 
@@ -325,3 +327,23 @@ Dated design records; these do not establish current product behavior.
 - [Research membership and first-report publication closure](2026-11-12-research-membership-publication-design.md) — Typed research/reference recipes, complete discovery and original-to-final effect ownership; scoped acceptance for offline membership/effect components only.
 - [Fresh research initialization and catalog boundary](2026-11-13-research-initialization-catalog-design.md) — Scoped acceptance for offline resource/current-control components; candidate catalog count with research authorization/version blockers unchanged.
 - [Original research preparation authorization and lineage](2026-11-13-research-preparation-authorization-design.md) — Proposed research-specific persistence policy, retained intent/snapshots and original-commit lineage resolution; no format or runtime qualification.
+
+- [Research turn evidence, coordination and recovery](2026-11-15-research-continuation-design.md) — proposed positive turn/result/recovery codecs and catalog obligations.
+
+- [Research completion, synthesis and UI closure](2026-11-15-research-completion-design.md) — proposed automatic completion, bounded summary and version-bound finish/cancel/continue records.
+
+- [Research recovery completing the final condition](2026-11-15-research-recovery-completion-design.md) — proposed late-disposition source ordering, terminal settlement and compound automatic completion.
+
+- [Research scope revision rejection](2026-11-16-research-scope-rejection-design.md) — proposed prior-plan input, Main rejection and typed atomic completion, with reserved-replacement membership still gated.
+
+- [Reserved research replacement membership and report invalidation](2026-11-16-research-prospective-membership-design.md) — Proposed reserved-current-task and pending research membership with exact report/input invalidation.
+
+- [Research reports after revision rejection](2026-11-16-research-post-rejection-report-design.md) — Proposed original-disposition role joins, retained B-derived input updates and completed-plan summary invalidation without task rewrites.
+
+- [Research reporting across stage cancellation and continuation](2026-11-16-research-stage-report-design.md) — Proposed original-cancellation collecting roles, retained report input and exact current-context Main continuation under unchanged authority.
+
+- [Review handoff preview](2026-11-18-review-handoff-preview-design.md) — Proposed read-only reviewer, work context, artifact and instruction preview before existing approval.
+
+- [Research review tasks and report-consuming outcomes](2026-11-18-research-review-tasks-design.md) — Proposed declared reviewer tasks, retained review input, immutable review outcomes and summary review references; scoped offline-component choices pending.
+
+- [Research material clarification and changed answers](2026-11-18-research-clarification-design.md) — Proposed clarification decision/request/answer records, Main-authorized user provenance, atomic input/state effects and gate precedence; scoped offline-component choices pending.

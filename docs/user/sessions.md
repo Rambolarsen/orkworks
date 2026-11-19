@@ -169,6 +169,8 @@ In current source builds, **Actions** shows session attention followed by
 workspace recommendations. It opens in the right inspector in a wide window and
 as a temporary page in a narrower window. Session attention and recommendation
 counts stay separate; loading, partial and unavailable information is labeled.
+The toolbar's **Actions** control includes both counts; choose it to open the
+overview. The arrow beside it is **Show next action**.
 Session usage-limit status remains in the session list and Details. The
 unfinished standalone Capacity destination has been removed from current source
 builds; its dashboard is deferred.
@@ -374,6 +376,13 @@ unavailable pinned file remains visible when the section is expanded. The source
 document was found. These steps display documents only: the coding workflow
 owns approval, completion and execution gates. Older documents remain accessible
 through Changes. Published installers may predate this source behavior.
+
+In current source builds, malformed or unsupported saved branch choices offer
+**Reset saved document choices**. Confirmation clears both steps' choices and
+pins for all sessions sharing that branch, after preserving the old record.
+Markdown documents remain unchanged, then normal discovery resumes. A newer app
+may understand an unsupported record, so reset is always explicit. If storage
+cannot be preserved safely, check storage access and try again; nothing is reset.
 
 In current source builds, select a session with an associated readable plan or
 specification, then choose **Review** in the content header or View menu, or

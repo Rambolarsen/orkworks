@@ -156,5 +156,7 @@ Decision records and their original rationale and consequences.
 
 - [Brain-guided manual improvement investigation](0114-brain-guided-improvement-investigation.md) — Proposed bounded iterative repository/knowledge reads and shared assessment/result for the primary manual action.
 
-- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Accepted new-producer text policy and canonical handoff authority; activation remains gated.
-- [Authenticated sidecar listener with a renderer credential](0116-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.
+- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Superseded for the new producer by ADR 0116; policy-2 records retain their original contract.
+
+- [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.
+- [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.

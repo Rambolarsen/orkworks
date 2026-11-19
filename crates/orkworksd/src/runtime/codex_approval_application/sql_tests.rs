@@ -79,6 +79,20 @@ pub(crate) async fn fixture_with_root(root_id: &str) -> Fixture {
         latest_fallback: false,
         last_seen_at: None,
     });
+    // Finish asynchronous store setup before starting the synthetic observation
+    // freshness window. Initialization time is not part of the RPC under test.
+    let store = Arc::new(SessionStore::initialize(root, path.clone()).await.unwrap());
+    let mut meta =
+        crate::test_support::test_session_metadata(ID, "native", path, "running", CREATED, CREATED);
+    meta.harness = "codex".into();
+    meta.lifecycle = "alive".into();
+    meta.lifecycle_phase = "active".into();
+    meta.resume = info.resume.clone();
+    meta.harness_session_id_source = Some("codex_hook".into());
+    store
+        .create(serde_json::to_value(meta).unwrap())
+        .await
+        .unwrap();
     let (mut runtime, commands) = super::super::session_runtime::SessionRuntime::live(24, 80);
     let mut tracker = NativeApprovalState::new(runtime.run_generation());
     tracker.root = Some(root_id.into());
@@ -128,26 +142,17 @@ pub(crate) async fn fixture_with_root(root_id: &str) -> Fixture {
             active_work_hook: true,
         },
     );
-    let store = Arc::new(SessionStore::initialize(root, path.clone()).await.unwrap());
-    let mut meta =
-        crate::test_support::test_session_metadata(ID, "native", path, "running", CREATED, CREATED);
-    meta.harness = "codex".into();
-    meta.lifecycle = "alive".into();
-    meta.lifecycle_phase = "active".into();
-    meta.resume = state.sessions.lock().unwrap()[ID].info.resume.clone();
-    meta.harness_session_id_source = Some("codex_hook".into());
-    store
-        .create(serde_json::to_value(meta).unwrap())
-        .await
-        .unwrap();
     let writes = SessionWrites::bind(state.clone(), store.clone()).unwrap();
     (dir, state, store, writes, effect, commands)
 }
 fn clear(state: &Arc<AppState>) -> IssuedEffect {
+    clear_with_clock(state, Instant::now)
+}
+fn clear_with_clock(state: &Arc<AppState>, clock: impl FnOnce() -> Instant) -> IssuedEffect {
     let mut sessions = state.sessions.lock().unwrap();
     let h = sessions.get_mut(ID).unwrap();
     let tracker = h.runtime.native_approval.as_mut().unwrap();
-    let now = Instant::now();
+    let now = clock();
     tracker
         .observe_sql(
             &h.runtime.attention_owner,
@@ -460,7 +465,9 @@ async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
         .native(ID.into(), effect, Arc::new(AtomicBool::new(false)))
         .await
         .unwrap();
-    let effect = clear(&state);
+    // This fixture owns native observation time, not a storage-latency budget.
+    let clock = super::super::codex_approval::test_clock::Clock::scoped();
+    let effect = clear_with_clock(&state, || clock.now());
     let mut held = test_worker::hold_next_internal(&store, ID);
     let owner = writes.clone();
     let writer = tokio::spawn(async move {
@@ -469,7 +476,7 @@ async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
             .await
     });
     held.entered().await;
-    tokio::time::sleep(Duration::from_millis(310)).await;
+    clock.advance(Duration::from_millis(310));
     drop(held);
     assert!(matches!(writer.await.unwrap(), Err(StoreError::Expired)));
     assert_eq!(
@@ -480,7 +487,7 @@ async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
         state.sessions.lock().unwrap()[ID].info.attention.as_deref(),
         Some("needs_you")
     );
-    let effect = clear(&state);
+    let effect = clear_with_clock(&state, || clock.now());
     assert_eq!(
         writes
             .native_coordinated_for_test(ID.into(), effect, Arc::new(AtomicBool::new(false)))
@@ -492,6 +499,78 @@ async fn native_sql_expired_clear_never_publishes_or_consumes_ownership() {
         store.get(ID.into()).await.unwrap().unwrap()["metadataRevision"],
         "3"
     );
+    {
+        let sessions = state.sessions.lock().unwrap();
+        let h = &sessions[ID];
+        assert_eq!(h.info.attention.as_deref(), Some("working"));
+        assert!(h
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .sql_ownership
+            .is_none());
+    }
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_sql_postcommit_expiry_keeps_live_ownership() {
+    if isolated_case("native_sql_postcommit_expiry_keeps_live_ownership").await {
+        return;
+    }
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, store, writes, effect, _commands) = fixture().await;
+    assert_eq!(
+        writes
+            .native(ID.into(), effect, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap(),
+        Outcome::Committed
+    );
+    let clock = super::super::codex_approval::test_clock::Clock::scoped();
+    let effect = clear_with_clock(&state, || clock.now());
+    let raw = effect.effect;
+    let attention = state.sessions.lock().unwrap()[ID]
+        .runtime
+        .attention_owner
+        .snapshot()
+        .unwrap();
+    let mut held = test_worker::hold_next_internal(&store, ID);
+    let owner = writes.clone();
+    let writer = tokio::spawn(async move {
+        owner
+            .native_coordinated_for_test(ID.into(), effect, Arc::new(AtomicBool::new(false)))
+            .await
+    });
+    held.entered().await;
+    let publication = writes.test_before_callback();
+    // Deliberately gate publication while the independent SQL worker commits.
+    // The second runtime thread can wait on this lock while this test reads SQL.
+    let projection = state.projection_lock.lock().unwrap();
+    drop(held);
+    let doc = store.get(ID.into()).await.unwrap().unwrap();
+    assert_eq!(doc["metadataRevision"], "3");
+    assert_eq!(doc["attention"], "working");
+    clock.advance(Duration::from_millis(310));
+    drop(projection);
+    tokio::time::timeout(Duration::from_secs(5), publication)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(writer.await.unwrap().unwrap(), Outcome::CommittedDetached);
+    {
+        let sessions = state.sessions.lock().unwrap();
+        let h = &sessions[ID];
+        assert_eq!(h.info.attention.as_deref(), Some("needs_you"));
+        assert!(h.runtime.attention_owner.owns(&attention));
+        let tracker = h.runtime.native_approval.as_ref().unwrap();
+        assert!(h
+            .runtime
+            .attention_owner
+            .owns(&tracker.sql_ownership.as_ref().unwrap().0));
+        assert!(tracker.reducer.accepts(&raw));
+    }
     store.close().await.unwrap();
 }
 

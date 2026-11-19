@@ -570,7 +570,7 @@ test("Analyze now asks the backend to revalidate a cached active recommendation"
   const end = panel.indexOf("\n  const visibleRecommendations", start);
   assert.ok(start >= 0 && end > start);
   const handler = panel.slice(start, end);
-  const backendRequest = handler.indexOf("await window.orkworks.requestTaskmasterAnalysis()");
+  const backendRequest = handler.indexOf('await requestAdviceAnalysis(workspacePath ?? "")');
   assert.ok(backendRequest >= 0);
   assert.doesNotMatch(handler, /blockedRecommendation\s*\?\?[\s\S]*?return;/);
   assert.doesNotMatch(handler, /recommendations\.find\(isActiveBrainRecommendation\)[\s\S]*?return;/);
@@ -704,7 +704,7 @@ test("Recommendations dismissal uses the main generation-bound bridge", () => {
   const end = panel.indexOf("\n  const visibleRecommendations", start);
   assert.ok(start >= 0 && end > start);
   const handler = panel.slice(start, end);
-  assert.match(handler, /await dismissTaskmasterRecommendation\(id\)/);
+  assert.match(handler, /await dismissTaskmasterRecommendation\(id, undefined, workspacePath \?\? ""\)/);
   assert.doesNotMatch(handler, /getBackendUrl\(\)/);
 });
 
@@ -728,7 +728,7 @@ test("backlog checking is reachable from header maintenance and posts to the sid
   const end = panel.indexOf("\n  const visibleRecommendations", start);
   assert.ok(start >= 0 && end > start);
   const handler = panel.slice(start, end);
-  assert.match(handler, /runTaskmasterAudit\(baseUrl\)/);
+  assert.match(handler, /runTaskmasterAudit\(baseUrl, workspacePath \?\? ""\)/);
   assert.match(handler, /getBackendUrl\(\)/);
 });
 
@@ -916,7 +916,7 @@ test("Recommendations panel ignores a stale 404 while refreshing the blocked rec
     "utf8",
   );
 
-  const blockedFetchIndex = source.indexOf("await getTaskmasterRecommendation(baseUrl, blockedRecommendationId)");
+  const blockedFetchIndex = source.indexOf('await getTaskmasterRecommendation(baseUrl, blockedRecommendationId, workspacePath ?? "")');
   const notFoundIndex = source.indexOf("cause.status === 404", blockedFetchIndex);
   const staleGuardIndex = source.indexOf("generation !== refreshGeneration.current", notFoundIndex);
   const clearStateIndex = source.indexOf("setBlockedRecommendation(undefined)", notFoundIndex);
@@ -1235,4 +1235,21 @@ test("version two confirmation cannot send an override or use packet options", (
   assert.deepEqual(buildRecommendationAcceptOptions(item,"session-1","OVERRIDE"),{sessionId:"session-1"});
   assert.throws(()=>buildRecommendationAcceptOptions({...item,completionPacket},"session-1","OVERRIDE"),/Unsupported/);
   assert.throws(()=>buildFixPromptDraft({...item,id:"rec-1/../other"}),/Unsupported/);
+});
+
+
+test("producer three handoff uses fixed warned instructions and requires its public status", () => {
+  for (const intent of ["implementation", "investigation"] as const) {
+    const value: any = {...structuredClone(recommendation), protocolVersion: 3, verificationStatus: "unverified",
+      title: "MODEL_TEXT", summary: "MODEL_TEXT", reason: ["MODEL_TEXT"], completionPacket: null,
+      assessment: {id:"improvement-fixture",inputFingerprint:"a".repeat(64),contextLevel:"source_code",excludedPaths:[],improvementReference:{version:3,intent}}};
+    const prompt = buildFixPromptDraft(value);
+    assert.ok(prompt.includes("Checks remain unverified. Run the proposed validation before relying on it."));
+    assert.ok(prompt.includes("X-OrkWorks-Advice-Protocol: 3"));
+    assert.ok(!prompt.includes("MODEL_TEXT"));
+    assert.deepEqual(buildRecommendationAcceptOptions(value, "session-1", "MODEL_OVERRIDE"), {sessionId:"session-1"});
+    if (intent === "investigation") assert.ok(prompt.includes("Do not edit files"));
+    delete value.verificationStatus;
+    assert.throws(() => buildFixPromptDraft(value), /protocol|Unsupported|unverified/i);
+  }
 });

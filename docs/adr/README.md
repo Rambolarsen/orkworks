@@ -13,14 +13,14 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 ## Index
 
-- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted on 2026-11-01; shared selections, Git discovery and two ordered steps. The 2026-11-10 amendment keeps projection inspection outside terminal input fencing.
+- [0102: Shared branch design and implementation documents](0102-branch-document-association.md) — Accepted on 2026-11-01; shared selections, Git discovery and two ordered steps. The 2026-11-10 amendment keeps projection inspection outside terminal input fencing; the 2026-11-17 amendment adds confirmed, preservation-first recovery of invalid branch records.
 
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0114](./0114-brain-guided-improvement-investigation.md) | Brain-guided manual improvement investigation | accepted; implementation/activation pending |
 | [0001](./0001-record-architecture-decisions.md) | Record architecture decisions | accepted |
 | [0002](./0002-electron-react-typescript-desktop.md) | Electron + React + TypeScript desktop shell | superseded by [0078](./0078-fixed-desktop-shell-and-central-navigation.md) |
-| [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS |accepted; access posture superseded by [0116](./0116-authenticated-sidecar-listener.md) |
+| [0003](./0003-rust-backend-axum-localhost.md) | Rust backend sidecar with Axum over localhost HTTP/WS |accepted; access posture superseded by [0117](./0117-authenticated-sidecar-listener.md) |
 | [0004](./0004-orkworks-metadata-protocol.md) | `.orkworks/` metadata protocol directory structure | superseded by [0018](./0018-global-metadata-store.md) |
 | [0018](./0018-global-metadata-store.md) | Move metadata store from workspace directory to global config directory | accepted; ordinary session authority superseded in part by [0103](0103-sqlite-session-storage.md) |
 | [0005](./0005-metadata-source-priority.md) | Metadata source priority | accepted |
@@ -162,5 +162,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.
 
-- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Accepted new-producer text policy and canonical handoff authority; activation remains gated.
-- [Authenticated sidecar listener with a renderer credential](0116-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.
+- [Inert improvement text and fixed handoffs](0115-inert-improvement-text-and-fixed-handoffs.md) — Superseded for the new producer by ADR 0116; policy-2 records retain their original contract.
+
+- [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.
+- [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.

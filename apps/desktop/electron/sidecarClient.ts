@@ -34,7 +34,7 @@ export async function parsePeonError(response: Response, fallback: string): Prom
 
 let rendererToken: string | undefined;
 
-/** Credential every main-process sidecar request carries (ADR 0116). */
+/** Credential every main-process sidecar request carries (ADR 0117). */
 export function setSidecarRendererToken(token: string): void {
   rendererToken = token;
 }

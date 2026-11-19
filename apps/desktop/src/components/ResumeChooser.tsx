@@ -2,15 +2,17 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Check, ChevronDown, LoaderCircle, Play } from "lucide-react";
 import type { ResumeChoice } from "../labels";
+import { useCompactPopover } from "../useCompactPopover";
 
 interface ResumeChooserProps {
   options: ResumeChoice[];
   onSelect: (option: ResumeChoice) => void;
   header?: boolean;
   pending?: boolean;
+  compact?: boolean;
 }
 
-export default function ResumeChooser({ options, onSelect, header = false, pending: resuming = false }: ResumeChooserProps) {
+export default function ResumeChooser({ options, onSelect, header = false, pending: resuming = false, compact = false }: ResumeChooserProps) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<ResumeChoice | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -21,13 +23,14 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
   const id = useId();
   const preferred = options.find(option => option.recommended && !option.unavailable)
     ?? options.find(option => !option.unavailable);
+  useCompactPopover(header && compact && open, arrow, panel, "end");
 
   useLayoutEffect(() => {
-    if (!header || !open || !panel.current) return;
+    if (!header || compact || !open || !panel.current) return;
     const bounds = panel.current.getBoundingClientRect();
     const shift = bounds.left < 12 ? 12 - bounds.left : Math.min(0, window.innerWidth - 12 - bounds.right);
     panel.current.style.transform = `translateX(${shift}px)`;
-  }, [open, header]);
+  }, [open, header, compact]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => {

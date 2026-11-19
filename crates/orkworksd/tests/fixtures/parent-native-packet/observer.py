@@ -47,6 +47,19 @@ def failure_details(diagnostic, error):
             "category": category, "osError": number,
             "process": {"started": started, "exitCode": exit_code,
                         "terminationStepsCompleted": process.get("terminationStepsCompleted") is True}}
+    disposition = process.get("cleanupDisposition")
+    if type(disposition) is str and disposition in {
+            "signaled", "exited-leader-confirmed", "unconfirmed", "not-started"}:
+        details["process"]["cleanupDisposition"] = disposition
+    cleanup = process.get("cleanupFailure")
+    if type(cleanup) is dict:
+        cleanup_stage, cleanup_category, cleanup_errno = (cleanup.get(k) for k in ("stage", "category", "osError"))
+        if (type(cleanup_stage) is str and cleanup_stage in {"ownership", "term", "kill", "exit-confirmation", "reap"}
+                and type(cleanup_category) is str and cleanup_category in {
+                    "os-error", "process-timeout", "check-failed", "unexpected-error"}):
+            details["process"]["cleanupFailure"] = {
+                "stage": cleanup_stage, "category": cleanup_category,
+                "osError": cleanup_errno if type(cleanup_errno) is int and 0 <= cleanup_errno <= 4095 else None}
     code = getattr(error, "history_check_code", None)
     if stage == "native-history" and type(code) is str and code in {
             "history-root-missing", "history-root-layout", "history-session-layout",
@@ -268,25 +281,210 @@ def join_receipts(trace, logs, final=True):
             "duplicateIdempotent": True, "gapCursorAdopted": True, "retainedStateMatches": final}
 
 
+def _exit_code(pid, observed_pid, kind, status):
+    import os
+    require(observed_pid in (0, pid), "Original child status mismatch")
+    if observed_pid == 0:
+        return None
+    require(type(status) is int, "Invalid child exit value")
+    if kind == os.CLD_EXITED:
+        require(0 <= status <= 255, "Invalid child exit value")
+        return status
+    import signal
+    require(kind in (os.CLD_KILLED, os.CLD_DUMPED) and 0 < status < signal.NSIG,
+            "Unexpected child status")
+    return -status
+
+
+def _leader_only_result(pid, size, values):
+    # A full two-entry buffer cannot establish that only the leader remains.
+    require(size in (0, 4), "Unknown or truncated group membership")
+    return size == 0 or values[0] == pid
+
+
+def _process_api():
+    """Prepare non-consuming child status before launching any process."""
+    import os
+    import signal
+    import sys
+    require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL,
+            "Exclusive default child waiting required")
+    native_wait = getattr(os, "waitid", None)
+    members = None
+    if sys.platform == "darwin":
+        import ctypes
+        class SigInfo(ctypes.Structure):
+            _fields_ = [("signo", ctypes.c_int), ("error", ctypes.c_int),
+                        ("code", ctypes.c_int), ("pid", ctypes.c_int),
+                        ("uid", ctypes.c_uint), ("status", ctypes.c_int),
+                        ("addr", ctypes.c_void_p), ("value", ctypes.c_void_p),
+                        ("band", ctypes.c_long), ("pad", ctypes.c_ulong * 7)]
+        require(ctypes.sizeof(SigInfo) == 104 and SigInfo.pid.offset == 12
+                and SigInfo.status.offset == 20, "Unsupported Darwin child ABI")
+        library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        query = library.proc_listpids
+        query.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_int]
+        query.restype = ctypes.c_int
+        def members(pid):
+            values = (ctypes.c_int32 * 2)()
+            size = query(2, pid, values, ctypes.sizeof(values))  # PROC_PGRP_ONLY
+            if size < 0:
+                raise OSError(ctypes.get_errno(), "Owned group query failed")
+            return _leader_only_result(pid, size, values)
+        if native_wait is None:
+            library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+            wait = library.waitid
+            wait.argtypes = [ctypes.c_int, ctypes.c_uint, ctypes.POINTER(SigInfo), ctypes.c_int]
+            wait.restype = ctypes.c_int
+            def peek(pid):
+                info = SigInfo()
+                if wait(os.P_PID, pid, ctypes.byref(info), os.WEXITED | os.WNOHANG | os.WNOWAIT):
+                    raise OSError(ctypes.get_errno(), "Owned child observation failed")
+                return _exit_code(pid, info.pid, info.code, info.status)
+            return peek, members
+    require(callable(native_wait), "Non-consuming child observation unavailable")
+    def peek(pid):
+        info = native_wait(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        return None if info is None else _exit_code(pid, info.si_pid, info.si_code, info.si_status)
+    return peek, members
+
+
+def _cleanup_details(stage, error):
+    import subprocess
+    category = "unexpected-error"
+    for kind, label in ((OSError, "os-error"), (subprocess.TimeoutExpired, "process-timeout"),
+                        (ValueError, "check-failed")):
+        if isinstance(error, kind):
+            category = label
+            break
+    number = error.errno if isinstance(error, OSError) else None
+    return {"stage": stage, "category": category,
+            "osError": number if type(number) is int and 0 <= number <= 4095 else None}
+
+
+class _ProcessOwner:
+    """Exclusive waiter: numeric group authority ends before final reaping."""
+    def __init__(self, proc, peek, members, clock=None, sleep=None):
+        import time
+        self.proc, self.pid = proc, proc.pid
+        self.peek, self.members = peek, members
+        self.clock, self.sleep = clock or time.monotonic, sleep or time.sleep
+        self.exit_code = None
+        self.lost = self.finalized = False
+
+    def observe(self):
+        import errno
+        if self.lost or self.finalized or self.proc.returncode is not None:
+            self.lost = True
+            raise ChildProcessError(errno.ECHILD, "Original child authority lost")
+        try:
+            import signal
+            require(signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL,
+                    "Exclusive default child waiting required")
+            value = self.peek(self.pid)
+            require(value is None or (type(value) is int and -2147483648 <= value <= 2147483647),
+                    "Invalid original child status")
+            require(self.exit_code is None or value == self.exit_code, "Original child status changed")
+        except BaseException:
+            self.lost = True
+            raise
+        if value is not None:
+            self.exit_code = value
+        return value
+
+    def confirm_exited_leader(self, deadline):
+        # Membership is never an identity source: retain the original child first.
+        while self.clock() < deadline:
+            if self.observe() is not None:
+                require(self.members is not None, "Group confirmation unavailable")
+                result = self.members(self.pid)
+                self.observe()
+                return result is True and self.clock() < deadline
+            self.sleep(min(.01, max(0, deadline - self.clock())))
+        return False
+
+    def cleanup(self, receipt):
+        import errno
+        import os
+        import signal
+        import subprocess
+        accepted, disposition, error, stage = False, "unconfirmed", None, "ownership"
+        started = self.clock()
+        deadline = started + 2
+        try:
+            for sig, signal_stage, offset in ((signal.SIGTERM, "term", 2), (signal.SIGKILL, "kill", 4)):
+                deadline = started + offset
+                stage = "ownership"
+                self.observe()  # Must precede every group signal, including escalation.
+                require(self.clock() < deadline, "Cleanup endpoint expired")
+                stage = signal_stage
+                try:
+                    os.killpg(self.pid, sig)
+                except OSError as failure:
+                    error = failure
+                    if failure.errno == errno.ESRCH:
+                        accepted = True
+                    elif failure.errno == errno.EPERM and self.members is not None:
+                        stage = "exit-confirmation"
+                        accepted = self.confirm_exited_leader(deadline)
+                        if accepted:
+                            disposition = "exited-leader-confirmed"
+                    if accepted:
+                        break
+                else:
+                    if sig == signal.SIGKILL:
+                        accepted = True
+                        break
+                    while self.clock() < deadline and self.observe() is None:
+                        self.sleep(min(.01, max(0, deadline - self.clock())))
+            self.observe()  # Confirm authority again before entering the sole reaping phase.
+            if accepted and disposition != "exited-leader-confirmed":
+                disposition = "signaled"
+        except BaseException as failure:
+            error = failure
+        # No group signals are permitted after this point, even if wait fails.
+        self.finalized = True
+        if not self.lost:
+            try:
+                before = self.clock()
+                code = self.proc.wait(timeout=max(0, deadline - before))
+                require(type(code) is int and -2147483648 <= code <= 2147483647, "Invalid reaped status")
+                require(self.exit_code is None or code == self.exit_code, "Reaped status mismatch")
+                self.exit_code = code
+                if before >= deadline or self.clock() >= deadline:
+                    raise subprocess.TimeoutExpired("owned process cleanup", 2)
+            except BaseException as failure:
+                accepted, error, stage = False, failure, "reap"
+        else:
+            accepted = False
+        receipt["exitCode"] = self.exit_code
+        receipt["terminationStepsCompleted"] = accepted
+        receipt["cleanupDisposition"] = disposition if accepted else "unconfirmed"
+        if not accepted:
+            error = error or ValueError("Owned cleanup unconfirmed")
+            receipt["cleanupFailure"] = _cleanup_details(stage, error)
+            return error
+        return None
+
+
 def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start=None, receipt=None):
     """Run one owned process group. Tests pass only Python fake-client argv."""
-    import os
     from pathlib import Path
-    import signal
     import subprocess
     import time
     if receipt is None:
         receipt = {}
-    receipt.update(started=False, exitCode=None, terminationStepsCompleted=False)
+    receipt.pop("cleanupFailure", None)
+    receipt.update(started=False, exitCode=None, terminationStepsCompleted=False,
+                   cleanupDisposition="not-started")
     def checked(value, code, reason):
         if not value:
             error = ValueError(reason)
             error.supervisor_check_code = code
             raise error
     checked(seconds > 0, "supervisor-deadline", "Owned process deadline already expired")
-    started = time.monotonic()
-    root = Path(root)
-    proc = None
+    peek, members = _process_api()
+    started, root, owner, primary = time.monotonic(), Path(root), None, None
     def bounds():
         total = 0
         for path in root.rglob("*"):
@@ -301,30 +499,30 @@ def supervise(argv, cwd, env, root, seconds, file_cap, total_cap, tick, on_start
             proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                     stdout=out, stderr=err, start_new_session=True)
             receipt["started"] = True
+            owner = _ProcessOwner(proc, peek, members)
             if on_start: on_start(proc.pid)
-            while proc.poll() is None:
+            while owner.observe() is None:
                 checked(time.monotonic()-started < seconds, "supervisor-deadline", "Owned process deadline")
                 bounds(); tick(); time.sleep(.05)
             bounds(); tick()
             checked(time.monotonic()-started < seconds, "supervisor-deadline", "Owned process deadline")
-            checked(proc.returncode == 0, "supervisor-exit", "Owned process failed")
-            return proc.returncode
-    finally:
-        if proc:
-            try:
-                # A clean foreground exit can leave a child in the owned group.
-                try: os.killpg(proc.pid, signal.SIGTERM)
-                except ProcessLookupError: pass
-                try: proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
-                try: os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError: pass
-                proc.wait(timeout=2)
-                receipt["terminationStepsCompleted"] = True
-            finally:
-                # Preserve an observed exit even when termination itself raises.
-                receipt["exitCode"] = proc.poll()
+            checked(owner.exit_code == 0, "supervisor-exit", "Owned process failed")
+    except BaseException as failure:
+        primary = failure
+    cleanup = None
+    if owner is not None:
+        try:
+            cleanup = owner.cleanup(receipt)
+        except BaseException as failure:
+            owner.finalized = True
+            cleanup = failure
+            receipt.update(terminationStepsCompleted=False, cleanupDisposition="unconfirmed",
+                           cleanupFailure=_cleanup_details("ownership", failure))
+    if primary is not None:
+        raise primary
+    if cleanup is not None:
+        raise cleanup
+    return owner.exit_code
 
 
 
@@ -600,7 +798,9 @@ def run_native(approval, output):
         except (OSError, subprocess.SubprocessError) as error:
             summary["cleanupFailure"] = failure_details(
                 {"phase": diagnostic["phase"], "stage": "raw-cleanup"}, error)
-        if not summary["rawRootsRemoved"]: summary["outcome"] = "incomplete-cleanup"
+        if (not summary["rawRootsRemoved"] or (diagnostic["process"].get("started") is True
+                and diagnostic["process"].get("cleanupDisposition") == "unconfirmed")):
+            summary["outcome"] = "incomplete-cleanup"
         summary["elapsedSeconds"] = round(time.monotonic()-started, 3)
         data = (json.dumps(summary, sort_keys=True, indent=2)+"\n").encode()
         require(len(data) <= proposal["limits"]["maxRetainedBytes"], "Retained evidence cap")

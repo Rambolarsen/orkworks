@@ -142,3 +142,19 @@ Capability research, validation results, and evidence fixtures.
 - [Offline research membership and local effects](research-membership-components.md) — Independent finite reference/reverse sets, synthetic registry joins and four local value comparisons; no global completeness, legal history or publication qualification.
 
 - [Offline research initializer values and charges](research-initialization-components.md) — Fresh resource/control values, independent occurrence charges and conditional row-location counts; no format, store, creation proof or publisher.
+
+- [Original research preparation authorization components](research-authorization-components.md) — separate allocated snapshots, source digest, unchanged ordinary member and supplied lineage lookup examples.
+
+- [Offline research continuation components](research-continuation-components.md) — independent alternative turn/result/recovery source bytes, retry/count denials and shared control occurrence measurements.
+
+- [Offline research completion components](research-completion-components.md) — independent completion, summary and Main UI closure source examples; no runtime or format qualification.
+
+- [Offline positive research recovery and completion](research-recovery-completion-components.md) — late-disposition source ordering, paired original recovery/completion, preserved history, blocker correspondence and independent bytes.
+
+- [Offline scope rejection and completion](research-scope-rejection-components.md) — independent prior-plan proposal sources, exact Main rejection/compound completion, original retry and retained submission checks; singleton membership remains unqualified.
+
+- [Remaining research source and variant coverage](research-source-coverage-audit.md) — Source-owner and codec gaps before complete research catalog/history qualification.
+
+- [Offline reserved research membership and report invalidation](research-prospective-components.md) — Independent finite A/B roles, immutable report-input invalidation and exact original rejection/retry comparisons.
+
+- [Offline reports after revision rejection](research-post-report-components.md) — Independent original disposition/report/input/summary alternatives and exact retry/denial checks; no publisher or history qualification.

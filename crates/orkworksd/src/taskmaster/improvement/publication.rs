@@ -184,7 +184,7 @@ pub(crate) fn recommendation(
     Ok(Some(Recommendation {
         assessment: Some(AssessmentProvenance {
             improvement_reference: Some(ImprovementReference {
-                version: 2,
+                version: 3,
                 intent: if preferred.evidence_strength == EvidenceStrength::InvestigationNeeded {
                     ImprovementIntent::Investigation
                 } else {
@@ -247,7 +247,7 @@ pub(crate) fn recommendation(
 
 pub(crate) fn current_report(report: &Report, capture: &Capture) -> Result<(), String> {
     report.manifest.validate()?;
-    if report.manifest.purpose != "brain-improvement-v2"
+    if report.manifest.purpose != "brain-improvement-v3"
         || report.manifest.evaluation_key != capture.evaluation_key
     {
         return Err("Improvement producer changed".into());
@@ -409,10 +409,11 @@ pub(crate) fn join_valid(report: &Report, run_id: &str, recommendation: &Recomme
         && provenance.id == run_id
         && report.manifest.fingerprint().ok().as_deref() == Some(&provenance.input_fingerprint)
         && reference.version
-            == if report.manifest.purpose == "brain-improvement-v2" {
-                2
-            } else {
-                1
+            == match report.manifest.purpose.as_str() {
+                "brain-improvement-v1" => 1,
+                "brain-improvement-v2" => 2,
+                "brain-improvement-v3" => 3,
+                _ => return false,
             }
         && reference.intent == expected_intent
         && !provenance.access_redacted

@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 35 tests, including real newline stdio exchange with an
+The focused suite now has 61 tests, including real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -236,3 +236,52 @@ entry names/types and scan timing are unknown. expectedSymlink null means not ch
 Raw roots and disposable controls were removed. No resume/retry ran. All five
 approvals are spent; ongoing live budget is zero and native capabilities remain
 unverified. This does not retroactively identify any earlier failure.
+
+
+## Offline owned cleanup correction — 2026-11-18
+
+The owner approved the offline correction for
+[#1741](https://github.com/Rambolarsen/orkworks/issues/1741), following the
+[owned cleanup design](../superpowers/plans/2026-11-17-packet-owned-cleanup.md).
+A synthetic client reproduced fast foreground exit between an alive observation
+and cap handling: group TERM returned Darwin EPERM and masked the original
+file-cap error. This establishes a current synthetic mechanism, not the cause
+of a historical native attempt.
+
+The supervisor retains its original child without consuming exit status until
+all group actions finish. It uses non-consuming waitid observation, including
+the verified Darwin Python 3.9 native binding. ECHILD, already-reaped or invalid
+status loses numeric signaling authority. Darwin EPERM is accepted only after
+original-child exit and the bounded native membership query establish no member
+other than that original leader. A live leader, unknown/extra membership or
+failed proof is not accepted. No signal follows reaping or ownership loss.
+
+TERM and KILL are attempted at most once each. Their cooperative endpoints are
+cleanup start plus two and four seconds; confirmation and final reap share
+those endpoints. Native calls cannot be preempted into hard wall-clock bounds.
+Existing operation deadlines, raw caps, argv, environment and exact source/
+approval matching remain unchanged.
+
+The original cap/deadline/callback/nonzero-exit error takes precedence over a
+cleanup error. Optional process cleanupDisposition is signaled,
+exited-leader-confirmed, unconfirmed or not-started. Optional cleanupFailure
+contains only an allowlisted cleanup stage/category and bounded numeric errno.
+Exception text, class names, paths, argv, environment, process lists and output
+are excluded. terminationStepsCompleted now means accepted group cleanup plus
+confirmed original-child reap; exited-leader-confirmed records the explicit
+Darwin proof instead of claiming a signal succeeded. Unconfirmed started-process
+cleanup makes the batch incomplete even when raw-root deletion succeeds. Raw
+cleanup retains its separate failure report.
+
+All verification uses synthetic Python clients. The suite includes the real
+fast-exit cap boundary, an unrelated owned sentinel, deadline/status/membership
+refusals and safe receipt checks. The 30-second docs wrapper remains unchanged.
+No native tool, model, discovery command or new canary attempt is authorized.
+The live budget remains zero; historical receipts and manifest commitments
+above remain historical and unchanged.
+
+Current offline-correction manifest SHA-256: `086874e32fac16c65f7de747b57f9fc5a86bdbd90c4aa9951e3876aac0c210d9`.
+Proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
+The changed manifest matches none of the spent live approvals. A future native
+attempt needs its own new exact decision; this offline implementation approval
+provides none.

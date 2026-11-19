@@ -1,10 +1,10 @@
 //! Electron-authorized, selected-workspace-only readiness endpoints.
+use super::advice_protocol::View;
 use axum::{
     body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use std::sync::Arc;
 pub(crate) async fn assess(
@@ -19,12 +19,15 @@ pub(crate) async fn assess(
     if !body.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
-    Json(crate::taskmaster::readiness::schedule(
+    view.json(crate::taskmaster::readiness::schedule(
         state,
         runtime.root_path().to_path_buf(),
     ))
-    .into_response()
 }
 pub(crate) async fn assess_and_suggest(
     State(state): State<Arc<crate::AppState>>,
@@ -38,12 +41,15 @@ pub(crate) async fn assess_and_suggest(
     if !body.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
-    Json(crate::taskmaster::readiness::schedule_combined(
+    view.json(crate::taskmaster::readiness::schedule_combined(
         state,
         runtime.root_path().to_path_buf(),
     ))
-    .into_response()
 }
 pub(crate) async fn get_status(
     State(state): State<Arc<crate::AppState>>,
@@ -53,12 +59,15 @@ pub(crate) async fn get_status(
     {
         return status.into_response();
     }
+    let view = match View::parse(&headers) {
+        Ok(view) => view,
+        Err(response) => return response,
+    };
     let runtime = super::taskmaster_settings_handlers::runtime_for(&state);
-    Json(crate::taskmaster::readiness::status(
+    view.json(crate::taskmaster::readiness::status(
         &state,
         runtime.root_path().to_path_buf(),
     ))
-    .into_response()
 }
 #[cfg(test)]
 mod tests {

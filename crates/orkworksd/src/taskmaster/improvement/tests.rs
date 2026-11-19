@@ -155,6 +155,46 @@ fn final_fixture() -> (
 }
 
 #[test]
+fn unverified_final_retains_claims_but_model_cannot_set_status_or_protocol() {
+    let (mut value, rubric) = final_fixture();
+    let text = "Unverified; proposed validation includes a failing test case demonstrating a non-successful CI job and a passing test case demonstrating normal completion.";
+    value["opportunities"][0]["validation"] = serde_json::json!(text);
+    value["summary"] = serde_json::json!("Tests passed.");
+    value["concepts"][0]["rationale"] = serde_json::json!("Verification completed.");
+    let decode = |v: &serde_json::Value| {
+        super::model::FinalResult::decode(
+            &v.to_string(),
+            &["a".repeat(64)],
+            &["playbooks/rubric.md".into()],
+            &rubric,
+        )
+    };
+    let result = decode(&value).expect("producer 3 retains claims only as unverified data");
+    assert_eq!(result.summary, "Tests passed.");
+    assert_eq!(result.preferred().unwrap().validation, text);
+    for (key, status) in [
+        ("verificationStatus", serde_json::json!("verified")),
+        ("protocolVersion", serde_json::json!(3)),
+    ] {
+        let mut bad = value.clone();
+        bad[key] = status;
+        assert!(decode(&bad).is_err(), "model must not control {key}");
+    }
+    let duplicate = value
+        .to_string()
+        .replacen("\"version\":1", "\"version\":1,\"version\":1", 1);
+    assert!(super::model::FinalResult::decode(
+        &duplicate,
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric
+    )
+    .is_err());
+    value["opportunities"][0]["repositoryFactHashes"] = serde_json::json!(["c".repeat(64)]);
+    assert!(decode(&value).is_err(), "claims do not waive citations");
+}
+
+#[test]
 fn final_response_joins_rating_and_preferred_step_against_the_same_evidence() {
     let (value, rubric) = final_fixture();
     let result = super::model::FinalResult::decode(
@@ -338,6 +378,59 @@ fn investigation_collects_a_later_range_and_finalizes_one_shared_result_without_
     assert_eq!(calls, 3);
     assert_eq!(run.result.preferred().unwrap().id, "scoped-guidance");
     assert_eq!(run.result.readiness().totals().2, Some(50));
+}
+
+#[test]
+fn combined_request_budget_is_advertised_and_nine_item_output_is_not_retried() {
+    let dir = repository();
+    let evidence =
+        ProgressiveEvidence::collect(dir.path(), ContextLevel::SourceCode, &[], "now").unwrap();
+    let (_, rubric) = final_fixture();
+    let mut pages = vec![guidance_fixture()];
+    for index in 1..8 {
+        let mut page = guidance_fixture();
+        page.id = format!("concepts/page-{index}.md");
+        pages.push(page);
+    }
+    let ids = pages.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+    let mut calls = 0;
+    let result = super::engine::investigate(
+        evidence,
+        &rubric,
+        &pages,
+        "playbooks/rubric.md",
+        &mut |prompt, _| {
+            calls += 1;
+            let prompt: serde_json::Value = serde_json::from_str(prompt).unwrap();
+            let limit = prompt["stepLimits"]["maxCombinedRequests"]
+                .as_u64()
+                .expect("evidence prompt must advertise the combined request budget")
+                as usize;
+            // All partitions of the approved eight requests are valid; neither
+            // list has its own separate allowance of eight.
+            for reads in 0..=8 {
+                let step = serde_json::json!({"version":1,
+                    "repositoryReads":(0..reads).map(|offset|serde_json::json!({"fileId":0,"offset":offset,"length":1})).collect::<Vec<_>>(),
+                    "knowledgePageIds":&ids[..8-reads],"finish":false});
+                assert!(InvestigationStep::decode(&step.to_string(), 1, &ids).is_ok());
+                assert_eq!(
+                    reads + step["knowledgePageIds"].as_array().unwrap().len(),
+                    limit
+                );
+            }
+            assert_eq!(prompt["stepLimits"]["maxRangeBytes"], 8192);
+            // The retained CI failure had this exact 4 + 5 request shape.
+            Ok(serde_json::json!({"version":1,
+                "repositoryReads":(0..4).map(|offset|serde_json::json!({"fileId":0,"offset":offset,"length":1})).collect::<Vec<_>>(),
+                "knowledgePageIds":&ids[..5],"finish":false}).to_string())
+        },
+        || false,
+    );
+    assert_eq!(
+        result.err().unwrap(),
+        "Invalid improvement evidence selection"
+    );
+    assert_eq!(calls, 1);
 }
 
 #[test]
@@ -804,6 +897,21 @@ fn inert_advice_retains_literal_commands_and_ordinary_inventory_in_every_text_fi
 }
 
 #[test]
+fn prospective_transit_benefit_preserves_a_grounded_opportunity() {
+    let (mut value, rubric) = final_fixture();
+    let benefit = "An incorrect addition result would be detectable by the behavioral test rather than passing through an assertion unrelated to the output.";
+    value["opportunities"][0]["benefit"] = serde_json::json!(benefit);
+    let result = super::model::FinalResult::decode(
+        &value.to_string(),
+        &["a".repeat(64)],
+        &["playbooks/rubric.md".into()],
+        &rubric,
+    )
+    .unwrap();
+    assert_eq!(result.preferred().unwrap().benefit, benefit);
+}
+
+#[test]
 fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_the_field() {
     let (value, rubric) = final_fixture();
     for text in [
@@ -811,17 +919,28 @@ fn inert_advice_rejects_bidi_controls_and_false_verification_without_dropping_th
         "Text \u{061c} guidance",
         "Text \u{2069} guidance",
         "Tests passed.",
+        "The behavioral tests are passing.",
+        "Unverified; proposed validation includes a passing test case already executed.",
+        "The tests are passing through sheer luck rather than meaningful assertions.",
+        "A fix would help and the tests are passing through sheer luck rather than meaningful assertions.",
+        "The tests are passing through sheer luck and a fix would improve their assertions.",
+        "The behavioral tests passed rather than failing.",
+        "Tests passed. An incorrect result would stop passing through an unrelated assertion.",
+        "An incorrect result would stop passing through an unrelated assertion, and tests passed.",
+        "An incorrect result would stop passing through an unrelated assertion; verification completed.",
+        "An incorrect result would stop passing through the test and checks passed.",
         "Text\nnext line",
         "Text\u{1b}[31m",
     ] {
         let mut bad = value.clone();
         bad["opportunities"][0]["benefit"] = serde_json::json!(text);
         assert!(
-            super::model::FinalResult::decode(
+            super::model::FinalResult::decode_with_policy(
                 &bad.to_string(),
                 &["a".repeat(64)],
                 &["playbooks/rubric.md".into()],
-                &rubric
+                &rubric,
+                crate::taskmaster::advice_text::TextPolicy::InertAdvice
             )
             .is_err(),
             "accepted {text:?}"

@@ -1,3 +1,4 @@
+import { javascriptLiteral } from './helpers/javascriptLiteral.mjs';
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 if (process.env.ORKWORKS_SKILLS_FIXTURE) {
@@ -20,7 +21,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         // properties of returned nodes, and React-rendered nodes carry
         // function/cycle expandos that reject with "An object could not be
         // cloned". Serialized primitives and plain objects pass through.
-        const sanitized = `(() => { const value = eval((${JSON.stringify(code)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
+        const sanitized = `(() => { const value = eval((${javascriptLiteral(code)})); if (value && typeof value === "object" && value.nodeType) return "__NODE__"; if (typeof value === "function") return "__FUNCTION__"; return value; })()`;
         try {
           return await win.webContents.executeJavaScript(sanitized, true);
         } catch (error) {
@@ -35,9 +36,9 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
         throw Error("Timed out: " + code);
       };
       const click = (selector) =>
-        evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
-      const search = (value) => evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
-      const filter = (label, value) => evaluate(`(()=>{const el=document.querySelector('select[aria-label="'+${JSON.stringify(label)}+'"]');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
+        evaluate(`document.querySelector(${javascriptLiteral(selector)}).click()`);
+      const search = (value) => evaluate(`(()=>{const el=document.querySelector('input[type="search"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${javascriptLiteral(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      const filter = (label, value) => evaluate(`(()=>{const el=document.querySelector('select[aria-label="'+${javascriptLiteral(label)}+'"]');el.value=${javascriptLiteral(value)};el.dispatchEvent(new Event("change",{bubbles:true}))})()`);
       await wait('document.querySelectorAll("[data-skill-source]").length===4');
       assert.equal(await evaluate('document.querySelectorAll("details[open]").length'), 0, 'all disclosures start collapsed');
       assert.equal(await evaluate('document.querySelector("[data-apm-settings] input").checkVisibility()'), false);
@@ -251,7 +252,7 @@ if (process.env.ORKWORKS_SKILLS_FIXTURE) {
       assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /0.35.0/);
       assert.match(await evaluate('document.querySelector("[data-apm-settings]").innerText'), /\/usr\/local\/bin\/apm/);
       assert.equal(await evaluate('document.querySelector("[data-apm-settings] input").checkVisibility()'), true);
-      const apmPath = value => evaluate(`(()=>{const el=document.querySelector('input[aria-label="APM executable path"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
+      const apmPath = value => evaluate(`(()=>{const el=document.querySelector('input[aria-label="APM executable path"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(el,${javascriptLiteral(value)});el.dispatchEvent(new Event("input",{bubbles:true}))})()`);
       await apmPath('/custom/unsupported-apm');
       await click('[data-save-apm]');
       await wait('document.querySelector("[data-apm-settings]").innerText.includes("missing required options: --no-trust-bin")');

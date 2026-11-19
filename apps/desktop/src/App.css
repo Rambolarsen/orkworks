@@ -1536,10 +1536,10 @@ html, body, #root {
 .session-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-height: 40px;
   box-sizing: border-box;
-  padding: var(--space-3) var(--space-5) var(--space-3) var(--space-2);
+  padding: var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   scroll-margin-top: 26px;
@@ -1550,8 +1550,12 @@ html, body, #root {
 /* Unread tint outranks hover; selection outranks both. */
 .session-row--unread,
 .session-row--unread:hover { background: var(--surface-2); }
-.session-row[data-selected="true"] { background: var(--surface-active); }
-.session-row[data-selected="true"]:hover { background: var(--surface-active); }
+/* Neutral selection remains visible when focus moves to the terminal. */
+.session-row[data-selected="true"],
+.session-row[data-selected="true"]:hover {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
 .session-row--remembered { opacity: 0.62; }
 
 /* Which tones are "loud" lives in labels.ts (isLoudTone) — the component
@@ -2520,12 +2524,25 @@ html, body, #root {
 .review-actions button, .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { display: inline-flex; align-items: center; gap: var(--space-2); padding: 7px 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .review-actions button:hover, .shell-toolbar button:hover, .shell-region-header button:hover, .shell-sidebar-heading > button:hover, .shell-sidebar-navigation button:hover, .shell-sidebar-footer button:hover, .shell-navigation-menu summary:hover { background: var(--surface-3); color: var(--text-primary); }
 .shell-toolbar button[aria-expanded="true"], .shell-sidebar-navigation button[aria-expanded="true"] { background: var(--surface-3); color: var(--text-primary); }
-.shell-context { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.shell-context { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; }
 .shell-context h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
 .shell-context-scope { font-size: var(--text-xs); color: var(--text-muted); }
 .shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-left: var(--space-3); }
 .shell-main > .shell-region { flex: 1; }
+/* Cover the main gutter while preserving toolbar content alignment. */
+.shell-layout:not([data-mode="compact"]) .shell-toolbar { margin-left: calc(-1 * var(--space-3)); padding-left: calc(2 * var(--space-3)); }
+/* Paint beneath the Sessions resize strip without intercepting its input. */
+.shell-grid > .shell-region-separator + .shell-main > .shell-toolbar { position: relative; }
+.shell-grid > .shell-region-separator + .shell-main > .shell-toolbar::before {
+  content: "";
+  position: absolute;
+  inset: 0 100% 0 auto;
+  width: 6px;
+  background: inherit;
+  box-shadow: inherit;
+  pointer-events: none;
+}
 .shell-region { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-0); }
 .shell-region--inspector { background: var(--surface-1); }
 .shell-layout:not([data-mode="compact"]) :is(.shell-region--sessions, .shell-sidebar-rail) {
@@ -2538,7 +2555,7 @@ html, body, #root {
 .shell-inspector-host--overlay .recommendations-panel { background: transparent; }
 /* Highlight the keyboard destination without changing its size;
    individual controls retain their own focus outlines. */
-.shell-region--sessions:has(#sessions-list:focus-within) > .shell-sessions-header,
+.shell-region--sessions:has(#sessions-list:focus-within, [data-shell-sessions-heading]:focus-within) > .shell-sessions-header,
 .shell-main:has([data-shell-region="terminal"] .terminal-container:focus-within) > .shell-toolbar {
   background: color-mix(in srgb, var(--accent-focus) 8%, var(--surface-0));
   box-shadow: inset 0 -2px 0 var(--accent-focus);
@@ -2600,8 +2617,13 @@ html, body, #root {
 .shell-region-separator:focus-visible { outline: none; }
 .shell-region-separator:focus-visible::after { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .shell-layout[data-mode="compact"] .shell-main { padding-left: 0; }
-.shell-layout[data-mode="compact"] .shell-context { flex-basis: 100%; order: -1; }
-.shell-layout[data-mode="compact"] .shell-context h1 { white-space: normal; overflow-wrap: anywhere; }
+.shell-layout[data-mode="compact"] .shell-context { flex-basis: 160px; order: -1; }
+/* Compact menus are positioned against their invokers by useCompactPopover. */
+.shell-layout[data-mode="compact"] .shell-toolbar :is(.shell-navigation-popover, .session-app-popover, .resume-menu-popover) {
+  box-sizing: border-box;
+  max-width: calc(100% - 2 * var(--space-3));
+  overflow-wrap: anywhere;
+}
 .shell-layout[data-mode="compact"] .session-list { min-width: 0; }
 @media (max-height: 480px) {
   .shell-region--sessions { overflow-y: auto; }
@@ -3140,8 +3162,17 @@ html, body, #root {
 [data-shell-review-heading] { min-width: 0; overflow-wrap: anywhere; }
 
 /* Actions keeps each source count visible independently of the sidebar. */
-.shell-actions-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
-.shell-actions-controls [data-actions-counts] { font-size:11px; color:var(--text-secondary); overflow-wrap:anywhere; }
+.shell-session-controls { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-1); min-width:0; }
+.shell-session-controls:empty { display:none; }
+.shell-context-controls { display:flex; align-items:center; gap:var(--space-2); min-width:0; max-width:100%; }
+.shell-context-controls > [data-shell-command=details] { flex-shrink:0; }
+.shell-actions-controls { display:flex; flex:1; align-items:center; gap:2px; min-width:0; max-width:100%; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); }
+.shell-actions-controls > [data-shell-command=actions] { flex:1; flex-wrap:wrap; min-width:0; }
+.shell-actions-controls > [data-shell-command=next-action] { flex-shrink:0; align-self:stretch; justify-content:center; }
+.shell-layout[data-mode="compact"] .shell-context-controls { flex:1 1 300px; }
+.shell-actions-controls [data-actions-counts] { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; min-width:0; font-size:11px; color:var(--text-muted); }
+.shell-actions-controls [data-actions-source] { display:inline-flex; flex-wrap:wrap; align-items:baseline; gap:4px; }
+.shell-actions-controls [data-actions-source] strong { font-weight:var(--weight-medium); color:var(--text-secondary); }
 .actions-overview { overflow:auto; min-height:0; padding:12px; font-size:13px; }
 .actions-overview h3 { margin:14px 0 6px; font-size:13px; }
 .actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }
@@ -3168,7 +3199,7 @@ html, body, #root {
 @media (prefers-reduced-motion: no-preference) { .taskmaster-analysis-indicator--busy { animation: provider-verify-spin 1s linear infinite; } }
 
 /* Selection and More are sibling buttons in a native list. */
-.session-row-select { display: flex; flex: 1; align-items: center; gap: var(--space-3); min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.session-row-select { display: flex; flex: 1; align-items: center; gap: var(--space-2); min-width: 0; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .session-row-more { display: inline-flex; align-items: center; justify-content: center; border: 0; padding: 2px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .session-row-more:hover { color: var(--text-primary); }
 .session-state-filter { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); font-size: var(--text-xs); }
@@ -3459,4 +3490,14 @@ html, body, #root {
 .startup-failure-notice p {
   margin: 4px 0 0;
   color: var(--text-secondary);
+}
+
+
+.advice-warning {
+  color: var(--state-warn);
+  border-left: 2px solid var(--state-warn);
+  padding: 0.4rem 0.65rem;
+  background: var(--state-warn-bg);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

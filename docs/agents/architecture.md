@@ -575,7 +575,7 @@ Key endpoints: `POST /workspace`, `POST /workspace/active-session`, `PUT /worksp
 ### API access
 
 Every route except `GET /health` requires a credential
-([ADR 0116](../adr/0116-authenticated-sidecar-listener.md)). The renderer and
+([ADR 0117](../adr/0117-authenticated-sidecar-listener.md)). The renderer and
 ordinary Electron-main requests send `x-orkworks-renderer-token`; renderer
 WebSockets offer `orkworks.v1` plus `orkworks.token.<token>` as subprotocols.
 Privileged desktop routes additionally check `x-orkworks-open-plan-token`,
@@ -809,6 +809,26 @@ retains producer, backup, recovery and performance gates. The [private adapter f
 writer integration and activation remain pending. The paths and source behavior
 below still describe format 1.
 
+Format-1 metadata replacement uses a unique, exclusively created staging file
+in the destination directory. It writes and syncs the file before the final
+admission check, then replaces the destination and syncs its directory on Unix.
+Windows reuses the archive writer's native write-through replacement because
+Unix directory fsync is unavailable there. Existing creation permissions and
+record codecs are unchanged. A failed file sync leaves the destination intact;
+a failed directory sync is reported even though replacement has already become
+visible. Attention writers retire the prior ownership token at replacement,
+including that latter error path. Callers must reread rather than infer that
+an I/O error means no publication occurred.
+
+Session mutations retain their per-session lanes, branch documents their
+per-key locks, workspace memory its edit owner, and hook observations their
+workspace-owned claim. Production transcript append/trim retains the workspace
+lock and runtime drain ordering. Unique staging prevents temporary-file
+collisions; it does not serialize noncooperating legacy agent edits or enable
+the gated native clearing/producer migration. Unchanged session/document
+projection still performs no replacement or durability sync. Mutations that
+actually publish keep their existing locking and incur the durability I/O.
+
 The accepted [branch document extension](../../specs/session-plan-review.md#branch-document-extension)
 replaces single-session display with design/specification and implementation-plan
 slots shared by canonical repository and branch identity. [ADR 0102](../adr/0102-branch-document-association.md)
@@ -833,6 +853,18 @@ the existing `SessionApplication`; `session_location.rs` supplies the shared
 validated root resolver. The thin `http/branch_documents_handlers.rs` extends content/review access with
 the closed optional `kind` selector and adds authenticated pin reset. The
 existing `planPath` metadata and bodyless legacy APIs remain compatible.
+The [approved recovery amendment](../../specs/session-plan-review.md#branch-document-recovery-amendment)
+adds an opaque `recoveryId` for safely readable invalid records. It binds the
+store instance/generation, exact bytes, Git identity, worktree and row location
+inputs. Authenticated `POST /sessions/:id/plan-document-reset` accepts only that
+ID. The application retains the actual writer lease, stages a unique preserved
+copy and empty record outside the input fence, and admits only the native
+replacement under nonblocking owner/location checks. Backup copies are private
+on Unix, ordinary durable files on Windows, excluded from discovery and never
+automatically expired. Directory-sync failure after replacement is uncertain,
+not rollback authority. Reads/reports never reset, and already-committed patch
+acknowledgements remain successful while projection exposes the record error.
+
 
 Session title operations are separate from attention/work metadata. The renderer
 uses `window.orkworks.sessionTitle` through Electron main's generation-bound
@@ -2328,27 +2360,106 @@ own currentness validation. A history write failure is separate from the report.
 Production qualification is a code-owned disabled gate, with no environment or
 HTTP override. The packaged `brain-4` starter includes the signed
 `taskmaster-improvement-v1` capability and entry point; [#1703](https://github.com/Rambolarsen/orkworks/issues/1703)
-tracks publication and consumer integration. Three five-pair usefulness attempts
-remain unqualified; the third met the positive floor but missed valid CI advice
-after requesting nine evidence items against the stated eight-item limit. It also
-retained another benign-prose false rejection. The immutable trial evidence is
-recorded in the [implementation history](../superpowers/plans/2026-11-12-brain-guided-improvement.md).
+tracks publication and consumer integration. Six five-pair usefulness attempts
+remain unqualified. The latest used 32/60 authorized comparison calls with all
+ten arms structurally accepted. Independent review found all three positive app
+suggestions useful and no preferred positive baseline lost. The satisfied control
+still recommended a README link despite accurate root instructions and cited
+guidance excluding already-covered entry points. That usefulness/applicability
+failure blocks qualification; the conditional workspace allowance was unused.
+Earlier rejected output remains uncredited, and unused allowance does not
+authorize another attempt. The
+immutable evidence and independent-review limitations are recorded in the
+[implementation history](../superpowers/plans/2026-11-12-brain-guided-improvement.md).
 
-[ADR 0115](../adr/0115-inert-improvement-text-and-fixed-handoffs.md) and the
-[approved text contract](../superpowers/specs/2026-11-13-improvement-text-contract.md)
-define text policy 2 for the new producer. Bounded single-line command mentions
-are inert data, with control/bidi exclusions and existing verification-claim
-checks. Legacy readiness/assessment producers retain strict prose validation.
-The new evaluation identity, report purpose, history wrapper/versions and
-recommendation reference agree before policy selection. History and report
-reload reuse the same policy and retain structural/citation checks.
+[ADR 0116](../adr/0116-unverified-improvement-advice.md) and the
+[approved unverified-advice design](../superpowers/specs/2026-11-17-unverified-improvement-advice-design.md)
+define text policy 3 for the new producer. Bounded single-line prose is unverified
+data, with control/bidi exclusions and structural/citation checks. Code derives
+`verificationStatus: unverified` only after producer identity validation. Legacy
+policy 1/2 readers and stored bytes retain their original validation.
+History retains `improvementVersion: 3` even after privacy redaction clears data.
+Protocol-3 consumers receive fixed warnings before generated prose; absent
+`X-OrkWorks-Advice-Protocol: 3` omits new records from lists/history and refuses
+their detail/actions. The header declares presentation support, never policy.
+New narrow Electron IPC owns this header and retains workspace/generation fences;
+new clients fail closed against old main/server versions. Legacy enrichment,
+rollup and audit cannot forward new prose, while active/dedupe accounting retains
+the records. Mutation replies contain only lifecycle receipts for producer 3.
 
-Version-2 handoffs for both intents contain code-owned instructions and a
+Version-2/3 handoffs for both intents contain code-owned instructions and a
 validated recommendation ID, with no generated descriptions or excerpts.
 Desktop previews are read-only; confirmation submits only the selected session.
 The server rejects supplied prompt overrides and packet paths before execution
-reservation. This is not native coding-tool confinement: the receiving agent
+reservation. Version 3 adds the fixed unverified warning and requires the
+protocol header on every recommendation request, including completion. Lifecycle
+completion never establishes that proposed checks passed. This is not native
+coding-tool confinement: the receiving agent
 must inspect untrusted reference data under repository and owner controls.
-These coordinated source changes do not solve the nine-request model failure
-or qualify usefulness. The existing primary action remains active until the
-separate gates pass; no published-installer behavior is claimed.
+Prompt revision 3 clarifies the existing evidence contract for the app and
+controlled baseline using shared rules and numeric `stepLimits` derived from the
+decoder constants. Repository reads and Brain page IDs share a combined ceiling
+of eight per response: four plus four fits; four plus five is rejected. Excess
+requests are neither clipped nor retried. The baseline's final advice prompt
+omits the evidence contract, including these limits, after collection closes.
+The prompt identity changes so earlier inputs cannot be reused as current.
+Deterministic checks cover all eight-item splits and one-call rejection of the
+retained nine-item response pattern. They do not establish that a live model
+will comply or qualify usefulness. The existing primary action remains active
+until the separate gates pass; no published-installer behavior is claimed.
+
+Prompt revision 5 adds shared selection guidance before and after evidence
+collection in both arms. It explicitly checks current coverage and the supplied
+practice's applicability/non-applicability, status and limits before preferring
+a change. Cheap reversible edits, sparse documentation, low ratings or imagined
+audiences alone do not establish worthwhile benefit. Grounded hypotheses remain
+valid without observed failure; investigations need a concrete permitted decision.
+No proposal is a successful result that retains the assessment and uncertainty.
+The capture identity advances to `prompt-5`, so older results remain persisted
+but cannot appear current; no read dispatches replacement inference. Wire/storage
+versions, evidence limits, validators and handoff authority are unchanged. Offline
+tests cover shared prompt dataflow and freshness, not future model compliance.
+
+The seventh controlled comparison at merged #1842 used 30/60 calls with all ten
+arms structurally accepted. Independent review credited two useful positives and
+justified no-proposal app results in both controls, but the app missed a valid
+verification-entry alignment baseline without an equally useful alternative.
+The paired-comparison gate therefore remains unsatisfied; conditional workspace
+verification used zero calls and production admission remains false. Assessment
+calibration/citation caveats and exact retained evidence are recorded in the
+[implementation record](../superpowers/plans/2026-11-12-brain-guided-improvement.md#seventh-owner-authorized-comparison-2026-11-17).
+
+Prompt revision 6 clarifies that inspected inconsistencies can support a grounded
+hypothesis after checking scope, intent, counterevidence and meaningful benefit.
+Unknown execution outcomes or a missing incident history alone do not disqualify
+such a candidate; alternative explanations stay explicit and may motivate bounded
+permitted confirmation. The shared policy still allows no proposal and does not
+infer missing capabilities from unknown areas. Identity `prompt-6` prevents older
+results from appearing current while preserving stored bytes and read-only status.
+No schema, text policy, evidence/dispatch authority, call limit or production gate
+changes. Offline checks establish delivery/currentness, not model compliance; the
+seventh comparison remains failed and its original artifacts remain uncredited.
+
+The eighth paired recommendation comparison at merged #1865 used 30/60 calls:
+three useful positives, justified no-proposal app controls and no valid preferred
+baseline lost without an equally useful alternative. The scoped recommendation
+comparison passes; it does not establish full assessment fidelity. Independent
+review still found unsupported rubric ratings and fact-index miscitation, retained
+in the [eighth report](../superpowers/plans/2026-11-12-brain-guided-improvement.md#eighth-comparison-result-2026-11-17).
+Production activation was explicitly excluded; the gate remains false and the
+conditional workspace phase used zero calls. No installed behavior, model-wide
+compliance, historical recredit or resolved assessment-grounding claim follows.
+
+Prompt revision 7 makes the existing assessment procedure explicit in shared
+`assessmentRules` for both phases and comparison arms. Rows use their exact rubric
+requirements and actual supporting fact IDs; unknown requirements remain limits
+or unassessed, and level zero also requires evidence. Configured automation alone
+does not establish execution history or reliability. Confidence cannot replace a
+missing requirement, and uncertain rows do not suppress a separately supported
+opportunity. Identity `prompt-7` retains older records without current projection
+or replacement inference. The full rubric was already delivered; incorrect ratings
+and IDs were present in raw model output, rather than introduced by decoding or
+publication. Validators still enforce structure and citation membership, not
+semantic support. Offline delivery/currentness checks cannot establish factual
+model compliance. No response/storage format, authority, budget or production gate
+changes; the eighth comparison remains historical at its original source.

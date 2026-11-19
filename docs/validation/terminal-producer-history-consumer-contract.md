@@ -224,3 +224,15 @@ joins, active collection/expectation obligations and the R2 captured-version lim
 [#1689](https://github.com/Rambolarsen/orkworks/issues/1689) requests that specific
 research source/control closure. No accepted logical protocol is reopened or
 broader Gate 2 prerequisite marked complete.
+
+## Research completion and closure source proposal
+
+The [new written completion contract](../superpowers/specs/2026-11-15-research-completion-design.md)
+proposes explicit automatic research completion, summaries and version-bound UI
+closure decisions, with exact current-run ownership, retained gates/history and
+source/consumer/resource/proof responsibilities. Its choices await scoped owner
+acceptance. It explicitly creates no TerminalReportRunV1 producer or run_states
+conversion and cannot qualify terminal evaluation-only corrections for a run
+retaining broader summary/proposal consumers. Actual source participation,
+complete catalog/history/index/proof/initializer and physical authority remain
+open; Gate 2 stays Investigate.

@@ -85,6 +85,7 @@ class ReplayTests(unittest.TestCase):
                  'apps/desktop/pnpm-workspace.yaml', 'apps/desktop/scripts/setup-electron.mjs',
                  'apps/desktop/tests/applicationShell.test.mjs', 'apps/desktop/src/App.tsx',
                  'apps/desktop/tests/fixtures/shellSubprocess.mjs',
+                 'apps/desktop/tests/helpers/javascriptLiteral.mjs',
                  'apps/desktop/tests/fixtures/private.mjs',
                  'apps/desktop/src/.env', '.env']
         for name in files:
@@ -126,6 +127,7 @@ class ReplayTests(unittest.TestCase):
         self.assertIn('apps/desktop/src/App.tsx',context)
         self.assertIn('apps/desktop/tsconfig.json',context)
         self.assertIn('apps/desktop/tests/fixtures/shellSubprocess.mjs',context)
+        self.assertIn('apps/desktop/tests/helpers/javascriptLiteral.mjs',context)
         self.assertNotIn('apps/desktop/tests/fixtures/private.mjs',context)
         self.assertFalse(any('.env' in p or '.git' in p for p in context))
         self.assertFalse((self.out/'context').exists(),'private build context is removed')
@@ -174,6 +176,35 @@ class ReplayTests(unittest.TestCase):
         self.assertTrue((self.state/'orphan-started').exists())
         time.sleep(2.1)
         self.assertFalse((self.state/'orphan-survived').exists(), 'owned CLI descendant escaped its timeout')
+
+    def test_command_timeout_retains_phase_budget_and_process_evidence(self):
+        log=self.runner.Log(self.base/'timeout.log')
+        try:
+            with patch.dict(os.environ,{'FAKE_MODE':'build-timeout'}):
+                with self.assertRaisesRegex(self.runner.Failure,'operation timed out'):
+                    self.runner.command(['podman','build','private-argument-sentinel'],
+                                        time.monotonic()+0.5,log)
+        finally:
+            log.close()
+        data=(self.base/'timeout.log').read_text()
+        self.assertRegex(data,r'command=build event=admitted remaining_ms=[0-9.]+')
+        self.assertRegex(data,r'command=build event=spawned pid=[0-9]+ elapsed_ms=[0-9.]+')
+        self.assertRegex(data,r'command=build event=finished status=-[0-9]+ elapsed_ms=[0-9.]+ remaining_ms=-[0-9.]+')
+        self.assertNotIn('private-argument-sentinel',data)
+
+    def test_expired_command_retains_phase_without_starting_engine(self):
+        log=self.runner.Log(self.base/'expired.log')
+        try:
+            with self.assertRaisesRegex(self.runner.Failure,'operation timed out'):
+                self.runner.command(['podman','create','private-argument-sentinel'],
+                                    time.monotonic()-1,log)
+        finally:
+            log.close()
+        data=(self.base/'expired.log').read_text()
+        self.assertIn('command=create event=admitted remaining_ms=-',data)
+        self.assertNotIn('event=spawned',data)
+        self.assertNotIn('private-argument-sentinel',data)
+        self.assertFalse(self.calls())
 
     def test_create_timeout_uses_written_cid_for_cleanup(self):
         self.budgets['create']=0.5

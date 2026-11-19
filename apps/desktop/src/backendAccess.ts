@@ -1,4 +1,4 @@
-// Renderer credential for the local sidecar API (ADR 0116). Electron main
+// Renderer credential for the local sidecar API (ADR 0117). Electron main
 // creates the token and passes it to the sidecar; the renderer reads it over
 // IPC and never receives the privileged desktop token.
 

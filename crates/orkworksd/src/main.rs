@@ -18,6 +18,7 @@ mod branch_documents_store;
 mod capacity_analysis;
 mod capacity_state;
 mod codex_session_store;
+mod durable_file;
 mod git;
 mod git_changes;
 mod git_changes_eol;
@@ -370,7 +371,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
     build_router_with_access(state, http::api_auth::ApiAccess::open_for_tests())
 }
 
-/// Builds the router behind the listener-wide access layer (ADR 0116).
+/// Builds the router behind the listener-wide access layer (ADR 0117).
 /// Production always passes an enforcing [`http::api_auth::ApiAccess`].
 pub(crate) fn build_router_with_access(
     state: Arc<AppState>,
@@ -499,6 +500,10 @@ pub(crate) fn build_router_with_access(
         .route(
             "/sessions/:id/plan-content",
             get(crate::http::branch_documents_handlers::content),
+        )
+        .route(
+            "/sessions/:id/plan-document-reset",
+            post(http::branch_documents_handlers::reset_invalid),
         )
         .route(
             "/sessions/:id/plan-document-latest",

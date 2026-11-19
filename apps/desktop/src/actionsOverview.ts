@@ -1,3 +1,4 @@
+import { adviceIsSupported, isUnverifiedAdvice } from './advice.ts';
 import { isHistoricalSession } from "./sessionRuntimeState.ts";
 import type { SessionInfo, WorkflowRecommendation } from "./api.ts";
 import { sessionAttentionStatus } from "./sessionSort.ts";
@@ -13,6 +14,7 @@ export interface ActionRow {
   summary: string;
   revision: string;
   unavailable: boolean;
+  unverifiedAdvice?: boolean;
 }
 
 const GROUPS: Record<string, string> = {
@@ -21,9 +23,8 @@ const GROUPS: Record<string, string> = {
 };
 const ORDER = ["Needs You", "Blocked", "Failed", "Done", "Stale", "Working", "Idle"];
 
-function countLabel(label: string, count: number, status: ActionsSourceStatus): string {
-  const value = status === "ready" ? count : status === "partial" ? `${count} known (partial)` : status;
-  return `${label}: ${value}`;
+function countValue(count: number, status: ActionsSourceStatus): string {
+  return String(status === "ready" ? count : status === "partial" ? `${count} known (partial)` : status);
 }
 
 export function buildActionsOverview(
@@ -50,22 +51,27 @@ export function buildActionsOverview(
   seen.clear();
   const recommendationRows: ActionRow[] = [];
   for (const recommendation of filterPanelRecommendations(recommendations, "all")) {
-    if (seen.has(recommendation.id)) continue;
+    if (seen.has(recommendation.id) || !adviceIsSupported(recommendation)) continue;
     seen.add(recommendation.id);
     recommendationRows.push({
       key: `recommendation:${recommendation.id}`, source: "recommendation", id: recommendation.id,
       group: "Recommendations", title: recommendation.title, summary: recommendation.summary,
-      revision: JSON.stringify([recommendation.updatedAt, recommendation.status, recommendation.title, recommendation.summary]),
+      unverifiedAdvice: isUnverifiedAdvice(recommendation),
+      revision: JSON.stringify([recommendation.updatedAt, recommendation.status, recommendation.title, recommendation.summary, recommendation.assessment?.improvementReference, recommendation.protocolVersion, recommendation.verificationStatus]),
       unavailable: recommendationsStatus === "loading" || recommendationsStatus === "unavailable",
     });
   }
   const attentionCount = sessionRows.filter(row => ["Needs You", "Blocked", "Failed"].includes(row.group)).length;
+  const sessionCountValue = countValue(attentionCount, sessionsStatus);
+  const recommendationCountValue = countValue(recommendationRows.length, recommendationsStatus);
   return {
     rows: [...sessionRows, ...recommendationRows],
     sessionCount: sessionsStatus === "ready" ? attentionCount : null,
     recommendationCount: recommendationsStatus === "ready" ? recommendationRows.length : null,
-    sessionCountLabel: countLabel("Session attention", attentionCount, sessionsStatus),
-    recommendationCountLabel: countLabel("Recommendations", recommendationRows.length, recommendationsStatus),
+    sessionCountValue,
+    recommendationCountValue,
+    sessionCountLabel: `Session attention: ${sessionCountValue}`,
+    recommendationCountLabel: `Recommendations: ${recommendationCountValue}`,
   };
 }
 export type ActionsOverviewModel = ReturnType<typeof buildActionsOverview>;

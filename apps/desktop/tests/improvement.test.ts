@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canUseImprovementPrimary, improvementHandoffLabel, improvementStatusForWorkspace, parseImprovementStatus, readImprovementIntent } from '../src/improvement.ts';
 import { taskmasterRequest } from '../electron/taskmasterSettings.ts';
+import * as transport from '../electron/taskmasterSettings.ts';
 import { conceptIds } from '../src/readiness.ts';
 
 const status = (overrides: Record<string, unknown> = {}) => ({
@@ -83,11 +84,52 @@ test('investigation provenance uses investigation wording and legacy provenance 
   assert.equal(improvementHandoffLabel(undefined), 'Fix with AI');
   assert.equal(readImprovementIntent({}), undefined);
   assert.equal(readImprovementIntent({ improvementReference: { version: 1, intent: 'investigation' } }), 'investigation');
-  assert.equal(readImprovementIntent({ improvementReference: { version: 3, intent: 'investigation' } }), null);
+  assert.equal(readImprovementIntent({ improvementReference: { version: 4, intent: 'investigation' } }), null);
   assert.equal(readImprovementIntent({ improvementReference: { version: 1, intent: 'unknown' } }), null);
 });
 
 const emptyReport = () => ({summary:'Limited evidence.', concepts:conceptIds.map(conceptId=>({conceptId,maturity:null,confidence:null,repositoryFactHashes:[],rubricPageId:'rubric',rationale:'No evidence',limits:[],nextTransition:'Evidence of usable guidance',unassessedReason:'Evidence is unavailable'})),opportunities:[],preferredOpportunityId:null,noProposalReason:'No supported next step.',limitations:[],coverage:0,overallScore:null,recommendationId:null,historySnapshotId:null,historyError:null,repositoryEvidence:[],knowledgeEvidence:[]});
+
+test('producer three prose needs matching negotiated and unverified metadata before parsing', () => {
+  const report = {...emptyReport(), producerVersion: 3, protocolVersion: 3, verificationStatus: 'unverified', summary: 'Tests passed.'};
+  const value: any = status({protocolVersion: 3, run: {...status().run, report}});
+  assert.equal(parseImprovementStatus(value).run?.report?.summary, 'Tests passed.');
+  for (const change of [
+    (x: any) => { delete x.protocolVersion; },
+    (x: any) => { delete x.run.report.protocolVersion; },
+    (x: any) => { x.run.report.verificationStatus = 'verified'; },
+    (x: any) => { delete x.run.report.verificationStatus; },
+    (x: any) => { x.run.report.producerVersion = 4; },
+  ]) {
+    const bad = structuredClone(value); change(bad);
+    assert.throws(() => parseImprovementStatus(bad), /protocol|Unsupported|unverified/i);
+  }
+});
+
+test('only the new narrow advice transport declares protocol three and refuses old server output', async () => {
+  const request = (transport as any).taskmasterAdviceRequest;
+  assert.equal(typeof request, 'function', 'the compatible-view transport is missing');
+  const calls: {url: string; init?: RequestInit}[] = [];
+  const fetcher = async (url: string, init?: RequestInit) => { calls.push({url, init}); return new Response('{"protocolVersion":3}'); };
+  await request(1234, 'test-authority', 'improvement', undefined, undefined, fetcher);
+  await request(1234, 'test-authority', 'recommendation', undefined, 'rec/a', fetcher);
+  assert.equal(new Headers(calls[0].init?.headers).get('X-OrkWorks-Advice-Protocol'), '3');
+  assert.equal(calls[1].url, 'http://127.0.0.1:1234/taskmaster/recommendations/rec%2Fa');
+  await assert.rejects(request(1234, 'test-authority', 'improvement', undefined, undefined, async () => new Response('{}')), /protocol|upgrade/i);
+  calls.length = 0;
+  await taskmasterRequest(1234, 'test-authority', 'improvement', undefined, fetcher);
+  assert.equal(new Headers(calls[0].init?.headers).get('X-OrkWorks-Advice-Protocol'), null);
+});
+
+test('new advice mutations negotiate before dispatch and cannot run on an old server', async () => {
+  const calls: string[]=[];
+  const oldServer=async (_url: string, init?: RequestInit)=>{calls.push(init?.method ?? 'GET');return new Response('{}');};
+  for (const resource of ['start-improvement','cancel-improvement','assess-readiness','assess-and-suggest','assess-workflow','analyze','audit-recommendations','accept-recommendation','dismiss-recommendation']) {
+    await assert.rejects((transport as any).taskmasterAdviceRequest(1234,'test-authority',resource,undefined,'rec-1',oldServer),/protocol|upgrade/i);
+  }
+  assert.ok(calls.length>0);
+  assert.deepEqual([...new Set(calls)],['GET'],'an unsupported server must never receive POST');
+});
 
 test('recommendations without assessment provenance retain the legacy fix action',()=>{
   assert.equal(readImprovementIntent(undefined),undefined);

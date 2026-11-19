@@ -61,7 +61,7 @@ curl --fail-with-body -X POST \
   "http://127.0.0.1:${ORKWORKS_PORT}/taskmaster/recommendations/${RECOMMENDATION_ID}/accept" \
   -H "Authorization: Bearer ${ORKWORKS_REPORT_TOKEN}" \
   -H "Content-Type: application/json" \
-  --data "{\"session_id\":\"${ORKWORKS_SESSION_ID}\"}"
+  --data "{\"sessionId\":\"${ORKWORKS_SESSION_ID}\"}"
 # 3. Complete it (step 5 above)
 ```
 

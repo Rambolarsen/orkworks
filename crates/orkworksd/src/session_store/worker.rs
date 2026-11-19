@@ -2210,9 +2210,10 @@ mod tests {
             })
             .unwrap();
         #[cfg(unix)]
-        let command = portable_pty::CommandBuilder::new("/bin/cat");
+        let mut command = portable_pty::CommandBuilder::new("/bin/cat");
         #[cfg(windows)]
         let command = portable_pty::CommandBuilder::new("cmd.exe");
+        command.cwd(dir.path());
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();

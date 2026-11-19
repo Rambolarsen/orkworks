@@ -223,6 +223,14 @@ async fn runtime_ending_sql_completion_keeps_file_failures_as_partial_stages() {
 }
 #[tokio::test]
 async fn runtime_ending_sql_completion_keeps_unavailable_store_error_typed() {
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{}::runtime_ending_sql_completion_keeps_unavailable_store_error_typed",
+        module_path!().split_once("::").unwrap().1
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
     let generation = ending(&writes, &state).await;
@@ -356,6 +364,15 @@ async fn runtime_ending_sql_original_capture_rejects_replacements_across_wait() 
 }
 #[tokio::test]
 async fn runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_without_effects() {
+    // Exact lifecycle setup requires an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_without_effects"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, _commands) = fixture().await;
     let generation = ending(&writes, &state).await;
@@ -391,6 +408,15 @@ async fn runtime_ending_sql_dropped_capture_retains_then_releases_old_lease_with
 
 #[tokio::test]
 async fn runtime_ending_sql_metadata_completion_does_not_prove_physical_cleanup() {
+    // Exact lifecycle capture requires an uncontended process-wide transition.
+    let module = module_path!().split_once("::").unwrap().1;
+    if crate::runtime::codex_approval_application::sql_tests::isolated_test(format!(
+        "{module}::runtime_ending_sql_metadata_completion_does_not_prove_physical_cleanup"
+    ))
+    .await
+    {
+        return;
+    }
     let _guard = diagnostic_test_guard();
     let (_dir, state, store, writes, _, _, _, mut commands) = fixture().await;
     let generation = ending(&writes, &state).await;

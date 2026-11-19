@@ -255,7 +255,7 @@ fn ending_history_reports_committed_metadata_when_event_append_fails() {
 fn ending_history_reports_grid_only_when_metadata_commit_fails() {
     use ending_completion::WriteResult as W;
     let f = fixture();
-    let staging = f.sessions.join(format!("{ID}.json.tmp"));
+    let staging = f.sessions.join(format!("{ID}.json.write-blocked"));
     std::fs::create_dir_all(&staging).unwrap();
     let app = SessionApplication::new(f.state.clone());
     let before = std::fs::read(f.sessions.join(format!("{ID}.json"))).unwrap();

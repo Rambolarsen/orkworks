@@ -9,7 +9,7 @@ workflow_status: approved
 
 # Inert improvement text and fixed handoffs
 
-- Status: accepted; owner approved the full contract in PR #1753 on 2026-11-13.
+- Status: superseded for the new producer by [ADR 0116](0116-unverified-improvement-advice.md), 2026-11-17. Policy-2 records retain this contract; the owner approved it in PR #1753 on 2026-11-13.
 - Decider: repository owner.
 - Tracking: [#1694](https://github.com/Rambolarsen/orkworks/issues/1694).
 - Contract: [Inert text and fixed handoffs](../superpowers/specs/2026-11-13-improvement-text-contract.md).

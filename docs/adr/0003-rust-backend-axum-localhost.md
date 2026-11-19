@@ -29,7 +29,7 @@ We will write the backend sidecar (`orkworksd`) in Rust using the Axum web frame
 
 ## Scoped supersession — 2026-11-15
 
-[ADR 0116](0116-authenticated-sidecar-listener.md) supersedes loopback binding
+[ADR 0117](0117-authenticated-sidecar-listener.md) supersedes loopback binding
 as the access boundary. Every route except `/health` now requires a renderer,
 desktop or session credential, and only the desktop renderer's browser origins
 are admitted. The sidecar, framework and transport decisions are unchanged.

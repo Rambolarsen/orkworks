@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildActionsOverview } from "../src/actionsOverview.ts";
 import type { SessionInfo, WorkflowRecommendation } from "../src/api.ts";
+import { unverifiedRecommendation } from './fixtures/unverifiedAdvice.ts';
 
 const session = (id: string, fields: Partial<SessionInfo>): SessionInfo => ({
   id, label: id, cwd: "/repo", created_at: "2026-10-14T10:00:00Z", status: "running", lifecycle: "alive", ...fields,
@@ -20,6 +21,14 @@ const recommendation = (id: string): WorkflowRecommendation => ({
     recurrenceCount: 1, affectedSessionIds: [], impact: "medium", expectedBenefit: "Fewer defects",
     supersedesRecommendationId: null, dismissalWatermark: null,
   },
+});
+
+test('unverified Actions rows retain warning origin and suppress unsupported prose', () => {
+  const item = unverifiedRecommendation();
+  const model = buildActionsOverview([], 'ready', [item], 'ready');
+  assert.equal((model.rows[0] as any).unverifiedAdvice, true);
+  delete item.verificationStatus;
+  assert.deepEqual(buildActionsOverview([], 'ready', [item], 'ready').rows, []);
 });
 
 test("canonical attention order precedes recommendations; dead history cannot become live attention", () => {

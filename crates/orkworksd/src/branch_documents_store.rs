@@ -8,7 +8,10 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
+mod recovery;
+
 pub(crate) struct Store {
+    recovery_nonce: String,
     root: PathBuf,
     locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     scans: Mutex<HashMap<PathBuf, (std::time::Instant, Identity, Option<git2::Oid>, Scan)>>,
@@ -41,6 +44,7 @@ struct Record {
 impl Store {
     pub(crate) fn new(root: &Path) -> Self {
         Self {
+            recovery_nonce: uuid::Uuid::new_v4().to_string(),
             root: root.join("branch-documents"),
             locks: Mutex::new(HashMap::new()),
             scans: Mutex::new(HashMap::new()),
@@ -64,12 +68,16 @@ impl Store {
                 hook();
             }
         }
-        let root = crate::git::worktree_root(root)
+        // One fresh handle per request; never retain it in the scan cache or
+        // share it with the projection's later optimistic validation pass.
+        let repo =
+            crate::branch_documents::open_repository(root).map_err(|_| "Worktree unavailable.")?;
+        let root = repo
+            .workdir()
             .ok_or("Worktree unavailable.")?
             .canonicalize()
             .map_err(|_| "Worktree unavailable.")?;
-        let id = crate::branch_documents::identity(&root)?;
-        let repo = git2::Repository::open(&root).map_err(|_| "Worktree unavailable.")?;
+        let id = crate::branch_documents::identity_in_repository(&repo)?;
         let head = repo.head().ok().and_then(|h| h.target());
         let now = std::time::Instant::now();
         {
@@ -88,7 +96,7 @@ impl Store {
                 }
             }
         }
-        let mut result = crate::branch_documents::discover(&root)?;
+        let mut result = crate::branch_documents::discover_in_repository(&repo)?;
         result.generation = Some(generation);
         let mut scans = self
             .scans
@@ -130,7 +138,10 @@ impl Store {
             Ok(None) => return Ok(Vec::new()),
             Err(_) => return Err("Branch document record unreadable.".into()),
         };
-        let record: Record = serde_json::from_slice(&data)
+        Self::decode(id, &data)
+    }
+    fn decode(id: &Identity, data: &[u8]) -> Result<Vec<Document>, String> {
+        let record: Record = serde_json::from_slice(data)
             .map_err(|_| "Branch document record malformed; preserved without changes.")?;
         if record.version != 1
             || record.identity != *id
