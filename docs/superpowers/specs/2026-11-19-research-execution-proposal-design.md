@@ -262,7 +262,13 @@ cannot be repaired by a stored receipt.
 A new approval requires: the exact immutable proposal bytes still pending and
 current — its `researchBinding` revalidated against the selector's current
 summary/completed plan and the current input (a stale binding denies with the
-current context); no retained blocker; `stageContinueRequired` false; settled
+current context); an **actually resumed, eligible bound parent** — exact
+runtime/parent identity with fresh resume authority under the accepted
+exact-identity resume rules, since a paused or ended parent has no planning
+authority to approve with, no matter its Main UI authority (read-only
+retries of previously accepted approvals still return their original
+receipts before live-version CAS without any parent-runtime requirement); no
+retained blocker; `stageContinueRequired` false; settled
 research reservations and no interrupted allocation (per the accepted finish
 preconditions, which approval inherits); the declared task not already
 reserved under any plan; and the run not terminal. Approval effects: insert
@@ -273,7 +279,8 @@ the immutable approval source/receipt; set the plan control active with
 fresh server-held `PlanExecutionGrant`
 bound exactly per the accepted record (grant ID, run/parent/runtime/sidecar
 generation, exact plan revision and definition digest, UI approval ID, state
-`active`). The grant is volatile server-held authority — never persisted as
+`active`) — its runtime/sidecar generations are those of the actually resumed
+eligible parent at approval time. The grant is volatile server-held authority — never persisted as
 a credential, never restored by the approval archive, never carried from the
 research plan's grant, and revoked by run/stage cancellation, workspace or
 sidecar change under the existing rules. Offline packets represent the grant
@@ -509,7 +516,14 @@ further P2, also addressed: the rejection outcome now selects
 `awaiting_execution_approval` only when the parent runtime is active/eligible
 and no retained blocker or stage gate remains — an interrupted parent stays
 paused with its pauseReason and `resumeTarget=awaiting_execution_approval`
-unchanged through a rejection, per the accepted scope-rejection rule.
+unchanged through a rejection, per the accepted scope-rejection rule. A third
+cycle reached the review-cycle cap and reported one further P2, addressed in
+this revision: a new approval now requires an actually resumed, eligible
+bound parent (fresh exact-identity resume authority), not merely current Main
+UI authority — a paused or ended parent cannot approve, while read-only
+retries of previously accepted approvals still return their original
+receipts without any parent-runtime requirement; the grant's
+runtime/sidecar generations bind the resumed parent at approval time.
 
 ## Remaining gates
 
