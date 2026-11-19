@@ -4,7 +4,7 @@ title: Session status and enrichment delivery
 description: Implement the owner-approved split with projection, scheduler and mixed-version regression checks.
 tags: [orkworks, sessions, performance]
 status: draft
-workflow_status: active
+workflow_status: ready-for-review
 ---
 
 # Session status and enrichment delivery
@@ -24,8 +24,10 @@ for [#1895](https://github.com/Rambolarsen/orkworks/issues/1895). Execute inline
   enrichment, two-second status and 30-second recovery timers must not queue missed ticks.
 - [x] Extend the desktop reducer/transport and freshness presentation. Keep old server/client
   behavior, atomic optional-field clearing, stale timers, reader invalidation and backpressure.
-- [ ] Synchronize accepted spec/ADR prose; verify focused regression tests, synthetic workload,
-  full repository checks, review and CI before merge. No running daemon replacement.
+- [x] Synchronize accepted spec/ADR prose; verify focused regression tests, synthetic workload,
+  full repository checks and current-diff review. No running daemon replacement.
+
+Current-head CI is a separate required merge gate, recorded on PR #1910.
 
 ## Verification and review focus
 
@@ -162,3 +164,43 @@ explicit-refresh recovery, initial-history classification, watcher behavior and
 unchanged legacy transport. No remaining correctness findings. The production
 build and 17 focused stream tests pass; full repository validation is running.
 The earlier review fingerprint describes the superseded fixed-cadence code.
+
+### Windows watcher correction
+
+The full local verifier passed on adaptive code head `5bb1c543`: 3,613 Rust unit
+tests (24 ignored), integrations, 1,787 desktop tests, 2,056 documentation tests
+and builds. Windows CI still failed the output-only inspection count with
+virtual time fixed. Inspection of notify's Windows backend showed that
+`FILE_ACTION_MODIFIED` maps to `Modify(Any)`, including parent-directory changes
+when a session file is written. The existing watcher treated every event on the
+session directory as directory replacement and invalidated all enrichment.
+
+A synthetic Windows event reproduced the fault on macOS before the fix. The
+watcher now rearms for create/remove/rename or unknown events, but classifies
+ordinary directory modifications as status-only. Structural replacement,
+watcher errors and overflow retain conservative full invalidation. This is a
+real platform behavior fix in addition to the earlier test-clock correction;
+the earlier diagnosis of timing alone was incomplete. Focused regression and
+current-head Windows CI must pass before merge.
+
+Final watcher correction: production build and all 18 stream tests passed (two
+manual benchmarks ignored). A final controlled socket run measured idle CPU
+0.18s legacy / 0.17s adaptive and busy CPU 1.23s legacy / 0.92s adaptive over
+35 seconds, with three idle inspections and eight busy inspections. The roughly
+25% busy saving is consistent with the preceding 20–23% runs; differences of a
+hundredth of a CPU-second are not evidence of a precise idle improvement.
+
+Completed current-session `/code-review medium` after the watcher correction;
+no remaining correctness findings. Reviewed full source/test diff SHA-256
+relative to `c9d5d994`:
+`82a25db92ab5b2f06d50a69d86b9ede68e9022146d3c259190eed56addc67dc8`.
+The manual review includes directory modifications versus replacements and
+preserved overflow/error recovery. Current-head Windows CI must confirm the
+platform fix; previous failed Windows runs are not passing evidence. Final
+CI and automated-review disposition are recorded on the PR rather than implied
+by this local validation record.
+
+Final documentation check passed 2,056 tests. Its user-guide/home warning was
+reviewed against the watcher-only correction: the session guide already describes
+the final cadence and freshness; this platform classification fix adds no new
+user action or onboarding claim, so the home page needs no edit.

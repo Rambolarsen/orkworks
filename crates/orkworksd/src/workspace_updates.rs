@@ -201,6 +201,59 @@ fn session_delta(old: &[Value], next: &[Value]) -> Option<Value> {
     Some(delta)
 }
 
+fn metadata_event(event: notify::Event, root: &Path, global: &Path, hub: &UpdateHub) {
+    if matches!(event.kind, EventKind::Access(_)) {
+        return;
+    }
+    if event.need_rescan() {
+        hub.rearm();
+        return;
+    }
+    for path in event.paths {
+        let relative = path.strip_prefix(root).ok();
+        let first = relative
+            .and_then(|p| p.components().next())
+            .and_then(|c| c.as_os_str().to_str());
+        // Windows reports directory Modify(Any) for ordinary child writes.
+        // Rearm for replacement or unknown events, not child-write metadata.
+        if path.parent() == Some(root)
+            && matches!(
+                event.kind,
+                EventKind::Create(_)
+                    | EventKind::Remove(_)
+                    | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                    | EventKind::Any
+                    | EventKind::Other
+            )
+            && matches!(
+                first,
+                Some(
+                    "sessions"
+                        | "session-state"
+                        | "capacity"
+                        | "branch-documents"
+                        | "workflow-observations"
+                        | "recommendations"
+                        | "taskmaster"
+                )
+            )
+        {
+            hub.rearm();
+        }
+        match first {
+            Some("sessions" | "session-state" | "capacity" | "workflow-observations") => {
+                hub.output_changed()
+            } // Captured location/plan inputs determine enrichment invalidation.
+            Some("branch-documents") => hub.sessions_changed(),
+            Some("recommendations" | "taskmaster" | "assessment.json") => {
+                hub.recommendations_changed()
+            }
+            _ if path.starts_with(global) => hub.recommendations_changed(),
+            _ => {}
+        }
+    }
+}
+
 /// Watch immediate metadata children, not terminal logs or arbitrary repositories.
 /// Parent watches and periodic rearming cover atomic directory replacement.
 fn watch_metadata(
@@ -214,50 +267,11 @@ fn watch_metadata(
     let watched_global = global.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         match event {
-            Ok(event) if !matches!(event.kind, EventKind::Access(_)) => {
-                if event.need_rescan() {
-                    hub.rearm();
-                    return;
-                }
-                for path in event.paths {
-                    let relative = path.strip_prefix(&watched_root).ok();
-                    let first = relative
-                        .and_then(|p| p.components().next())
-                        .and_then(|c| c.as_os_str().to_str());
-                    if path.parent() == Some(watched_root.as_path())
-                        && matches!(
-                            first,
-                            Some(
-                                "sessions"
-                                    | "session-state"
-                                    | "capacity"
-                                    | "branch-documents"
-                                    | "workflow-observations"
-                                    | "recommendations"
-                                    | "taskmaster"
-                            )
-                        )
-                    {
-                        hub.rearm();
-                    }
-                    match first {
-                        Some(
-                            "sessions" | "session-state" | "capacity" | "workflow-observations",
-                        ) => hub.output_changed(), // Captured location/plan inputs determine enrichment invalidation.
-                        Some("branch-documents") => hub.sessions_changed(),
-                        Some("recommendations" | "taskmaster" | "assessment.json") => {
-                            hub.recommendations_changed()
-                        }
-                        _ if path.starts_with(&watched_global) => hub.recommendations_changed(),
-                        _ => {}
-                    }
-                }
-            }
+            Ok(event) => metadata_event(event, &watched_root, &watched_global, &hub),
             Err(error) => {
                 tracing::warn!(%error, "workspace metadata watcher failed; reconciliation remains active");
                 hub.rearm();
             }
-            _ => {}
         }
     })?;
     for dir in [
@@ -450,6 +464,46 @@ mod tests {
             }),
             address,
         )
+    }
+
+    #[test]
+    fn directory_content_modification_does_not_rearm_repository_inspection() {
+        let hub = UpdateHub::default();
+        let root = Path::new("metadata");
+        // ReadDirectoryChangesW maps FILE_ACTION_MODIFIED to Modify(Any),
+        // including the parent directory when a session file is persisted.
+        metadata_event(
+            notify::Event::new(EventKind::Modify(notify::event::ModifyKind::Any))
+                .add_path(root.join("sessions")),
+            root,
+            Path::new("global"),
+            &hub,
+        );
+        let revision = *hub.revisions.borrow();
+        assert_ne!(revision.sessions, 0);
+        assert_eq!(
+            revision.enrichment, 0,
+            "ordinary directory modification is status-only"
+        );
+        assert_eq!(revision.watcher, 0);
+        for kind in [
+            EventKind::Create(notify::event::CreateKind::Folder),
+            EventKind::Remove(notify::event::RemoveKind::Folder),
+            EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::Both,
+            )),
+        ] {
+            let before = *hub.revisions.borrow();
+            metadata_event(
+                notify::Event::new(kind).add_path(root.join("sessions")),
+                root,
+                Path::new("global"),
+                &hub,
+            );
+            let after = *hub.revisions.borrow();
+            assert_ne!(after.watcher, before.watcher);
+            assert_ne!(after.enrichment, before.enrichment);
+        }
     }
 
     #[test]
