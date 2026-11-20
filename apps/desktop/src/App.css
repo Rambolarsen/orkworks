@@ -3217,6 +3217,9 @@ html, body, #root {
 
 .actions-overview button { border:1px solid var(--border-default); background:var(--surface-2); color:var(--text-primary); padding:8px; border-radius:var(--radius-sm); cursor:pointer; font:inherit; }
 .actions-row > button[aria-pressed="true"] { background:var(--surface-3); }
+@media (hover: hover) {
+  .actions-row > button:not([aria-pressed="true"]):hover { background:color-mix(in srgb,var(--surface-2),var(--surface-3)); }
+}
 
 /* Ordinary analysis has one status surface from admission through completion. */
 .taskmaster-analysis-feedback { margin-bottom: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-2); }
