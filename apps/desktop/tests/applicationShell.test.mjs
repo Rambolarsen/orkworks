@@ -1796,6 +1796,8 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'actions') {
           await waitFor('document.querySelector("[data-shell-command=actions]")?.getAttribute("aria-description").includes("Session attention: 1")');
+          await evaluate('fixture.setSessionState({detectedQuestion:["First?","","Second?"].join(String.fromCharCode(10))})');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const attentionBefore = await evaluate('document.querySelectorAll(".session-row--unread.session-row--loud").length');
           assert.equal(attentionBefore,1);
           await click('next-action');
@@ -1849,10 +1851,22 @@ if (process.versions.electron) {
           assert.equal(rowGeometry.rowOverflows,false,'long action rows stay within the narrow inspector');
           assert.equal(rowGeometry.titleOverflows,false,'unbroken action titles wrap within their row');
           assert.equal(rowGeometry.sourceInside,true,'source metadata stays inside the full row hit area');
+          const summaryGeometry = await evaluate(`(()=>{
+            const summary=[...document.querySelectorAll('[data-actions-detail] p')].find(element=>element.textContent.startsWith('First?'));
+            const text=summary.firstChild;
+            const first=document.createRange();first.setStart(text,0);first.setEnd(text,6);
+            const second=document.createRange();second.setStart(text,text.textContent.indexOf('Second?'));second.setEnd(text,text.textContent.length);
+            const a=first.getBoundingClientRect(),b=second.getBoundingClientRect();
+            return {lines:summary.textContent.split(String.fromCharCode(10)),firstTop:a.top,firstHeight:a.height,secondTop:b.top,overflows:summary.scrollWidth>summary.clientWidth+1};
+          })()`);
+          assert.deepEqual(summaryGeometry.lines,['First?','','Second?']);
+          assert.ok(summaryGeometry.secondTop-summaryGeometry.firstTop>=2*summaryGeometry.firstHeight,'inspection preserves blank lines between summary paragraphs');
+          assert.equal(summaryGeometry.overflows,false,'summary fits the narrow inspector');
           await evaluate('fixture.setSessionState({attention:"working"})');
           await waitFor('!document.querySelector("[data-actions-detail]")');
           assert.equal(await evaluate('fixture.selections'),0);
           assert.match(await evaluate('document.querySelector(".actions-overview").textContent'),/unavailable or changed/);
+          assert.equal(await evaluate('Array.from(document.querySelectorAll(".actions-overview button")).some(button=>button.textContent.startsWith("Open "))'),false,'stale inspection has no Open action');
           await evaluate('fixture.setSessionState({})');
           await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
           assert.equal(await evaluate('!!document.querySelector("[data-actions-detail]")'),false,'stale inspection cannot reactivate when its revision returns');
@@ -1866,6 +1880,18 @@ if (process.versions.electron) {
           await evaluate('document.querySelector("[data-shell-return]").click()');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
           await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus") || document.activeElement.classList.contains("xterm-helper-textarea")');
+          await click('actions');
+          await waitFor('document.querySelector(".actions-overview")');
+          await evaluate('document.querySelector("[data-action-key=\\"session:other\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail] button")');
+          assert.equal(await evaluate('fixture.selections'),0,'inspection alone never selects a session');
+          await evaluate('document.querySelector("[data-actions-detail] button").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});
+          win.webContents.sendInputEvent({type:'char',keyCode:String.fromCharCode(13)});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});
+          await waitFor('fixture.activeSessionId==="other" && !document.querySelector(".actions-overview")');
+          assert.equal(await evaluate('fixture.selections'),1,'explicit Open selects only the inspected session');
+          assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'resume-session') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');

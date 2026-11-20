@@ -78,13 +78,14 @@ export default function ActionsOverview({
         </div>;
       })}
     </section>)}
-    {inspected && !current && <div className="actions-row" role="status">
-      <span>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</span>
+    {inspected && !current && <div className="actions-inspection" role="status">
+      <p>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</p>
     </div>}
-    {current && <section data-actions-detail aria-label="Inspected action">
+    {current && <section className="actions-inspection" data-actions-detail aria-label="Inspected action">
       {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
+      <p className="actions-detail-source">{current.source === "session" ? `Session · ${current.group}` : "Recommendation"}</p>
       <h3>{current.title}</h3>
-      <p>{current.summary || "No additional details reported."}</p>
+      <p className="actions-detail-summary">{current.summary || "No additional details reported."}</p>
       {current.source === "session"
         ? <button type="button" onClick={() => onOpenSession(current.id)}>Open terminal/history</button>
         : <button type="button" onClick={() => onOpenRecommendation(current.id)}>Open recommendation</button>}
