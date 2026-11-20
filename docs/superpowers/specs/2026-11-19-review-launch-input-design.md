@@ -283,3 +283,12 @@ ordering, Start/recommendation lifecycle joins, durable admission initialization
 retention/export/compatibility and the private exact prepared creation seam.
 No new native probe, permission, storage activation or production import is
 authorized. Disposition: **Logical source choices accepted; offline component slice verified; production Investigate.**
+
+## Effective source-leaf follow-up
+
+The [catalog/integration leaf proposal](2026-11-20-review-configuration-leaves-design.md)
+defines candidate source-byte containers, owned resource coverage and command
+joins behind the two configuration digests. Its stock-only capture availability,
+late-argv refusal, policy/schema and capture-byte budgets await separate owner
+acceptance. #1922 acceptance does not itself qualify those new leaf choices or
+actual producer/inventory/native capture behavior.

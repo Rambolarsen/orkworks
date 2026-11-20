@@ -163,6 +163,12 @@ and prepared-input byte/digest rules with offline logical qualification. Actual
 source/native/storage and Start integration remain unqualified; automatic #66 intent producers, effective configuration
 leaf codecs, capability evidence and actual launch behavior remain gated.
 
+The [effective configuration-leaf proposal](../docs/superpowers/specs/2026-11-20-review-configuration-leaves-design.md)
+adds candidate stock-catalog bytes, owned integration resource coverage and exact
+command/source joins. These new availability/policy/byte choices and their
+coupled offline qualification plan await owner acceptance; no collector, adapter
+inventory, native profile or launch path is qualified by that proposal.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.
