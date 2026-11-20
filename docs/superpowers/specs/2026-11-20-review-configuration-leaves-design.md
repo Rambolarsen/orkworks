@@ -40,6 +40,13 @@ All paths below are under `crates/orkworksd/src/` unless stated otherwise.
 | `runtime/worktree_instructions.rs::PreparedScope::apply` | New scoped OpenCode launch changes argv[0], adds --session with a fresh selector and sets environment after preparation. | An ordinary-review profile promising frozen literal argv cannot silently reuse that path. |
 | `runtime/terminal_runtime.rs::session_env_overrides_with_prompt_generation` | Session ID, reporting capability, port and optional prompt generation are supplied at startup. | Commit a closed allocation policy, not secret/session values that do not yet exist. |
 
+The follow-up [Codex source audit](../../validation/ordinary-review-codex-capture-audit.md)
+at `145b7371ef360ad3ab69c692f557eb1370670f41` found another literal-command gate:
+ordinary Codex startup may prepend `--no-daemon` after a bounded help probe.
+The no-op hook adapter does not qualify that later runtime path. The audit also
+pins the reporter/helper pairs and separate active-selection/trust owners; it
+adds source evidence, not a new approved capture mechanism or supported role.
+
 ## First leaf availability: stock inputs only
 
 Propose the first catalog leaf for the **unmodified stock registry with an absent
