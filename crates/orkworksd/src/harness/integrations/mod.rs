@@ -5,6 +5,7 @@
 //! arrays.
 
 mod aider;
+mod antigravity;
 mod claude;
 mod codex;
 mod copilot;
@@ -60,6 +61,7 @@ pub(crate) fn handler(binding: &IntegrationBinding) -> &'static dyn IntegrationH
         IntegrationBinding::Gemini => &gemini::HANDLER,
         IntegrationBinding::Copilot => &copilot::HANDLER,
         IntegrationBinding::Aider => &aider::HANDLER,
+        IntegrationBinding::Antigravity => &antigravity::HANDLER,
     }
 }
 
@@ -321,13 +323,13 @@ impl JsonHookHandler {
         ctx: &IntegrationContext<'_>,
     ) -> Result<(ConfigFileTransaction, Map<String, Value>, PathBuf), IntegrationError> {
         let target = self.target(ctx)?;
-        // Codex is the only integration that can safely accept a
-        // git-tracked target — its merge writes a $HOME-relative command
-        // (portable_reporter_invocation, codex.rs) instead of an absolute
+        // Codex and Antigravity can safely accept a git-tracked target —
+        // their merge writes a $HOME-relative command
+        // (portable_reporter_invocation) instead of an absolute
         // per-machine path, so a committed fragment is byte-identical
         // regardless of who installed it. POSIX only for now (ADR 0036);
-        // Codex on Windows keeps the standard, stricter check.
-        let portable_safe = self.contract.harness_id == "codex"
+        // on Windows they keep the standard, stricter check.
+        let portable_safe = matches!(self.contract.harness_id, "codex" | "antigravity")
             && ReporterPlatform::current() == ReporterPlatform::Posix;
         if portable_safe {
             target.require_tracked_or_ignored_untracked()?;
@@ -616,6 +618,7 @@ mod tests {
     };
     use crate::metadata::MetadataStore;
     use crate::test_support::FakeHome;
+    use serde_json::json;
 
     #[test]
     fn report_harness_event_does_not_default_other_harness_notifications_to_waiting() {
@@ -713,9 +716,9 @@ mod tests {
         let script = include_str!("../../../scripts/report-harness-event.sh");
         let max_time_count = script.matches("--max-time").count();
         assert_eq!(
-            max_time_count, 4,
-            "every possible curl call (Codex attention, prompt attention, harness-session, plan-path) \
-             must cap its own runtime so a stuck orkworksd cannot hang the \
+            max_time_count, 5,
+            "every possible curl call (Codex attention, prompt attention, harness-session, plan-path, \
+             Antigravity identity/attention) must cap its own runtime so a stuck orkworksd cannot hang the \
              harness's own hook mechanism"
         );
     }
@@ -1564,9 +1567,9 @@ function Invoke-RestMethod {
         let script = include_str!("../../../scripts/report-harness-event.ps1");
         let timeout_count = script.matches("-TimeoutSec").count();
         assert_eq!(
-            timeout_count, 4,
+            timeout_count, 6,
             "every possible Invoke-RestMethod call (Codex attention, prompt attention, harness-session, \
-             plan-path) must cap its own runtime so a stuck orkworksd cannot \
+             plan-path, Antigravity identity and attention) must cap its own runtime so a stuck orkworksd cannot \
              hang the harness's own hook mechanism"
         );
     }
@@ -1652,8 +1655,13 @@ function Invoke-RestMethod {
         target: &'static str,
     }
 
-    fn json_cases() -> [Case; 4] {
+    fn json_cases() -> [Case; 5] {
         [
+            Case {
+                name: "antigravity",
+                binding: IntegrationBinding::Antigravity,
+                target: ".agents/hooks.json",
+            },
             Case {
                 name: "claude",
                 binding: IntegrationBinding::Claude,
@@ -1775,6 +1783,217 @@ function Invoke-RestMethod {
                 case.name
             );
         }
+    }
+
+    /// A throwaway workspace, reporter assets, and fake `$HOME` for the
+    /// Antigravity handler, whose commands are `$HOME`-relative like Codex's.
+    struct AntigravityFixture {
+        workspace: tempfile::TempDir,
+        stable: tempfile::TempDir,
+        reporter: ReporterAssetResolver,
+        _assets: tempfile::TempDir,
+        _fake_home: FakeHome,
+    }
+
+    impl AntigravityFixture {
+        fn new(tracked: bool) -> Self {
+            let workspace = tempfile::tempdir().unwrap();
+            let repo = git2::Repository::init(workspace.path()).unwrap();
+            let empty_excludes = workspace.path().join("empty-global-excludes");
+            fs::write(&empty_excludes, "").unwrap();
+            repo.config()
+                .unwrap()
+                .set_str("core.excludesFile", empty_excludes.to_str().unwrap())
+                .unwrap();
+            if tracked {
+                fs::create_dir(workspace.path().join(".agents")).unwrap();
+                fs::write(workspace.path().join(".agents/hooks.json"), "{}").unwrap();
+                let mut index = repo.index().unwrap();
+                index.add_path(Path::new(".agents/hooks.json")).unwrap();
+                index.write().unwrap();
+            }
+            let assets = tempfile::tempdir().unwrap();
+            fs::write(
+                assets.path().join(ReporterPlatform::Posix.asset_name()),
+                "#!/bin/sh\n",
+            )
+            .unwrap();
+            fs::write(
+                assets
+                    .path()
+                    .join(ReporterPlatform::WindowsPowerShell.asset_name()),
+                "# noop\n",
+            )
+            .unwrap();
+            let stable = tempfile::tempdir().unwrap();
+            let fake_home = FakeHome::set(stable.path());
+            let reporter = ReporterAssetResolver {
+                source_dir: assets.path().to_path_buf(),
+                stable_dir: stable.path().join(".orkworks").join("hook-scripts"),
+            };
+            Self {
+                workspace,
+                stable,
+                reporter,
+                _assets: assets,
+                _fake_home: fake_home,
+            }
+        }
+
+        fn context(&self) -> IntegrationContext<'_> {
+            IntegrationContext {
+                workspace: self.workspace.path(),
+                workspace_metadata: None,
+                orkworks_root: self.stable.path(),
+                enabled: true,
+                detected_tool: None,
+                reporter_assets: &self.reporter,
+            }
+        }
+
+        fn target(&self) -> PathBuf {
+            self.workspace.path().join(".agents/hooks.json")
+        }
+
+        fn document(&self) -> Value {
+            serde_json::from_slice(&fs::read(self.target()).unwrap()).unwrap()
+        }
+
+        fn write_document(&self, document: &Value) {
+            fs::create_dir_all(self.target().parent().unwrap()).unwrap();
+            fs::write(self.target(), serde_json::to_vec(document).unwrap()).unwrap();
+        }
+    }
+
+    // Antigravity's `.agents/hooks.json` maps a hook *name* to a definition
+    // holding event arrays; there is no shared top-level `hooks` object, so
+    // OrkWorks owns exactly one named definition. PreToolUse is deliberately
+    // not installed: its hook output carries a permission `decision`, and an
+    // observer must never take part in permissions. A turn spans several
+    // PreInvocation calls and ends at one fully idle Stop.
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_installs_one_owned_definition_for_session_and_turn_events() {
+        let fixture = AntigravityFixture::new(true);
+        fixture.write_document(&json!({"team-formatter": {"PostToolUse": [{"matcher": "write", "hooks": [{"command": "fmt"}]}]}}));
+        let handler = handler(&IntegrationBinding::Antigravity);
+        let status = handler.install(&fixture.context()).unwrap();
+        assert_eq!(status.registration, IntegrationRegistration::Installed);
+        assert_eq!(
+            handler.install(&fixture.context()).unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+
+        let document = fixture.document();
+        assert_eq!(
+            document["team-formatter"]["PostToolUse"][0]["hooks"][0]["command"],
+            "fmt"
+        );
+        let owned = document["orkworks-harness-integration"]
+            .as_object()
+            .unwrap();
+        let mut events: Vec<_> = owned.keys().map(String::as_str).collect();
+        events.sort_unstable();
+        assert_eq!(events, ["PreInvocation", "SessionStart", "Stop"]);
+        for event in events {
+            let handlers = owned[event].as_array().unwrap();
+            assert_eq!(handlers.len(), 1, "{event} has exactly one owned handler");
+            assert_eq!(handlers[0]["type"], "command");
+            let command = handlers[0]["command"].as_str().unwrap();
+            assert!(
+                command.contains("--marker 'orkworks:harness-integration:v2:antigravity'"),
+                "{command}"
+            );
+            assert!(command.contains(&format!("--event '{event}'")), "{command}");
+            assert!(
+                command.contains("$HOME"),
+                "tracked files must stay machine-independent: {command}"
+            );
+            assert!(
+                !command.contains(fixture.stable.path().to_str().unwrap()),
+                "{command}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_uninstall_removes_only_the_owned_definition() {
+        let fixture = AntigravityFixture::new(true);
+        fixture.write_document(&json!({"team-formatter": {"Stop": [{"command": "notify"}]}}));
+        let handler = handler(&IntegrationBinding::Antigravity);
+        handler.install(&fixture.context()).unwrap();
+        let removed = handler.uninstall(&fixture.context()).unwrap();
+        assert_eq!(removed.registration, IntegrationRegistration::Absent);
+        assert_eq!(
+            fixture.document(),
+            json!({"team-formatter": {"Stop": [{"command": "notify"}]}})
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_reports_edited_commands_as_drift_and_repairs_them() {
+        let fixture = AntigravityFixture::new(true);
+        let handler = handler(&IntegrationBinding::Antigravity);
+        handler.install(&fixture.context()).unwrap();
+        let mut document = fixture.document();
+        document["orkworks-harness-integration"]["Stop"][0]["command"] = json!(
+            "echo edited --marker 'orkworks:harness-integration:v2:antigravity' --event 'Stop'"
+        );
+        fixture.write_document(&document);
+        assert_eq!(
+            handler.status(&fixture.context()).unwrap().registration,
+            IntegrationRegistration::Drifted
+        );
+        assert_eq!(
+            handler.install(&fixture.context()).unwrap().registration,
+            IntegrationRegistration::Installed
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_refuses_ambiguous_ownership_without_changing_the_file() {
+        let handler = handler(&IntegrationBinding::Antigravity);
+        let foreign_marker =
+            "echo x --marker 'orkworks:harness-integration:v2:other' --event 'Stop'";
+        for document in [
+            json!({"orkworks-harness-integration": {"Stop": [{"command": foreign_marker}]}}),
+            json!({"orkworks-harness-integration": {"Stop": [{"command": "./user-owned.sh"}]}}),
+        ] {
+            let fixture = AntigravityFixture::new(true);
+            fixture.write_document(&document);
+            let before = fs::read(fixture.target()).unwrap();
+            assert!(matches!(
+                handler.install(&fixture.context()),
+                Err(IntegrationError::OwnershipAmbiguous)
+            ));
+            assert_eq!(fs::read(fixture.target()).unwrap(), before);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn antigravity_rejects_untracked_unignored_and_malformed_hook_files() {
+        let handler = handler(&IntegrationBinding::Antigravity);
+        // Fixtures hold the process-wide HOME lock, so only one may live at a time.
+        {
+            let fixture = AntigravityFixture::new(false);
+            fs::create_dir(fixture.workspace.path().join(".agents")).unwrap();
+            fs::write(fixture.target(), "{}").unwrap();
+            assert_eq!(
+                handler.status(&fixture.context()).unwrap().registration,
+                IntegrationRegistration::Error
+            );
+        }
+
+        let fixture = AntigravityFixture::new(true);
+        fixture.write_document(&json!({"orkworks-harness-integration": {"Stop": "not-an-array"}}));
+        assert!(matches!(
+            handler.install(&fixture.context()),
+            Err(IntegrationError::InvalidConfig(_))
+        ));
     }
 
     #[test]

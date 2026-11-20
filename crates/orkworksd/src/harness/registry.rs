@@ -57,6 +57,7 @@ impl ResolvedHarness {
                 Some(
                     super::definition::SessionSignalBinding::Codex
                         | super::definition::SessionSignalBinding::OpenCode
+                        | super::definition::SessionSignalBinding::Antigravity
                 )
             )
     }
@@ -587,7 +588,8 @@ fn capability_names(definition: &HarnessDefinition) -> BTreeSet<CapabilityName> 
                 names.insert(CapabilityName::NativeSessionId);
                 names.insert(CapabilityName::Attention);
             }
-            super::definition::SessionSignalBinding::Codex => {
+            super::definition::SessionSignalBinding::Codex
+            | super::definition::SessionSignalBinding::Antigravity => {
                 names.insert(CapabilityName::NativeSessionId);
                 names.insert(CapabilityName::Attention);
             }

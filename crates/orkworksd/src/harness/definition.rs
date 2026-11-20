@@ -65,6 +65,7 @@ pub(crate) enum SessionSignalBinding {
     Gemini,
     Copilot,
     Aider,
+    Antigravity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,6 +77,7 @@ pub(crate) enum IntegrationBinding {
     Gemini,
     Copilot,
     Aider,
+    Antigravity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

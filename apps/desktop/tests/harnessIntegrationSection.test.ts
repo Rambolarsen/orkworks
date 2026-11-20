@@ -20,6 +20,10 @@ test("isAttentionSignal is true for opencode, whose plugin reports idle/permissi
   assert.equal(isAttentionSignal("opencode"), true);
 });
 
+test("isAttentionSignal is true for antigravity, whose hooks report working and idle turn boundaries", () => {
+  assert.equal(isAttentionSignal("antigravity"), true);
+});
+
 test("isAttentionSignal is true for harnesses whose hook reports needs-input attention", () => {
   assert.equal(isAttentionSignal("claude-code"), true);
   assert.equal(isAttentionSignal("gemini"), true);

@@ -233,6 +233,78 @@ if ($Marker -clike "*:claude-code") {
         }
     } catch {}
     $sessionSource = "copilot_hook"
+} elseif ($Marker -clike "*:antigravity") {
+    # Antigravity hook payloads are camelCase: `conversationId` and `cwd` on
+    # every event, `invocationNum` on PreInvocation and `fullyIdle` on Stop
+    # (https://antigravity.google/docs/hooks.md).
+    $antigravityFirstInvocation = $false
+    $antigravityFullyIdle = $false
+    try {
+        $data = $payload | ConvertFrom-Json
+        if ($data -is [System.Management.Automation.PSCustomObject]) {
+            if (Test-SafeHookString $data.conversationId) {
+                $harnessSessionId = $data.conversationId.Trim()
+            }
+            if ((Test-SafeHookString $data.cwd) -and $data.cwd) {
+                $reportedCwd = ([string]$data.cwd).Trim()
+            }
+            if ($Event -ceq "PreInvocation" -and $data.invocationNum -is [ValueType] -and $data.invocationNum -isnot [bool] -and $data.invocationNum -eq 0) {
+                $antigravityFirstInvocation = $true
+            }
+            if ($Event -ceq "Stop" -and $data.fullyIdle -is [bool] -and $data.fullyIdle) {
+                $antigravityFullyIdle = $true
+            }
+        }
+    } catch {}
+    $sessionSource = "antigravity_hook"
+}
+
+# Antigravity reports identity once per conversation (SessionStart, or the
+# first PreInvocation if that report was lost) and attention from PreInvocation
+# (working, every model call) and a fully idle Stop. Its hooks may print JSON
+# that steers the agent, so the reporter prints nothing. Needs-You is not a
+# hook signal, so no waiting status is ever reported here.
+if ($sessionSource -eq "antigravity_hook") {
+    if ($sessionId -and $port) {
+        $antigravityHeaders = @{}
+        if ($env:ORKWORKS_REPORT_TOKEN) {
+            $antigravityHeaders["Authorization"] = "Bearer $($env:ORKWORKS_REPORT_TOKEN)"
+        }
+        if ($harnessSessionId -and ($Event -ceq "SessionStart" -or $antigravityFirstInvocation)) {
+            try {
+                $sessionReport = [ordered]@{ harnessSessionId = $harnessSessionId; source = "antigravity_hook"; confidence = 0.98 }
+                if ($reportedCwd) {
+                    $sessionReport["cwd"] = $reportedCwd
+                }
+                Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/harness-session" `
+                    -Headers $antigravityHeaders -ContentType "application/json" `
+                    -Body ($sessionReport | ConvertTo-Json -Compress) -TimeoutSec 5 | Out-Null
+            } catch {}
+        }
+        $antigravityStatus = ""
+        if ($Event -ceq "PreInvocation") {
+            $antigravityStatus = "working"
+        } elseif ($Event -ceq "Stop" -and $antigravityFullyIdle) {
+            $antigravityStatus = "idle"
+        }
+        if ($antigravityStatus -and $env:ORKWORKS_REPORT_TOKEN) {
+            try {
+                $attention = [ordered]@{
+                    status = $antigravityStatus
+                    source = "antigravity_hook"
+                    event = $Event
+                    observedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ")
+                }
+                if ($reportedCwd) {
+                    $attention["cwd"] = $reportedCwd
+                }
+                Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `
+                    -Headers $antigravityHeaders -ContentType "application/json" `
+                    -Body ($attention | ConvertTo-Json -Compress) -TimeoutSec 5 | Out-Null
+            } catch {}
+        }
+    }
+    exit 0
 }
 
 # Native envelopes contain only closed bounded scalar evidence. Required

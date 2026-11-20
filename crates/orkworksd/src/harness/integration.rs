@@ -532,6 +532,7 @@ pub(crate) fn integration_key(binding: &IntegrationBinding) -> IntegrationKey {
             IntegrationBinding::Gemini => "gemini",
             IntegrationBinding::Copilot => "copilot",
             IntegrationBinding::Aider => "aider",
+            IntegrationBinding::Antigravity => "antigravity",
         }
         .into(),
         target_id: WORKSPACE_TARGET_ID.into(),
