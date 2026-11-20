@@ -279,6 +279,12 @@ pub(crate) struct WorkspaceSnapshot {
         std::collections::BTreeSet<crate::harness::integration::IntegrationKey>,
 }
 
+pub(crate) struct OutputRecencyTarget {
+    pub(crate) id: String,
+    pub(crate) generation: crate::runtime::session_runtime::RuntimeGeneration,
+    pub(crate) reader: Arc<metadata::session_reader::SessionReader>,
+}
+
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
     unverified_advice_view: bool,
@@ -2433,23 +2439,117 @@ impl SessionApplication {
         (ws.metadata.read_terminal_size(id) == Some((cols, rows))).then_some((cols, rows))
     }
 
-    /// Persists output recency without allowing delayed writes to move the
-    /// stored timestamp backwards. The metadata read, monotonicity check, and
-    /// write stay adjacent under the workspace lock.
-    pub(crate) fn persist_output_recency(&self, id: &str, timestamp: String) {
-        let ws_guard = self.state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
+    #[cfg(test)]
+    pub(crate) fn bind_output_recency_store(
+        &self,
+        id: &str,
+        generation: crate::runtime::session_runtime::RuntimeGeneration,
+    ) {
+        let workspace = self.state.workspace.lock().unwrap();
+        let Some(ws) = workspace.as_ref() else {
             return;
         };
-        let _ = ws
-            .metadata
-            .mutate_session_optional(id, WriteScope::NONE, |meta| {
-                if !should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
-                    return Ok(false);
+        let mut sessions = self.state.sessions.lock().unwrap();
+        if let Some(handle) = sessions
+            .get_mut(id)
+            .filter(|h| h.runtime.run_generation() == generation)
+        {
+            handle
+                .runtime
+                .bind_output_recency_store(ws.metadata.session_reader());
+        }
+    }
+
+    #[cfg(test)]
+    fn capture_test_output_recency(&self, id: &str) -> Option<OutputRecencyTarget> {
+        let generation = self.test_output_recency_generation(id);
+        self.bind_output_recency_store(id, generation);
+        self.state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)?
+            .runtime
+            .output_recency_target(id)
+    }
+
+    pub(crate) fn persist_output_recency(&self, target: OutputRecencyTarget, timestamp: String) {
+        use metadata::session_transactions::{SessionTransactionError, StagedOutputRecency};
+
+        let path = target
+            .reader
+            .root()
+            .join("sessions")
+            .join(format!("{}.json", target.id));
+        // One fresh attempt after a same-store record conflict. The candidate never
+        // reserves the workspace or input fence while its bytes are being synced.
+        for _ in 0..2 {
+            let Ok(Some(staged)) = StagedOutputRecency::prepare(&path, &target.id, &timestamp)
+            else {
+                return;
+            };
+            let result = {
+                let workspace = self.state.workspace.lock().unwrap();
+                let Some(ws) = workspace
+                    .as_ref()
+                    .filter(|ws| Arc::ptr_eq(&target.reader, &ws.metadata.session_reader()))
+                else {
+                    return;
+                };
+                let sessions = self.state.sessions.lock().unwrap();
+                if !sessions
+                    .get(&target.id)
+                    .is_some_and(|handle| handle.runtime.run_generation() == target.generation)
+                {
+                    return;
                 }
-                meta.last_output_at = Some(timestamp);
-                Ok(true)
-            });
+                ws.metadata.publish_output_recency(&target.id, &staged)
+            };
+            match result {
+                Ok(()) => {
+                    let _ = staged.sync_after_publish();
+                    return;
+                }
+                Err(SessionTransactionError::Conflict) => {}
+                Err(SessionTransactionError::Io(_)) => return,
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn persist_test_output_recency(&self, id: &str, timestamp: String) {
+        if let Some(target) = self.capture_test_output_recency(id) {
+            self.persist_output_recency(target, timestamp);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_output_recency_generation(
+        &self,
+        id: &str,
+    ) -> crate::runtime::session_runtime::RuntimeGeneration {
+        self.state
+            .sessions
+            .lock()
+            .unwrap()
+            .entry(id.into())
+            .or_insert_with(|| {
+                let (kill_tx, _) = tokio::sync::watch::channel(false);
+                SessionHandle {
+                    info: crate::test_support::test_session_info(id, id, ".", "running", "now"),
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached_test(),
+                    kill_tx,
+                    active_work_hook: false,
+                    output_buffer: crate::peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    pending_work_signal: None,
+                    terminal_attached: false,
+                    resume_in_progress: false,
+                    capacity: Default::default(),
+                }
+            })
+            .runtime
+            .run_generation()
     }
 
     /// Appends one already-parsed terminal-output batch under the workspace
@@ -3765,14 +3865,17 @@ impl SessionApplication {
         {
             let workspace = workspace.as_ref().expect("workspace was just adopted");
             let now = iso_now();
+            let reader = workspace.metadata.session_reader();
             let live_ids: std::collections::HashSet<String> = self
                 .state
                 .sessions
                 .lock()
                 .unwrap()
-                .iter()
-                .filter(|(_, handle)| handle.info.has_live_runtime())
-                .map(|(id, _)| id.clone())
+                .iter_mut()
+                .filter_map(|(id, handle)| {
+                    handle.runtime.rebind_output_recency_store(&reader);
+                    handle.info.has_live_runtime().then(|| id.clone())
+                })
                 .collect();
             for session in workspace.metadata.read_all_sessions() {
                 if matches!(session.status.as_str(), "running" | "creating")
@@ -6225,19 +6328,6 @@ impl ResumeAdmission {
     }
 }
 
-fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
-    let Ok(incoming) = chrono::DateTime::parse_from_rfc3339(incoming) else {
-        return false;
-    };
-    let Some(existing) = existing else {
-        return true;
-    };
-    let Ok(existing) = chrono::DateTime::parse_from_rfc3339(existing) else {
-        return true;
-    };
-    incoming >= existing
-}
-
 impl Drop for ResumeAdmission {
     fn drop(&mut self) {
         if self.committed {
@@ -6423,6 +6513,7 @@ pub(crate) fn try_install_claimed_resume_handle(
     {
         return Err(());
     }
+    replacement.runtime.bind_output_recency_store(reader);
     replacement.resume_in_progress = true;
     let generation = replacement.runtime.run_generation();
     let previous_handle = sessions.insert(id.to_string(), replacement);
@@ -7315,6 +7406,9 @@ async fn create_session_workflow(
         meta_git_ctx = scan_git(next_cwd.clone()).await?;
         metadata_git_cwd = next_cwd;
     };
+    if let Some(ws) = creation_workspace.as_ref() {
+        runtime.bind_output_recency_store(ws.metadata.session_reader());
+    }
     state.sessions.lock().unwrap().insert(
         id.clone(),
         SessionHandle {
@@ -13012,9 +13106,9 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
         let application = SessionApplication::new(state.clone());
 
-        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
-        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
-        application.persist_output_recency(id, "2026-07-29T09:59:59Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T09:59:59Z".into());
 
         let stored = state
             .workspace
@@ -13054,7 +13148,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
 
         SessionApplication::new(state.clone())
-            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+            .persist_test_output_recency(id, "2026-07-29T10:00:00Z".into());
 
         let stored = state
             .workspace
@@ -13095,7 +13189,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
 
         SessionApplication::new(state.clone())
-            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+            .persist_test_output_recency(id, "2026-07-29T10:00:00Z".into());
 
         let stored = state
             .workspace
@@ -13135,7 +13229,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .metadata
             .write_session(&metadata);
 
-        SessionApplication::new(state.clone()).persist_output_recency(id, "not-a-timestamp".into());
+        SessionApplication::new(state.clone())
+            .persist_test_output_recency(id, "not-a-timestamp".into());
 
         let stored = state
             .workspace
@@ -13158,9 +13253,155 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
-        application.persist_output_recency("missing", "2026-07-29T10:00:00Z".into());
+        application.persist_test_output_recency("missing", "2026-07-29T10:00:00Z".into());
         *state.workspace.lock().unwrap() = None;
-        application.persist_output_recency("missing", "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency("missing", "2026-07-29T10:00:01Z".into());
+    }
+
+    #[test]
+    fn output_recency_publication_revalidates_ownership_and_retries_revision_conflicts() {
+        use crate::metadata::atomic_write::testing::{install, SyncPoint};
+        use std::time::Duration;
+
+        const ID: &str = "staged-output-recency";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        const NEWER: &str = "2026-11-19T09:00:00Z";
+        for change in ["reopen", "resume", "delete", "revision", "newer"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let metadata = crate::test_support::test_session_metadata(
+                ID, "Original", ".", "running", "now", "now",
+            );
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let app = SessionApplication::new(state.clone());
+            let target = app.capture_test_output_recency(ID).unwrap();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let write = std::thread::spawn(move || {
+                let mut entered_tx = Some(entered_tx);
+                let _hook = install(move |event, _| {
+                    if event == SyncPoint::File {
+                        if let Some(tx) = entered_tx.take() {
+                            let _ = tx.send(());
+                            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+                        }
+                    }
+                    Ok(())
+                });
+                app.persist_output_recency(target, TIMESTAMP.into());
+            });
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            {
+                let mut workspace = state.workspace.lock().unwrap();
+                let ws = workspace.as_mut().unwrap();
+                match change {
+                    "reopen" => ws.metadata = ws.metadata.reopen_with_shared_workspace_memory(),
+                    "resume" => {
+                        state.sessions.lock().unwrap().get_mut(ID).unwrap().runtime =
+                            crate::runtime::session_runtime::SessionRuntime::detached_test();
+                    }
+                    "delete" => ws.metadata.delete_session(ID).unwrap(),
+                    "revision" | "newer" => {
+                        ws.metadata
+                            .mutate_session(ID, WriteScope::NONE, |record| {
+                                record.label = "Concurrent change".into();
+                                if change == "newer" {
+                                    record.last_output_at = Some(NEWER.into());
+                                }
+                                Ok(())
+                            })
+                            .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            release_tx.send(()).unwrap();
+            write.join().unwrap();
+            let workspace = state.workspace.lock().unwrap();
+            let record = workspace.as_ref().unwrap().metadata.read_session(ID);
+            match change {
+                "delete" => assert!(record.is_none()),
+                "revision" | "newer" => {
+                    let record = record.unwrap();
+                    assert_eq!(record.label, "Concurrent change");
+                    assert_eq!(
+                        record.last_output_at.as_deref(),
+                        Some(if change == "newer" { NEWER } else { TIMESTAMP })
+                    );
+                }
+                _ => assert_eq!(record.unwrap().last_output_at, None, "{change}"),
+            }
+        }
+    }
+
+    #[test]
+    fn output_recency_sync_errors_preserve_the_rename_cutoff() {
+        use crate::metadata::atomic_write::testing::install;
+        #[cfg(unix)]
+        use crate::metadata::atomic_write::testing::SyncPoint;
+        #[cfg(unix)]
+        use std::{cell::Cell, rc::Rc};
+
+        const ID: &str = "failed-output-recency-sync";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let metadata =
+            crate::test_support::test_session_metadata(ID, "Output", ".", "running", "now", "now");
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let app = SessionApplication::new(state.clone());
+
+        let read_timestamp = || {
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(ID)
+                .unwrap()
+                .last_output_at
+        };
+        {
+            let _hook = install(|_, _| Err(std::io::Error::other("recency file sync failed")));
+            app.persist_test_output_recency(ID, TIMESTAMP.into());
+        }
+        assert_eq!(read_timestamp(), None);
+
+        #[cfg(unix)]
+        {
+            let stages = Rc::new(Cell::new(0));
+            let hook_stages = stages.clone();
+            let _hook = install(move |point, _| match point {
+                SyncPoint::File => {
+                    hook_stages.set(hook_stages.get() + 1);
+                    Ok(())
+                }
+                SyncPoint::Directory => Err(std::io::Error::other("recency directory sync failed")),
+            });
+            app.persist_test_output_recency(ID, TIMESTAMP.into());
+            assert_eq!(read_timestamp().as_deref(), Some(TIMESTAMP));
+            assert_eq!(
+                stages.get(),
+                1,
+                "published writes must not retry after directory sync failure"
+            );
+        }
     }
 
     #[tokio::test]

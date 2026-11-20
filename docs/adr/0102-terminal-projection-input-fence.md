@@ -61,3 +61,14 @@ location/runtime/workspace identity before returning. Prepared branch selections
 use nonblocking, generation-checked publication. Capacity computation and commit,
 input ownership, metadata/organization ordering and retention remain unchanged.
 No new location revision, metadata schema or storage activation is introduced.
+
+## Amendment 2026-11-19: output timestamp persistence
+
+[Terminal output timestamp persistence](../superpowers/plans/2026-11-19-terminal-output-recency-contention.md)
+stages and syncs the next record outside the locks that protect terminal input.
+Publication verifies the workspace store, runtime generation and record revision
+under the existing workspace and session write protections. Directory sync
+follows publication outside the workspace lock. The terminal input fence and
+delivery ordering in ADR 0075 still apply.
+
+The owner approved this scope on 2026-11-19.

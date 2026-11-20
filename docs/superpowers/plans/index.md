@@ -6,6 +6,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Session status and enrichment delivery](2026-11-19-session-status-enrichment.md) — Approved #1895 implementation, compatibility and performance checks.
 
+- [Keep terminal input responsive during output timestamp writes](2026-11-19-terminal-output-recency-contention.md) — Approved lock-scope repair and regression for #1222.
+
 - [Owned packet process cleanup](2026-11-17-packet-owned-cleanup.md) — Approved original-child cleanup and safe failure receipts for #1741; offline implementation and verification underway.
 
 - [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
