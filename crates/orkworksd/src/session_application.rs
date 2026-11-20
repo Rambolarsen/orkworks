@@ -1827,17 +1827,7 @@ impl SessionApplication {
                     && handle.info.lifecycle == "alive"
                     && handle.info.lifecycle_phase == "active" =>
             {
-                match (
-                    handle.info.observed_status.as_deref(),
-                    handle.info.attention_source(),
-                ) {
-                    (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
-                        status,
-                        confidence: handle.info.attention_confidence().unwrap_or(1.0),
-                        source,
-                    },
-                    _ => metadata::PeonAttentionPolicy::NonPrompt,
-                }
+                Self::hook_attention_policy(&handle.info)
             }
             Some(handle)
                 if matches!(
@@ -1858,19 +1848,7 @@ impl SessionApplication {
                             .protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
                     })
                 {
-                    match (
-                        handle.info.observed_status.as_deref(),
-                        handle.info.attention_source(),
-                    ) {
-                        (Some(status), Some(source)) => {
-                            metadata::PeonAttentionPolicy::PreserveHook {
-                                status,
-                                confidence: handle.info.attention_confidence().unwrap_or(1.0),
-                                source,
-                            }
-                        }
-                        _ => metadata::PeonAttentionPolicy::NonPrompt,
-                    }
+                    Self::hook_attention_policy(&handle.info)
                 } else {
                     metadata::PeonAttentionPolicy::NonPrompt
                 }
@@ -1978,6 +1956,19 @@ impl SessionApplication {
                     workspace_path,
                 }
             }
+        }
+    }
+
+    fn hook_attention_policy(
+        info: &crate::session_types::SessionInfo,
+    ) -> metadata::PeonAttentionPolicy<'_> {
+        match (info.observed_status.as_deref(), info.attention_source()) {
+            (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
+                status,
+                confidence: info.attention_confidence().unwrap_or(1.0),
+                source,
+            },
+            _ => metadata::PeonAttentionPolicy::NonPrompt,
         }
     }
 
@@ -18040,16 +18031,16 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn active_claude_copilot_prompt_tuple_survives_peon_attention_inference() {
-        for harness in ["claude-code", "copilot"] {
+    fn authoritative_hook_attention_survives_peon_inference() {
+        for (harness, source, origin) in [
+            ("claude-code", "claude_hook", "legacy_unknown"),
+            ("copilot", "copilot_hook", "legacy_unknown"),
+            ("codex", "agent", "harness_hook"),
+            ("opencode", "agent", "harness_hook"),
+        ] {
             let root = tempfile::tempdir().unwrap();
             let state = crate::test_support::test_app_state_with_workspace(root.path());
             let id = format!("peon-prompt-authority-{harness}");
-            let source = if harness == "claude-code" {
-                "claude_hook"
-            } else {
-                "copilot_hook"
-            };
             let mut metadata = crate::test_support::test_session_metadata(
                 &id,
                 "Prompt authority",
@@ -18066,6 +18057,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             metadata.metadata_source = source.into();
             metadata.metadata_confidence = 0.98;
             metadata.needs_user_input = None;
+            metadata.provenance.attention_source = Some(source.into());
+            metadata.provenance.attention_origin = Some(origin.into());
+            metadata.provenance.attention_confidence = Some(0.98);
+            metadata.provenance.attention_updated_at =
+                Some((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
+            metadata.provenance.work_metadata_updated_at =
+                metadata.provenance.attention_updated_at.clone();
             state
                 .workspace
                 .lock()
@@ -18084,22 +18082,33 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             handle.info.attention = Some("needs_you".into());
             handle.info.metadata_source = Some(source.into());
             handle.info.metadata_confidence = Some(0.98);
+            handle.info.provenance = metadata.provenance.clone();
+            if matches!(harness, "codex" | "opencode") {
+                let mut tracker =
+                    crate::runtime::codex_approval_application::NativeApprovalState::new(
+                        handle.runtime.run_generation(),
+                    );
+                tracker.record_validated_permission(&handle.runtime.attention_owner);
+                handle.runtime.native_approval = Some(tracker);
+            }
             state.sessions.lock().unwrap().insert(id.clone(), handle);
 
             let authority = crate::runtime::prompt_authority::registry();
-            authority.issue(&id, harness, "generation-peon");
-            assert_eq!(
-                authority.register_native_id(
-                    &id,
-                    harness,
-                    "generation-peon",
-                    "native-peon",
-                    false,
-                    None,
-                ),
-                crate::runtime::prompt_authority::BindResult::Bound
-            );
-            assert!(authority.activate(&id, harness, "generation-peon", "native-peon"));
+            if matches!(harness, "claude-code" | "copilot") {
+                authority.issue(&id, harness, "generation-peon");
+                assert_eq!(
+                    authority.register_native_id(
+                        &id,
+                        harness,
+                        "generation-peon",
+                        "native-peon",
+                        false,
+                        None,
+                    ),
+                    crate::runtime::prompt_authority::BindResult::Bound
+                );
+                assert!(authority.activate(&id, harness, "generation-peon", "native-peon"));
+            }
 
             let inference = crate::peon::PeonInference {
                 observed_status: Some("blocked".into()),
@@ -18139,6 +18148,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
             assert_eq!(stored.attention.as_deref(), Some("needs_you"));
             assert_eq!(stored.attention_source(), source);
+            assert_eq!(stored.attention_confidence(), 0.98);
+            assert_eq!(stored.attention_origin(), origin);
             assert_eq!(stored.metadata_source, "peon");
             assert_eq!(
                 stored.summary.as_deref(),
