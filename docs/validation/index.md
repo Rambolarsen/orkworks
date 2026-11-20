@@ -163,6 +163,8 @@ Capability research, validation results, and evidence fixtures.
 
 - [Offline research review-task components](research-review-components.md) — Accepted declared-reviewer-task source examples: two-task plan, digest-free delivery entry, snapshot/outcome/request/receipt joins, stale-review replacement and typed summary citation; supplied reviewer and authority facts stay unqualified.
 
+- [Offline research clarification components](research-clarification-components.md) — Accepted material-clarification source examples: assessment manifest/request/pending binding, user-origin answer admission and copied-decision outcome, fresh-assessment retention and gate-respecting states; supplied authority facts stay unqualified.
+
 - [Offline ordinary-review source components](ordinary-review-source-components.md) — Canonical registry bytes, conservative artifact binding and serialized logical admission/fault traces; no runtime or durability qualification.
 
 - [Offline ordinary-review launch inputs](ordinary-review-launch-input-components.md) — Exact proposal/configuration/prepared bytes and digest, finite bounds and conditional owner/draft joins; no production qualification.
