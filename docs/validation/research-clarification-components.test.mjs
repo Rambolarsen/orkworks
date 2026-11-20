@@ -56,17 +56,22 @@ test('supplied-fact helpers separate retained identical retries from new admissi
  assert.equal(receipt.inputRevision,3);
  const retry=checkAnswerAdmission(p.answer.row,p.assessment.request,
   {authority:'supplied-current-Main',stageContinueRequired:false,retainedIdentical:true,currentnessRequired:false,
-   request:p.assessment.request.value.body,pending:p.assessment.pending});
+   request:{answerId:'answer-1',answerText:'Replace only duplicated rows.'},pending:p.assessment.pending});
  assert.deepEqual(retry,receipt,'identical retry returns the original receipt before live CAS');
  assert.throws(()=>checkAnswerAdmission(p.answer.row,p.assessment.request,
-  {authority:'supplied-current-Main',stageContinueRequired:false,currentInputRevision:3,expectedInputRevision:2,
+  {authority:'supplied-current-Main',stageContinueRequired:false,runState:'assessing',currentInputRevision:3,expectedInputRevision:2,
    pending:p.assessment.pending}),/stale input rejected/);
+ assert.throws(()=>checkAnswerAdmission(p.answer.row,p.assessment.request,
+  {authority:'supplied-current-Main',stageContinueRequired:false,runState:'complete',currentInputRevision:2,expectedInputRevision:2,
+   pending:p.assessment.pending}),/terminal runs/);
  assert.throws(()=>checkAnswerAdmission(p.answer.row,p.assessment.request,
   {authority:'supplied-current-Main',stageContinueRequired:true,currentInputRevision:2,expectedInputRevision:2,
    pending:p.assessment.pending}),/stage fence/);
 });
 test('gate-respecting state selection helpers',()=>{
  assert.equal(checkAnswerState({state:'complete'}),'complete');
+ assert.equal(checkAnswerState({paused:true,pauseReason:'parent_ended'}),'paused');
+ assert.equal(checkAnswerState({paused:true,pauseReason:'sidecar_replaced'}),'paused');
  assert.equal(checkAnswerState({state:'assessing',stageContinueRequired:true}),'paused');
  assert.equal(checkAnswerState({stageContinueRequired:false,blockers:1,allocation:'held'}),'blocked');
  assert.equal(checkAnswerState({stageContinueRequired:false,blockers:0,allocation:'settled',resumeApprovalRequired:true}),'awaiting_resume_approval');

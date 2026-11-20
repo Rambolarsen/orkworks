@@ -28,7 +28,8 @@ def measure(r):
     return dict(chargeBytes=size(dict(key=r['key'],value=v)),wrapperBytes=size(dict(key=r['key'],value=r['value'])))
 
 def parent_runtime(prefix):
-    return dict(kind='parent',**pick(prefix['runtimeHistory'][0]['key'],'workspaceId runId sessionId sidecarGeneration launchGeneration'))
+    return dict(kind='parent',**pick(prefix['runtimeHistory'][0]['key'],'workspaceId runId sessionId sidecarGeneration launchGeneration'),
+        attachmentDigest=prefix['runtimeHistory'][0]['value']['digest'])
 
 def run_body(prefix,version,state,**changes):
     inp=pick(prefix['inputs'][1]['value']['body'],'workspaceId runId preparationRevision inputRevision inputDigest')
@@ -46,7 +47,8 @@ def packet():
     chain=prefix['chain']
     run=pick(chain['startup']['context']['run'],'workspaceId runId')
     researcher_task=clone(chain['startup']['scope']['task'])
-    config_ref=pick(chain['plan']['task']['configuration'],'configurationId configurationDigest')
+    config_ref=dict(task=clone(chain['startup']['scope']['task']),
+        **pick(chain['plan']['task']['configuration'],'configurationId configurationDigest'))
     parent=parent_runtime(prefix)
     user_origin=dict(policy='research-clarification-answer-v1',
         reviewContextId=sha('Unqualified shown answer context.'),sidecarGeneration=parent['sidecarGeneration'])
@@ -62,9 +64,9 @@ def packet():
         decision=decision,
         records=[dict(kind='configuration',reference=clone(config_ref))])
     manifest['inputDigest']=digest('orkworks.preparation-input.v1',manifest)
-    manifest_row=row('objects',dict(kind='research-control-input',workspaceId=run['workspaceId'],runId=run['runId'],
-        preparationRevision=2,inputRevision=2),manifest,'clarification-assessment',2)
-    manifest_row['value']['producer']=clone(parent)
+    manifest_row=dict(table='research_control_inputs',key=dict(workspaceId=run['workspaceId'],runId=run['runId'],
+        preparationRevision=2,inputRevision=2),
+        value=dict(schemaVersion=1,body=manifest,producer=clone(parent),lastCommit=origin('clarification-assessment',2)))
     # request row, pending binding, awaiting_clarification state
     request_body=dict(schemaVersion=1,run=run,inputRevision=2,question=clone(question),producer=clone(parent))
     request_body['requestDigest']=digest('orkworks.research-clarification-request.v1',request_body)
@@ -94,9 +96,9 @@ def packet():
             key=lambda r:(r['kind'],canonical(r))))
     answer_manifest.pop('inputDigest',None)
     answer_manifest['inputDigest']=digest('orkworks.preparation-input.v1',answer_manifest)
-    answer_manifest_row=row('objects',dict(kind='research-control-input',workspaceId=run['workspaceId'],runId=run['runId'],
-        preparationRevision=3,inputRevision=3),answer_manifest,'answer-outcome',2)
-    answer_manifest_row['value']['producer']=clone(user_origin)
+    answer_manifest_row=dict(table='research_control_inputs',key=dict(workspaceId=run['workspaceId'],runId=run['runId'],
+        preparationRevision=3,inputRevision=3),
+        value=dict(schemaVersion=1,body=answer_manifest,producer=clone(user_origin),lastCommit=origin('answer-outcome',2)))
     run_after=row('research_run_controls',run,run_body(prefix,4,'assessing',currentInput=dict(workspaceId=run['workspaceId'],
         runId=run['runId'],preparationRevision=3,inputRevision=3,inputDigest=answer_manifest['inputDigest']),
         pendingClarification=None),'answer-outcome',2)
@@ -113,9 +115,9 @@ def packet():
 
     fresh.pop('inputDigest',None)
     fresh['inputDigest']=digest('orkworks.preparation-input.v1',fresh)
-    fresh_row=row('objects',dict(kind='research-control-input',workspaceId=run['workspaceId'],runId=run['runId'],
-        preparationRevision=4,inputRevision=4),fresh,'fresh-assessment',2)
-    fresh_row['value']['producer']=clone(parent)
+    fresh_row=dict(table='research_control_inputs',key=dict(workspaceId=run['workspaceId'],runId=run['runId'],
+        preparationRevision=4,inputRevision=4),
+        value=dict(schemaVersion=1,body=fresh,producer=clone(parent),lastCommit=origin('fresh-assessment',2)))
     # gate-respecting state alternatives after the answer
     blocker=dict(id='retained-attempt',kind='launch-interrupted',task=researcher_task,
         detail='Supplied unknown original native disposition; no capacity release.')

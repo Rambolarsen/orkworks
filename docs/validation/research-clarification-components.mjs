@@ -8,7 +8,7 @@ const prefixRaw=readFileSync(new URL('research-prefix-components.json',import.me
 const prefix=JSON.parse(prefixRaw);
 const same=(a,b,label)=>assert.deepEqual(a,b,label),clone=structuredClone;
 const size=x=>Buffer.byteLength(canonical(x)),digest=(n,x)=>hash(n+'\n'+canonical(x));
-const caps={objects:2097152,research_clarification_requests:16384,research_clarification_answers:32768,research_run_controls:1048576};
+const caps={research_control_inputs:65536,research_clarification_requests:16384,research_clarification_answers:32768,research_run_controls:1048576};
 const decisionVariants=new Set(['research','clarification','execution']);
 export function measureClarificationRow(r){const value=clone(r.value);delete value.lastCommit;if(value.receipt)delete value.receipt.commit;
  return {chargeBytes:size({key:r.key,value}),wrapperBytes:size({key:r.key,value:r.value})};}
@@ -55,6 +55,7 @@ export function validateResearchClarification(p){
  const manifestForHash=clone(manifest);delete manifestForHash.inputDigest;
  assert.equal(manifest.inputDigest,digest('orkworks.preparation-input.v1',manifestForHash),'input digest excludes only inputDigest');
  assert.deepEqual(manifest.records, [{kind:'configuration',reference:manifest.records[0].reference}],'no research records in a clarification manifest');
+ assert.deepEqual(manifest.records[0].reference.task,clone(prefix.chain.startup.scope.task),'configuration reference carries its task');
  assert.equal(p.assessment.manifest.value.producer.kind,'parent','assessment producer is the parent runtime');
  // request row and pending binding
  const request=p.assessment.request.value.body;
@@ -63,6 +64,8 @@ export function validateResearchClarification(p){
  assert.equal(request.requestDigest,digest('orkworks.research-clarification-request.v1',requestForHash),'request digest excludes only requestDigest');
  assert.deepEqual(request.question,manifest.decision.question,'byte-equal question');
  assert.deepEqual(Object.keys(p.assessment.request.key).sort(),['questionId','questionVersion','run'],'nested-run request key');
+ assert.deepEqual(p.assessment.manifest.table,'research_control_inputs','accepted prepared-input family');
+ assert.deepEqual(Object.keys(p.assessment.manifest.key).sort(),['inputRevision','preparationRevision','runId','workspaceId'],'exact prepared-input key');
  assert.deepEqual(p.assessment.request.key.run,runKey(),'run member in the request key');
  assert.equal(p.assessment.request.key.questionVersion,1,'first question version');
  const pending=p.assessment.pending;
@@ -82,6 +85,7 @@ export function validateResearchClarification(p){
  const answerForHash=clone(answer);delete answerForHash.answerDigest;
  assert.equal(answer.answerDigest,digest('orkworks.research-clarification-answer.v1',answerForHash),'answer digest excludes only answerDigest');
  assert.equal(answer.origin.policy,'research-clarification-answer-v1','user-origin policy');
+ assert(answer.answerText.length>0&&Buffer.byteLength(answer.answerText)<=2048,'bounded answer text');
  assert.equal(answer.requestDigest,request.requestDigest,'answer resolves the exact request');
  const answerRow=p.answer.row;
  exact(answerRow.value,'schemaVersion request answer receipt lastCommit','closed answers family value');
@@ -119,6 +123,8 @@ export function validateResearchClarification(p){
  assert.deepEqual(fresh.records,Object.keys(fresh.records).length?fresh.records:fresh.records,'records retained');
  const kindsFresh=fresh.records.map(r=>r.kind);
  assert.deepEqual(kindsFresh,[...kindsFresh].sort(),'records sorted by UTF-8 kind');
+ const freshForHash=clone(fresh);delete freshForHash.inputDigest;
+ assert.equal(fresh.inputDigest,digest('orkworks.preparation-input.v1',freshForHash),'fresh input digest excludes only inputDigest');
  assert.equal(p.freshAssessment.manifest.value.producer.kind,'parent','fresh assessment producer is the current parent runtime');
  // state alternatives
  for(const alt of p.answer.stateAlternatives)
@@ -149,9 +155,11 @@ function runKey(){return {workspaceId:'workspace-1',runId:'aaaaaaaaaaaaaaaaaaaaa
 export function checkAnswerAdmission(answersRow,requestsRow,facts){
  assert.equal(facts.authority,'supplied-current-Main','Main authority and shown context before lookup');
  assert.equal(facts.stageContinueRequired,false,'stage fence rejects clarification mutations');
- if(facts.retainedIdentical){same(facts.request,requestsRow.value.body,'identical request bytes');
+ if(facts.retainedIdentical){same(facts.request.answerText,answersRow.value.answer.answerText,'identical answer submission');
+  assert.equal(facts.request.answerId,answersRow.value.answer.answerId,'same answer identity');
   assert.equal(facts.currentnessRequired,false,'original receipt returns before live CAS');
   return clone(answersRow.value.receipt);}
+ assert(!['complete','cancelled'].includes(facts.runState),'terminal runs never admit new answers');
  assert.deepEqual(facts.pending,{questionId:requestsRow.key.questionId,questionVersion:requestsRow.key.questionVersion,
   requestDigest:requestsRow.value.body.requestDigest},'current unanswered pending request');
  assert.equal(facts.expectedInputRevision,facts.currentInputRevision,'stale input rejected');
@@ -159,8 +167,8 @@ export function checkAnswerAdmission(answersRow,requestsRow,facts){
 export function checkAnswerState(f){
  if(['complete','cancelled'].includes(f.state))return f.state;
  if(f.stageContinueRequired)return 'paused';
+ if(f.paused)return 'paused';
  if(f.blockers>0||f.allocation!=='settled')return 'blocked';
  if(f.resumeApprovalRequired)return 'awaiting_resume_approval';
- if(f.paused)return 'paused';
  assert.equal(f.parent,'supplied-active','fresh assessment needs the active eligible parent');
  return 'assessing';}
