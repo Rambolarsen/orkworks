@@ -1882,6 +1882,31 @@ if (process.versions.electron) {
           await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus") || document.activeElement.classList.contains("xterm-helper-textarea")');
           await click('actions');
           await waitFor('document.querySelector(".actions-overview")');
+          await evaluate('fixture.setExtraActionCount(24)');
+          await waitFor('document.querySelectorAll("[data-action-key]").length===26');
+          await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail] h3")?.textContent==="coding"');
+          for (const width of [1280,360]) {
+            await win.setContentSize(width,700);
+            await waitFor(width===1280?'document.querySelector("[data-shell-region=inspector]")':'document.querySelector(".shell-layout").dataset.mode==="compact"');
+            const inspectionGeometry=await evaluate(`(()=>{
+              const trigger=document.querySelector('[data-action-key="session:coding"]');
+              const detail=document.querySelector('[data-actions-detail]');
+              const next=document.querySelector('[data-action-key="session:extra-0"]');
+              const a=trigger.getBoundingClientRect(),b=detail.getBoundingClientRect(),c=next.getBoundingClientRect();
+              return {gap:b.top-a.bottom,detailBottom:b.bottom,nextTop:c.top,overflows:detail.scrollWidth>detail.clientWidth+1};
+            })()`);
+            assert.ok(inspectionGeometry.gap>=0&&inspectionGeometry.gap<40,'inspection stays beside its selected row in a long list');
+            assert.ok(inspectionGeometry.detailBottom<=inspectionGeometry.nextTop,'the next action follows the inspected details');
+            assert.equal(inspectionGeometry.overflows,false);
+            await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").focus()');
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor('document.activeElement===document.querySelector("[data-actions-detail] button")');
+          }
+          assert.equal(await evaluate('fixture.selections'),0,'long-list inspection and keyboard navigation do not select a session');
+          await evaluate('fixture.setExtraActionCount(0)');
+          await waitFor('document.querySelectorAll("[data-action-key]").length===2');
           await evaluate('document.querySelector("[data-action-key=\\"session:other\\"]").click()');
           await waitFor('document.querySelector("[data-actions-detail] button")');
           assert.equal(await evaluate('fixture.selections'),0,'inspection alone never selects a session');
@@ -2765,6 +2790,7 @@ if (process.versions.electron) {
             const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);
             const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
+            const [extraActionCount,setExtraActionCount]=useState(0);fixture.setExtraActionCount=setExtraActionCount;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setGeneration(n=>n+1)};
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
@@ -2774,7 +2800,7 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
-            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
               workspace={{path:${javascriptLiteral(scenario)}==='utility-scope'?'/tmp/test/'+'LongWorkspaceDirectory'.repeat(12):'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}

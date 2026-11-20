@@ -75,20 +75,20 @@ export default function ActionsOverview({
             <span className="actions-row-title">{row.title}</span>
             <span className="actions-row-source" aria-hidden="true">{sourceLabel}</span>
           </button>
+          {current?.key === row.key && <section className="actions-inspection" data-actions-detail aria-label="Inspected action">
+            {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
+            <p className="actions-detail-source">{current.source === "session" ? `Session · ${current.group}` : "Recommendation"}</p>
+            <h3>{current.title}</h3>
+            <p className="actions-detail-summary">{current.summary || "No additional details reported."}</p>
+            {current.source === "session"
+              ? <button type="button" onClick={() => onOpenSession(current.id)}>Open terminal/history</button>
+              : <button type="button" onClick={() => onOpenRecommendation(current.id)}>Open recommendation</button>}
+          </section>}
         </div>;
       })}
     </section>)}
     {inspected && !current && <div className="actions-inspection" role="status">
       <p>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</p>
     </div>}
-    {current && <section className="actions-inspection" data-actions-detail aria-label="Inspected action">
-      {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
-      <p className="actions-detail-source">{current.source === "session" ? `Session · ${current.group}` : "Recommendation"}</p>
-      <h3>{current.title}</h3>
-      <p className="actions-detail-summary">{current.summary || "No additional details reported."}</p>
-      {current.source === "session"
-        ? <button type="button" onClick={() => onOpenSession(current.id)}>Open terminal/history</button>
-        : <button type="button" onClick={() => onOpenRecommendation(current.id)}>Open recommendation</button>}
-    </section>}
   </div>;
 }

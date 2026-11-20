@@ -3199,7 +3199,7 @@ html, body, #root {
 .actions-empty h3 { margin:0; font-weight:var(--weight-medium); }
 .actions-empty p { margin:6px 0 0; font-size:12px; line-height:1.5; color:var(--text-secondary); }
 .actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }
-.actions-row button { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.actions-row > button { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
 .actions-row-title { flex:1 1 12ch; min-width:0; }
 .actions-row-source { flex:0 1 auto; min-width:0; max-width:100%; }
 .actions-row > span, .actions-row-source { font-size:11px; color:var(--text-secondary); }
@@ -3209,6 +3209,7 @@ html, body, #root {
 .actions-detail-summary { margin:8px 0 0; white-space:pre-wrap; line-height:1.6; }
 .actions-inspection > button { margin-top:12px; max-width:100%; text-align:left; white-space:normal; overflow-wrap:anywhere; }
 .actions-inspection > .advice-warning { margin-bottom:12px; }
+.actions-row > .actions-inspection { margin-top:2px; }
 .actions-overview button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
 .actions-overview button { border:1px solid var(--border-default); background:var(--surface-2); color:var(--text-primary); padding:8px; border-radius:var(--radius-sm); cursor:pointer; font:inherit; }
