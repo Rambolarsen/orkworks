@@ -68,7 +68,7 @@ def packet():
     # request row, pending binding, awaiting_clarification state
     request_body=dict(schemaVersion=1,run=run,inputRevision=2,question=clone(question),producer=clone(parent))
     request_body['requestDigest']=digest('orkworks.research-clarification-request.v1',request_body)
-    request_row=dict(table='research_clarification_requests',key=dict(**run,questionId='goal-scope',questionVersion=1),
+    request_row=dict(table='research_clarification_requests',key=dict(run=clone(run),questionId='goal-scope',questionVersion=1),
         value=dict(schemaVersion=1,body=request_body,digest=request_body['requestDigest'],lastCommit=origin('clarification-assessment',3)))
     pending=dict(questionId='goal-scope',questionVersion=1,requestDigest=request_body['requestDigest'])
     run_awaiting=run_body(prefix,3,'awaiting_clarification',currentInput=dict(workspaceId=run['workspaceId'],runId=run['runId'],
@@ -85,12 +85,13 @@ def packet():
     receipt=dict(schemaVersion=1,run=run,questionId='goal-scope',questionVersion=1,answerId='answer-1',
         answerDigest=answer['answerDigest'],runVersion=4,inputRevision=3,commit=origin('answer-admission',2))
     answer_ref=dict(run=run,questionId='goal-scope',questionVersion=1,answerId='answer-1',answerDigest=answer['answerDigest'])
-    answer_row=dict(table='research_clarification_answers',key=dict(**run,questionId='goal-scope',questionVersion=1,answerId='answer-1'),
+    answer_row=dict(table='research_clarification_answers',key=dict(run=clone(run),questionId='goal-scope',questionVersion=1,answerId='answer-1'),
         value=dict(schemaVersion=1,request=dict(run=run,questionId='goal-scope',questionVersion=1,requestDigest=request_body['requestDigest']),
             answer=answer,receipt=receipt,lastCommit=origin('answer-admission',3)))
     # answer outcome: copied decision, clarification-answer record, user-origin producer, pending cleared
     answer_manifest=dict(manifest,preparationRevision=3,inputRevision=3,
-        records=manifest['records']+[dict(kind='clarification-answer',reference=clone(answer_ref))])
+        records=sorted(manifest['records']+[dict(kind='clarification-answer',reference=clone(answer_ref))],
+            key=lambda r:(r['kind'],canonical(r))))
     answer_manifest.pop('inputDigest',None)
     answer_manifest['inputDigest']=digest('orkworks.preparation-input.v1',answer_manifest)
     answer_manifest_row=row('objects',dict(kind='research-control-input',workspaceId=run['workspaceId'],runId=run['runId'],
@@ -104,9 +105,12 @@ def packet():
         decision=dict(schemaVersion=1,inputRevision=4,clarificationNeeded=False,researchNeeded=True,
             reasons=['The replacement policy is now explicit.'],
             scope=prefix['inputs'][1]['value']['body']['decision']['scope']),
-        records=[dict(kind='configuration',reference=clone(config_ref)),
-                 dict(kind='clarification-answer',reference=clone(answer_ref)),
-                 dict(kind='research-scope',reference=dict(task=researcher_task,scopeDigest=prefix['inputs'][1]['value']['body']['decision']['scope']['scopeDigest']))])
+        records=sorted([dict(kind='configuration',reference=clone(config_ref)),
+                 dict(kind='clarification-answer',reference=clone(answer_ref))] +
+                [clone(r) for r in prefix['inputs'][1]['value']['body']['records'] if r['kind']=='research-capture'] +
+                [dict(kind='research-scope',reference=dict(task=researcher_task,scopeDigest=prefix['inputs'][1]['value']['body']['decision']['scope']['scopeDigest']))],
+                key=lambda r:(r['kind'],canonical(r))))
+
     fresh.pop('inputDigest',None)
     fresh['inputDigest']=digest('orkworks.preparation-input.v1',fresh)
     fresh_row=row('objects',dict(kind='research-control-input',workspaceId=run['workspaceId'],runId=run['runId'],
@@ -123,9 +127,9 @@ def packet():
         dict(id='awaiting-resume-retained',state='awaiting_resume_approval',expected='resume-approval-gate-retained')]
     # changed-answer re-ask at questionVersion+1
     reask_request=dict(schemaVersion=1,run=run,inputRevision=4,question=clone(question),
-        producer=clone(parent),questionVersion=2)
+        producer=clone(parent))
     reask_request['requestDigest']=digest('orkworks.research-clarification-request.v1',reask_request)
-    reask_row=dict(table='research_clarification_requests',key=dict(**run,questionId='goal-scope',questionVersion=2),
+    reask_row=dict(table='research_clarification_requests',key=dict(run=clone(run),questionId='goal-scope',questionVersion=2),
         value=dict(schemaVersion=1,body=reask_request,digest=reask_request['requestDigest'],lastCommit=origin('re-ask',3)))
     reask=dict(request=reask_row,previous=dict(questionId='goal-scope',questionVersion=1,requestDigest=request_body['requestDigest']),
         expected='changed-answer-re-ask-at-questionVersion-plus-one/original-retained')

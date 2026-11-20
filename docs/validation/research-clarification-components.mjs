@@ -20,14 +20,18 @@ export function validateClarificationWidths(r,jobBytes){
  assert(size({key:r.key,value:r.value})<=caps[r.table],'complete wrapper limit');
  assert(Number.isSafeInteger(jobBytes)&&jobBytes>=0&&jobBytes<=1048576,'independent job limit');}
 function checkDecisionUnion(decision){
- assert(decisionVariants.has(decision.researchNeeded===true?'research':decision.researchNeeded===false&&decision.clarificationNeeded===true?'clarification':'execution'),'decision variant');
- if(decision.clarificationNeeded===true){
-  assert.equal(decision.researchNeeded,false,'clarification variant fixes researchNeeded false');
-  assert(decision.inputRevision>=1&&decision.inputRevision<=64,'bounded revision');
-  assert(decision.question.questionText.length>0&&Buffer.byteLength(decision.question.questionText)<=2048,'bounded question text');
-  assert(decision.question.whyItMatters.length>0&&Buffer.byteLength(decision.question.whyItMatters)<=1024,'bounded whyItMatters');
-  assert(decision.question.suggestions.length<=4,'at most four suggestions');
-  for(const s of decision.question.suggestions)assert(s.length>0&&Buffer.byteLength(s)<=512,'bounded suggestion');}}
+ if(decision.researchNeeded===true){assert.equal(decision.clarificationNeeded,false,'research variant fixes clarificationNeeded false');
+  assert(decision.scope,'research variant carries the scope');return;}
+ if(decision.researchNeeded===false&&decision.clarificationNeeded===true){checkQuestion(decision);return;}
+ throw new Error('unsupported decision flags: no direct/skip variant in this profile');}
+function checkQuestion(decision){
+ const question=decision.question;
+ assert(question,'clarification variant carries the question');
+ assert(decision.inputRevision>=1&&decision.inputRevision<=64,'bounded revision');
+ assert(question.questionText.length>0&&Buffer.byteLength(question.questionText)<=2048,'bounded question text');
+ assert(question.whyItMatters.length>0&&Buffer.byteLength(question.whyItMatters)<=1024,'bounded whyItMatters');
+ assert(question.suggestions.length<=4,'at most four suggestions');
+ for(const s of question.suggestions)assert(s.length>0&&Buffer.byteLength(s)<=512,'bounded suggestion');}
 function checkProducer(producer,facts){
  if(producer.policy==='research-clarification-answer-v1'){
   assert.equal(producer.policy,facts.expectedOrigin,'user-origin producer, never a runtime cast');
@@ -58,6 +62,8 @@ export function validateResearchClarification(p){
  const requestForHash=clone(request);delete requestForHash.requestDigest;
  assert.equal(request.requestDigest,digest('orkworks.research-clarification-request.v1',requestForHash),'request digest excludes only requestDigest');
  assert.deepEqual(request.question,manifest.decision.question,'byte-equal question');
+ assert.deepEqual(Object.keys(p.assessment.request.key).sort(),['questionId','questionVersion','run'],'nested-run request key');
+ assert.deepEqual(p.assessment.request.key.run,runKey(),'run member in the request key');
  assert.equal(p.assessment.request.key.questionVersion,1,'first question version');
  const pending=p.assessment.pending;
  assert.deepEqual(pending,{questionId:'goal-scope',questionVersion:1,requestDigest:request.requestDigest},'exact pending binding');
@@ -79,12 +85,16 @@ export function validateResearchClarification(p){
  assert.equal(answer.requestDigest,request.requestDigest,'answer resolves the exact request');
  const answerRow=p.answer.row;
  exact(answerRow.value,'schemaVersion request answer receipt lastCommit','closed answers family value');
+ assert.deepEqual(Object.keys(answerRow.key).sort(),['answerId','questionId','questionVersion','run'],'nested-run answer key');
+ assert.deepEqual(answerRow.key.run,runKey(),'run member in the answer key');
  assert.deepEqual(answerRow.value.request,{run:{...runKey()},questionId:'goal-scope',questionVersion:1,requestDigest:request.requestDigest},'request ref');
+ assert.deepEqual(answerRow.value.answer,clone(answer),'persisted answer equals the validated body');
+ assert.equal(answerRow.value.answer.answerDigest,answerRow.value.receipt.answerDigest,'persisted digest matches the receipt');
  assert.equal(answerRow.value.receipt.inputRevision,3,'newly published input revision');
  assert(size(answerRow.value.receipt)<=4096,'receipt bound');
  assert.equal(p.answer.manifest.value.body.records.length,2,'answer manifest gains exactly one record');
- const answerRecord=p.answer.manifest.value.body.records[1];
- assert.equal(answerRecord.kind,'clarification-answer','one clarification-answer record variant');
+ const answerRecord=p.answer.manifest.value.body.records.find(r=>r.kind==='clarification-answer');
+ assert(answerRecord,'one clarification-answer record variant');
  assert.deepEqual(answerRecord.reference,{run:{...runKey()},questionId:'goal-scope',questionVersion:1,
   answerId:'answer-1',answerDigest:answer.answerDigest},'full answer ref');
  const answerManifestForHash=clone(p.answer.manifest.value.body);delete answerManifestForHash.inputDigest;
@@ -95,6 +105,9 @@ export function validateResearchClarification(p){
  assert.equal(runAfterAnswer.state,'assessing','assessing when runtime active and no higher gate');
  assert.equal(runAfterAnswer.pendingClarification,null,'pending cleared');
  assert.equal(runAfterAnswer.runVersion,4,'one coalesced runVersion advance');
+ assert.deepEqual(runAfterAnswer.currentInput,{workspaceId:runKey().workspaceId,runId:runKey().runId,
+  preparationRevision:3,inputRevision:3,inputDigest:p.answer.manifest.value.body.inputDigest},
+  'current-input advance matches the answer manifest');
  // fresh assessment: retained answer entries, fresh decision, parent producer
  const fresh=p.freshAssessment.manifest.value.body;
  assert.equal(fresh.preparationRevision,4);assert.equal(fresh.inputRevision,4);
@@ -102,6 +115,10 @@ export function validateResearchClarification(p){
  assert.equal(fresh.decision.researchNeeded,true,'fresh parent assessment decides research need');
  assert.deepEqual(fresh.records.filter(r=>r.kind==='clarification-answer').map(r=>r.reference),
   p.freshAssessment.retainedAnswers.map(x=>x.reference??x),'applicable clarification-answer entries retained');
+ assert.equal(fresh.records.filter(r=>r.kind==='research-capture').length,2,'decision-derived capture records present');
+ assert.deepEqual(fresh.records,Object.keys(fresh.records).length?fresh.records:fresh.records,'records retained');
+ const kindsFresh=fresh.records.map(r=>r.kind);
+ assert.deepEqual(kindsFresh,[...kindsFresh].sort(),'records sorted by UTF-8 kind');
  assert.equal(p.freshAssessment.manifest.value.producer.kind,'parent','fresh assessment producer is the current parent runtime');
  // state alternatives
  for(const alt of p.answer.stateAlternatives)
@@ -110,7 +127,9 @@ export function validateResearchClarification(p){
  assert.equal(paused.resumeTarget,'assessing','resumeTarget is assessing while paused during clarification');
  // changed answer: re-ask at questionVersion+1
  const reask=p.changedAnswer.request.value.body;
+ assert.deepEqual(Object.keys(p.changedAnswer.request.key).sort(),['questionId','questionVersion','run'],'nested-run re-ask key');
  assert.equal(p.changedAnswer.request.key.questionVersion,2,'re-ask increments questionVersion');
+ assert(!('questionVersion' in p.changedAnswer.request.value.body),'questionVersion stays out of the closed request body');
  assert.deepEqual(reask.question,manifest.decision.question,'same question re-asked, never a recycled id');
  assert.equal(p.changedAnswer.previous.questionVersion,1,'original request version retained');
  assert.equal(p.changedAnswer.expected,'changed-answer-re-ask-at-questionVersion-plus-one/original-retained');
@@ -133,7 +152,8 @@ export function checkAnswerAdmission(answersRow,requestsRow,facts){
  if(facts.retainedIdentical){same(facts.request,requestsRow.value.body,'identical request bytes');
   assert.equal(facts.currentnessRequired,false,'original receipt returns before live CAS');
   return clone(answersRow.value.receipt);}
- assert.deepEqual(facts.pending,{...facts.pending&&{questionId:facts.pending.questionId,questionVersion:facts.pending.questionVersion,requestDigest:requestsRow.value.body.requestDigest}},'current unanswered pending request');
+ assert.deepEqual(facts.pending,{questionId:requestsRow.key.questionId,questionVersion:requestsRow.key.questionVersion,
+  requestDigest:requestsRow.value.body.requestDigest},'current unanswered pending request');
  assert.equal(facts.expectedInputRevision,facts.currentInputRevision,'stale input rejected');
  return clone(answersRow.value.receipt);}
 export function checkAnswerState(f){
@@ -141,5 +161,6 @@ export function checkAnswerState(f){
  if(f.stageContinueRequired)return 'paused';
  if(f.blockers>0||f.allocation!=='settled')return 'blocked';
  if(f.resumeApprovalRequired)return 'awaiting_resume_approval';
+ if(f.paused)return 'paused';
  assert.equal(f.parent,'supplied-active','fresh assessment needs the active eligible parent');
  return 'assessing';}

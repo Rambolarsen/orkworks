@@ -33,6 +33,13 @@ for(const [name,change,reseal] of [
  ['fresh decision stays a copied assessment',p=>{p.freshAssessment.manifest.value.body.decision.inputRevision=3},'fresh'],
  ['re-ask reuses questionVersion 1',p=>{p.changedAnswer.request.key.questionVersion=1},'reask'],
  ['paused resumeTarget is awaiting_clarification',p=>{p.answer.stateAlternatives.find(x=>x.id==='paused-retained').resumeTarget='awaiting_clarification'},null],
+ ['unsupported direct/skip decision flags',p=>{const d=p.assessment.manifest.value.body.decision;d.clarificationNeeded=false;d.researchNeeded=false},'assessment'],
+ ['fresh manifest drops a capture record',p=>{const m=p.freshAssessment.manifest.value.body;m.records=m.records.filter(r=>r.kind!=='research-capture');delete m.inputDigest;m.inputDigest=domain('orkworks.preparation-input.v1',m)},'fresh'],
+ ['re-ask body embeds questionVersion',p=>{p.changedAnswer.request.value.body.questionVersion=2;const r=p.changedAnswer.request.value.body;delete r.requestDigest;r.requestDigest=domain('orkworks.research-clarification-request.v1',r)},'reask'],
+ ['persisted answer text drifts',p=>{p.answer.row.value.answer.answerText='Different policy entirely.'},null],
+ ['current-input pointer stays at input-2',p=>{p.answer.runAfter.value.body.currentInput={...p.assessment.runAfter.value.body.currentInput}},'answer'],
+ ['prepared input body exceeds 32 KiB',p=>{p.assessment.manifest.value.body.records.push({kind:'research-scope',reference:{task:{workspaceId:'w',runId:'r',planId:'p',planRevision:1,taskId:'t'},scopeDigest:'0'.repeat(64)}})},null],
+ ['flat family key loses the run member',p=>{const k=p.assessment.request.key;const flat={...k.run,questionId:k.questionId,questionVersion:k.questionVersion};p.assessment.request.key=flat;'flat'},null],
 ]) {test(`mutation ${name} is rejected`,()=>{
  const p=packet();change(p);
  if(reseal==='assessment'){const m=p.assessment.manifest.value.body;delete m.inputDigest;m.inputDigest=domain('orkworks.preparation-input.v1',m);}

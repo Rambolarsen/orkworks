@@ -82,10 +82,27 @@ acceptances.
 ## Verification and measurements
 
 Node 22 `node --test` runs all prior documentation packets unchanged (the
-packet's own 20 regressions pass, including independent regeneration
-equality, fourteen semantic-mutation denials with correct reseals and
+packet's own 27 regressions pass, including independent regeneration
+equality, twenty-two semantic-mutation denials with correct reseals and
 asserted reasons, helper oracles distinguishing retained identical retries
-from new admissions, gate-respecting state selection, and literal
-domain/bound pins). The generator-derived measurements record the exact key
-plus committed occurrence projection for the retained rows; they are not
-storage charges or a legal transaction witness.
+from new admissions and preserving paused states, gate-respecting state
+selection, and literal domain/bound pins). The generator-derived
+measurements record the exact key plus committed occurrence projection for
+the retained rows; they are not storage charges or a legal transaction
+witness.
+
+## Hosted review corrections — 2026-11-20
+
+The hosted review of the first packet head reported nine P2 findings, all
+addressed in this revision: the request/answer family keys nest the RunKey
+member exactly as accepted (re-ask row included); the fresh assessment
+manifest now derives the decision-required capture records alongside the
+retained answer; `questionVersion` stays out of the closed request body
+(version lives in the family key and references); the pending-identity
+comparison is built from the request row's key and digest; the answer-state
+oracle preserves retained paused states without requiring an active parent;
+the run's current-input advance is validated against the answer manifest;
+the persisted answer body is verified against its digest and receipt;
+unsupported decision flag combinations are rejected explicitly; and the
+unchanged 32 KiB prepared-input body ceiling is enforced independently of
+the wrapper check.

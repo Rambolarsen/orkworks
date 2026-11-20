@@ -91,8 +91,10 @@
     "request": {
       "table": "research_clarification_requests",
       "key": {
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
         "questionId": "goal-scope",
         "questionVersion": 1
       },
@@ -290,8 +292,10 @@
     "row": {
       "table": "research_clarification_answers",
       "key": {
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
         "questionId": "goal-scope",
         "questionVersion": 1,
         "answerId": "answer-1"
@@ -407,13 +411,6 @@
           },
           "records": [
             {
-              "kind": "configuration",
-              "reference": {
-                "configurationId": "prefix-configuration",
-                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
-              }
-            },
-            {
               "kind": "clarification-answer",
               "reference": {
                 "run": {
@@ -425,9 +422,16 @@
                 "answerId": "answer-1",
                 "answerDigest": "fdc64ed5088463296eb334e87f092e699b820457aa6c7fa1a9c9bece20a541e5"
               }
+            },
+            {
+              "kind": "configuration",
+              "reference": {
+                "configurationId": "prefix-configuration",
+                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+              }
             }
           ],
-          "inputDigest": "37b885a389b0a4fae92a0f5458e64204ea3c789bc66564d5c377175a472a447f"
+          "inputDigest": "10eff17b1b298c0a247177bd7775fc4ec3058a94163a311e127a16d5213901b3"
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -466,7 +470,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "preparationRevision": 3,
             "inputRevision": 3,
-            "inputDigest": "37b885a389b0a4fae92a0f5458e64204ea3c789bc66564d5c377175a472a447f"
+            "inputDigest": "10eff17b1b298c0a247177bd7775fc4ec3058a94163a311e127a16d5213901b3"
           },
           "planReferences": [],
           "currentPlan": null,
@@ -614,13 +618,6 @@
           },
           "records": [
             {
-              "kind": "configuration",
-              "reference": {
-                "configurationId": "prefix-configuration",
-                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
-              }
-            },
-            {
               "kind": "clarification-answer",
               "reference": {
                 "run": {
@@ -631,6 +628,41 @@
                 "questionVersion": 1,
                 "answerId": "answer-1",
                 "answerDigest": "fdc64ed5088463296eb334e87f092e699b820457aa6c7fa1a9c9bece20a541e5"
+              }
+            },
+            {
+              "kind": "configuration",
+              "reference": {
+                "configurationId": "prefix-configuration",
+                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+              }
+            },
+            {
+              "kind": "research-capture",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "sourceId": "source-b",
+                "captureDigest": "2319f1fee4621f6e8182e2345c818e4d08e557eccd15cdbcb8754e5a3168656c"
+              }
+            },
+            {
+              "kind": "research-capture",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "sourceId": "source-a",
+                "captureDigest": "b2519c8e5b6b6968a547c06750ffc3bd8f405c7ee3fc418ce8be5c18bcaf066c"
               }
             },
             {
@@ -647,7 +679,7 @@
               }
             }
           ],
-          "inputDigest": "f0a8f0213fbc561c8cc6b55dd9909b30de12a0fc8aac363d6c39ae79ef720b50"
+          "inputDigest": "00595d43c55eda4fbcdb914e2e857388019a144b7a326d5891b810d30a37a21a"
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -685,8 +717,10 @@
     "request": {
       "table": "research_clarification_requests",
       "key": {
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
         "questionId": "goal-scope",
         "questionVersion": 2
       },
@@ -716,10 +750,9 @@
             "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
-          "questionVersion": 2,
-          "requestDigest": "9f353fea93965b9b2e146c91b04919e7683634b8132a3e30bd12020298022835"
+          "requestDigest": "f785523842c11779d034d25622bb7502416fea53b683a9f7c584ce12805a7d02"
         },
-        "digest": "9f353fea93965b9b2e146c91b04919e7683634b8132a3e30bd12020298022835",
+        "digest": "f785523842c11779d034d25622bb7502416fea53b683a9f7c584ce12805a7d02",
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "commitSequence": "3",
@@ -797,13 +830,15 @@
     {
       "table": "research_clarification_requests",
       "key": {
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
         "questionId": "goal-scope",
         "questionVersion": 1
       },
-      "chargeBytes": 1108,
-      "wrapperBytes": 1308
+      "chargeBytes": 1116,
+      "wrapperBytes": 1316
     },
     {
       "table": "research_run_controls",
@@ -844,19 +879,21 @@
         "preparationRevision": 4,
         "inputRevision": 4
       },
-      "chargeBytes": 2188,
-      "wrapperBytes": 2388
+      "chargeBytes": 2836,
+      "wrapperBytes": 3036
     },
     {
       "table": "research_clarification_requests",
       "key": {
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
         "questionId": "goal-scope",
         "questionVersion": 2
       },
-      "chargeBytes": 1128,
-      "wrapperBytes": 1328
+      "chargeBytes": 1116,
+      "wrapperBytes": 1316
     }
   ]
 }
