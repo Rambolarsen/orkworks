@@ -40,6 +40,7 @@ for(const [name,change,reseal] of [
  ['current-input pointer stays at input-2',p=>{p.answer.runAfter.value.body.currentInput={...p.assessment.runAfter.value.body.currentInput}},'answer'],
  ['prepared input body exceeds 32 KiB',p=>{p.assessment.manifest.value.body.records.push({kind:'research-scope',reference:{task:{workspaceId:'w',runId:'r',planId:'p',planRevision:1,taskId:'t'},scopeDigest:'0'.repeat(64)}})},null],
  ['flat family key loses the run member',p=>{const k=p.assessment.request.key;const flat={...k.run,questionId:k.questionId,questionVersion:k.questionVersion};p.assessment.request.key=flat;'flat'},null],
+ ['answer manifest drifts a retained record',p=>{const m=p.answer.manifest.value.body;m.records.find(r=>r.kind==='configuration').reference.configurationDigest='0'.repeat(64);delete m.inputDigest;m.inputDigest=domain('orkworks.preparation-input.v1',m)},'answer'],
 ]) {test(`mutation ${name} is rejected`,()=>{
  const p=packet();change(p);
  if(reseal==='assessment'){const m=p.assessment.manifest.value.body;delete m.inputDigest;m.inputDigest=domain('orkworks.preparation-input.v1',m);}

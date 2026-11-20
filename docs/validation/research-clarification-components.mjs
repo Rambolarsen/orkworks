@@ -93,6 +93,8 @@ export function validateResearchClarification(p){
  assert.deepEqual(answerRow.key.run,runKey(),'run member in the answer key');
  assert.deepEqual(answerRow.value.request,{run:{...runKey()},questionId:'goal-scope',questionVersion:1,requestDigest:request.requestDigest},'request ref');
  assert.deepEqual(answerRow.value.answer,clone(answer),'persisted answer equals the validated body');
+ assert.deepEqual(p.answer.manifest.value.body.records.filter(r=>r.kind!=='clarification-answer'),
+  clone(manifest.records),'answer-induced manifest preserves the answered manifest records unchanged');
  assert.equal(answerRow.value.answer.answerDigest,answerRow.value.receipt.answerDigest,'persisted digest matches the receipt');
  assert.equal(answerRow.value.receipt.inputRevision,3,'newly published input revision');
  assert(size(answerRow.value.receipt)<=4096,'receipt bound');
