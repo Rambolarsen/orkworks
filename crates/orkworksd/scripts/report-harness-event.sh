@@ -243,7 +243,63 @@ print("%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), session_id, s
     fi
     session_source="copilot_hook"
     ;;
+  *:antigravity)
+    # Antigravity hook payloads are camelCase: `conversationId` and `cwd` on
+    # every event, `invocationNum` on PreInvocation and `fullyIdle` on Stop
+    # (https://antigravity.google/docs/hooks.md). One parse, 0x1F-delimited
+    # for the same empty-field reason as the Claude branch above.
+    antigravity_fields="$(
+      printf '%s' "$payload" |
+        python3 -c 'import json,sys
+try: data=json.load(sys.stdin)
+except Exception: data={}
+data=data if isinstance(data,dict) else {}
+safe=lambda value: value if isinstance(value,str) and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value) else ""
+invocation=data.get("invocationNum")
+print("%s\x1f%s\x1f%s\x1f%s" % (safe(data.get("cwd")), safe(data.get("conversationId")).strip(), "yes" if invocation == 0 and not isinstance(invocation,bool) else "no", "yes" if data.get("fullyIdle") is True else "no"))' 2>/dev/null
+    )" || true
+    IFS=$'\x1f' read -r reported_cwd harness_session_id antigravity_first_invocation antigravity_fully_idle <<< "$antigravity_fields"
+    session_source="antigravity_hook"
+    ;;
 esac
+
+# Antigravity reports identity once per conversation (SessionStart, or the
+# first PreInvocation if that report was lost) and attention from PreInvocation
+# (working, every model call) and a fully idle Stop. Its hooks may print JSON
+# that steers the agent, so the reporter prints nothing. Needs-You is not a
+# hook signal, so no waiting status is ever reported here.
+if [ "$session_source" = "antigravity_hook" ]; then
+  if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ]; then
+    antigravity_curl_config=""
+    if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
+      antigravity_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\nheader = \"Content-Type: application/json\"\n"
+    fi
+    antigravity_post() {
+      printf '%b' "$antigravity_curl_config" |
+        curl --config - -sS --max-time 5 --connect-timeout 2 -X POST \
+          "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/$1" \
+          -H "Content-Type: application/json" -d "$2" --output /dev/null >/dev/null || true
+    }
+    if [ -n "$harness_session_id" ] && { [ "$event" = "SessionStart" ] || { [ "$event" = "PreInvocation" ] && [ "$antigravity_first_invocation" = "yes" ]; }; }; then
+      antigravity_post harness-session "$(python3 -c 'import json,sys; data={"harnessSessionId":sys.argv[1],"source":"antigravity_hook","confidence":0.98}
+if sys.argv[2]: data["cwd"]=sys.argv[2]
+print(json.dumps(data,separators=(",",":")))' "$harness_session_id" "$reported_cwd")"
+    fi
+    antigravity_status=""
+    case "$event" in
+      PreInvocation) antigravity_status="working" ;;
+      Stop) [ "$antigravity_fully_idle" = "yes" ] && antigravity_status="idle" ;;
+    esac
+    if [ -n "$antigravity_status" ] && [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
+      antigravity_post attention "$(python3 -c 'import json,sys
+from datetime import datetime, timezone
+data={"status":sys.argv[1],"source":"antigravity_hook","event":sys.argv[2],"observedAt":datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")}
+if sys.argv[3]: data["cwd"]=sys.argv[3]
+print(json.dumps(data,separators=(",",":")))' "$antigravity_status" "$event" "$reported_cwd")"
+    fi
+  fi
+  exit 0
+fi
 
 # Native Pre/Post are correlation only. Suppress a permission HTTP wait only
 # after a complete, bounded scalar envelope has been atomically published.

@@ -363,6 +363,34 @@ fn opencode_event_allows_status(event: &str, status: &str) -> bool {
     }
 }
 
+/// Antigravity hooks report only turn boundaries: every model call is
+/// `PreInvocation` (working) and the turn ends at one fully idle `Stop`.
+/// Session identity, tool events and `PostInvocation` never carry attention,
+/// and Needs You is not a hook signal.
+fn antigravity_event_allows_status(event: &str, status: &str) -> bool {
+    matches!(
+        (event, status),
+        ("PreInvocation", "working") | ("Stop", "idle")
+    )
+}
+
+/// The harness whose live session may use a source's report-token authority.
+fn token_hook_harness(source: Option<&str>) -> Option<&'static str> {
+    match source {
+        Some("opencode_hook") => Some("opencode"),
+        Some("antigravity_hook") => Some("antigravity"),
+        _ => None,
+    }
+}
+
+fn hook_event_allows_status(harness: &str, event: &str, status: &str) -> bool {
+    match harness {
+        "opencode" => opencode_event_allows_status(event, status),
+        "antigravity" => antigravity_event_allows_status(event, status),
+        _ => false,
+    }
+}
+
 pub(crate) struct DebugAttentionSignal {
     pub(crate) attention: String,
     pub(crate) message: Option<String>,
@@ -396,7 +424,11 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) debug_hint_mutation: Option<DebugHintMutation>,
 }
 
+/// Report-token authority for hook sources whose harness has no installed
+/// prompt contract (OpenCode and Antigravity). `harness` is the one live
+/// session harness the report was validated against.
 pub(crate) struct OpenCodeReportAuthority {
+    harness: &'static str,
     token: String,
     runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
 }
@@ -4957,7 +4989,7 @@ impl SessionApplication {
         let Some(source) = signal.source.as_deref() else {
             return Ok(false);
         };
-        if source == "opencode_hook" {
+        if token_hook_harness(Some(source)).is_some() {
             return Ok(false);
         }
         if source != "codex_hook" {
@@ -5999,8 +6031,8 @@ fn reject_mismatched_opencode_authority(
         handle.runtime.matches_identity(&authority.runtime_identity)
             && handle.info.lifecycle == "alive"
             && handle.info.lifecycle_phase == "active"
-            && (handle.info.harness_id.as_deref() == Some("opencode")
-                || handle.info.harness.as_deref() == Some("opencode"))
+            && (handle.info.harness_id.as_deref() == Some(authority.harness)
+                || handle.info.harness.as_deref() == Some(authority.harness))
     });
     if !same_live_runtime
         || !crate::runtime::terminal_runtime::verify_workflow_report_token(
@@ -6227,9 +6259,9 @@ fn opencode_report_authority(
     id: &str,
     signal: &AttentionSignal,
 ) -> Result<Option<OpenCodeReportAuthority>, SessionError> {
-    if signal.source.as_deref() != Some("opencode_hook") {
+    let Some(harness) = token_hook_harness(signal.source.as_deref()) else {
         return Ok(None);
-    }
+    };
     let token = signal
         .report_token
         .as_deref()
@@ -6246,8 +6278,8 @@ fn opencode_report_authority(
         .filter(|handle| {
             handle.info.lifecycle == "alive"
                 && handle.info.lifecycle_phase == "active"
-                && (handle.info.harness_id.as_deref() == Some("opencode")
-                    || handle.info.harness.as_deref() == Some("opencode"))
+                && (handle.info.harness_id.as_deref() == Some(harness)
+                    || handle.info.harness.as_deref() == Some(harness))
         })
         .map(|handle| handle.runtime.identity())
         .ok_or(SessionError::EmptyBadRequest)?;
@@ -6255,18 +6287,19 @@ fn opencode_report_authority(
         .event
         .as_deref()
         .ok_or(SessionError::EmptyBadRequest)?;
-    if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status) {
+    if signal.observed_at.is_none() || !hook_event_allows_status(harness, event, &signal.status) {
         return Err(SessionError::EmptyBadRequest);
     }
     Ok(Some(OpenCodeReportAuthority {
+        harness,
         token: token.to_owned(),
         runtime_identity,
     }))
 }
 
-/// Whether the source identifies an authority-checked opencode hook.
+/// Whether the source identifies a report-token-checked hook (OpenCode or Antigravity).
 fn opencode_hook_by_source(source: &Option<String>) -> bool {
-    source.as_deref() == Some("opencode_hook")
+    token_hook_harness(source.as_deref()).is_some()
 }
 
 /// Accepted attention merges refresh the reported working directory and drop
@@ -9090,6 +9123,7 @@ mod tests {
                 require_alive: true,
                 activate_work_hook: true,
                 opencode_authority: Some(OpenCodeReportAuthority {
+                    harness: "opencode",
                     token: "opencode-test-token".into(),
                     runtime_identity,
                 }),
@@ -9149,6 +9183,7 @@ mod tests {
                     require_alive: true,
                     activate_work_hook: true,
                     opencode_authority: Some(OpenCodeReportAuthority {
+                        harness: "opencode",
                         token: "opencode-test-token".into(),
                         runtime_identity: original_identity,
                     }),
@@ -9374,6 +9409,217 @@ mod tests {
         assert!(!opencode_event_allows_status("session.idle", "idle"));
         assert!(!opencode_event_allows_status("session.status", "working"));
         assert!(!opencode_event_allows_status("session.deleted", "idle"));
+    }
+
+    fn antigravity_attention_state(
+        root: &std::path::Path,
+        id: &str,
+        harness: &str,
+    ) -> Arc<AppState> {
+        let state = crate::test_support::test_app_state_with_workspace(root);
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Antigravity",
+            root.display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = harness.into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root);
+        handle.info.harness_id = Some(harness.into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "antigravity-test-token".into(),
+        );
+        state
+    }
+
+    fn antigravity_attention_signal(event: &str, status: &str) -> AttentionSignal {
+        AttentionSignal {
+            status: status.into(),
+            event: Some(event.into()),
+            source: Some("antigravity_hook".into()),
+            report_token: Some("antigravity-test-token".into()),
+            observed_at: Some("2026-11-20T12:00:00.123456Z".into()),
+            message: None,
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            cwd: None,
+            hook_fingerprint: None,
+        }
+    }
+
+    fn stored_observed_status(state: &AppState, id: &str) -> Option<String> {
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .observed_status
+    }
+
+    #[tokio::test]
+    async fn antigravity_hook_reports_work_then_idle_and_takes_attention_authority() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "antigravity-turn";
+        let state = antigravity_attention_state(root.path(), id, "antigravity");
+        let application = SessionApplication::new(state.clone());
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+
+        application
+            .report_attention(id, antigravity_attention_signal("PreInvocation", "working"))
+            .await
+            .unwrap();
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        assert_eq!(
+            stored_observed_status(&state, id).as_deref(),
+            Some("working")
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.attention_source(), "agent");
+
+        // Hook receipts are ordered by `observedAt`; an equal stamp is stale.
+        let mut stop = antigravity_attention_signal("Stop", "idle");
+        stop.observed_at = Some("2026-11-20T12:00:01.123456Z".into());
+        application.report_attention(id, stop).await.unwrap();
+        assert_eq!(stored_observed_status(&state, id).as_deref(), Some("idle"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
+    }
+
+    #[test]
+    fn antigravity_event_matrix_is_exact_and_not_shared_with_opencode() {
+        for (event, allowed) in [("PreInvocation", "working"), ("Stop", "idle")] {
+            for status in ["idle", "working", "waiting_for_input", "blocked"] {
+                assert_eq!(
+                    hook_event_allows_status("antigravity", event, status),
+                    status == allowed,
+                    "{event}/{status}"
+                );
+                assert!(
+                    !hook_event_allows_status("opencode", event, status),
+                    "{event}/{status}"
+                );
+            }
+        }
+        // Session identity and tool/post events never carry attention: Needs
+        // You is not a hook signal, and PreToolUse output steers permissions.
+        for event in [
+            "SessionStart",
+            "PostInvocation",
+            "PreToolUse",
+            "PostToolUse",
+        ] {
+            for status in ["idle", "working", "waiting_for_input"] {
+                assert!(
+                    !hook_event_allows_status("antigravity", event, status),
+                    "{event}/{status}"
+                );
+            }
+        }
+        assert!(!hook_event_allows_status(
+            "antigravity",
+            "session.step.started",
+            "working"
+        ));
+        assert!(hook_event_allows_status(
+            "opencode",
+            "session.step.started",
+            "working"
+        ));
+    }
+
+    #[tokio::test]
+    async fn antigravity_hook_rejects_unverified_or_cross_harness_reports_without_mutation() {
+        for case in [
+            "missing_token",
+            "wrong_token",
+            "other_session_token",
+            "opencode_session",
+            "ended",
+            "missing_observed_at",
+            "malformed_observed_at",
+            "invalid_status_for_event",
+            "unknown_event",
+            "opencode_source_on_antigravity_session",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "antigravity-invalid-report";
+            let harness = if case == "opencode_session" {
+                "opencode"
+            } else {
+                "antigravity"
+            };
+            let state = antigravity_attention_state(root.path(), id, harness);
+            let mut signal = antigravity_attention_signal("PreInvocation", "working");
+            match case {
+                "missing_token" => signal.report_token = None,
+                "wrong_token" => signal.report_token = Some("wrong".into()),
+                "other_session_token" => {
+                    crate::runtime::terminal_runtime::set_workflow_report_token(
+                        "other-antigravity-session",
+                        "other-token".into(),
+                    );
+                    signal.report_token = Some("other-token".into());
+                }
+                "opencode_session" => {}
+                "ended" => {
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get_mut(id)
+                        .unwrap()
+                        .info
+                        .lifecycle = "ended".into();
+                }
+                "missing_observed_at" => signal.observed_at = None,
+                "malformed_observed_at" => signal.observed_at = Some("invalid".into()),
+                "invalid_status_for_event" => signal.status = "idle".into(),
+                "unknown_event" => signal.event = Some("PreToolUse".into()),
+                "opencode_source_on_antigravity_session" => {
+                    signal = opencode_attention_signal("session.step.started", "working");
+                    signal.report_token = Some("antigravity-test-token".into());
+                }
+                _ => unreachable!(),
+            }
+            let result = SessionApplication::new(state.clone())
+                .report_attention(id, signal)
+                .await;
+            assert_eq!(result, Err(SessionError::EmptyBadRequest), "{case}");
+            assert_eq!(stored_observed_status(&state, id), None, "{case}");
+            let sessions = state.sessions.lock().unwrap();
+            assert!(!sessions[id].active_work_hook, "{case}");
+            assert_eq!(sessions[id].info.observed_status, None, "{case}");
+        }
     }
 
     fn usage_limit_test_state(id: &str) -> Arc<AppState> {

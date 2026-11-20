@@ -587,3 +587,67 @@ if [ -e "$aider_requests" ]; then
   echo 'Aider completion callbacks must not post attention or identity' >&2
   exit 1
 fi
+
+# Antigravity hooks (docs: https://antigravity.google/docs/hooks.md, live agy
+# fixture recorded 2026-11-20) carry `conversationId` and `cwd` on every event.
+# Identity is reported once per conversation start; PreInvocation reports
+# working on every model call and only a fully idle Stop reports idle.
+run_antigravity() {
+  local name="$1" event="$2" payload="$3" stdout_file="$temp_dir/antigravity-$1-stdout"
+  rm -f "$temp_dir/antigravity-$name-bodies" "$temp_dir/antigravity-$name-configs"
+  printf '%s' "$payload" |
+    TEST_HTTP_STATUS=200 \
+    TEST_CURL_BODIES_FILE="$temp_dir/antigravity-$name-bodies" \
+    TEST_CURL_CONFIGS_FILE="$temp_dir/antigravity-$name-configs" \
+    run_reporter "$event" antigravity > "$stdout_file"
+  if [ -s "$stdout_file" ]; then
+    printf 'Antigravity reporter must not write hook output for %s, got: %s\n' "$event" "$(cat "$stdout_file")" >&2
+    exit 1
+  fi
+}
+
+check_antigravity() {
+  python3 - "$temp_dir/antigravity-$1-bodies" "$temp_dir/antigravity-$1-configs" "$2" <<'PY'
+import json, os, sys
+bodies_path, configs_path, expected = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+bodies = [json.loads(line) for line in open(bodies_path).read().splitlines() if line] if os.path.exists(bodies_path) else []
+observed = []
+for body in bodies:
+    body = dict(body)
+    if "observedAt" in body:
+        assert isinstance(body.pop("observedAt"), str) and body.get("status"), body
+    observed.append(body)
+assert observed == expected, (observed, expected)
+if expected:
+    configs = open(configs_path).read()
+    assert configs.count("Authorization: Bearer report-token-secret") == len(expected), configs
+PY
+}
+
+conversation='{"conversationId":"agy-conversation-1","cwd":"/work/repo","hookEventName":"SessionStart"}'
+run_antigravity start SessionStart "$conversation"
+check_antigravity start '[{"harnessSessionId":"agy-conversation-1","source":"antigravity_hook","confidence":0.98,"cwd":"/work/repo"}]'
+
+run_antigravity first-invocation PreInvocation '{"conversationId":"agy-conversation-1","cwd":"/work/repo","invocationNum":0}'
+check_antigravity first-invocation '[{"harnessSessionId":"agy-conversation-1","source":"antigravity_hook","confidence":0.98,"cwd":"/work/repo"},{"status":"working","source":"antigravity_hook","event":"PreInvocation","cwd":"/work/repo"}]'
+
+run_antigravity later-invocation PreInvocation '{"conversationId":"agy-conversation-1","cwd":"/work/repo","invocationNum":1}'
+check_antigravity later-invocation '[{"status":"working","source":"antigravity_hook","event":"PreInvocation","cwd":"/work/repo"}]'
+
+run_antigravity busy-stop Stop '{"conversationId":"agy-conversation-1","cwd":"/work/repo","fullyIdle":false,"terminationReason":"TOOL_CALL"}'
+check_antigravity busy-stop '[]'
+
+run_antigravity idle-stop Stop '{"conversationId":"agy-conversation-1","cwd":"/work/repo","fullyIdle":true,"terminationReason":"NO_TOOL_CALL"}'
+check_antigravity idle-stop '[{"status":"idle","source":"antigravity_hook","event":"Stop","cwd":"/work/repo"}]'
+
+run_antigravity unsafe-id SessionStart '{"conversationId":"agy\u001fforged","cwd":"/work/repo"}'
+check_antigravity unsafe-id '[]'
+
+run_antigravity numeric-id SessionStart '{"conversationId":17,"cwd":"/work/repo"}'
+check_antigravity numeric-id '[]'
+
+run_antigravity missing-id PreInvocation '{"cwd":"/work/repo","invocationNum":0}'
+check_antigravity missing-id '[{"status":"working","source":"antigravity_hook","event":"PreInvocation","cwd":"/work/repo"}]'
+
+run_antigravity unknown-event PostInvocation "$conversation"
+check_antigravity unknown-event '[]'

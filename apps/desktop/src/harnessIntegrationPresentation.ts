@@ -9,10 +9,12 @@ export type { ActiveHarnessIntegrationResult, ActiveHarnessSaveResult, Integrati
 // the integration status instead of duplicating the current integration
 // catalog here. Codex's SessionStart remains identity-only, while its
 // turn-event bundle reports deterministic attention; OpenCode's plugin also
-// reports attention events (idle/permission/busy, issue #104).
+// reports attention events (idle/permission/busy, issue #104); Antigravity's
+// hooks report working/idle turn boundaries (issue #1937).
 export function isAttentionSignal(harnessId: string): boolean {
   switch (harnessId) {
     case "aider":
+    case "antigravity":
     case "claude-code":
     case "codex":
     case "copilot":

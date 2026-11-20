@@ -98,7 +98,7 @@ const MARKER: &str = "orkworks:harness-integration:v2:codex";
 const MARKER_PREFIX: &str = "orkworks:harness-integration:";
 const MARKER_FLAGS: [&str; 2] = ["--marker '", "-Marker '"];
 
-fn extract_marker(command: &str) -> Option<&str> {
+pub(super) fn extract_marker(command: &str) -> Option<&str> {
     for flag in MARKER_FLAGS {
         let Some(pos) = command.find(flag) else {
             continue;
