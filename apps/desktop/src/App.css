@@ -1369,8 +1369,13 @@ html, body, #root {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* Live wrappers are absolutely positioned and inset by this value;
+     content-box keeps FitAddon (which reads the parent's computed size)
+     from counting padding/border as usable terminal space. */
+  --terminal-padding: 14px;
+  box-sizing: content-box;
   margin: var(--space-2);
-  padding: 14px;
+  padding: var(--terminal-padding);
   position: relative;
   background: var(--term-bg);
   border: 1px solid var(--border-subtle);

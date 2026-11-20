@@ -87,7 +87,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   const wrapper = document.createElement("div");
   wrapper.dataset.sessionId = id;
-  wrapper.style.cssText = "position:absolute;inset:0;visibility:hidden;";
+  wrapper.style.cssText = "position:absolute;inset:var(--terminal-padding, 0);visibility:hidden;";
 
   const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
   const ws = new WebSocket(wsUrl);
