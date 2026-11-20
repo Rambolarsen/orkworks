@@ -1903,7 +1903,20 @@ if (process.versions.electron) {
             win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
             win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
             await waitFor('document.activeElement===document.querySelector("[data-actions-detail] button")');
+            for (const theme of ['dark','light']) {
+              await evaluate(`document.documentElement.dataset.theme=${javascriptLiteral(theme)};new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+              const cues=await evaluate(`(()=>{
+                const selected=document.querySelector('[data-action-key="session:coding"]');
+                const peer=document.querySelector('[data-action-key="session:extra-0"]');
+                const a=getComputedStyle(selected),b=getComputedStyle(peer);
+                return {pressed:selected.getAttribute('aria-pressed'),selectedFill:a.backgroundColor,peerFill:b.backgroundColor,selectedBorder:a.borderColor,peerBorder:b.borderColor};
+              })()`);
+              assert.equal(cues.pressed,'true','inspection remains selected when keyboard focus moves to Open');
+              assert.notEqual(cues.selectedFill,cues.peerFill,'inspected row retains a distinct fill without keyboard focus');
+              assert.equal(cues.selectedBorder,cues.peerBorder,'inspection retains the same neutral border as other action rows');
+            }
           }
+          await evaluate('delete document.documentElement.dataset.theme');
           assert.equal(await evaluate('fixture.selections'),0,'long-list inspection and keyboard navigation do not select a session');
           await evaluate('fixture.setExtraActionCount(0)');
           await waitFor('document.querySelectorAll("[data-action-key]").length===2');
