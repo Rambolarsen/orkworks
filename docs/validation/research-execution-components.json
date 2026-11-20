@@ -709,6 +709,79 @@
         }
       }
     },
+    "runAfter": {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "profile": "single-task-retained-file-research-execution-v1",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "parentSessionId": "parent-1",
+          "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+          "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+          "runVersion": 52,
+          "state": "awaiting_execution_approval",
+          "currentInput": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "preparationRevision": 3,
+            "inputRevision": 3,
+            "inputDigest": "dc1c364854d18e710b5ef891ce103003fa65e2ba66da4b10502ce07d5afed17b"
+          },
+          "planReferences": [
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+            },
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
+            }
+          ],
+          "currentPlan": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
+          },
+          "pendingPlan": null,
+          "parentRuntime": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "blockers": [],
+          "stageContinueRequired": false,
+          "pendingClarification": null,
+          "pauseReason": null,
+          "resumeTarget": "awaiting_execution_approval"
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "f844c63356831b7004b1d63ece72729fa562ad5bee48fb7ce8134f4bec1b763a"
+        }
+      }
+    },
     "grantLabels": {
       "grantExisted": "supplied",
       "grantRevokedAtCompletion": "supplied",
@@ -1199,6 +1272,15 @@
       },
       "chargeBytes": 1168,
       "wrapperBytes": 1368
+    },
+    {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 2365,
+      "wrapperBytes": 2565
     },
     {
       "table": "research_lifecycle_records",

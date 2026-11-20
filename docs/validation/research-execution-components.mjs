@@ -74,6 +74,7 @@ export function validateResearchExecution(p){
  const sourceForHash=clone(source);delete sourceForHash.requestDigest;
  assert.equal(source.requestDigest,digest('orkworks.research-execution-plan-request.v1',approvalRequest),'request digest excludes only requestDigest');
  const approvalRow=p.approval.row;
+ assert.deepEqual(p.proposal.objectRow.value.body,clone(proposal),'retained proposal body equals the validated source');
  exact(approvalRow.value,'schemaVersion body digest receipt lastCommit','closed approval family value');
  assert.deepEqual(approvalRow.value.body,clone(source),'retained approval body equals the validated source');
  assert.equal(approvalRow.value.digest,digest('orkworks.research-execution-plan-approval.v1',clone(approvalRow.value.body)),'approval digest over the retained body');
@@ -83,6 +84,10 @@ export function validateResearchExecution(p){
  assert.equal(p.approval.planAfter.value.body.status,'active','approval activates the plan control');
  assert.deepEqual(p.approval.grantLabels,{grantExisted:'supplied',grantRevokedAtCompletion:'supplied',grantFencing:'supplied',
   expected:'label-assertions-only/never-serialized/never-restored'},'grant label assertions');
+ const approvalRunAfter=p.approval.runAfter.value.body;
+ assert.deepEqual(approvalRunAfter.currentPlan,approvalRequest.plan,'approval binds currentPlan to the execution ref');
+ assert.equal(approvalRunAfter.pendingPlan,null,'approval clears pendingPlan');
+ assert.equal(approvalRunAfter.runVersion,52,'approval advances runVersion once');
  assert.equal(p.approval.preconditions.resumedParent,'supplied-eligible','new approvals need a resumed eligible parent');
  // rejection: lifecycle machinery, cancelled proposed plan, pendingPlan cleared, pause retained
  const rejectRequest=p.rejection.request;
@@ -110,7 +115,7 @@ export function validateResearchExecution(p){
  // effect labels
  same(p.effects.map(x=>x.id),['publication','gated-state','approval','rejection','invalidation','denials'],'effect label set');
  const rows=[p.proposal.objectRow,p.publicationEffects.runAfter,p.publicationEffects.planControl,p.publicationEffects.taskControl,
-  p.approval.row,p.approval.planAfter,p.rejection.row,p.rejection.runAfter,p.rejection.planAfter];
+  p.approval.row,p.approval.planAfter,p.approval.runAfter,p.rejection.row,p.rejection.runAfter,p.rejection.planAfter];
  const measurements=rows.map(r=>{validateExecutionWidths(r,size(r));return {table:r.table,key:r.key,...measureExecutionRow(r)};});
  same(p.measurements,measurements,'exact key plus committed occurrence projection');return measurements;}
 // All facts below are supplied assertions. These functions do not establish
@@ -124,10 +129,14 @@ export function checkProposalBinding(proposal,facts){
  assert.equal(facts.unansweredClarification,null,'no current unanswered clarification');
  assert.equal(facts.activeGrant,false,'one-grant-at-a-time guard');
  return 'published';}
-export function checkExecutionApproval(f){
+export function checkExecutionApproval(f,proposal){
  assert.equal(f.authority,'supplied-current-Main','Main authority and shown context before lookup');
  assert.equal(f.stageContinueRequired,false,'stage fence makes approval unavailable');
  assert.notEqual(f.approver,'run-bearer','the run bearer alone never approves');
  assert.equal(f.resumedParent,'supplied-eligible','actually resumed eligible bound parent');
  assert.equal(f.profileQualification,'supplied','labelled capability fact, no fallback');
+ assert.deepEqual(proposal.researchBinding.summary,f.currentSummary,'stale summary denies approval');
+ assert.deepEqual(proposal.researchBinding.completedPlan,f.completedResearchPlan,'stale completed plan denies approval');
+ assert.deepEqual(proposal.researchBinding.input,f.currentInput,'stale input denies approval');
+ assert.equal(f.unansweredClarification,null,'no current unanswered clarification');
  return f.grantLabels;}

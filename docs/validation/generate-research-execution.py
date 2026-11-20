@@ -98,6 +98,9 @@ def packet():
         dict(schemaVersion=1,plan=execution_plan_ref,planVersion=2,status='active',latestApproval=dict(plan=execution_plan_ref,
             approvalId='execution-approval-1',approvalDigest=approval_digest),
             task=execution_task,replaces=None),'execution-approval',2)
+    approval_run_after=row('research_run_controls',run,run_body(52,'awaiting_execution_approval',
+        currentPlan=execution_plan_ref,pendingPlan=None,planReferences=[plan,execution_plan_ref],
+        resumeTarget='awaiting_execution_approval'),'execution-approval',2)
     # rejection: lifecycle decision with cancelled proposed plan
     reject_request=dict(schemaVersion=1,kind='reject-execution-proposal',run=run,expectedRunVersion=51,
         input=clone(current_input),decisionId='reject-execution-1',proposal=execution_plan_ref,
@@ -124,7 +127,7 @@ def packet():
         dict(schemaVersion=1,plan=execution_plan_ref,planVersion=2,status='cancelled',latestApproval=None,
             task=execution_task,replaces=None),'reject-execution',2)
     reject_paused_case=dict(expected='captured-paused-prestate-preserved-through-rejection/same-reason-and-target')
-    rows=[proposal_row,run_row,plan_control,task_control,approval_row,plan_after,reject,reject_run_after,reject_plan_after]
+    rows=[proposal_row,run_row,plan_control,task_control,approval_row,plan_after,approval_run_after,reject,reject_run_after,reject_plan_after]
     return dict(prefixSha256=sha(prefix_raw),completionSha256=sha(completion_raw),assumptions=[
         'separate decoded examples, not a store or legal event history',
         'current Main/parent authority, epoch, owner, lease, health, rate and shown context supplied, never authenticated here',
@@ -150,7 +153,7 @@ def packet():
             paused=dict(state='paused',pauseReason='sidecar_replaced',resumeTarget='assessing',
                 expected='resumeTarget-assessing-while-paused-before-this-state')),
         approval=dict(request=approval_request,source=approval_source,row=approval_row,receipt=approval_receipt,
-            planAfter=plan_after,
+            planAfter=plan_after,runAfter=approval_run_after,
             grantLabels=dict(grantExisted='supplied',grantRevokedAtCompletion='supplied',grantFencing='supplied',
                 expected='label-assertions-only/never-serialized/never-restored'),
             preconditions=dict(resumedParent='supplied-eligible',settledReservations='supplied-settled',

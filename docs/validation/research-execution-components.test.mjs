@@ -36,6 +36,9 @@ for(const [name,change,reseal] of [
  ['task control keyed under the old plan',p=>{p.publicationEffects.taskControl.key={...p.publicationEffects.taskControl.key,planId:'prefix-plan'}},null],
  ['binding keeps the research plan identity',p=>{p.proposal.source.parentPlanBinding.planId='prefix-plan'},null],
  ['rejection captures a non-paused prestate',p=>{p.rejection.row.value.body.readSet.run.value.body.state='awaiting_execution_approval';p.rejection.row.value.body.readSet.run.value.body.pauseReason=null},null],
+ ['retained proposal body drifts',p=>{p.proposal.objectRow.value.body={schemaVersion:1,kind:'not-an-execution-plan'}},null],
+ ['approval outcome binds nothing',p=>{p.approval.runAfter.value.body.currentPlan=null},'approval'],
+ ['approval outcome keeps pendingPlan',p=>{p.approval.runAfter.value.body.pendingPlan=p.publicationEffects.planControl.value.body.plan},'approval'],
  ['rejection keeps pendingPlan bound',p=>{p.rejection.runAfter.value.body.pendingPlan=p.publicationEffects.planControl.value.body.plan},'run'],
  ['run bearer approves',p=>{p.approval.preconditions.resumedParent='none';},null],
 ]) {test(`mutation ${name} is rejected`,()=>{
@@ -71,14 +74,21 @@ test('supplied-fact oracles separate publication guards from approval authority'
   grantLabels:p.approval.grantLabels}),/stage fence/);
  const labels=checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
   resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:false,
-  grantLabels:p.approval.grantLabels});
+  currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:p.proposal.binding.input,unansweredClarification:null,grantLabels:p.approval.grantLabels},p.proposal.source);
  assert.equal(labels.expected,'label-assertions-only/never-serialized/never-restored');
  assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'run-bearer',
   resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:false,
-  grantLabels:p.approval.grantLabels}),/never approves/);
+  currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:p.proposal.binding.input,unansweredClarification:null},p.proposal.source),/never approves/);
  assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
   resumedParent:'none',profileQualification:'supplied',stageContinueRequired:false,
-  grantLabels:p.approval.grantLabels}),/resumed eligible/);
+  currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:p.proposal.binding.input,unansweredClarification:null},p.proposal.source),/resumed eligible/);
+ assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
+  resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:false,
+  currentSummary:{summaryVersion:9},completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:p.proposal.binding.input,unansweredClarification:null},p.proposal.source),/stale summary denies approval/);
 });
 test('literal bounds and domains are pinned',()=>{
  const p=packet();
