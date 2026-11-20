@@ -93,14 +93,15 @@ Cancellation/shutdown finalize pending confirmation as unconfirmed and leave
 only exact-child reaping. This operationalizes the existing ownership decision
 and does not supersede its practical boundary, deadline or failure policy.
 
-## Proposed prepared-command extension — 2026-11-20
+## Amendment — 2026-11-20: prepare literal isolation before review capture
 
-Owner review is pending for the [ordinary-review isolation design](../superpowers/specs/2026-11-20-review-codex-isolation-design.md)
+The owner accepted the [ordinary-review isolation design](../superpowers/specs/2026-11-20-review-codex-isolation-design.md)
 and [bounded source-component plan](../superpowers/plans/2026-11-20-review-codex-isolation-components.md)
-tracked by #1941. The proposal resolves qualified direct isolation before pure
+tracked by #1941 on 2026-11-20 after reviewing #1946. The contract resolves qualified direct isolation before pure
 capture, then requires a future private prepared route to consume the exact
 frozen command without a second probe/argv rewrite. Manual new/exact-resume
 startup retains the accepted probe and older-CLI behavior. The bounded plan
 only separates the existing probe from pure rendering; it adds no prepared
-runtime consumer, native qualification or activation. The accepted decision
-above remains in force; this proposed extension is not an implemented exception.
+runtime consumer, native qualification or activation. The manual decision
+above remains in force; the future prepared consumer remains unimplemented and
+requires its independent source/native/admission qualification gates.

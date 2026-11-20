@@ -362,4 +362,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Ordinary-review catalog and integration leaves](2026-11-20-review-configuration-leaves-design.md) — Accepted logical stock-catalog source bytes, owned integration inventory and command/digest joins, with pure-capture and native qualification gates.
 
-- [Freeze ordinary-review Codex isolation before capture](2026-11-20-review-codex-isolation-design.md) — Proposed literal-command ordering and source-only separation, with native/capture/creator gates retained.
+- [Freeze ordinary-review Codex isolation before capture](2026-11-20-review-codex-isolation-design.md) — Accepted literal-command ordering and source-only separation, with native/capture/creator gates retained.

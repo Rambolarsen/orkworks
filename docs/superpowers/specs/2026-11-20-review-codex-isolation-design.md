@@ -1,19 +1,20 @@
 ---
 type: Design
 title: Freeze ordinary-review Codex isolation before capture
-description: Proposed pre-capture isolation decision and source-only probe/render separation, with native and prepared-creator gates retained.
+description: Accepted pre-capture isolation contract and bounded source probe/render separation, with native and prepared-creator gates retained.
 tags: [orkworks, review, codex, launch]
-status: draft
+status: stable
 ---
 
 # Freeze ordinary-review Codex isolation before capture
 
-**Proposed; owner approval of this design and the coupled bounded plan is pending.**
+**Owner accepted this isolation ordering, first-profile boundary and coupled bounded
+plan on 2026-11-20 with “keep going” after reviewing draft #1946.**
 Track [#1941](https://github.com/Rambolarsen/orkworks/issues/1941), a prerequisite
 of #68/#66/#1899 and #738/#741. Source base:
 `bc1c9d9475a07f87578bf3f7fba84e2fa4a022be`.
 The [source audit](../../validation/ordinary-review-codex-capture-audit.md)
-identified the late command mutation; this proposal resolves its intended
+identified the late command mutation; this contract resolves its intended
 ordering without claiming that the actual capture/creator owners exist.
 
 Reuse the accepted [prepared-input contract](2026-11-19-review-launch-input-design.md),
@@ -30,7 +31,7 @@ perform a native qualification run or implement the future evidence owner below.
 Resolve isolation **before** producing the integration leaf and final prepared
 command. Preview/status/Start must consume the same literal command; they never
 run a help probe, prepend a flag or choose a different runtime after inspection.
-The first proposed prepared Codex route is direct macOS arm64 with independently
+The first accepted prepared Codex route is direct macOS arm64 with independently
 qualified exact executable/version/model support for `--no-daemon`. No such role
 is currently qualified. Other platforms, wrappers, legacy no-option versions,
 resume and the owned native app-server route remain unavailable for this profile.
@@ -38,7 +39,7 @@ These restrictions do not narrow the existing manual launcher.
 
 | Alternative | Disposition |
 | --- | --- |
-| Pre-capture evidence plus frozen literal direct command | Proposed. Fits the existing complete-byte commitments; keeps slow effects outside read-only capture. |
+| Pre-capture evidence plus frozen literal direct command | Accepted. Fits the existing complete-byte commitments; keeps slow effects outside read-only capture. |
 | Symbolic argv or isolation decision deferred to Start | Reject for this slice. It changes the accepted literal preview/configuration promise and requires a separate reviewed contract. |
 | Keep a shared daemon or silently skip isolation | Reject. ADR 0072 records cross-session environment/capability reuse; stock presence is not an isolation guarantee. |
 | Probe from preview/status or renew on retry | Reject. Inspection is read-only; a process probe is an effect and cannot refresh the accepted preview lifetime. |
@@ -84,7 +85,7 @@ current ordering. No runtime caller may use this enum alone to skip the probe.
 
 ## Future source-owned evidence before pure capture
 
-This section is a proposed contract for the later capture producer, **outside the
+This section constrains the later capture producer, **outside the
 bounded implementation plan**. Missing actual owner/custody/native evidence keeps
 that producer unavailable; a synthetic token must never stand in for it.
 
@@ -167,7 +168,7 @@ boolean, parser enum or ordinary `CreateSessionCommand` cannot select it.
 The bounded plan does not add this route proof, bypass flag, alternate runtime
 branch, physical registry or Start. Ordinary callers continue through the current
 startup probe/native eligibility paths. Before the prepared runtime consumer is
-implemented, synchronize this proposed ADR extension and all source/capability/
+implemented, synchronize this accepted ADR extension and all source/capability/
 producer gates; approval of extraction alone cannot enable it.
 
 ## Verification, compatibility and recovery
@@ -192,3 +193,22 @@ single wrapper without changing metadata, installed hooks, active sessions or
 manual behavior. The future prepared consumer needs a separately qualified
 rollback/unknown-attempt policy before activation. Production-role eligibility
 remains empty.
+
+## Source-component execution evidence — 2026-11-20
+
+The bounded extraction is implemented in `runtime/codex_launch.rs`. The new
+pure tests first failed for the absent enum/classifier/renderer seams; the
+focused suite then passed 11/11 (two pure tests with 18 independent literal
+cases plus nine actual-wrapper synthetic tests). Existing failure, oversized,
+timeout and legacy-help tests now compare the complete unchanged command where
+applicable. Five existing runtime Codex regressions passed, including separate
+new/resume reporting environments and deletion during successful/failed probing.
+The full Rust unit suite passed 3,622/0fail/24ignored and its integration suites
+passed. Full repository verification passed: reporter 32, desktop 1,793/0fail/5skipped,
+ABI/type-check/build, docs 2,539/site build, and close-out checks. Final review
+evidence is recorded in #1946.
+
+No source outside this module consumes the new classification/render seams;
+`session_runtime.rs` and native eligibility remain unchanged. This is actual
+source refactoring with synthetic process evidence, not native Codex capability,
+complete executable custody, capture-owner qualification or prepared Start.

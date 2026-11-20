@@ -391,4 +391,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Offline ordinary-review configuration leaves](2026-11-20-review-configuration-leaf-components.md) — Accepted finite leaf bytes, expected resource-set coverage and prepared-input joins without actual capture or launch.
 
-- [Codex isolation probe and render components](2026-11-20-review-codex-isolation-components.md) — Proposed bounded Rust extraction preserving actual manual isolation and capability filtering.
+- [Codex isolation probe and render components](2026-11-20-review-codex-isolation-components.md) — Approved bounded Rust extraction preserving actual manual isolation and capability filtering.

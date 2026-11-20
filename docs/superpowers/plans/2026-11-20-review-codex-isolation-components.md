@@ -1,14 +1,15 @@
 ---
 type: Implementation Plan
 title: Codex isolation probe and render components
-description: Proposed bounded Rust extraction preserving manual startup while exposing deterministic isolation classification and argv rendering.
+description: Approved bounded Rust extraction preserving manual startup while exposing deterministic isolation classification and argv rendering.
 tags: [orkworks, review, codex, implementation]
-status: draft
+status: stable
 ---
 
 # Codex isolation probe and render components
 
-**Workflow: proposed; owner design/plan approval pending. No implementation yet.**
+**Workflow: owner accepted the concrete design and bounded plan on 2026-11-20
+with “keep going” after draft #1946. Source extraction is implemented; full verification passed and final review is pending.**
 
 Goal: separate the existing Codex isolation probe from deterministic command
 rendering so later pure capture can reuse the actual source behavior without
@@ -50,26 +51,26 @@ remain unimplemented, even after this plan passes.
 
 ## Task: extract the real source behavior and verify compatibility
 
-- [ ] Add failing pure classification/render tests in `codex_launch.rs`: split
+- [x] Add failing pure classification/render tests in `codex_launch.rs`: split
   streams with no trailing LF, ANSI-styled exact option, lookalike/substrings,
   no option, a flag before/after `--`, empty args/entries, preserving duplicate
   existing flags and argument order. Pin current lossy UTF-8 behavior explicitly;
   do not silently change it while extracting. Confirm failures reflect missing
   seams rather than fixture failures.
-- [ ] Extract the enum, pure classifier and renderer, then separate the current
+- [x] Extract the enum, pure classifier and renderer, then separate the current
   probe into `probe_isolation_advertisement`. Keep actual `isolate_session`
   calling it and applying the rendered args. Preserve the three-second shared
   budget, 64 KiB per stream with overflow denial, capability/environment filter,
   exact current errors/log messages, cwd, null stdin and native cleanup ownership.
-- [ ] Extend actual-wrapper synthetic tests for complete unchanged command on
+- [x] Extend actual-wrapper synthetic tests for complete unchanged command on
   unsuccessful/oversized/help timeout, and NotAdvertised preservation. Reuse
   existing environment-filter and owned probe fixtures; do not write user config
   or execute the installed Codex. Verify failed probe cannot reach rendering.
-- [ ] Run focused `runtime::codex_launch::tests` and relevant existing
+- [x] Run focused `runtime::codex_launch::tests` and relevant existing
   `session_runtime.rs` two-session environment-isolation/cancellation regressions;
   use exact discovered test names. Existing manual exact-resume args must retain
   the flag-before-args behavior. Investigate any failure before changing fixtures.
-- [ ] Run `bash scripts/verify-repo.sh` with repository Node/pnpm setup, then
+- [x] Run `bash scripts/verify-repo.sh` with repository Node/pnpm setup, then
   doc/worktree/whitespace close-out checks. No dependency or generated lockfile
   changes belong in this task. Update executed counts/limits in the existing
   design/PR evidence, with production gates still closed.
@@ -114,5 +115,5 @@ final/configuration equality, so no speculative leaf schema migration is needed.
 Total9/25 for the bounded extraction, not the future capture/creator architecture.
 Self-review: source obligations, signatures, compatibility, error recovery and
 check coverage reviewed once against the design; no prewritten implementation
-or second owner introduced. Disposition: **Ready for owner review; implementation
-blocked on concrete design/plan approval.**
+or second owner introduced. Disposition: **Approved for bounded source extraction;
+source extraction/focused checks complete; full verification passed; final review pending.**
