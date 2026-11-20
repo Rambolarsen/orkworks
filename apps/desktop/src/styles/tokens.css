@@ -174,19 +174,19 @@
   --focus-offset: 2px;
 
   /* ---- Terminal ANSI palette (xterm) — dark in BOTH themes ----------- */
-  --term-bg: #0c0d10;
-  --term-fg: #d4d8de;
+  --term-bg: #111319;
+  --term-fg: #c9ced6;
   --term-cursor: var(--ork-lime);
-  --term-selection: #243a52;
-  --term-black: #000000;
-  --term-red: #ff6b63;
-  --term-green: #66e08a;
-  --term-yellow: #f3d35a;
-  --term-blue: #66b3ff;
-  --term-magenta: #ff79c6;
-  --term-cyan: #8be9fd;
-  --term-white: #f1f1f0;
-  --term-bright-black: #686868;
+  --term-selection: rgba(130, 170, 240, 0.22);
+  --term-black: #2b303a;
+  --term-red: #e8837c;
+  --term-green: #8fcf9c;
+  --term-yellow: #e6cc82;
+  --term-blue: #82aaf0;
+  --term-magenta: #c99bea;
+  --term-cyan: #7fcfd6;
+  --term-white: #dfe3e8;
+  --term-bright-black: #6b7280;
 }
 
 /* ====================================================================

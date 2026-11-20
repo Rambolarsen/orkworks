@@ -1,28 +1,39 @@
-// "Phosphor" terminal palette — cool-graphite base with a lime cursor.
-// The base colors mirror the --term-* tokens in styles/tokens.css; the
-// bright* variants are derived here (xterm needs a full 16-color set, so
-// they reuse the normal hues with a brighter white). Terminals stay dark
-// in both app themes, so these values are theme-independent.
+// "Soft graphite" terminal palette — a lifted graphite base, muted ANSI hues
+// and the ork-lime cursor, so the terminal reads as part of the app rather
+// than a raw black box. The base colors mirror the --term-* tokens in
+// styles/tokens.css; bright* variants are slightly lighter takes on the same
+// hues. Terminals stay dark in both app themes, so these values are
+// theme-independent.
 export const orkworksTerminalTheme = {
-  background: "#0c0d10",
-  foreground: "#d4d8de",
+  background: "#111319",
+  foreground: "#c9ced6",
   cursor: "#9dc520",
-  cursorAccent: "#0c0d10",
-  selectionBackground: "#243a52",
-  black: "#000000",
-  red: "#ff6b63",
-  green: "#66e08a",
-  yellow: "#f3d35a",
-  blue: "#66b3ff",
-  magenta: "#ff79c6",
-  cyan: "#8be9fd",
-  white: "#f1f1f0",
-  brightBlack: "#686868",
-  brightRed: "#ff6b63",
-  brightGreen: "#66e08a",
-  brightYellow: "#f3d35a",
-  brightBlue: "#66b3ff",
-  brightMagenta: "#ff79c6",
-  brightCyan: "#8be9fd",
-  brightWhite: "#ffffff",
+  cursorAccent: "#111319",
+  selectionBackground: "rgba(130, 170, 240, 0.22)",
+  black: "#2b303a",
+  red: "#e8837c",
+  green: "#8fcf9c",
+  yellow: "#e6cc82",
+  blue: "#82aaf0",
+  magenta: "#c99bea",
+  cyan: "#7fcfd6",
+  white: "#dfe3e8",
+  brightBlack: "#6b7280",
+  brightRed: "#f09a94",
+  brightGreen: "#a6dcb1",
+  brightYellow: "#eed89d",
+  brightBlue: "#9cbcf4",
+  brightMagenta: "#d6b0f0",
+  brightCyan: "#9adbe0",
+  brightWhite: "#f4f6f8",
+} as const;
+
+// Shared look for live and historical terminals.
+export const orkworksTerminalOptions = {
+  theme: orkworksTerminalTheme,
+  fontFamily: "'SF Mono', 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', monospace",
+  fontSize: 13,
+  lineHeight: 1.4,
+  cursorStyle: "bar",
+  cursorWidth: 2,
 } as const;

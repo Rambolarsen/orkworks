@@ -3,7 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { installTerminalWheelHandler } from "./terminalWheel";
-import { orkworksTerminalTheme } from "./terminalTheme";
+import { orkworksTerminalOptions } from "./terminalTheme";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
 import { terminalLinkHandler } from "./terminalLinks";
@@ -54,10 +54,8 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   if (existing) return existing;
 
   const term = new Terminal({
+    ...orkworksTerminalOptions,
     cursorBlink: true,
-    fontSize: 14,
-    fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
-    theme: orkworksTerminalTheme,
     allowProposedApi: true,
     scrollback: 2000,
     scrollSensitivity: 0.1,
@@ -89,7 +87,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   const wrapper = document.createElement("div");
   wrapper.dataset.sessionId = id;
-  wrapper.style.cssText = "position:absolute;inset:0;visibility:hidden;";
+  wrapper.style.cssText = "position:absolute;inset:var(--terminal-padding, 0);visibility:hidden;";
 
   const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
   const ws = new WebSocket(wsUrl);
