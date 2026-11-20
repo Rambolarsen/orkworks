@@ -3178,6 +3178,12 @@ html, body, #root {
 .shell-actions-controls [data-actions-source] strong { font-weight:var(--weight-medium); color:var(--text-secondary); }
 .actions-overview { overflow:auto; min-height:0; padding:12px; font-size:13px; }
 .actions-overview h3 { margin:14px 0 6px; font-size:13px; }
+.actions-source-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 16px; padding-bottom:12px; border-bottom:1px solid var(--border-subtle); overflow-wrap:anywhere; }
+.actions-source-summary dt { font-size:11px; color:var(--text-muted); }
+.actions-source-summary dd { margin:4px 0 0; font-weight:var(--weight-medium); line-height:1.5; color:var(--text-primary); }
+.actions-empty { padding:16px; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--surface-1); overflow-wrap:anywhere; }
+.actions-empty h3 { margin:0; font-weight:var(--weight-medium); }
+.actions-empty p { margin:6px 0 0; font-size:12px; line-height:1.5; color:var(--text-secondary); }
 .actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }
 .actions-row button { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
 .actions-row-title { flex:1 1 12ch; min-width:0; }

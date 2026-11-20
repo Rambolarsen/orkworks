@@ -12,6 +12,13 @@ interface Props {
   onOpenRecommendation: (id: string) => void;
 }
 
+const EMPTY_STATES = {
+  ready: { title: "No current actions", detail: "There are no session items or workspace recommendations to inspect." },
+  loading: { title: "Loading actions", detail: "Waiting for the remaining source information." },
+  partial: { title: "No actions in available data", detail: "Only part of the source information is available." },
+  unavailable: { title: "Actions unavailable", detail: "Some source information could not be loaded." },
+};
+
 export default function ActionsOverview({
   model, focusRequest, inspected, onInspectAction, onFocusHandled, onOpenSession, onOpenRecommendation,
 }: Props) {
@@ -20,6 +27,9 @@ export default function ActionsOverview({
     ? model.rows.find(row => row.key === inspected.key && row.revision === inspected.revision && !row.unavailable)
     : undefined;
   const lastFocusRequest = useRef(0);
+  const statuses = [model.sessionsStatus, model.recommendationsStatus];
+  const emptyState = EMPTY_STATES[statuses.includes("unavailable") ? "unavailable"
+    : statuses.includes("loading") ? "loading" : statuses.includes("partial") ? "partial" : "ready"];
 
   useLayoutEffect(() => {
     if (!focusRequest || lastFocusRequest.current === focusRequest) return;
@@ -45,13 +55,14 @@ export default function ActionsOverview({
   }, [inspected, current, focusRequest, onInspectAction]);
 
   return <div className="actions-overview" ref={root} tabIndex={-1}>
-    <p>Session attention and workspace recommendations.</p>
-    <p>{model.sessionCountLabel} · {model.recommendationCountLabel}</p>
-    {!model.rows.length && <p role="status">
-      {model.sessionCount === null || model.recommendationCount === null
-        ? "Actions unavailable or still loading. See source status above."
-        : "No current actions."}
-    </p>}
+    <dl className="actions-source-summary" aria-label="Action sources">
+      <div><dt>Session attention</dt><dd>{model.sessionCountValue}</dd></div>
+      <div><dt>Recommendations</dt><dd>{model.recommendationCountValue}</dd></div>
+    </dl>
+    {!model.rows.length && <div className="actions-empty" role="status">
+      <h3>{emptyState.title}</h3>
+      <p>{emptyState.detail}</p>
+    </div>}
     {[...new Set(model.rows.map(row => row.group))].map(group => <section key={group} aria-label={group}>
       <h3>{group}</h3>
       {model.rows.filter(row => row.group === group).map(row => {
