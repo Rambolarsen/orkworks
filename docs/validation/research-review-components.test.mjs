@@ -35,6 +35,7 @@ for(const [name,change,reseal] of [
  ['summary keeps the superseded report reference',p=>{p.summaryCitation.row.value.body.reportReferences=[p.collectionShapes.expectations[0].value.body.selectedReport]},'summary'],
  ['replacement keeps the researcher task member',p=>{p.staleReview.replacementPlan.task={taskId:'prefix-task'}},'replacement'],
  ['replacement reuses the first reviewer configuration',p=>{p.staleReview.replacementPlan.reviewTask.configuration.configurationDigest=p.reviewerConfiguration.body.configurationDigest},'replacement'],
+ ['request expected version drifts from the live task',p=>{const r=p.reviewAdmission.row.value.request;r.expectedTaskVersion=7;delete r.requestDigest;r.requestDigest=domain('orkworks.research-review-request.v1',r)},null],
 ]) {test(`mutation ${name} is rejected`,()=>{
  const p=packet();change(p);
  if(reseal==='snapshot')resealSnapshot(p);

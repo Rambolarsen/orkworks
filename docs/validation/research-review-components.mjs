@@ -234,6 +234,7 @@ export function checkReviewAdmission(row,facts){
   return clone(row.value.receipt);}
  assert.equal(facts.targetCurrent,true,'selected report identity/version/digest equals target');
  same(row.value.request.review.reviewedReport,facts.selectedReport,'stale target denied');
+ assert.equal(row.value.request.expectedTaskVersion,facts.taskVersion,'request expected version matches the live CAS read');
  assert.equal(row.value.receipt.acceptedTaskVersion,facts.taskVersion,'live CAS read, never assumed');
  return clone(row.value.receipt);}
 export function checkSummaryReviewReference(summary,facts){
