@@ -47,19 +47,28 @@ test('supplied-fact oracles separate publication guards from approval authority'
  const p=packet();
  assert.equal(checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
   currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
-  unansweredClarification:null,activeGrant:false}),'published');
+  currentInput:p.proposal.binding.input,unansweredClarification:null,activeGrant:false,stageContinueRequired:false}),'published');
  assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
   currentSummary:null,completedResearchPlan:p.proposal.binding.completedPlan,
-  unansweredClarification:null,activeGrant:false}),/stale summary denied/);
+  currentInput:p.proposal.binding.input,unansweredClarification:null,activeGrant:false,stageContinueRequired:false}),/stale summary denied/);
  assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
   currentSummary:p.proposal.binding.summary,completedResearchPlan:{planId:'other'},
-  unansweredClarification:null,activeGrant:false}),/stale completed plan denied/);
+  currentInput:p.proposal.binding.input,unansweredClarification:null,activeGrant:false,stageContinueRequired:false}),/stale completed plan denied/);
  assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
   currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
-  unansweredClarification:{questionId:'q'},activeGrant:false}),/no current unanswered clarification/);
+  currentInput:p.proposal.binding.input,unansweredClarification:{questionId:'q'},activeGrant:false,stageContinueRequired:false}),/no current unanswered clarification/);
  assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
   currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
-  unansweredClarification:null,activeGrant:true}),/one-grant-at-a-time guard/);
+  currentInput:p.proposal.binding.input,unansweredClarification:null,activeGrant:true,stageContinueRequired:false}),/one-grant-at-a-time guard/);
+ assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
+  currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:{...p.proposal.binding.input,inputRevision:9},unansweredClarification:null,activeGrant:false,stageContinueRequired:false}),/stale input denied/);
+ assert.throws(()=>checkProposalBinding(p.proposal.source,{authority:'supplied-current-parent',
+  currentSummary:p.proposal.binding.summary,completedResearchPlan:p.proposal.binding.completedPlan,
+  currentInput:p.proposal.binding.input,unansweredClarification:null,activeGrant:false,stageContinueRequired:true}),/stage fence/);
+ assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
+  resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:true,
+  grantLabels:p.approval.grantLabels}),/stage fence/);
  const labels=checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
   resumedParent:'supplied-eligible',profileQualification:'supplied',grantLabels:p.approval.grantLabels});
  assert.equal(labels.expected,'label-assertions-only/never-serialized/never-restored');

@@ -17,6 +17,7 @@ export function measureExecutionRow(r){const value=clone(r.value);delete value.l
 export function validateExecutionWidths(r,jobBytes){
  assert(Object.hasOwn(caps,r.table),'supported family');
  if(r.table==='research_execution_plan_approvals')assert(size(r.value.receipt)<=4096,'receipt limit');
+ if(r.table==='research_lifecycle_records')assert(size(r.value.receipt)<=4096,'lifecycle receipt limit');
  assert(size({key:r.key,value:r.value})<=caps[r.table],'complete wrapper limit');
  assert(Number.isSafeInteger(jobBytes)&&jobBytes>=0&&jobBytes<=1048576,'independent job limit');}
 export function validateResearchExecution(p){
@@ -116,13 +117,16 @@ export function validateResearchExecution(p){
 // credentials, complete inventory, actual outcome, currentness or source proof.
 export function checkProposalBinding(proposal,facts){
  assert.equal(facts.authority,'supplied-current-parent','planning authority before publication');
+ assert.equal(facts.stageContinueRequired,false,'stage fence makes publication unavailable');
  assert.deepEqual(proposal.researchBinding.summary,facts.currentSummary,'stale summary denied');
  assert.deepEqual(proposal.researchBinding.completedPlan,facts.completedResearchPlan,'stale completed plan denied');
+ assert.deepEqual(proposal.researchBinding.input,facts.currentInput,'stale input denied');
  assert.equal(facts.unansweredClarification,null,'no current unanswered clarification');
  assert.equal(facts.activeGrant,false,'one-grant-at-a-time guard');
  return 'published';}
 export function checkExecutionApproval(f){
  assert.equal(f.authority,'supplied-current-Main','Main authority and shown context before lookup');
+ assert.equal(f.stageContinueRequired,false,'stage fence makes approval unavailable');
  assert.notEqual(f.approver,'run-bearer','the run bearer alone never approves');
  assert.equal(f.resumedParent,'supplied-eligible','actually resumed eligible bound parent');
  assert.equal(f.profileQualification,'supplied','labelled capability fact, no fallback');
