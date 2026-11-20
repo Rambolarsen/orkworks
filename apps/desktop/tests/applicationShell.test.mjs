@@ -1943,6 +1943,27 @@ if (process.versions.electron) {
               assert.equal(cues.pressed,'true','inspection remains selected when keyboard focus moves to Open');
               assert.notEqual(cues.selectedFill,cues.peerFill,'inspected row retains a distinct fill without keyboard focus');
               assert.equal(cues.selectedBorder,cues.peerBorder,'inspection retains the same neutral border as other action rows');
+              // The hidden window does not activate native pointer hover; exercise its computed styles explicitly.
+              win.webContents.debugger.attach('1.3');
+              try {
+                await win.webContents.debugger.sendCommand('DOM.enable');
+                await win.webContents.debugger.sendCommand('CSS.enable');
+                const {root}=await win.webContents.debugger.sendCommand('DOM.getDocument');
+                const {nodeId}=await win.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:root.nodeId,selector:'[data-action-key="session:extra-0"]'});
+                await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:['hover']});
+                const hovered=await evaluate(`(()=>{
+                  const selected=document.querySelector('[data-action-key="session:coding"]');
+                  const peer=document.querySelector('[data-action-key="session:extra-0"]');
+                  return {selectedFill:getComputedStyle(selected).backgroundColor,peerFill:getComputedStyle(peer).backgroundColor,pressed:peer.getAttribute('aria-pressed'),openFocused:document.activeElement===document.querySelector('[data-actions-detail] button')};
+                })()`);
+                assert.notEqual(hovered.peerFill,cues.peerFill,'hover gives an uninspected action visible feedback');
+                assert.notEqual(hovered.peerFill,cues.selectedFill,'hover remains distinct from the inspected row');
+                assert.equal(hovered.selectedFill,cues.selectedFill);
+                assert.equal(hovered.pressed,'false','hover does not inspect an action');
+                assert.equal(hovered.openFocused,true,'hover does not move keyboard focus');
+                await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+                assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-action-key=\\"session:extra-0\\"]")).backgroundColor'),cues.peerFill,'leaving hover restores the uninspected row');
+              } finally { win.webContents.debugger.detach(); }
             }
           }
           await evaluate('delete document.documentElement.dataset.theme');
