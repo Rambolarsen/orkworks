@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Ordinary-review Codex capture source audit](ordinary-review-codex-capture-audit.md) — Actual adapter inputs, late isolation mutation and missing pure capture/owner qualification.
+
 - [Fixed native supervisor check reporting](native-supervisor-checks.md) — Synthetic host-check diagnostics and static startup-inspection limits without native execution.
 
 - [Native operation-lock namespace](native-history-operation-locks.md) — Narrow synthetic history compatibility correction, static source limits and unchanged native qualification gates.
