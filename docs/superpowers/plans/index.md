@@ -389,4 +389,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Offline ordinary-review launch-input components](2026-11-19-review-launch-input-components.md) — Accepted finite proposal/prepared byte, digest and source/draft join oracles without runtime effects.
 
-- [Offline ordinary-review configuration leaves](2026-11-20-review-configuration-leaf-components.md) — Proposed finite leaf bytes, expected resource-set coverage and prepared-input joins without actual capture or launch.
+- [Offline ordinary-review configuration leaves](2026-11-20-review-configuration-leaf-components.md) — Accepted finite leaf bytes, expected resource-set coverage and prepared-input joins without actual capture or launch.

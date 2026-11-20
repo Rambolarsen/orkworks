@@ -1,17 +1,17 @@
 ---
 type: Design
 title: Ordinary-review catalog and integration leaves
-description: Proposed complete logical source-byte snapshots behind ordinary-review configuration digests, with read-only capture and explicit availability limits.
+description: Accepted logical source-byte snapshots with offline byte and conditional-join evidence; actual capture and native qualification remain gated.
 tags: [orkworks, review, configuration, source-contracts]
-status: draft
+status: stable
 ---
 
 # Ordinary-review catalog and integration leaves
 
-**Proposed for owner review with the coupled offline plan.** The owner requested
-the next prerequisite after [#1922](https://github.com/Rambolarsen/orkworks/pull/1922).
-This authorizes investigation/preparation; new leaf, availability and budget
-choices await acceptance before dependent implementation. Track
+**Owner accepted these leaf, stock-availability, policy and budget choices and
+the coupled offline plan on 2026-11-20 with “keep going”, after reviewing #1933.**
+This follows [#1922](https://github.com/Rambolarsen/orkworks/pull/1922); actual
+collector/native/storage/runtime implementation remains gated. Track
 [#68](https://github.com/Rambolarsen/orkworks/issues/68),
 [#66](https://github.com/Rambolarsen/orkworks/issues/66) and
 [#1899](https://github.com/Rambolarsen/orkworks/issues/1899), as prerequisites to
@@ -54,7 +54,7 @@ accepted #1922 configuration value; it does not remove accepted logical fields
 or change ordinary/manual launch. The choice avoids inventing a credential
 classifier or copying arbitrary user commands into the snapshot. No automatic
 normalization, fallback catalog or migration makes a rejected source usable.
-It is an availability decision for owner review, not a supported-tool claim.
+This accepted availability decision is not a supported-tool claim.
 The supported production-role set remains empty.
 
 Choose whole embedded source bytes over a second projection of its fields:
@@ -245,7 +245,9 @@ history guarantee; observed mismatches permanently invalidate their preview.
 ## Qualification disposition
 
 The [coupled offline plan](../plans/2026-11-20-review-configuration-leaf-components.md)
-proposes finite byte/digest/coverage and selected-command joins. Its expected
+implements finite byte/digest/coverage and selected-command joins. The
+[component evidence](../../validation/ordinary-review-configuration-leaf-components.md)
+records executed checks and their actual-source/native limits. Its expected
 inventories and current-owner facts are synthetic assumptions. It may qualify
 those logical values, never a real resolver, collector or adapter's complete
 read set. No actual user configuration, hook installation, provider/model call,
@@ -260,5 +262,5 @@ source qualification gates address these without inventing capability evidence.
 Independent correctness review verified the cited source claims and accepted
 parent-contract consistency. A fresh builder check found no important planning
 ambiguity. The coupled plan was self-reviewed once under the local plan policy.
-No executable leaf or actual-capture qualification is claimed.
-Disposition: **Ready for scoped owner review; production Investigate.**
+Offline logical components are implemented; no actual-capture qualification
+is claimed. Disposition: **Offline logical slice verified; production Investigate.**
