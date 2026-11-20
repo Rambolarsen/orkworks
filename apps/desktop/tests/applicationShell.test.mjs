@@ -1766,6 +1766,31 @@ if (process.versions.electron) {
           assert.equal(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).some(el=>el.dataset.actionKey==="recommendation:old")'),false);
           await evaluate('fixture.pendingRecommendations[1]({recommendations:[fixture.recommendation("new")],diagnostics:[]})');
           await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 1")');
+          await evaluate('fixture.pauseRecommendations=false;fixture.partial=false;fixture.emptyRecommendations=true;fixture.setEmpty(true);fixture.setSessionSourceStatus("ready");fixture.advanceWorkspace()');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 0")');
+          await evaluate('document.querySelector(".actions-overview").focus()');
+          for (const [status,title,value] of [
+            ['loading','Loading actions','loading'],
+            ['unavailable','Actions unavailable','unavailable'],
+            ['partial','No actions in available data','0 known (partial)'],
+            ['ready','No current actions','0'],
+          ]) {
+            await evaluate('fixture.setSessionSourceStatus('+javascriptLiteral(status)+')');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            assert.equal(await evaluate('document.querySelector(".actions-empty h3")?.textContent'),title,'empty state distinguishes '+status+' source data');
+            assert.deepEqual(await evaluate('Array.from(document.querySelectorAll(".actions-source-summary > div")).map(el=>[el.querySelector("dt").textContent,el.querySelector("dd").textContent])'),[['Session attention',value],['Recommendations','0']]);
+            assert.equal(await evaluate('document.activeElement.classList.contains("actions-overview")'),true,'source updates preserve focus');
+          }
+          await evaluate('fixture.pauseRecommendations=true;fixture.setBackendStatus("unreachable")');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="Actions unavailable"');
+          await evaluate('fixture.setBackendStatus("connected")');
+          await waitFor('fixture.pendingRecommendations.length===3');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="Loading actions"');
+          await evaluate('fixture.pendingRecommendations[2]({recommendations:[],diagnostics:[{code:"partial",message:"missing source"}]})');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="No actions in available data"');
+          await win.setContentSize(360,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          assert.equal(await evaluate('(()=>{const summary=document.querySelector(".actions-source-summary");const empty=document.querySelector(".actions-empty");return summary.scrollWidth<=summary.clientWidth+1&&empty.scrollWidth<=empty.clientWidth+1})()'),true,'source summary and empty copy fit a narrow page');
           assert.equal(await evaluate('fixture.selections'),0);
           assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
@@ -2680,7 +2705,7 @@ if (process.versions.electron) {
             fixture.recommendation=id=>({workspaceId:'/tmp/test',id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
             window.fetch=async url=>{
               if(new URL(url).pathname!=='/taskmaster/recommendations')throw new Error('Unexpected Actions request');
-              const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
+              const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:fixture.emptyRecommendations?[]:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
               return {ok:true,json:async()=>body};
             };
           }
