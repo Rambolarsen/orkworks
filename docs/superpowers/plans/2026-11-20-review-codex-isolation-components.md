@@ -9,7 +9,7 @@ status: stable
 # Codex isolation probe and render components
 
 **Workflow: owner accepted the concrete design and bounded plan on 2026-11-20
-with “keep going” after draft #1946. Source extraction is implemented; full verification passed and final review is pending.**
+with “keep going” after draft #1946. Source extraction is implemented; full verification and final review passed.**
 
 Goal: separate the existing Codex isolation probe from deterministic command
 rendering so later pure capture can reuse the actual source behavior without
@@ -74,7 +74,7 @@ remain unimplemented, even after this plan passes.
   doc/worktree/whitespace close-out checks. No dependency or generated lockfile
   changes belong in this task. Update executed counts/limits in the existing
   design/PR evidence, with production gates still closed.
-- [ ] Obtain a fresh whole-diff correctness review and required `/code-review low`
+- [x] Obtain a fresh whole-diff correctness review and required `/code-review low`
   of the current Rust diff before merge; escalate only if documented risk/size
   changes. Address findings, rerun affected checks and follow the normal PR
   lifecycle. Do not activate a prepared consumer as review cleanup.
@@ -116,4 +116,13 @@ Total9/25 for the bounded extraction, not the future capture/creator architectur
 Self-review: source obligations, signatures, compatibility, error recovery and
 check coverage reviewed once against the design; no prewritten implementation
 or second owner introduced. Disposition: **Approved for bounded source extraction;
-source extraction/focused checks complete; full verification passed; final review pending.**
+bounded source extraction and all required checks/review complete; future production gates retained.**
+
+Final `/code-review low` and whole-branch review approved code commit
+`5d5283b1eff64a86549ef069985584358fdb76c2` with no critical/required findings.
+Optional deferred test improvement: make the nonzero-exit help fixture also
+advertise `--no-daemon`; the current probe returns its error before rendering.
+The reviewer set native custody/profile/prepared Start aside; retain those gates
+because this diff introduces no such consumer. This is the approved boundary,
+not evidence of their behavior. If a future consumer treats the parser enum as
+authority, its own independent qualification is still mandatory.
