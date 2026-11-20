@@ -38,7 +38,7 @@ def packet():
     chain=prefix['chain']; cfg=chain['startup']['configuration']
     run=pick(chain['startup']['context']['run'],'workspaceId runId')
     researcher_task=clone(chain['startup']['scope']['task'])
-    execution_task=dict(researcher_task,taskId='execution-task')
+    execution_task=dict(researcher_task,planId='execution-plan',planRevision=1,taskId='execution-task')
     plan=completion['completions'][0]['row']['value']['body']['request']['plan']
     completed_selector=completion['summaries'][1]['selectorAfter']['value']['body']
     summary_ref=completed_selector['currentSummary']
@@ -48,7 +48,9 @@ def packet():
         absolutePath=dict(base64='L2V4ZWN1dGlvbi9ncm91cA==',encoding='unix-bytes'),baseCommit=cfg['assignment']['baseCommit'])
     # execution proposal source binding the exact summary/completed plan/input
     proposal=dict(schemaVersion=1,kind='single-task-execution-source',
-        parentPlanBinding=pick(chain['plan']['parentPlanBinding'],'runId parentSessionId planId planRevision runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest preparationRevision inputDigest'),
+        parentPlanBinding=dict(pick(chain['plan']['parentPlanBinding'],'runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),
+            planId='execution-plan',planRevision=1,
+            preparationRevision=current_input['preparationRevision'],inputDigest=current_input['inputDigest']),
         researchBinding=dict(summary=clone(summary_ref),completedPlan=clone(plan),input=clone(current_input)),
         task=dict(taskId='execution-task',configuration=dict(configurationId='execution-configuration',
             configurationDigest=sha('UNQUALIFIED supplied execution configuration bytes')),
@@ -113,8 +115,7 @@ def packet():
     pending_read=row('research_plan_controls',execution_plan_ref,clone(plan_control['value']['body']),'reject-read',3)
     paused_read=run_body(51,'paused',pendingPlan=execution_plan_ref,planReferences=[plan,execution_plan_ref],
         pauseReason='parent_ended',resumeTarget='awaiting_execution_approval')
-    reject=lifecycle(reject_request,run_body(51,'awaiting_execution_approval',pendingPlan=execution_plan_ref,
-        planReferences=[plan,execution_plan_ref],resumeTarget='awaiting_execution_approval'),
+    reject=lifecycle(reject_request,paused_read,
         completed_selector,None,pending_read,'reject-execution')
     reject_run_after=row('research_run_controls',run,run_body(52,'paused',pendingPlan=None,
         planReferences=[plan,execution_plan_ref],pauseReason='parent_ended',resumeTarget='awaiting_execution_approval'),
@@ -122,7 +123,7 @@ def packet():
     reject_plan_after=row('research_plan_controls',execution_plan_ref,
         dict(schemaVersion=1,plan=execution_plan_ref,planVersion=2,status='cancelled',latestApproval=None,
             task=execution_task,replaces=None),'reject-execution',2)
-    reject_paused_case=dict(readRun=paused_read,expected='interrupted-parent-stays-paused-through-rejection/resumeTarget-retained')
+    reject_paused_case=dict(expected='captured-paused-prestate-preserved-through-rejection/same-reason-and-target')
     rows=[proposal_row,run_row,plan_control,task_control,approval_row,plan_after,reject,reject_run_after,reject_plan_after]
     return dict(prefixSha256=sha(prefix_raw),completionSha256=sha(completion_raw),assumptions=[
         'separate decoded examples, not a store or legal event history',

@@ -36,6 +36,10 @@ export function validateResearchExecution(p){
  assert.deepEqual(proposal.researchBinding.summary,completion.summaries[1].selectorAfter.value.body.currentSummary,'exact current summary');
  assert.deepEqual(proposal.researchBinding.completedPlan,completion.completions[0].row.value.body.request.plan,'exact completed research plan');
  assert.deepEqual(proposal.researchBinding.input,completion.summaries[1].row.value.body.input,'exact current input ref');
+ assert.equal(proposal.parentPlanBinding.planId,'execution-plan','binding rebuilt for the execution identity');
+ assert.equal(proposal.parentPlanBinding.planRevision,1,'fresh plan revision');
+ assert.equal(proposal.parentPlanBinding.preparationRevision,proposal.researchBinding.input.preparationRevision,'binding resolves the current manifest');
+ assert.equal(proposal.parentPlanBinding.inputDigest,proposal.researchBinding.input.inputDigest,'binding pins the current input digest');
  assert.deepEqual(proposal.batches,[['execution-task']],'exactly one declared task');
  assert.equal(proposal.maxParallelChildren,1);
  assert.equal(proposal.task.group.groupId,'execution-group','independent new group');
@@ -54,6 +58,10 @@ export function validateResearchExecution(p){
  assert.equal(runAfter.currentPlan,null,'currentPlan stays cleared (accepted completion effect unchanged)');
  assert.equal(runAfter.runVersion,51,'one runVersion advance');
  assert.equal(p.publicationEffects.planControl.value.body.status,'proposed','accepted status union value');
+ assert.deepEqual(p.publicationEffects.planControl.value.body.task,clone(p.publicationEffects.taskControl.value.body.task),
+  'plan control binds the execution-plan task');
+ assert.deepEqual(p.publicationEffects.taskControl.key,clone(p.publicationEffects.planControl.value.body.task),'task control keyed by the execution task');
+ assert.equal(p.publicationEffects.taskControl.value.body.task.planId,'execution-plan','task key built from the execution plan identity');
  assert.equal(p.publicationEffects.taskControl.value.body.taskVersion,1,'task control at version 1');
  const gated=p.publicationEffects.gated;
  assert.equal(gated.blocked.state,'blocked','gated state retained with the pending recorded');
@@ -66,7 +74,8 @@ export function validateResearchExecution(p){
  assert.equal(source.requestDigest,digest('orkworks.research-execution-plan-request.v1',approvalRequest),'request digest excludes only requestDigest');
  const approvalRow=p.approval.row;
  exact(approvalRow.value,'schemaVersion body digest receipt lastCommit','closed approval family value');
- assert.equal(approvalRow.value.digest,digest('orkworks.research-execution-plan-approval.v1',clone(source)),'approval digest over the full body');
+ assert.deepEqual(approvalRow.value.body,clone(source),'retained approval body equals the validated source');
+ assert.equal(approvalRow.value.digest,digest('orkworks.research-execution-plan-approval.v1',clone(approvalRow.value.body)),'approval digest over the retained body');
  assert.deepEqual(approvalRow.value.receipt,{schemaVersion:1,plan:approvalRequest.plan,approvalId:'execution-approval-1',
   approvalDigest:approvalRow.value.digest,requestDigest:source.requestDigest,commit:approvalRow.value.receipt.commit},'receipt shape');
  assert(size(approvalRow.value.receipt)<=4096,'receipt bound');
@@ -80,6 +89,8 @@ export function validateResearchExecution(p){
  exact(rejectRequest,'schemaVersion kind run expectedRunVersion input decisionId proposal reason reviewContextId sidecarGeneration','closed rejection request');
  const rejectRow=p.rejection.row;
  assert.deepEqual(rejectRow.value.body.request,clone(rejectRequest),'retained request bytes');
+ const rejectForHash=clone(rejectRow.value.body);delete rejectForHash.digest;
+ assert.equal(rejectRow.value.digest,digest('orkworks.research-lifecycle-decision.v1',rejectForHash),'rejection digest over the retained body');
  assert.deepEqual(rejectRow.value.body.readSet.pendingPlan.value.body,clone(p.publicationEffects.planControl.value.body),
   'captured proposed plan read');
  assert.equal(rejectRow.value.receipt.planVersion,null,'rejection receipt planVersion stays null');
@@ -89,6 +100,9 @@ export function validateResearchExecution(p){
  assert.equal(rejectRunAfter.state,'paused','interrupted parent stays paused through rejection');
  assert.equal(rejectRunAfter.pauseReason,'parent_ended','pause reason retained');
  assert.equal(rejectRunAfter.resumeTarget,'awaiting_execution_approval','coordination target retained across pauses');
+ assert.equal(rejectRow.value.body.readSet.run.value.body.state,'paused','captured read set is the paused prestate');
+ assert.equal(rejectRow.value.body.readSet.run.value.body.pauseReason,'parent_ended','captured pause reason');
+ assert.equal(p.rejection.pausedCase.expected,'captured-paused-prestate-preserved-through-rejection/same-reason-and-target','pause-retention rule demonstrated');
  assert.equal(p.rejection.planAfter.value.body.status,'cancelled','rejected proposal marked cancelled');
  assert.equal(p.rejection.planAfter.value.body.planVersion,2,'rejected plan version advanced once');
  assert.equal(p.rejection.replacement.expected,'new-proposal-bound-to-current-context/never-a-mutation','replacement rule');

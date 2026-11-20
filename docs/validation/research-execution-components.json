@@ -14,14 +14,14 @@
       "parentPlanBinding": {
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "parentSessionId": "parent-1",
-        "planId": "prefix-plan",
-        "planRevision": 1,
         "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
         "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
         "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
         "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
-        "preparationRevision": 2,
-        "inputDigest": "735115e0f56216582c9f8b6340e720b667e1fa8861b8b28d62d5cfe73ca67ea2"
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "preparationRevision": 3,
+        "inputDigest": "dc1c364854d18e710b5ef891ce103003fa65e2ba66da4b10502ce07d5afed17b"
       },
       "researchBinding": {
         "summary": {
@@ -72,7 +72,7 @@
       ],
       "maxParallelChildren": 1,
       "scopeText": "Implement the reviewed approach in an independent worktree.",
-      "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+      "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
     },
     "domain": "orkworks.research-execution-source-plan.v1",
     "publication": {
@@ -84,14 +84,14 @@
         "parentPlanBinding": {
           "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
           "parentSessionId": "parent-1",
-          "planId": "prefix-plan",
-          "planRevision": 1,
           "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
           "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
           "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
           "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
-          "preparationRevision": 2,
-          "inputDigest": "735115e0f56216582c9f8b6340e720b667e1fa8861b8b28d62d5cfe73ca67ea2"
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "preparationRevision": 3,
+          "inputDigest": "dc1c364854d18e710b5ef891ce103003fa65e2ba66da4b10502ce07d5afed17b"
         },
         "researchBinding": {
           "summary": {
@@ -142,7 +142,7 @@
         ],
         "maxParallelChildren": 1,
         "scopeText": "Implement the reviewed approach in an independent worktree.",
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       }
     },
     "objectRow": {
@@ -160,14 +160,14 @@
           "parentPlanBinding": {
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "parentSessionId": "parent-1",
-            "planId": "prefix-plan",
-            "planRevision": 1,
             "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
             "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
             "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
             "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
-            "preparationRevision": 2,
-            "inputDigest": "735115e0f56216582c9f8b6340e720b667e1fa8861b8b28d62d5cfe73ca67ea2"
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "preparationRevision": 3,
+            "inputDigest": "dc1c364854d18e710b5ef891ce103003fa65e2ba66da4b10502ce07d5afed17b"
           },
           "researchBinding": {
             "summary": {
@@ -218,7 +218,7 @@
           ],
           "maxParallelChildren": 1,
           "scopeText": "Implement the reviewed approach in an independent worktree.",
-          "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+          "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -376,7 +376,7 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "execution-plan",
               "planRevision": 1,
-              "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+              "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
             }
           ],
           "currentPlan": null,
@@ -385,7 +385,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "parentRuntime": {
             "kind": "parent",
@@ -416,7 +416,7 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "value": {
         "schemaVersion": 1,
@@ -427,7 +427,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "planVersion": 1,
           "status": "proposed",
@@ -435,7 +435,7 @@
           "task": {
             "workspaceId": "workspace-1",
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "prefix-plan",
+            "planId": "execution-plan",
             "planRevision": 1,
             "taskId": "execution-task"
           },
@@ -453,7 +453,7 @@
       "key": {
         "workspaceId": "workspace-1",
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-        "planId": "prefix-plan",
+        "planId": "execution-plan",
         "planRevision": 1,
         "taskId": "execution-task"
       },
@@ -464,7 +464,7 @@
           "task": {
             "workspaceId": "workspace-1",
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "prefix-plan",
+            "planId": "execution-plan",
             "planRevision": 1,
             "taskId": "execution-task"
           },
@@ -512,7 +512,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           }
         ],
         "currentPlan": null,
@@ -521,7 +521,7 @@
           "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
           "planId": "execution-plan",
           "planRevision": 1,
-          "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+          "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
         },
         "parentRuntime": {
           "kind": "parent",
@@ -539,7 +539,7 @@
             "task": {
               "workspaceId": "workspace-1",
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-              "planId": "prefix-plan",
+              "planId": "execution-plan",
               "planRevision": 1,
               "taskId": "execution-task"
             },
@@ -569,7 +569,7 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "approvalId": "execution-approval-1",
       "reviewContextId": "9ee3db1807e672141d61cd4c33640c1ac0489824378c0a8d0074999825a773b4"
@@ -581,12 +581,12 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "approvalId": "execution-approval-1",
       "reviewContextId": "9ee3db1807e672141d61cd4c33640c1ac0489824378c0a8d0074999825a773b4",
       "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "requestDigest": "fc2aa5f88f9bd71969e9ac3a8250f302936667f0b26c8c314a14459f398b1f21"
+      "requestDigest": "fe4c1cfae5982bf8bf8337e66809b348e74cf5abdd85b5bb109fb2dffbaa2406"
     },
     "row": {
       "table": "research_execution_plan_approvals",
@@ -596,7 +596,7 @@
           "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
           "planId": "execution-plan",
           "planRevision": 1,
-          "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+          "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
         },
         "approvalId": "execution-approval-1"
       },
@@ -609,14 +609,14 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "approvalId": "execution-approval-1",
           "reviewContextId": "9ee3db1807e672141d61cd4c33640c1ac0489824378c0a8d0074999825a773b4",
           "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "requestDigest": "fc2aa5f88f9bd71969e9ac3a8250f302936667f0b26c8c314a14459f398b1f21"
+          "requestDigest": "fe4c1cfae5982bf8bf8337e66809b348e74cf5abdd85b5bb109fb2dffbaa2406"
         },
-        "digest": "c9463e3476b55b965ae0ddd92d18534900846f1c84baad771f045f9c7e87a88f",
+        "digest": "a75c476381ccdb752db4b9c16028c5c5a64ae1aa4ea1516218fec9b1635d87a2",
         "receipt": {
           "schemaVersion": 1,
           "plan": {
@@ -624,11 +624,11 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "approvalId": "execution-approval-1",
-          "approvalDigest": "c9463e3476b55b965ae0ddd92d18534900846f1c84baad771f045f9c7e87a88f",
-          "requestDigest": "fc2aa5f88f9bd71969e9ac3a8250f302936667f0b26c8c314a14459f398b1f21",
+          "approvalDigest": "a75c476381ccdb752db4b9c16028c5c5a64ae1aa4ea1516218fec9b1635d87a2",
+          "requestDigest": "fe4c1cfae5982bf8bf8337e66809b348e74cf5abdd85b5bb109fb2dffbaa2406",
           "commit": {
             "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             "commitSequence": "2",
@@ -649,11 +649,11 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "approvalId": "execution-approval-1",
-      "approvalDigest": "c9463e3476b55b965ae0ddd92d18534900846f1c84baad771f045f9c7e87a88f",
-      "requestDigest": "fc2aa5f88f9bd71969e9ac3a8250f302936667f0b26c8c314a14459f398b1f21",
+      "approvalDigest": "a75c476381ccdb752db4b9c16028c5c5a64ae1aa4ea1516218fec9b1635d87a2",
+      "requestDigest": "fe4c1cfae5982bf8bf8337e66809b348e74cf5abdd85b5bb109fb2dffbaa2406",
       "commit": {
         "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         "commitSequence": "2",
@@ -667,7 +667,7 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "value": {
         "schemaVersion": 1,
@@ -678,7 +678,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "planVersion": 2,
           "status": "active",
@@ -688,15 +688,15 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "execution-plan",
               "planRevision": 1,
-              "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+              "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
             },
             "approvalId": "execution-approval-1",
-            "approvalDigest": "c9463e3476b55b965ae0ddd92d18534900846f1c84baad771f045f9c7e87a88f"
+            "approvalDigest": "a75c476381ccdb752db4b9c16028c5c5a64ae1aa4ea1516218fec9b1635d87a2"
           },
           "task": {
             "workspaceId": "workspace-1",
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "prefix-plan",
+            "planId": "execution-plan",
             "planRevision": 1,
             "taskId": "execution-task"
           },
@@ -744,7 +744,7 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "reason": "The proposed approach needs a different group.",
       "reviewContextId": "9ee3db1807e672141d61cd4c33640c1ac0489824378c0a8d0074999825a773b4",
@@ -793,7 +793,7 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "execution-plan",
               "planRevision": 1,
-              "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+              "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
             },
             "reason": "The proposed approach needs a different group.",
             "reviewContextId": "9ee3db1807e672141d61cd4c33640c1ac0489824378c0a8d0074999825a773b4",
@@ -824,7 +824,7 @@
                   "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
                   "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
                   "runVersion": 51,
-                  "state": "awaiting_execution_approval",
+                  "state": "paused",
                   "currentInput": {
                     "workspaceId": "workspace-1",
                     "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
@@ -845,7 +845,7 @@
                       "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                       "planId": "execution-plan",
                       "planRevision": 1,
-                      "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+                      "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
                     }
                   ],
                   "currentPlan": null,
@@ -854,7 +854,7 @@
                     "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                     "planId": "execution-plan",
                     "planRevision": 1,
-                    "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+                    "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
                   },
                   "parentRuntime": {
                     "kind": "parent",
@@ -868,7 +868,7 @@
                   "blockers": [],
                   "stageContinueRequired": false,
                   "pendingClarification": null,
-                  "pauseReason": null,
+                  "pauseReason": "parent_ended",
                   "resumeTarget": "awaiting_execution_approval"
                 },
                 "lastCommit": {
@@ -924,7 +924,7 @@
                 "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                 "planId": "execution-plan",
                 "planRevision": 1,
-                "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+                "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
               },
               "value": {
                 "schemaVersion": 1,
@@ -935,7 +935,7 @@
                     "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                     "planId": "execution-plan",
                     "planRevision": 1,
-                    "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+                    "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
                   },
                   "planVersion": 1,
                   "status": "proposed",
@@ -943,7 +943,7 @@
                   "task": {
                     "workspaceId": "workspace-1",
                     "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-                    "planId": "prefix-plan",
+                    "planId": "execution-plan",
                     "planRevision": 1,
                     "taskId": "execution-task"
                   },
@@ -958,7 +958,7 @@
             }
           }
         },
-        "digest": "16cd88d58a9e6b4583d3edb1b481229fa98570d01b8502915a430364d57b5465",
+        "digest": "a3886748ae9dc805926ce3d98c5103f4244f20caee3515996bf89718dd34ecc1",
         "receipt": {
           "schemaVersion": 1,
           "key": {
@@ -969,7 +969,7 @@
             },
             "decisionId": "reject-execution-1"
           },
-          "decisionDigest": "16cd88d58a9e6b4583d3edb1b481229fa98570d01b8502915a430364d57b5465",
+          "decisionDigest": "a3886748ae9dc805926ce3d98c5103f4244f20caee3515996bf89718dd34ecc1",
           "runVersion": 52,
           "planVersion": null,
           "commit": {
@@ -1025,7 +1025,7 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "execution-plan",
               "planRevision": 1,
-              "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+              "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
             }
           ],
           "currentPlan": null,
@@ -1059,7 +1059,7 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
       "value": {
         "schemaVersion": 1,
@@ -1070,7 +1070,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "execution-plan",
             "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+            "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
           },
           "planVersion": 2,
           "status": "cancelled",
@@ -1078,7 +1078,7 @@
           "task": {
             "workspaceId": "workspace-1",
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "prefix-plan",
+            "planId": "execution-plan",
             "planRevision": 1,
             "taskId": "execution-task"
           },
@@ -1092,65 +1092,7 @@
       }
     },
     "pausedCase": {
-      "readRun": {
-        "schemaVersion": 1,
-        "profile": "single-task-retained-file-research-execution-v1",
-        "workspaceId": "workspace-1",
-        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-        "parentSessionId": "parent-1",
-        "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
-        "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
-        "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
-        "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
-        "runVersion": 51,
-        "state": "paused",
-        "currentInput": {
-          "workspaceId": "workspace-1",
-          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-          "preparationRevision": 3,
-          "inputRevision": 3,
-          "inputDigest": "dc1c364854d18e710b5ef891ce103003fa65e2ba66da4b10502ce07d5afed17b"
-        },
-        "planReferences": [
-          {
-            "workspaceId": "workspace-1",
-            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "prefix-plan",
-            "planRevision": 1,
-            "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
-          },
-          {
-            "workspaceId": "workspace-1",
-            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-            "planId": "execution-plan",
-            "planRevision": 1,
-            "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
-          }
-        ],
-        "currentPlan": null,
-        "pendingPlan": {
-          "workspaceId": "workspace-1",
-          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-          "planId": "execution-plan",
-          "planRevision": 1,
-          "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
-        },
-        "parentRuntime": {
-          "kind": "parent",
-          "workspaceId": "workspace-1",
-          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-          "sessionId": "parent-1",
-          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
-        },
-        "blockers": [],
-        "stageContinueRequired": false,
-        "pendingClarification": null,
-        "pauseReason": "parent_ended",
-        "resumeTarget": "awaiting_execution_approval"
-      },
-      "expected": "interrupted-parent-stays-paused-through-rejection/resumeTarget-retained"
+      "expected": "captured-paused-prestate-preserved-through-rejection/same-reason-and-target"
     },
     "replacement": {
       "newPublication": true,
@@ -1195,8 +1137,8 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan"
       },
-      "chargeBytes": 2354,
-      "wrapperBytes": 2554
+      "chargeBytes": 2357,
+      "wrapperBytes": 2557
     },
     {
       "table": "research_run_controls",
@@ -1214,22 +1156,22 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
-      "chargeBytes": 803,
-      "wrapperBytes": 1003
+      "chargeBytes": 806,
+      "wrapperBytes": 1006
     },
     {
       "table": "research_task_controls",
       "key": {
         "workspaceId": "workspace-1",
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
-        "planId": "prefix-plan",
+        "planId": "execution-plan",
         "planRevision": 1,
         "taskId": "execution-task"
       },
-      "chargeBytes": 469,
-      "wrapperBytes": 669
+      "chargeBytes": 475,
+      "wrapperBytes": 675
     },
     {
       "table": "research_execution_plan_approvals",
@@ -1239,7 +1181,7 @@
           "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
           "planId": "execution-plan",
           "planRevision": 1,
-          "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+          "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
         },
         "approvalId": "execution-approval-1"
       },
@@ -1253,10 +1195,10 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
-      "chargeBytes": 1165,
-      "wrapperBytes": 1365
+      "chargeBytes": 1168,
+      "wrapperBytes": 1368
     },
     {
       "table": "research_lifecycle_records",
@@ -1268,8 +1210,8 @@
         },
         "decisionId": "reject-execution-1"
       },
-      "chargeBytes": 6743,
-      "wrapperBytes": 7139
+      "chargeBytes": 6735,
+      "wrapperBytes": 7131
     },
     {
       "table": "research_run_controls",
@@ -1287,10 +1229,10 @@
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
         "planId": "execution-plan",
         "planRevision": 1,
-        "planDefinitionDigest": "258ae6f6c99dbc2410640e64084cca92ed45a5539c294025371826f1563d10bd"
+        "planDefinitionDigest": "355ca2bc74deb275c94c3d0004b21331b1b31a9cc5ae882f55b0e0ffd1fe45ed"
       },
-      "chargeBytes": 804,
-      "wrapperBytes": 1004
+      "chargeBytes": 807,
+      "wrapperBytes": 1007
     }
   ]
 }

@@ -31,6 +31,11 @@ for(const [name,change,reseal] of [
  ['rejection receipt reports a planVersion',p=>{p.rejection.row.value.receipt.planVersion=2},'reject'],
  ['rejected plan stays proposed',p=>{p.rejection.planAfter.value.body.status='proposed'},null],
  ['rejection resumes the run',p=>{p.rejection.runAfter.value.body.state='awaiting_execution_approval';p.rejection.runAfter.value.body.pauseReason=null},'run'],
+ ['approval body reviewContextId drifts',p=>{p.approval.row.value.body.reviewContextId=hash('drifted context')},null],
+ ['rejection record digest zeroed',p=>{p.rejection.row.value.digest='0'.repeat(64)},null],
+ ['task control keyed under the old plan',p=>{p.publicationEffects.taskControl.key={...p.publicationEffects.taskControl.key,planId:'prefix-plan'}},null],
+ ['binding keeps the research plan identity',p=>{p.proposal.source.parentPlanBinding.planId='prefix-plan'},null],
+ ['rejection captures a non-paused prestate',p=>{p.rejection.row.value.body.readSet.run.value.body.state='awaiting_execution_approval';p.rejection.row.value.body.readSet.run.value.body.pauseReason=null},null],
  ['rejection keeps pendingPlan bound',p=>{p.rejection.runAfter.value.body.pendingPlan=p.publicationEffects.planControl.value.body.plan},'run'],
  ['run bearer approves',p=>{p.approval.preconditions.resumedParent='none';},null],
 ]) {test(`mutation ${name} is rejected`,()=>{
