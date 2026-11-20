@@ -70,12 +70,15 @@ test('supplied-fact oracles separate publication guards from approval authority'
   resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:true,
   grantLabels:p.approval.grantLabels}),/stage fence/);
  const labels=checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
-  resumedParent:'supplied-eligible',profileQualification:'supplied',grantLabels:p.approval.grantLabels});
+  resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:false,
+  grantLabels:p.approval.grantLabels});
  assert.equal(labels.expected,'label-assertions-only/never-serialized/never-restored');
  assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'run-bearer',
-  resumedParent:'supplied-eligible',profileQualification:'supplied',grantLabels:p.approval.grantLabels}),/never approves/);
+  resumedParent:'supplied-eligible',profileQualification:'supplied',stageContinueRequired:false,
+  grantLabels:p.approval.grantLabels}),/never approves/);
  assert.throws(()=>checkExecutionApproval({authority:'supplied-current-Main',approver:'electron-main',
-  resumedParent:'none',profileQualification:'supplied',grantLabels:p.approval.grantLabels}),/resumed eligible/);
+  resumedParent:'none',profileQualification:'supplied',stageContinueRequired:false,
+  grantLabels:p.approval.grantLabels}),/resumed eligible/);
 });
 test('literal bounds and domains are pinned',()=>{
  const p=packet();
