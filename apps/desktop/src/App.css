@@ -1372,17 +1372,20 @@ html, body, #root {
   /* Live wrappers are absolutely positioned and inset by this value;
      content-box keeps FitAddon (which reads the parent's computed size)
      from counting padding/border as usable terminal space. */
-  --terminal-padding: 14px;
+  --terminal-padding: 0px;
   box-sizing: content-box;
-  margin: var(--space-2);
+  margin: 0;
   padding: var(--terminal-padding);
   position: relative;
   background: var(--term-bg);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border: 0;
+  border-radius: 0;
 }
 
 .terminal-container .xterm-viewport {
+  /* xterm's stylesheet defaults this layer to black, including the remainder
+     below the last complete row. Match the terminal canvas instead. */
+  background-color: var(--term-bg);
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
 }

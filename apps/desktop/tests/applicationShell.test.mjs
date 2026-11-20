@@ -110,6 +110,35 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         }
         return;
+      } else if (scenario === 'app-review-terminal-fill') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        for (const [width,height] of [[1280,700],[910,633],[640,511]]) {
+          win.setContentSize(width,height);
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const bounds = await evaluate(`(()=>{
+            const shell=document.querySelector('.terminal-shell').getBoundingClientRect();
+            const container=document.querySelector('.terminal-container').getBoundingClientRect();
+            const viewport=document.querySelector('.xterm-viewport').getBoundingClientRect();
+            const screen=document.querySelector('.xterm-screen').getBoundingClientRect();
+            return {shell:shell.toJSON(),container:container.toJSON(),viewport:viewport.toJSON(),screen:screen.toJSON()};
+          })()`);
+          // Check the painted remainder before geometry, so this catches the black strip directly.
+          const screenshot=await win.webContents.capturePage();
+          const scale=screenshot.getSize().width/await evaluate('innerWidth');
+          const x=(bounds.viewport.left+bounds.viewport.right)/2;
+          const y=bounds.viewport.bottom-1;
+          const pixel=[...screenshot.crop({x:Math.floor(x*scale),y:Math.floor(y*scale),width:1,height:1}).toBitmap().subarray(0,3)];
+          assert.ok(pixel.every((channel,index)=>Math.abs(channel-[25,19,17][index])<=1),'unused space below the terminal rows shares the graphite background (BGRA): '+pixel);
+          for (const edge of ['left','right','top','bottom']) {
+            assert.ok(Math.abs(bounds.container[edge]-bounds.shell[edge])<1,'terminal fills shell '+edge);
+            assert.ok(Math.abs(bounds.viewport[edge]-bounds.container[edge])<1,'viewport fills terminal '+edge);
+          }
+          assert.ok(bounds.screen.right<=bounds.container.right+1,'fitted columns stay inside terminal');
+          assert.ok(bounds.screen.bottom<=bounds.container.bottom+1,'fitted rows stay inside terminal');
+        }
+        await captureReplay('terminal-fill');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
+        return;
       } else if (scenario === 'app-review-replay') {
         // Real App -> TerminalPanel -> HistoricalTerminal -> xterm. Only the
         // backend/bridge/PTY boundary is synthetic, as in the other app flows.
@@ -2566,11 +2595,11 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
-    const replayArtifacts = scenario === 'app-review-replay'
+    const replayArtifacts = ['app-review-replay','app-review-terminal-fill'].includes(scenario)
       ? (process.env.ORKWORKS_REPLAY_ARTIFACT_DIR ? resolve(process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) : mkdtempSync(join(tmpdir(), 'orkworks-replay-artifacts-')))
       : scenario === 'app-review-terminal-links'
         ? mkdtempSync(join(tmpdir(), 'orkworks-terminal-links-artifacts-'))
