@@ -17,6 +17,10 @@ OrkWorks should let a user read and explicitly request review of a plan or speci
 - **Request independent review** is available only for a live selected session. The user click is the explicit approval: Electron main calls a sidecar endpoint authenticated with its per-sidecar secret; the sidecar revalidates the stored path and writes one fixed review prompt plus Enter to that session's PTY.
 - For review requests, the renderer provides only a session ID and cannot supply a path, command, or arbitrary terminal text. The terminal-link selection IPC is the narrow exception: it may pass the exact clicked path text with its session ID, and the sidecar remains responsible for all resolution and validation. The sidecar appends an event recording each user-approved handoff.
 
+The proposed [reading position between Review and Changes](session-git-changes.md#proposed-reading-position-between-review-and-changes)
+defines direct navigation back to the selected document and its visible
+paragraph, including replacement and unavailable-document behavior.
+
 ## Prompt
 
 The sidecar constructs one fixed prompt using the validated workspace-relative path. It asks the live session's agent to delegate the review to a subagent when possible, rather than reviewing its own plan — the same author reviewing their own spec defeats the point of an independent check — but falls back to letting the agent review it directly. This stays within the existing same-session PTY handoff rather than starting a second OrkWorks session, and stops short of mandating an independent reviewer (see Non-goals):
