@@ -1295,12 +1295,19 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
 ) where
     F: FnMut(&std::path::Path) -> git::GitContext,
 {
-    enrich_sessions_with_git_context_using(infos, effective_cwds, git::worktree_root, detect_git);
+    enrich_sessions_with_git_context_using(
+        infos,
+        effective_cwds,
+        |binding| binding.validate().is_ok(),
+        git::worktree_root,
+        detect_git,
+    );
 }
 
 fn enrich_sessions_with_git_context_using(
     infos: &mut [SessionInfo],
     effective_cwds: &HashMap<String, String>,
+    mut valid_binding: impl FnMut(&crate::session_location::WorktreeBinding) -> bool,
     mut worktree_root: impl FnMut(&Path) -> Option<PathBuf>,
     mut detect_git: impl FnMut(&Path) -> git::GitContext,
 ) {
@@ -1316,12 +1323,16 @@ fn enrich_sessions_with_git_context_using(
     // so repository creation/removal is observed on the next projection.
     let mut roots: HashMap<String, String> = HashMap::new();
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
+    // Like root discovery, binding validation opens Git configuration. Share
+    // identical identities only within this invocation; publication and action
+    // checks retain their own fresh validation passes.
+    let mut bindings: HashMap<(String, String), bool> = HashMap::new();
     for info in infos.iter_mut() {
-        if info
-            .worktree_binding
-            .as_ref()
-            .is_some_and(|binding| binding.validate().is_err())
-        {
+        if info.worktree_binding.as_ref().is_some_and(|binding| {
+            !*bindings
+                .entry((binding.root.clone(), binding.common_dir.clone()))
+                .or_insert_with(|| valid_binding(binding))
+        }) {
             info.repo_root = None;
             info.branch = None;
             info.dirty = None;
@@ -3141,6 +3152,83 @@ mod tests {
     }
 
     #[test]
+    fn git_binding_validation_scales_with_distinct_identities_and_refreshes() {
+        use std::{collections::HashMap, path::Path};
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("primary");
+        let other = temp.path().join("other");
+        warning_repo(&primary);
+        warning_repo(&other);
+        let valid = crate::session_location::WorktreeBinding::resolve(
+            primary.to_str().unwrap(),
+            primary.to_str().unwrap(),
+        )
+        .unwrap();
+        let second = crate::session_location::WorktreeBinding::resolve(
+            other.to_str().unwrap(),
+            other.to_str().unwrap(),
+        )
+        .unwrap();
+        let invalid = crate::session_location::WorktreeBinding {
+            root: valid.root.clone(),
+            common_dir: second.common_dir.clone(),
+        };
+        let bindings = [valid, second, invalid];
+        let mut infos = (0..300)
+            .map(|i| {
+                let binding = bindings[i % 3].clone();
+                let mut info =
+                    warning_session(&format!("session-{i}"), Path::new(&binding.root), "running");
+                info.worktree_binding = Some(binding);
+                info
+            })
+            .collect::<Vec<_>>();
+        let mut validations = 0;
+        super::enrich_sessions_with_git_context_using(
+            &mut infos,
+            &HashMap::new(),
+            |binding| {
+                validations += 1;
+                binding.validate().is_ok()
+            },
+            crate::git::worktree_root,
+            crate::git::detect,
+        );
+        for (i, info) in infos.iter().enumerate() {
+            assert_eq!(
+                info.dirty.is_some(),
+                i % 3 != 2,
+                "invalid identity must not inherit another binding's result"
+            );
+        }
+        assert_eq!(
+            validations, 3,
+            "history must not multiply binding validation"
+        );
+
+        std::fs::remove_dir_all(&primary).unwrap();
+        validations = 0;
+        super::enrich_sessions_with_git_context_using(
+            &mut infos,
+            &HashMap::new(),
+            |binding| {
+                validations += 1;
+                binding.validate().is_ok()
+            },
+            crate::git::worktree_root,
+            crate::git::detect,
+        );
+        assert_eq!(validations, 3, "each invocation must revalidate");
+        for (i, info) in infos.iter().enumerate() {
+            assert_eq!(
+                info.dirty.is_some(),
+                i % 3 == 1,
+                "removed repositories must become unavailable"
+            );
+        }
+    }
+
+    #[test]
     fn git_root_discovery_scales_with_distinct_effective_directories() {
         let repo = tempfile::tempdir().unwrap();
         git2::Repository::init(repo.path()).unwrap();
@@ -3171,6 +3259,7 @@ mod tests {
         super::enrich_sessions_with_git_context_using(
             &mut infos,
             &effective_cwds,
+            |binding| binding.validate().is_ok(),
             |cwd| {
                 root_reads += 1;
                 crate::git::worktree_root(cwd)
