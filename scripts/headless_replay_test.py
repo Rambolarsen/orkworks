@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -297,5 +298,268 @@ class ReplayTests(unittest.TestCase):
         with patch.object(self.runner,'verify_owner',side_effect=RuntimeError('wrong owner')):
             self.assertNotEqual(self.run_fixture(),0)
         self.assertIn(['rm',CID],self.calls())
+
+
+class QualificationObserverTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.output = Path(self.tmp.name)
+        spec = importlib.util.spec_from_file_location(
+            'headless_replay_qualification_test',
+            HERE / 'headless_replay_qualification_test.py',
+        )
+        self.qualification = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.qualification)
+
+    def test_transient_empty_and_partial_cid_publishes_without_exiting_observer(self):
+        run_dir = self.output / 'orkworks-replay-live'
+        run_dir.mkdir()
+        cid_path = run_dir / 'cid'
+        cid_path.write_bytes(b'')
+
+        ready = threading.Event()
+        done = threading.Event()
+        on_ready_calls = []
+        observed_cids = []
+        step = {'count': 0}
+
+        def clock():
+            step['count'] += 1
+            if step['count'] == 1:
+                cid_path.write_bytes(b'a' * 16)
+            elif step['count'] == 2:
+                cid_path.write_text(CID)
+            return step['count'] * 0.05
+
+        def check_ready(cid):
+            observed_cids.append(cid)
+            return cid == CID
+
+        state = self.qualification.observe_cid_ready(
+            self.output,
+            existing_runs=set(),
+            check_ready=check_ready,
+            done=done,
+            ready=ready,
+            on_ready=lambda: on_ready_calls.append(True),
+            poll_interval=0.001,
+            incomplete_grace=1.0,
+            monotonic=clock,
+        )
+
+        self.assertIsNone(state['error'])
+        self.assertTrue(ready.is_set())
+        self.assertEqual(observed_cids, [CID])
+        self.assertEqual(on_ready_calls, [True])
+        self.assertEqual(state['transient_count'], 2)
+        self.assertEqual(
+            state['transient_incomplete'],
+            [('orkworks-replay-live', 'empty'), ('orkworks-replay-live', 'partial-hex(16)')],
+        )
+
+    def test_persistent_incomplete_cid_fails_after_grace_window(self):
+        for label, payload in [('empty', b''), ('partial-hex(12)', b'b' * 12)]:
+            with self.subTest(label=label):
+                output = self.output / f'case-{label}'
+                run_dir = output / 'orkworks-replay-stuck'
+                run_dir.mkdir(parents=True)
+                (run_dir / 'cid').write_bytes(payload)
+
+                ready = threading.Event()
+                done = threading.Event()
+                errors = []
+                ticks = iter([0.0, 0.2, 0.6])
+
+                state = self.qualification.observe_cid_ready(
+                    output,
+                    existing_runs=set(),
+                    check_ready=lambda _cid: True,
+                    done=done,
+                    ready=ready,
+                    on_error=errors.append,
+                    poll_interval=0.001,
+                    incomplete_grace=0.5,
+                    monotonic=lambda: next(ticks),
+                )
+
+                self.assertFalse(ready.is_set())
+                self.assertIsInstance(state['error'], self.qualification.replay.Failure)
+                self.assertIn('persistent incomplete private identity', str(state['error']))
+                self.assertIn(label, str(state['error']))
+                self.assertEqual(errors, [state['error']])
+
+    def test_malformed_cid_fails_immediately_without_grace(self):
+        for name, payload in [
+            ('traversal', b'../foreign'),
+            ('non-hex', b'z' * 64),
+            ('too-long-hex', b'a' * 65),
+            ('non-ascii', b'\xff\xfe\xfd'),
+            ('whitespace-only', b'   \n'),
+        ]:
+            with self.subTest(name=name):
+                output = self.output / f'malformed-{name}'
+                run_dir = output / 'orkworks-replay-bad'
+                run_dir.mkdir(parents=True)
+                (run_dir / 'cid').write_bytes(payload)
+
+                ready = threading.Event()
+                done = threading.Event()
+                errors = []
+
+                state = self.qualification.observe_cid_ready(
+                    output,
+                    existing_runs=set(),
+                    check_ready=lambda _cid: True,
+                    done=done,
+                    ready=ready,
+                    on_error=errors.append,
+                    poll_interval=0.001,
+                    incomplete_grace=10.0,
+                )
+
+                self.assertFalse(ready.is_set())
+                self.assertIsInstance(state['error'], self.qualification.replay.Failure)
+                self.assertIn('invalid private identity', str(state['error']))
+                self.assertNotIn('../foreign', str(state['error']))
+                self.assertEqual(state['transient_count'], 0)
+                self.assertEqual(errors, [state['error']])
+
+    def test_invalid_cid_file_type_size_or_owner_fails_immediately(self):
+        # Intact symlink
+        sym_out = self.output / 'sym'
+        sym_run = sym_out / 'orkworks-replay-sym'
+        sym_run.mkdir(parents=True)
+        target = sym_out / 'real-cid'
+        target.write_text(CID)
+        (sym_run / 'cid').symlink_to(target)
+        with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity file'):
+            self.qualification.read_observed_cid(sym_run / 'cid')
+
+        # Broken symlink
+        broken_run = sym_out / 'orkworks-replay-broken'
+        broken_run.mkdir()
+        (broken_run / 'cid').symlink_to(sym_out / 'missing-target')
+        with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity file'):
+            self.qualification.read_observed_cid(broken_run / 'cid')
+
+        # Directory at cid path
+        dir_run = sym_out / 'orkworks-replay-dir'
+        (dir_run / 'cid').mkdir(parents=True)
+        with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity file'):
+            self.qualification.read_observed_cid(dir_run / 'cid')
+
+        # Oversize file (>80 bytes)
+        big_run = sym_out / 'orkworks-replay-big'
+        big_run.mkdir()
+        (big_run / 'cid').write_bytes(b'a' * 81)
+        with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity file'):
+            self.qualification.read_observed_cid(big_run / 'cid')
+
+        # Wrong owner uid
+        uid_run = sym_out / 'orkworks-replay-uid'
+        uid_run.mkdir()
+        (uid_run / 'cid').write_text(CID)
+        with patch('os.getuid', return_value=os.getuid() + 1):
+            with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity file'):
+                self.qualification.read_observed_cid(uid_run / 'cid')
+
+    def test_observer_ignores_existing_run_directories(self):
+        old_run = self.output / 'orkworks-replay-old'
+        old_run.mkdir()
+        (old_run / 'cid').write_text('b' * 64)
+        new_run = self.output / 'orkworks-replay-new'
+        new_run.mkdir()
+        (new_run / 'cid').write_text(CID)
+
+        ready = threading.Event()
+        done = threading.Event()
+        probed = []
+
+        state = self.qualification.observe_cid_ready(
+            self.output,
+            existing_runs={old_run},
+            check_ready=lambda cid: (probed.append(cid), cid == CID)[1],
+            done=done,
+            ready=ready,
+            poll_interval=0.001,
+            incomplete_grace=1.0,
+        )
+
+        self.assertIsNone(state['error'])
+        self.assertTrue(ready.is_set())
+        self.assertEqual(probed, [CID])
+
+    def test_concurrent_cid_publication_race_succeeds_across_threads(self):
+        run_dir = self.output / 'orkworks-replay-race'
+        run_dir.mkdir()
+        cid_path = run_dir / 'cid'
+        cid_path.write_bytes(b'')
+
+        ready = threading.Event()
+        done = threading.Event()
+        saw_empty = threading.Event()
+        saw_partial = threading.Event()
+        result_box = {}
+        observed = []
+
+        def tracked_clock():
+            now = time.monotonic()
+            if not saw_empty.is_set():
+                saw_empty.set()
+            elif cid_path.read_bytes() == b'c' * 24:
+                saw_partial.set()
+            return now
+
+        def worker():
+            result_box['state'] = self.qualification.observe_cid_ready(
+                self.output,
+                existing_runs=set(),
+                check_ready=lambda cid: (observed.append(cid), cid == CID)[1],
+                done=done,
+                ready=ready,
+                poll_interval=0.005,
+                incomplete_grace=2.0,
+                monotonic=tracked_clock,
+            )
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(saw_empty.wait(timeout=2.0), 'observer never polled empty cid')
+            cid_path.write_bytes(b'c' * 24)
+            self.assertTrue(saw_partial.wait(timeout=2.0), 'observer never polled partial cid')
+            cid_path.write_text(CID + '\n')
+            self.assertTrue(ready.wait(timeout=2.0), 'observer did not finish after cid publication')
+        finally:
+            done.set()
+            thread.join(timeout=2.0)
+
+        self.assertIsNone(result_box['state']['error'])
+        self.assertEqual(observed, [CID])
+        self.assertGreaterEqual(result_box['state']['transient_count'], 2)
+
+    def test_run_fault_surfaces_persistent_observer_identity_failure(self):
+        case = self.qualification.RealQualification('test_04_interrupt_stops_real_renderer')
+        case.output = self.output
+        case.before = {}
+        case.canary = None
+
+        def fake_run(_engine, _root, parent, _budgets):
+            run_dir = parent / 'orkworks-replay-fault'
+            run_dir.mkdir()
+            (run_dir / 'cid').write_text('../foreign')
+            try:
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    time.sleep(0.01)
+            except self.qualification.replay.Cancelled:
+                pass
+            return 1, run_dir
+
+        with patch.object(self.qualification.replay, 'run', side_effect=fake_run):
+            with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity'):
+                case.run_fault('interrupt')
+
 
 if __name__=='__main__':unittest.main()

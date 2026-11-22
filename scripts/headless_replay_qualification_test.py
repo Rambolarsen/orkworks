@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Opt-in real-engine qualification; never runs a coding tool or a real user session."""
+import errno
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import signal
+import stat
 import subprocess
 import tempfile
 import threading
@@ -20,6 +23,123 @@ spec = importlib.util.spec_from_file_location('replay', HERE/'headless_replay.py
 replay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(replay)
 ENGINE = os.environ.get('ORKWORKS_REAL_REPLAY_ENGINE')
+
+
+def read_observed_cid(path):
+    """Classify a CID file while container creation may still be publishing it."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return 'missing', None, None
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size > 80:
+        raise replay.Failure('invalid private identity file')
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return 'missing', None, None
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.EMLINK):
+            raise replay.Failure('invalid private identity file') from error
+        raise
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid() or opened.st_size > 80:
+            raise replay.Failure('invalid private identity file')
+        chunks = bytearray()
+        while len(chunks) < 81:
+            chunk = os.read(fd, 81 - len(chunks))
+            if not chunk:
+                break
+            chunks.extend(chunk)
+        raw = bytes(chunks)
+    finally:
+        os.close(fd)
+    if len(raw) > 80:
+        raise replay.Failure('invalid private identity file')
+    if re.fullmatch(rb'[a-f0-9]{0,63}', raw):
+        detail = 'empty' if not raw else f'partial-hex({len(raw)})'
+        return 'incomplete', None, detail
+    try:
+        value = raw.decode('ascii').strip()
+    except UnicodeDecodeError as error:
+        raise replay.Failure(f'invalid private identity (non-ascii, bytes={len(raw)})') from error
+    if not re.fullmatch(r'[a-f0-9]{64}', value):
+        raise replay.Failure(f'invalid private identity (malformed, bytes={len(raw)})')
+    cid = replay.read_id(path)
+    if not cid:
+        return 'missing', None, None
+    return 'valid', cid, None
+
+
+def observe_cid_ready(
+    output,
+    *,
+    existing_runs,
+    check_ready,
+    done,
+    ready,
+    on_ready=None,
+    on_error=None,
+    poll_interval=0.1,
+    incomplete_grace=5.0,
+    monotonic=time.monotonic,
+):
+    first_incomplete = {}
+    transient_incomplete = []
+    transient_count = 0
+    while True:
+        for path in sorted(output.glob('orkworks-replay-*/cid')):
+            if path.parent in existing_runs:
+                continue
+            try:
+                status, cid, detail = read_observed_cid(path)
+            except replay.Failure as error:
+                if on_error:
+                    on_error(error)
+                return {
+                    'error': error,
+                    'transient_count': transient_count,
+                    'transient_incomplete': transient_incomplete,
+                }
+            except OSError:
+                continue
+            if status == 'missing':
+                continue
+            if status == 'incomplete':
+                now = monotonic()
+                first = first_incomplete.setdefault(path, now)
+                transient_count += 1
+                if len(transient_incomplete) < 32:
+                    transient_incomplete.append((path.parent.name, detail))
+                if now - first >= incomplete_grace:
+                    error = replay.Failure(f'persistent incomplete private identity ({detail})')
+                    if on_error:
+                        on_error(error)
+                    return {
+                        'error': error,
+                        'transient_count': transient_count,
+                        'transient_incomplete': transient_incomplete,
+                    }
+                continue
+            first_incomplete.pop(path, None)
+            try:
+                if check_ready(cid):
+                    ready.set()
+                    if on_ready:
+                        on_ready()
+                    return {
+                        'error': None,
+                        'transient_count': transient_count,
+                        'transient_incomplete': transient_incomplete,
+                    }
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+        if done.wait(poll_interval):
+            return {
+                'error': None,
+                'transient_count': transient_count,
+                'transient_incomplete': transient_incomplete,
+            }
 
 
 def source_snapshot():
@@ -108,25 +228,28 @@ class RealQualification(unittest.TestCase):
       (await import('node:fs')).writeFileSync('/artifacts/replay/qualification-ready', 'ready');
       await new Promise(() => {});''', 1)
             fixture.write_text(text)
+        existing_runs = set(self.output.glob('orkworks-replay-*'))
         ready = threading.Event()
         done = threading.Event()
+        observer_state = {}
+        def check_ready(cid):
+            result = subprocess.run([ENGINE, 'exec', cid, 'test', '-f',
+                                     '/artifacts/replay/qualification-ready'],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+            return result.returncode == 0
+        def interrupt_process(_error=None):
+            if kind == 'interrupt':
+                os.kill(os.getpid(), signal.SIGTERM)
         def observe():
-            while not done.wait(.1):
-                for path in self.output.glob('orkworks-replay-*/cid'):
-                    try:
-                        cid = replay.read_id(path)
-                        if not cid:
-                            continue
-                        result = subprocess.run([ENGINE, 'exec', cid, 'test', '-f',
-                                                 '/artifacts/replay/qualification-ready'],
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
-                        if result.returncode == 0:
-                            ready.set()
-                            if kind == 'interrupt':
-                                os.kill(os.getpid(), signal.SIGTERM)
-                            return
-                    except (OSError, subprocess.TimeoutExpired):
-                        continue
+            observer_state.update(observe_cid_ready(
+                self.output,
+                existing_runs=existing_runs,
+                check_ready=check_ready,
+                done=done,
+                ready=ready,
+                on_ready=interrupt_process if kind == 'interrupt' else None,
+                on_error=interrupt_process if kind == 'interrupt' else None,
+            ))
         watcher = None
         previous = signal.getsignal(signal.SIGTERM)
         def interrupted(_signal, _frame):
@@ -145,6 +268,14 @@ class RealQualification(unittest.TestCase):
             if watcher:
                 watcher.join(timeout=5)
             signal.signal(signal.SIGTERM, previous)
+        if observer_state.get('transient_count'):
+            print(
+                f"CID observer tolerated {observer_state['transient_count']} transient incomplete read(s): "
+                f"{observer_state['transient_incomplete']}",
+                flush=True,
+            )
+        if observer_state.get('error') is not None:
+            raise observer_state['error']
         self.assertNotEqual(code, 0)
         receipt = self.assert_removed(directory)
         if kind == 'assertion':
