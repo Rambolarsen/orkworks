@@ -188,7 +188,11 @@ export function startWorkspaceUpdates(options: Options): { dispose(): void; resy
         if (disposed || current !== epoch) return;
         try {
           const message: unknown = JSON.parse(String(event.data));
-          if (record(message).type === "heartbeat") { armHeartbeat(current); return; }
+          if (record(message).type === "heartbeat") {
+            // A heartbeat confirms liveness only after the snapshot establishes a baseline.
+            if (healthy) armHeartbeat(current);
+            return;
+          }
           const result = state.apply(message);
           // Fence an older REST query before publishing the first stream snapshot.
           if (!healthy) { setHealthy(true); attempt = 0; }
