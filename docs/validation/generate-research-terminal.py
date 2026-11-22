@@ -64,25 +64,29 @@ def packet():
     turn_body=dict(schemaVersion=1,task=execution_task,reservation=dict(task=execution_task,
         reservationId='terminal-reservation',reservationDigest=sha('UNQUALIFIED terminal reservation')),
         childSessionId='execution-child',expectedTaskVersion=7,acceptedTaskVersion=8,
-        evidence=dict(kind='child_terminal_without_receipt',session=clone(prestate['sessionState']['value']['body'])))
-    turn_body['turnDigest']=digest('orkworks.research-source-turn-completion.v1',turn_body)
-    turn_row=row('research_turn_completions',execution_task,turn_body,'terminal-turn',2)
+        evidence=dict(kind='child_terminal_without_receipt',
+            session=dict(table='research_session_states',key=clone(execution_task),
+                value=dict(schemaVersion=1,body=dict(clone(prestate['sessionState']['value']['body']),
+                    state='terminal'),lastCommit=origin('terminal-prestate',2)))))
+    turn_row=dict(table='research_turn_completions',key=clone(execution_task),
+        value=dict(schemaVersion=1,body=turn_body,digest=digest('orkworks.research-source-turn-completion.v1',turn_body),
+            lastCommit=origin('terminal-turn',2)))
     # coordination outcome (completed) over the execution task
     coordination_request=dict(schemaVersion=1,task=execution_task,reservation=turn_body['reservation'],
         childSessionId='execution-child',expectedTaskVersion=8,outcome='completed',
         summary='The execution task completed under its accepted result contract.')
-    coordination_request['requestDigest']=digest('orkworks.research-source-coordination-request.v1',coordination_request)
     coordination_receipt=dict(schemaVersion=1,task=execution_task,reservation=turn_body['reservation'],
-        childSessionId='execution-child',acceptedTaskVersion=8,commit=origin('terminal-coordination',2))
+        childSessionId='execution-child',acceptedTaskVersion=9,commit=origin('terminal-coordination',2))
     coordination_row=dict(table='research_coordination_receipts',key=execution_task,
-        value=dict(schemaVersion=1,request=coordination_request,requestDigest=coordination_request['requestDigest'],
+        value=dict(schemaVersion=1,request=coordination_request,
+            requestDigest=digest('orkworks.research-source-coordination-request.v1',coordination_request),
             receipt=coordination_receipt,lastCommit=origin('terminal-coordination',3)))
     # completion trigger + lifecycle record (plan-completion under the execution plan)
-    trigger=dict(kind='coordination',task=execution_task,acceptedTaskVersion=8,
-        requestDigest=coordination_request['requestDigest'])
+    trigger=dict(kind='coordination',task=execution_task,acceptedTaskVersion=9,
+        requestDigest=digest('orkworks.research-source-coordination-request.v1',coordination_request))
     completion_request=dict(schemaVersion=1,kind='plan-completion',run=run,expectedRunVersion=52,
         input=dict(**run,preparationRevision=3,inputRevision=3,inputDigest=sha('UNQUALIFIED current input digest')),
-        plan=execution_plan_ref,expectedPlanVersion=2,trigger=trigger)
+        plan=execution_plan_ref,expectedPlanVersion=1,trigger=trigger)
     lifecycle_key=dict(kind='plan-completion',plan=execution_plan_ref)
     run_read=row('research_run_controls',run,dict(schemaVersion=1,profile='single-task-retained-file-research-execution-v1',
         **pick(chain['startup']['context']['run'],'workspaceId runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),

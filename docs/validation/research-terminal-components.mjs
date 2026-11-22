@@ -52,20 +52,31 @@ export function validateResearchTerminal(p){
  const turn=p.turn.body;
  assert.equal(turn.evidence.kind,'child_terminal_without_receipt','accepted turn variant');
  assert.equal(p.turn.variant,'child_terminal_without_receipt/synthetic-runtime/supplied-handler-labeling','supplied-origin labeling');
- const turnForHash=clone(turn);delete turnForHash.turnDigest;
- assert.equal(turn.turnDigest,digest('orkworks.research-source-turn-completion.v1',turnForHash),'turn digest excludes only turnDigest');
+ assert(!('turnDigest' in turn),'accepted turn body carries no digest field');
+ const turnRow=p.turn.row;
+ assert.deepEqual(Object.keys(turnRow.value).sort(),['body','digest','lastCommit','schemaVersion'],'turn family value shape');
+ assert.equal(turnRow.value.digest,digest('orkworks.research-source-turn-completion.v1',clone(turn)),'turn family digest over the exact body');
  assert.equal(turn.acceptedTaskVersion,turn.expectedTaskVersion+1,'accepted version follows the expected version');
- assert.deepEqual(p.turn.row.key,turn.task,'turn family keyed by the execution task');
+ assert.deepEqual(turnRow.key,turn.task,'turn family keyed by the execution task');
+ const terminalSnapshot=turn.evidence.session;
+ assert.deepEqual(Object.keys(terminalSnapshot).sort(),['key','table','value'],'terminal evidence session is a typed read');
+ assert.equal(terminalSnapshot.value.body.state,'terminal','terminal snapshot state');
+ assert(terminalSnapshot.value.body.runtime,'terminal snapshot retains the runtime');
  // coordination outcome under the ordinary-child result/turn boundary
  const coordination=p.coordination;
  assert.equal(coordination.row.value.request.outcome,'completed');
  assert.deepEqual(Object.keys(coordination.row.value).sort(),['lastCommit','receipt','request','requestDigest','schemaVersion'],'flat coordination family value');
+ assert(!('requestDigest' in coordination.row.value.request),'accepted coordination request carries no digest field');
  const requestForHash=clone(coordination.row.value.request);delete requestForHash.requestDigest;
  assert.equal(coordination.row.value.requestDigest,digest('orkworks.research-source-coordination-request.v1',requestForHash),'coordination request digest');
- assert.deepEqual(coordination.row.value.receipt.acceptedTaskVersion,turn.acceptedTaskVersion,'receipt matches the accepted version');
+ assert.deepEqual(coordination.row.value.receipt.acceptedTaskVersion,turn.acceptedTaskVersion+1,'receipt advances the task version once after the turn');
  // completion trigger: accepted coordination form, same-C machinery
  const completionRequest=p.completion.request,trigger=completionRequest.trigger;
- assert.deepEqual(trigger,{kind:'coordination',task:turn.task,acceptedTaskVersion:turn.acceptedVersion??turn.acceptedTaskVersion,
+ const lifecycleRow=p.completion.row;
+ const storedRequest=lifecycleRow.value.body.request;
+ assert.deepEqual(storedRequest,clone(completionRequest),'stored lifecycle request equals the validated request');
+ const storedTrigger=storedRequest.trigger;
+ assert.deepEqual(storedTrigger,{kind:'coordination',task:turn.task,acceptedTaskVersion:coordination.row.value.receipt.acceptedTaskVersion,
   requestDigest:coordination.row.value.requestDigest},'coordination trigger pins the accepted outcome');
  assert.equal(completionRequest.kind,'plan-completion');
  assert.deepEqual(completionRequest.plan,p.prestate.executionPlan,'completion under the execution PlanRef');
@@ -73,7 +84,8 @@ export function validateResearchTerminal(p){
  const bodyForHash=clone(row.value.body);delete bodyForHash.digest;
  assert.equal(row.value.digest,digest('orkworks.research-lifecycle-decision.v1',bodyForHash),'lifecycle digest excludes only digest');
  assert.deepEqual(row.value.body.readSet.run.value.body.pendingPlan,p.prestate.executionPlan,'captured pendingPlan is the execution plan');
- assert.equal(row.value.receipt.planVersion,2,'completion receipt reports the target plan version');
+  assert.equal(completionRequest.expectedPlanVersion,1,'expected plan version matches the captured prestate');
+ assert.equal(row.value.receipt.planVersion,2,'completion receipt reports the resulting plan version');
  assert(['coordination','recovery'].includes(trigger.kind),'accepted completion trigger union');
  assert.equal(row.value.receipt.runVersion,row.value.body.readSet.run.value.body.runVersion+1,'no second completion record');
  // absorbing terminal transition
