@@ -365,3 +365,5 @@ Dated design records; these do not establish current product behavior.
 - [Freeze ordinary-review Codex isolation before capture](2026-11-20-review-codex-isolation-design.md) — Accepted literal-command ordering and source-only separation, with native/capture/creator gates retained.
 
 - [Project the exact owned Codex hook fragment](2026-11-22-review-codex-fragment-design.md) — Accepted strict pure projection and shared actual command template without retaining shared user configuration.
+
+- [Complete Codex capture inventory and custody](2026-11-22-review-codex-capture-design.md) — Proposed complete inventory, retained custody and shared owner prerequisites.
