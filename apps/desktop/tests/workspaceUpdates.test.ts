@@ -52,6 +52,86 @@ test("transport adopts only a valid snapshot and restores fallback on a gap; dis
   assert.equal(lists.length, count); assert.equal(timers.size, 0);
 });
 
+test("heartbeats renew liveness only after the first workspace snapshot", async () => {
+  const sockets: Array<{
+    onmessage: ((event: { data: string }) => void) | null;
+    onclose: (() => void) | null;
+    onerror: (() => void) | null;
+    closed: boolean;
+    close(): void;
+  }> = [];
+  const timers = new Map<number, { at: number; callback: () => void }>();
+  let now = 0;
+  let timerId = 0;
+  const advanceTo = (until: number) => {
+    for (;;) {
+      const next = [...timers].sort((left, right) => left[1].at - right[1].at)[0];
+      if (!next || next[1].at > until) break;
+      const [id, { at, callback }] = next;
+      now = at;
+      timers.delete(id);
+      callback();
+    }
+    now = until;
+  };
+  const health: boolean[] = [];
+  const published: string[][] = [];
+  const stream = startWorkspaceUpdates({
+    workspacePath: "/workspace",
+    getBackendUrl: async () => "http://localhost:1234",
+    createSocket: () => {
+      const socket = {
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        closed: false,
+        close() { this.closed = true; },
+      };
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+    scheduler: {
+      set(callback, delay) { timers.set(++timerId, { at: now + delay, callback }); return timerId; },
+      clear(handle) { timers.delete(handle as number); },
+    },
+    onHealthy: value => health.push(value),
+    onSessions: rows => published.push(rows.map(session => session.id)),
+    onRecommendationsInvalidated() {},
+  });
+
+  try {
+    await Promise.resolve();
+    const first = sockets[0];
+    const staleMessage = first.onmessage!;
+    const heartbeat = { data: JSON.stringify({ type: "heartbeat" }) };
+    for (const at of [10_000, 20_000]) {
+      advanceTo(at);
+      first.onmessage?.(heartbeat);
+    }
+    advanceTo(29_999);
+    assert.equal(first.closed, false);
+    advanceTo(30_000);
+    assert.equal(first.closed, true, "heartbeats must not postpone the first snapshot deadline");
+    staleMessage({ data: JSON.stringify(snapshot()) });
+    assert.deepEqual(published, []);
+    assert.deepEqual(health, [false]);
+
+    advanceTo(32_000);
+    await Promise.resolve();
+    const retry = sockets[1];
+    retry.onmessage?.({ data: JSON.stringify(snapshot()) });
+    assert.deepEqual(published, [["a", "b"]]);
+    assert.deepEqual(health, [false, true]);
+    advanceTo(55_000);
+    retry.onmessage?.(heartbeat);
+    advanceTo(70_000);
+    assert.equal(retry.closed, false, "an established stream renews its heartbeat deadline");
+  } finally {
+    stream.dispose();
+  }
+  assert.equal(timers.size, 0);
+});
+
 const splitSnapshot = () => ({ ...snapshot(), capability: "status-enrichment-v1", sessions: [
   { ...row("a"), branch: "main", enrichmentRevision: "r1", enrichment: { state: "ready", checkedAt: 1000 } },
 ] });
