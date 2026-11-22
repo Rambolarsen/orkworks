@@ -39,3 +39,15 @@ paths, or directly choose a compiled binding. A reviewed duplicate workflow
 may preserve an existing allowlisted binding through sidecar-owned profile
 metadata. Legacy v1 arrays and version-2 harness documents remain readable and
 migrate on the next successful save.
+
+## Amendment — 2026-11-22: source-only fragment projection
+
+The owner accepted the [Codex fragment design](../superpowers/specs/2026-11-22-review-codex-fragment-design.md)
+and [bounded component plan](../superpowers/plans/2026-11-22-review-codex-fragment-components.md)
+under #1956 on 2026-11-22 after draft #1959. The source component derives canonical bytes only from the exact compiled
+standard POSIX hook template, sharing the actual manual command renderer.
+A separate strict pure projector cannot install, select a handler, accept an
+arbitrary expected command or confer native/currentness authority. Existing
+manual mutation/status policies stay unchanged. Actual capture, complete
+inventory/custody, native eligibility and prepared Start remain gated; this is
+not activation of a new registry/native capability.

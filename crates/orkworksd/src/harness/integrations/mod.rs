@@ -8,6 +8,11 @@ mod aider;
 mod antigravity;
 mod claude;
 mod codex;
+// Source-only until actual capture/custody and prepared-launch gates are qualified.
+#[allow(dead_code)]
+pub(crate) mod codex_fragment;
+#[cfg(test)]
+mod codex_fragment_tests;
 mod copilot;
 mod gemini;
 mod opencode;
@@ -583,8 +588,13 @@ pub(crate) fn portable_reporter_invocation(
     marker: &str,
 ) -> Result<ReporterInvocation, IntegrationError> {
     let portable = portable_reporter_path(reporter)?;
+    Ok(portable_reporter_invocation_from_path(&portable, marker))
+}
+
+/// Format an already resolved portable path without reading home or the filesystem.
+fn portable_reporter_invocation_from_path(portable: &Path, marker: &str) -> ReporterInvocation {
     let path_str = portable.to_string_lossy().into_owned();
-    Ok(ReporterInvocation {
+    ReporterInvocation {
         // program/args are unexpanded ("$HOME/..." is only meaningful once
         // shell-interpreted) — codex.rs only ever reads shell_command.
         // Do not spawn program/args directly the way claude.rs does with
@@ -592,7 +602,7 @@ pub(crate) fn portable_reporter_invocation(
         program: path_str.clone(),
         args: vec!["--marker".into(), marker.into()],
         shell_command: format!("\"{path_str}\" --marker {}", shell_quote(marker)),
-    })
+    }
 }
 
 fn shell_quote(value: &str) -> String {
