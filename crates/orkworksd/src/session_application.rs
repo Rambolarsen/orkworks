@@ -4431,11 +4431,11 @@ impl SessionApplication {
             return false;
         }
         handle.runtime.codex_terminal_status_active = true;
-        let can_replace = |source: &str, origin: &str| {
-            if source == "user" || (source == "agent" && origin != "harness_hook") {
-                return false;
-            }
-            status != Status::Unknown || origin == "codex_terminal"
+        let can_replace = |source: &str, origin: &str| match (source, origin) {
+            ("user", _) => false,
+            ("agent", origin) if origin != "harness_hook" => false,
+            (_, "codex_terminal") => true,
+            _ => status != Status::Unknown,
         };
         if !can_replace(
             handle.info.attention_source().unwrap_or("unknown"),
@@ -12522,7 +12522,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     #[test]
     fn codex_terminal_status_never_replaces_explicit_attention_in_either_store() {
         use crate::runtime::codex_terminal_status::Status;
-        for source in ["agent", "user"] {
+        for (source, origin) in [
+            ("agent", "direct_agent"),
+            ("agent", "native_codex"),
+            ("agent", "codex_terminal"),
+            ("user", "user"),
+            ("user", "codex_terminal"),
+        ] {
             for live in [false, true] {
                 let id = "terminal-preserves-explicit";
                 let (_root, state, generation) = codex_terminal_status_fixture(id);
@@ -12532,14 +12538,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     let mut sessions = state.sessions.lock().unwrap();
                     let info = &mut sessions.get_mut(id).unwrap().info;
                     info.provenance.attention_source = Some(source.into());
-                    info.provenance.attention_origin = Some(
-                        if source == "agent" {
-                            "direct_agent"
-                        } else {
-                            "user"
-                        }
-                        .into(),
-                    );
+                    info.provenance.attention_origin = Some(origin.into());
                 } else {
                     state
                         .workspace
@@ -12550,14 +12549,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                         .metadata
                         .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
                             meta.provenance.attention_source = Some(source.into());
-                            meta.provenance.attention_origin = Some(
-                                if source == "agent" {
-                                    "direct_agent"
-                                } else {
-                                    "user"
-                                }
-                                .into(),
-                            );
+                            meta.provenance.attention_origin = Some(origin.into());
                             meta.provenance.attention_updated_at =
                                 Some("2000-01-01T00:00:00Z".into());
                             Ok(true)
@@ -12570,7 +12562,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     Status::Idle,
                     Status::Failed,
                 ] {
-                    assert!(!app.apply_codex_terminal_status(id, generation, status));
+                    assert!(
+                        !app.apply_codex_terminal_status(id, generation, status),
+                        "{source}/{origin}, live={live}, status={status:?} must stay protected"
+                    );
                     assert_eq!(
                         state.sessions.lock().unwrap()[id].info.attention.as_deref(),
                         Some("needs_you")
