@@ -112,6 +112,7 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'app-review-terminal-fill') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate('document.getElementById("root").style.height="100vh"');
         const density = await evaluate(`new Promise(resolve=>{
           const term=fixture.runtime().terminal;
           const configured=term.options.lineHeight;
@@ -127,33 +128,46 @@ if (process.versions.electron) {
         assert.ok(density.baseHeight>0,'row density is measured from a visible terminal grid');
         assert.ok(density.configuredHeight>=density.baseHeight,'row spacing retains the natural glyph height');
         assert.ok(density.configuredHeight<=density.baseHeight*1.25,'coding-tool rows stay within 25% of the natural terminal grid: '+JSON.stringify(density));
+        await evaluate('new Promise(resolve=>fixture.runtime().terminal.write(Array.from({length:80},(_,i)=>"  Checking workspace item "+(i+1)).concat(["", "$ pnpm check", "  Typecheck passed", "  Tests passed", "", "Ready for the next task.", ""]).join(String.fromCharCode(13,10)),resolve))');
+        await evaluate('fixture.runtime().terminal.focus()');
         for (const [width,height] of [[1280,700],[910,633],[640,511]]) {
           win.setContentSize(width,height);
+          await waitFor('innerWidth==='+width+' && innerHeight==='+height);
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const bounds = await evaluate(`(()=>{
             const main=document.querySelector('.shell-main').getBoundingClientRect();
             const shell=document.querySelector('.terminal-shell').getBoundingClientRect();
-            const container=document.querySelector('.terminal-container').getBoundingClientRect();
+            const host=document.querySelector('.terminal-container');
+            const container=host.getBoundingClientRect();
+            const style=getComputedStyle(host);
+            const padding=['Left','Right','Top','Bottom'].map(side=>parseFloat(style['padding'+side]));
+            const content={left:container.left+padding[0],right:container.right-padding[1],top:container.top+padding[2],bottom:container.bottom-padding[3]};
             const viewport=document.querySelector('.xterm-viewport').getBoundingClientRect();
             const screen=document.querySelector('.xterm-screen').getBoundingClientRect();
-            return {main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),viewport:viewport.toJSON(),screen:screen.toJSON()};
+            return {windowHeight:innerHeight,main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),padding,content,viewport:viewport.toJSON(),screen:screen.toJSON()};
           })()`);
           // Check the painted remainder before geometry, so this catches the black strip directly.
           const screenshot=await win.webContents.capturePage();
           const scale=screenshot.getSize().width/await evaluate('innerWidth');
           const x=(bounds.viewport.left+bounds.viewport.right)/2;
-          const y=bounds.viewport.bottom-1;
-          const pixel=[...screenshot.crop({x:Math.floor(x*scale),y:Math.floor(y*scale),width:1,height:1}).toBitmap().subarray(0,3)];
-          assert.ok(pixel.every((channel,index)=>Math.abs(channel-[25,19,17][index])<=1),'unused space below the terminal rows shares the graphite background (BGRA): '+pixel);
+          for (const y of [bounds.viewport.bottom-1,bounds.container.bottom-1]) {
+            const pixel=[...screenshot.crop({x:Math.floor(x*scale),y:Math.floor(y*scale),width:1,height:1}).toBitmap().subarray(0,3)];
+            assert.ok(pixel.every((channel,index)=>Math.abs(channel-[25,19,17][index])<=1),'terminal remainder and inner spacing share the graphite background (BGRA): '+pixel);
+          }
+          assert.ok(Math.abs(bounds.main.bottom-bounds.windowHeight)<1,'main pane reaches the resized window bottom without clipping');
+          assert.ok(bounds.padding.every(value=>value>0&&value<=12&&value===bounds.padding[0]),'terminal content has even modest breathing room');
           for (const edge of ['left','right','top','bottom']) {
             assert.ok(Math.abs(bounds.container[edge]-bounds.shell[edge])<1,'terminal fills shell '+edge);
-            assert.ok(Math.abs(bounds.viewport[edge]-bounds.container[edge])<1,'viewport fills terminal '+edge);
+            assert.ok(Math.abs(bounds.viewport[edge]-bounds.content[edge])<1,'viewport fills the padded content box '+edge);
           }
           for (const edge of ['left','right','bottom']) {
             assert.ok(Math.abs(bounds.shell[edge]-bounds.main[edge])<1,'terminal reaches main pane '+edge);
           }
-          assert.ok(bounds.screen.right<=bounds.container.right+1,'fitted columns stay inside terminal');
-          assert.ok(bounds.screen.bottom<=bounds.container.bottom+1,'fitted rows stay inside terminal');
+          assert.ok(bounds.screen.right<=bounds.content.right+1,'fitted columns stay inside terminal content');
+          assert.ok(bounds.screen.bottom<=bounds.content.bottom+1,'fitted rows stay inside terminal content');
+          // Keep the static synthetic output at its newest rows in the preview.
+          await evaluate('fixture.runtime().terminal.scrollToBottom()');
+          await captureReplay('terminal-polish-'+width);
         }
         await captureReplay('terminal-fill');
         assert.deepEqual(await evaluate('fixture.errors'),[]);
@@ -209,6 +223,9 @@ if (process.versions.electron) {
             await evaluate('document.querySelector(".terminal-shell").style.removeProperty("display")');
           }
           await waitFor(`(${snapshot})?.natural.every(size=>Number.isFinite(size)) && (${snapshot})?.rows.some(row=>row.trim()==="last-row")`);
+          // The recorded-size label changes the content box after the first
+          // render. Wait for ResizeObserver to fit that final layout too.
+          await waitFor(`(${snapshot}).screen.right<=(${snapshot}).content.right+1 && (${snapshot}).screen.bottom<=(${snapshot}).content.bottom+1`);
           const original = await assertReplay();
           const label = initiallyHidden ? 'revealed' : 'visible';
           await captureReplay(label + '-wide');
