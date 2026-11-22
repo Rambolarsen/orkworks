@@ -16,7 +16,7 @@ use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, In
 /// Windows even in the untracked-and-ignored case that worked before this
 /// change, breaking Windows Codex installs entirely rather than just
 /// falling back for the tracked case.
-const CODEX_EVENTS: [&str; 6] = [
+pub(super) const CODEX_EVENTS: [&str; 6] = [
     "SessionStart",
     "UserPromptSubmit",
     "PreToolUse",
@@ -25,16 +25,20 @@ const CODEX_EVENTS: [&str; 6] = [
     "Stop",
 ];
 
-fn base_platform_invocation(
-    reporter: &Path,
-    event: &str,
-) -> Result<ReporterInvocation, IntegrationError> {
-    let mut invocation = if ReporterPlatform::current() == ReporterPlatform::Posix {
-        portable_reporter_invocation(reporter, MARKER)?
+fn resolved_base_invocation(reporter: &Path) -> Result<ReporterInvocation, IntegrationError> {
+    if ReporterPlatform::current() == ReporterPlatform::Posix {
+        portable_reporter_invocation(reporter, MARKER)
     } else {
-        reporter_invocation(reporter, MARKER)
-    };
-    let event_flag = if ReporterPlatform::current() == ReporterPlatform::Posix {
+        Ok(reporter_invocation(reporter, MARKER))
+    }
+}
+
+fn append_event(
+    mut invocation: ReporterInvocation,
+    platform: ReporterPlatform,
+    event: &str,
+) -> ReporterInvocation {
+    let event_flag = if platform == ReporterPlatform::Posix {
         "--event"
     } else {
         "-Event"
@@ -45,20 +49,62 @@ fn base_platform_invocation(
     invocation
         .shell_command
         .push_str(&super::shell_quote(event));
-    Ok(invocation)
+    invocation
 }
 
-fn bundle_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+fn append_fingerprint(
+    mut invocation: ReporterInvocation,
+    platform: ReporterPlatform,
+    fingerprint: &str,
+) -> ReporterInvocation {
+    let fingerprint_flag = if platform == ReporterPlatform::Posix {
+        "--hook-fingerprint"
+    } else {
+        "-HookFingerprint"
+    };
+    invocation.shell_command.push(' ');
+    invocation.shell_command.push_str(fingerprint_flag);
+    invocation.shell_command.push(' ');
+    invocation
+        .shell_command
+        .push_str(&super::shell_quote(fingerprint));
+    invocation
+}
+
+/// Shared source rendering only; no filesystem, environment or eligibility lookup.
+pub(super) fn command_bundle(
+    base: &ReporterInvocation,
+    platform: ReporterPlatform,
+) -> (String, [ReporterInvocation; 6]) {
+    let invocations = CODEX_EVENTS.map(|event| append_event(base.clone(), platform, event));
     let mut canonical = String::new();
-    for event in CODEX_EVENTS {
-        canonical.push_str(&base_platform_invocation(reporter, event)?.shell_command);
+    for invocation in &invocations {
+        canonical.push_str(&invocation.shell_command);
         canonical.push('\n');
     }
-    Ok(format!("{:x}", Sha256::digest(canonical.as_bytes())))
+    let fingerprint = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+    let invocations =
+        invocations.map(|invocation| append_fingerprint(invocation, platform, &fingerprint));
+    (fingerprint, invocations)
+}
+
+fn base_platform_invocation(
+    reporter: &Path,
+    event: &str,
+) -> Result<ReporterInvocation, IntegrationError> {
+    Ok(append_event(
+        resolved_base_invocation(reporter)?,
+        ReporterPlatform::current(),
+        event,
+    ))
 }
 
 pub(crate) fn current_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
-    bundle_fingerprint(reporter)
+    Ok(command_bundle(
+        &resolved_base_invocation(reporter)?,
+        ReporterPlatform::current(),
+    )
+    .0)
 }
 
 pub(crate) fn hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
@@ -69,23 +115,16 @@ fn platform_invocation(
     reporter: &Path,
     event: &str,
 ) -> Result<ReporterInvocation, IntegrationError> {
-    let mut invocation = base_platform_invocation(reporter, event)?;
+    let invocation = base_platform_invocation(reporter, event)?;
     let fingerprint = current_hook_fingerprint(reporter)?;
-    let fingerprint_flag = if ReporterPlatform::current() == ReporterPlatform::Posix {
-        "--hook-fingerprint"
-    } else {
-        "-HookFingerprint"
-    };
-    invocation.shell_command.push(' ');
-    invocation.shell_command.push_str(fingerprint_flag);
-    invocation.shell_command.push(' ');
-    invocation
-        .shell_command
-        .push_str(&super::shell_quote(&fingerprint));
-    Ok(invocation)
+    Ok(append_fingerprint(
+        invocation,
+        ReporterPlatform::current(),
+        &fingerprint,
+    ))
 }
 
-const MARKER: &str = "orkworks:harness-integration:v2:codex";
+pub(super) const MARKER: &str = "orkworks:harness-integration:v2:codex";
 // Codex's hook definitions have no dedicated "name"/marker field (unlike
 // Claude's args array or Gemini's "name" key) — ownership is recognized by
 // extracting the marker value from inside the single shell-interpreted
@@ -95,7 +134,7 @@ const MARKER: &str = "orkworks:harness-integration:v2:codex";
 // text appearing anywhere in the string — keeps an unrelated command that
 // merely mentions the marker (e.g. in an echo or comment) from being
 // misidentified as ours.
-const MARKER_PREFIX: &str = "orkworks:harness-integration:";
+pub(super) const MARKER_PREFIX: &str = "orkworks:harness-integration:";
 const MARKER_FLAGS: [&str; 2] = ["--marker '", "-Marker '"];
 
 pub(super) fn extract_marker(command: &str) -> Option<&str> {
@@ -333,6 +372,25 @@ mod tests {
 
     fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
         home.join(".orkworks/hook-scripts/report-harness-event.sh")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manual_posix_bundle_matches_independent_source_fixture() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let reporter = reporter_path(home.path());
+        let vectors: Value =
+            serde_json::from_str(include_str!("codex_fragment_vectors.json")).unwrap();
+        let expected: Value =
+            serde_json::from_str(vectors["posix"]["canonical"].as_str().unwrap()).unwrap();
+        let mut document = Map::new();
+        merge(&mut document, &reporter).unwrap();
+        assert_eq!(Value::Object(document), expected);
+        assert_eq!(
+            current_hook_fingerprint(&reporter).unwrap(),
+            vectors["posix"]["fingerprint"].as_str().unwrap()
+        );
     }
 
     fn gitignored_workspace() -> tempfile::TempDir {

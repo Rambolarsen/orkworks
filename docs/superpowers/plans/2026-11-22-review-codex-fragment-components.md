@@ -1,14 +1,15 @@
 ---
 type: Implementation Plan
 title: Codex owned-fragment source components
-description: Proposed bounded shared command renderer and strict pure owned-fragment projector with canonical bytes and manual compatibility checks.
+description: Approved bounded shared command renderer and strict pure owned-fragment projector with canonical bytes and manual compatibility checks.
 tags: [orkworks, review, codex, implementation]
-status: draft
+status: stable
 ---
 
 # Codex owned-fragment source components
 
-**Workflow: proposed; owner approval of the concrete design and plan is pending.**
+**Workflow: owner approved the concrete design/plan on 2026-11-22 with “go ahead”
+after draft #1959. Source implementation and focused compatibility checks are complete; full repository verification passed; final review is pending.**
 
 Goal: derive only the exact standard POSIX OrkWorks hook bundle from bounded
 shared JSON, using actual source command generation. Pass when canonical bytes
@@ -45,32 +46,32 @@ all its detailed diagnostics to fixed payload-free categories.
 
 ## One coupled implementation task
 
-- [ ] Write failing independent template/fingerprint byte fixtures for actual
+- [x] Write failing independent template/fingerprint byte fixtures for actual
   manual POSIX and Windows generation, then extract the pure formatter/bundle
   seams and run the existing Codex/Antigravity integration conformance tests.
   Preserve six-event fingerprint order, per-command LF, quoting and current
   Windows flags. No native tool, user file or installed asset is needed.
-- [ ] Write failing projector cases for exact complete output, None for no
+- [x] Write failing projector cases for exact complete output, None for no
   namespace, malformed/duplicate/trailing input, partial/duplicate/foreign owned
   groups, unknown event/root/key occurrences, extra hook/group keys and sibling
   hooks. Independent sentinels in unrelated data must be absent from successful
   output and every error; avoid deriving expectations from the renderer under test.
-- [ ] Implement the pure projector per the design: strict bounded parse, namespace
+- [x] Implement the pure projector per the design: strict bounded parse, namespace
   scan, exact internally generated whole-group equality, six unique matches,
   reconstructed canonical output and fixed error categories. Validate every
   decoded namespace occurrence rather than accepting a projected subset. Keep
   physical absence/currentness and native validity outside this result.
-- [ ] Exercise inclusive 256 KiB carrier input and one extra byte, UTF-8/escaped
+- [x] Exercise inclusive 256 KiB carrier input and one extra byte, UTF-8/escaped
   duplicate keys, wrong fingerprint, namespace text in ignored-shaped data and
   unrelated groups around valid owned groups. Assert output equals the independent
   full literal and fits the 16 KiB cap; no artificial caller-selectable maximum
   template. Run focused tests and existing manual install/status/uninstall,
   fingerprint, portable command, Windows fixture and Antigravity regressions.
-- [ ] Run `bash scripts/verify-repo.sh` with pinned Node/pnpm setup; run doc/worktree/
+- [x] Run `bash scripts/verify-repo.sh` with pinned Node/pnpm setup; run doc/worktree/
   whitespace close-out checks. Inspect/restore generated lock metadata only.
   Record actual counts and classify warnings against this diff. No source-only
   result may be described as a complete capture owner or native proof.
-- [ ] Obtain fresh whole-diff review plus current `/code-review low` before merge,
+- [ ] Obtain fresh whole-diff review plus current `/code-review medium` before merge,
   handle findings through focused tests, and complete the normal PR lifecycle.
   Keep source/native/physical/Start parent gates open and tie off only an actually
   matching active recommendation.
@@ -104,6 +105,13 @@ outside the returned bytes.
 
 Total11/25 for this bounded source slice. Self-review completed once against
 the design for interface consistency, complete namespace traversal, retention/
-error behavior and compatibility; no material gap remained. Disposition: **Ready for owner review; implementation awaits
-concrete design/plan approval.** The five-file candidate set is not registered or
+error behavior and compatibility; no material gap remained. Disposition: **Approved for bounded source implementation;
+source/focused checks complete; full verification passed; final review pending.** The five-file candidate set is not registered or
 qualified as the actual integration inventory by this plan.
+
+Review effort: use `/code-review medium` for the final current diff. The coupled
+renderer/projector plus adversarial tests is about 500 Rust changed lines and
+contains a new untrusted-JSON retention boundary. This meets the repository’s
+explicit size/security escalation conditions; keeping the coupled byte-contract
+and manual-compatibility evidence together avoids an incomplete handoff. No new
+implementation scope or authority is added by this review-effort choice.

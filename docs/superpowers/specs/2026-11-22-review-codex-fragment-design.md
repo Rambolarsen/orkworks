@@ -1,14 +1,15 @@
 ---
 type: Design
 title: Project the exact owned Codex hook fragment
-description: Proposed pure source projector and shared command template for complete Codex-owned hook bytes without retaining shared configuration.
+description: Accepted pure source projector and shared command template for complete Codex-owned hook bytes without retaining shared configuration.
 tags: [orkworks, review, codex, source-contracts]
-status: draft
+status: stable
 ---
 
 # Project the exact owned Codex hook fragment
 
-**Proposed; owner approval of this design and coupled bounded plan is pending.**
+**Owner accepted this exact projection/retention boundary and coupled bounded
+plan on 2026-11-22 with “go ahead” after reviewing draft #1959.**
 Track [#1956](https://github.com/Rambolarsen/orkworks/issues/1956), a prerequisite
 under #68/#66/#1899 and #738/#741. Audit base:
 `b91b9571c15285df5d80f9a2f18dc93f7946fe71`.
@@ -175,3 +176,22 @@ new dependency, renderer/API/schema activation or new permission. Actual carrier
 observation, absence races, resource/executable custody, active/trust publication,
 shared checked epoch, independent native/profile eligibility, physical admission
 and prepared Start remain gated. Supported production roles remain empty.
+
+## Bounded source execution evidence — 2026-11-22
+
+The shared renderer and dormant projector are implemented. Independent Python/
+hashlib literals pin complete POSIX/Windows command bundles and fingerprints;
+canonical output is compared with the independent complete native JSON literal.
+Seven focused projector tests passed, then the current 103-test integration
+suite passed, including the actual manual merge/fingerprint golden regression,
+Antigravity and Windows formatting cases, decoded namespace/duplicate keys,
+retained recursion limit and both logical-absence/owned positive 256 KiB input
+boundaries. No installed/user configuration or native coding tool was read.
+Full repository verification passed: Rust3,639/0fail/24ignored plus integration
+suites, reporter32, desktop1,795/0fail/5skipped, native ABI/type-check/build,
+docs2,566/site build and close-out checks. Final review is recorded in #1959.
+
+The new projector has no production capture caller. Its module is explicitly
+source-only; parsing a copied carrier into exact source bytes establishes no
+file/executable custody, complete inventory, native eligibility, shared epoch
+publication, physical admission or prepared Start behavior.
