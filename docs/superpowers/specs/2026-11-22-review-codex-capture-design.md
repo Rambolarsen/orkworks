@@ -296,3 +296,12 @@ No receive/spawn fence or separate persistent owner is silently added to this
 accepted design; either material resolution must be concretely reviewed first.
 This finding is an availability gate before observer code, not an existing
 runtime capture leak or a rejection of the five-resource inventory.
+
+## Proposed custody-owner resolution — 2026-11-23
+
+The [startup-sealed owner-pool proposal](2026-11-22-review-codex-custody-owner-design.md)
+compares the actual launch families and finite isolated-receiver evidence under
+#1981. It would replace descriptor-returning short-lived observation with private
+persistent custody leases and sealed bootstrap channels. This material amendment
+is not approved by the earlier architecture decision; the accepted design and
+its unresolved physical custody gate stay unchanged until owner review.

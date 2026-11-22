@@ -400,3 +400,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Codex owned-fragment source components](2026-11-22-review-codex-fragment-components.md) — Accepted bounded renderer/projector work with independent bytes, ambiguity rejection and manual compatibility evidence.
 
 - [Qualify the first Codex capture inventory and custody](2026-11-22-review-codex-capture-qualification.md) — Proposed staged physical observation and shared-owner evidence roadmap.
+
+- [Qualify a startup-sealed Codex custody owner](2026-11-22-review-codex-custody-owner-qualification.md) — Proposed bootstrap, worker lease and actual-boundary non-inheritance checks.
