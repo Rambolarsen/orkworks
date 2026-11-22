@@ -38,7 +38,14 @@ test("transport adopts only a valid snapshot and restores fallback on a gap; dis
   const health: boolean[] = []; const lists: string[][] = [];
   const stream = startWorkspaceUpdates({
     workspacePath: "/workspace", getBackendUrl: async () => "http://localhost:1234",
-    createSocket: () => { const socket = { onmessage: null, onclose: null, onerror: null, close() {}, send(_s:string) {} }; sockets.push(socket); return socket as unknown as WebSocket; },
+    createSocket: address => {
+      const url = new URL(address);
+      assert.equal(url.searchParams.get("capability"), "status-enrichment-v1");
+      assert.equal(url.searchParams.get("snapshot"), "status-first");
+      const socket = { onmessage: null, onclose: null, onerror: null, close() {}, send(_s:string) {} };
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
     scheduler: { set: callback => { timers.set(++timerId, callback); return timerId; }, clear: handle => { timers.delete(handle); } },
     onHealthy: value => health.push(value), onSessions: rows => lists.push(rows.map(x => x.id)), onRecommendationsInvalidated: () => {},
   });

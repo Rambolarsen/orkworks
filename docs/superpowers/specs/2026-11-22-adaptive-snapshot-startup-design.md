@@ -29,8 +29,13 @@ A new adaptive connection should establish current session identity, membership,
 order, and status while Git or document inspection is blocked. Git and document
 actions continue to resolve against current server-owned state.
 
-## Proposed contract
+## Accepted contract
 
+- Updated desktops request `snapshot=status-first` alongside
+  `capability=status-enrichment-v1`. Clients without that exact opt-in receive
+  their first adaptive snapshot after every row has checked enrichment for its
+  current revision. Both modes share the publisher and retain the same snapshot
+  and delta message format. Previous sidecars ignore the optional query parameter.
 - An adaptive snapshot is authoritative for the complete session status group
   under the active workspace owner. Each row also carries its enrichment
   revision and freshness state. A pending row uses the existing empty `cwd`
@@ -51,10 +56,12 @@ actions continue to resolve against current server-owned state.
   A warm publisher supplies the same captured display to new and established
   subscribers. Retain enrichment only when the row and location revision
   still match. Carry forward its original check time and expose its current
-  freshness. The existing renderer accepts the pending representation and
-  ages checked values by that timestamp. Qualify a pending reconnect snapshot
-  with the previous desktop build before enabling it for the existing
-  capability.
+  freshness. The updated renderer displays pending status immediately and
+  defers saved Review restoration until the selected session has checked
+  enrichment. Pending enrichment during an open Review clears its document
+  bytes and displays loading until a current read is possible. Session removal,
+  an unavailable artifact, or explicit user navigation keeps its existing
+  behavior.
 - Subscribing requests status work. The shared publisher owns one enrichment
   worker and schedules it from its existing cold-start, mutation, and cadence
   rules. An explicit refresh remains a full invalidation. A rejected or late
@@ -94,11 +101,11 @@ the existing pending state to show which repository details still need checking.
    freshness independent of enrichment acceptance.
 3. Test successor messages after the pending snapshot, including row removal,
    changed binding, incomplete status, workspace replacement, late worker
-   results, and an unavailable Git directory. Verify that older desktop
-   reducers accept pending rows and apply the matching enrichment delta. Check
-   desktop status display and action admission while enrichment is pending.
-   If an older desktop cannot safely handle this shape, return for a capability
-   decision before enabling it.
+   results, and an unavailable Git directory. Verify a mixed pair of adaptive
+   subscribers receives the expected baselines while sharing inspection. Check
+   desktop status display, Review restoration, and action admission while
+   enrichment is pending. Verify the updated desktop still accepts a complete
+   snapshot from the previous sidecar.
 4. Run the repository verifier and current-diff review. Compare first-snapshot
    latency, inspection starts, and CPU on a fixed fixture approximating 800
    rows and 19 roots with idle and sustained output. Hold the source build
@@ -114,17 +121,10 @@ There is no stored-state transition.
 
 ## Plan review
 
-Ready for implementation under the approved contract. The previous desktop reducer validates the existing
-pending representation, the sidecar already emits it on row changes, and the
-status capture already runs without Git inspection. A direct reducer probe
-accepted a pending first snapshot, rejected an older revision, applied the
-matching enrichment, and aged it to stale. The remaining compatibility
-risk is initial rendering and action affordances on older desktops. Include a
-mixed-version test before treating that assumption as qualified. Exercise
-reconnect during both a blocked inspection and a workspace replacement to
-distinguish a fresh status capture from reuse of a cached display.
-
-Dependencies 3 (sidecar publisher and desktop consumer), blast radius 3
-(workspace display startup), state changes 2 (display admission and no
-persistence), reversibility 2 (source rollback with existing polling),
-uncertainty 3 (real-workload behavior and previous-client startup). Total 13/25.
+The previous desktop reducer accepts pending rows and matching enrichment
+deltas. Electron reproduced a separate navigation failure when a pending first
+frame met a saved Review. The desktop fell back to Terminal and stayed there
+after matching enrichment arrived. The accepted opt-in preserves the earlier
+baseline contract for that desktop. Exercise reconnect during a blocked
+inspection and workspace replacement to verify the status capture and owner
+fences.

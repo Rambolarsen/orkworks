@@ -110,6 +110,7 @@ use crate::http::api_auth::{origin_allowed, WEBSOCKET_PROTOCOL};
 pub(crate) struct Subscription {
     workspace: String,
     capability: Option<String>,
+    snapshot: Option<String>,
 }
 
 pub(crate) async fn subscribe(
@@ -139,7 +140,8 @@ pub(crate) async fn subscribe(
         .max_message_size(4096)
         .on_upgrade(move |socket| async move {
             if query.capability.is_some() {
-                split::run(socket, state, workspace, root).await
+                let status_first = query.snapshot.as_deref() == Some(split::STATUS_FIRST);
+                split::run(socket, state, workspace, root, status_first).await
             } else {
                 run(socket, state, workspace, root).await
             }
@@ -804,7 +806,9 @@ mod tests {
         url.query_pairs_mut()
             .append_pair("workspace", &directory.path().display().to_string());
         if let Some(capability) = capability {
-            url.query_pairs_mut().append_pair("capability", capability);
+            url.query_pairs_mut()
+                .append_pair("capability", capability)
+                .append_pair("snapshot", split::STATUS_FIRST);
         }
         let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
             .await

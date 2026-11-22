@@ -174,6 +174,7 @@ export function startWorkspaceUpdates(options: Options): { dispose(): void; resy
       const url = new URL("/workspace/updates", base); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("workspace", options.workspacePath);
       url.searchParams.set("capability", capability);
+      url.searchParams.set("snapshot", "status-first");
       const candidate = (options.createSocket ?? openBackendSocket)(url.toString());
       socket = candidate;
       const state = createStreamState(options.workspacePath);

@@ -562,9 +562,11 @@ skills do not establish native loading/use or change session lifecycle authority
 read-only update socket owned by `workspaceSessionController.ts`. An initial
 complete status snapshot establishes the instance/workspace cursor; gaps and
 reconnects require a new snapshot. Legacy clients receive complete rows. Clients
-negotiating `status-enrichment-v1` receive a freshly captured status baseline
-with matching checked or pending enrichment, then typed status and enrichment
-groups under that same cursor. Connecting requests status without invalidating
+negotiating `status-enrichment-v1` receive a freshly captured status baseline,
+then typed status and enrichment groups under that same cursor. The
+`snapshot=status-first` opt-in allows pending enrichment in the first snapshot.
+Earlier desktops receive checked enrichment in that snapshot. Connecting requests
+status without invalidating
 the workspace's shared Git and document data. One workspace-owned publisher shares inspection
 across negotiated subscribers; two-second status updates do not inspect Git or
 documents. Enrichment runs every five seconds when an existing row has changed

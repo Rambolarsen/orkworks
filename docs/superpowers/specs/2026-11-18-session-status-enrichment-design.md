@@ -141,8 +141,8 @@ fallback. A legacy request must never receive the new message types.
 
 For negotiated clients, the initial authoritative snapshot establishes current
 session status, membership and order. Each row carries its enrichment revision
-and freshness. Git and document enrichment may be pending at startup or
-reconnect, as specified in the
+and freshness. Clients that opt in with `snapshot=status-first` may receive
+pending Git and document enrichment at startup or reconnect, as specified in the
 [approved startup amendment](2026-11-22-adaptive-snapshot-startup-design.md).
 `session-status-delta` and `session-enrichment-delta` share the
 existing instance/workspace/generation/global sequence cursor with recommendation

@@ -5,6 +5,7 @@ use crate::session_projection::{LocationInputs, StreamProjection};
 use tokio::task::JoinHandle;
 
 pub(super) const CAPABILITY: &str = "status-enrichment-v1";
+pub(super) const STATUS_FIRST: &str = "status-first";
 const FIELDS: &[&str] = &[
     "cwd",
     "worktreeBinding",
@@ -111,6 +112,12 @@ impl Display {
             && self
                 .captured_request
                 .is_some_and(|revision| revision >= required_status)
+    }
+
+    fn enrichment_checked(&self) -> bool {
+        self.enrichment
+            .values()
+            .all(|row| row["state"] != "pending")
     }
 
     // Membership comes only from the current status capture, never a late scan.
@@ -432,6 +439,7 @@ pub(super) async fn run(
     state: Arc<AppState>,
     workspace: String,
     root: PathBuf,
+    status_first: bool,
 ) {
     let Some((owner, required_status, mut updates)) =
         subscribe_shared(state.clone(), workspace.clone(), root)
@@ -454,6 +462,7 @@ pub(super) async fn run(
             let revisions = *state.updates.revisions.borrow();
             revisions.workspace == owner.generation
                 && next.admits_snapshot(required_status, revisions.enrichment)
+                && (status_first || next.enrichment_checked())
         }) {
             let mut messages = Vec::new();
             if let Some(old) = &baseline {
@@ -587,11 +596,18 @@ mod tests {
         (entered_rx, release_tx)
     }
 
-    fn adaptive_url(address: std::net::SocketAddr, workspace: &Path) -> url::Url {
+    fn adaptive_url(
+        address: std::net::SocketAddr,
+        workspace: &Path,
+        status_first: bool,
+    ) -> url::Url {
         let mut url = url::Url::parse(&format!("ws://{address}/workspace/updates")).unwrap();
         url.query_pairs_mut()
             .append_pair("workspace", workspace.to_str().unwrap())
             .append_pair("capability", CAPABILITY);
+        if status_first {
+            url.query_pairs_mut().append_pair("snapshot", STATUS_FIRST);
+        }
         url
     }
 
@@ -754,17 +770,26 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let app = crate::build_router(state);
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let url = adaptive_url(address, dir.path());
+        let url = adaptive_url(address, dir.path(), true);
+        let previous_url = adaptive_url(address, dir.path(), false);
+        let (mut previous, _) = tokio_tungstenite::connect_async(previous_url.as_str())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(4), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        let previous_while_blocked =
+            tokio::time::timeout(Duration::from_millis(500), previous.next()).await;
         let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
             .await
             .unwrap();
-
-        let baseline = tokio::time::timeout(Duration::from_secs(4), async {
-            entered_rx.await.unwrap();
-            socket.next().await
-        })
-        .await;
+        let baseline = tokio::time::timeout(Duration::from_secs(4), socket.next()).await;
         release_tx.send(()).unwrap();
+        assert!(
+            previous_while_blocked.is_err(),
+            "older clients require checked enrichment"
+        );
         let baseline: Value = serde_json::from_str(
             baseline
                 .expect("status snapshot must arrive without Git")
@@ -806,6 +831,23 @@ mod tests {
         let unavailable = changed.iter().find(|row| row["id"] == "row-0").unwrap();
         assert_eq!(unavailable["state"], "unavailable");
         assert_eq!(unavailable["data"]["repoRoot"], Value::Null);
+        let previous_baseline: Value = serde_json::from_str(
+            tokio::time::timeout(Duration::from_secs(8), previous.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .to_text()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(previous_baseline["type"], "snapshot");
+        assert_eq!(previous_baseline["capability"], CAPABILITY);
+        let previous_rows = previous_baseline["sessions"].as_array().unwrap();
+        assert_eq!(previous_rows.len(), rows.len());
+        assert!(previous_rows.iter().all(|row| {
+            row["enrichment"]["state"] != "pending" && row["enrichment"]["checkedAt"].is_u64()
+        }));
         server.abort();
     }
 
@@ -827,7 +869,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let app = crate::build_router(state.clone());
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let old_url = adaptive_url(address, dir.path());
+        let old_url = adaptive_url(address, dir.path(), true);
         let (mut old, _) = tokio_tungstenite::connect_async(old_url.as_str())
             .await
             .unwrap();
@@ -847,7 +889,7 @@ mod tests {
             .revisions
             .send_modify(|revisions| revisions.workspace += 1);
         state.updates.sessions_changed();
-        let new_url = adaptive_url(address, replacement_dir.path());
+        let new_url = adaptive_url(address, replacement_dir.path(), true);
         let (mut new, _) = tokio_tungstenite::connect_async(new_url.as_str())
             .await
             .unwrap();
@@ -1204,7 +1246,9 @@ mod tests {
         url.query_pairs_mut()
             .append_pair("workspace", &dir.path().display().to_string());
         if split {
-            url.query_pairs_mut().append_pair("capability", CAPABILITY);
+            url.query_pairs_mut()
+                .append_pair("capability", CAPABILITY)
+                .append_pair("snapshot", STATUS_FIRST);
         }
         let deadline = tokio::time::Instant::now() + Duration::from_secs(35);
         let writer = if busy {

@@ -307,6 +307,7 @@ function App() {
 
   const filteredHarnesses = activeNewSessionHarnesses(harnesses, activeHarnessIds);
   const activeSession = sessions.find((session) => session.id === activeSessionId);
+  const reviewEnrichmentPending = activeSession?.enrichment?.state === "pending";
   const visibleReviewDocument = resolveVisibleReviewDocument(
     review.document,
     activeSession,
@@ -812,8 +813,8 @@ function App() {
         }}
         review={{
           content: activeSessionId ? <ReviewPanel key={`${shellNavigation.workspaceGeneration}-${activeSessionId}-${visibleReviewDocument?.kind ?? "legacy"}`}
-            sessionId={activeSessionId} content={visibleReviewDocument?.content ?? null} loading={review.loading || isSwitchingWorkspace}
-            error={review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
+            sessionId={activeSessionId} content={visibleReviewDocument?.content ?? null} loading={reviewEnrichmentPending || review.loading || isSwitchingWorkspace}
+            error={!reviewEnrichmentPending && review.error} changed={review.changed} canRequest={sessionAdmissionEnabled && isSessionAlive(activeSession)}
             onRefresh={refreshReview} onRequest={id => requestIndependentReview(id, visibleReviewDocument?.kind, visibleReviewDocument?.selectionId)} /> : null,
           loading: review.loading,
           error: review.error,
