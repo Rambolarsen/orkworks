@@ -1230,6 +1230,24 @@ mod tests {
         git(d.path(), &["commit", "-qm", "base"]);
         d
     }
+    fn complete_uncommitted_capture(dir: &Path, phase: &str) -> Capture {
+        let start = Instant::now();
+        let capture = capture(dir, Comparison::Uncommitted, None).unwrap_or_else(|error| {
+            panic!(
+                "{phase}: capture error after {:?}: {error}",
+                start.elapsed()
+            )
+        });
+        assert!(
+            !capture.partial,
+            "{phase}: partial capture after {:?}; files={}, notice={:?}",
+            start.elapsed(),
+            capture.files.len(),
+            capture.notice
+        );
+        capture
+    }
+
     #[test]
     fn comparisons_separate_commits_from_dirty_worktree_and_use_merge_base() {
         let d = init();
@@ -1611,16 +1629,15 @@ mod tests {
         git(d.path(), &["commit", "-qm", "link"]);
         git(d.path(), &["config", "core.symlinks", "false"]);
         std::fs::write(d.path().join("link"), "target.txt").unwrap();
-        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
-        assert!(!c.partial);
+        let c = complete_uncommitted_capture(d.path(), "link-text checkout");
         assert!(c.files.is_empty());
         git(d.path(), &["rm", "--cached", "link"]);
         git(d.path(), &["add", "link"]);
-        let converted = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let converted = complete_uncommitted_capture(d.path(), "link converted to regular file");
         assert_eq!(converted.files.len(), 1);
         assert_eq!(converted.files[0].path, "link");
         git(d.path(), &["rm", "--cached", "link"]);
-        let untracked = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let untracked = complete_uncommitted_capture(d.path(), "untracked link-text file");
         assert_eq!(untracked.files.len(), 1);
         assert_eq!(untracked.files[0].path, "link");
     }
@@ -1663,8 +1680,7 @@ mod tests {
         let d = init();
         git(d.path(), &["update-index", "--skip-worktree", "a.txt"]);
         std::fs::remove_file(d.path().join("a.txt")).unwrap();
-        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
-        assert!(!c.partial);
+        let c = complete_uncommitted_capture(d.path(), "sparse clean checkout");
         assert!(c.files.is_empty());
         let repo = Repository::open(d.path()).unwrap();
         let id = repo.blob(b"staged\n").unwrap();
@@ -1673,7 +1689,7 @@ mod tests {
             &["update-index", "--cacheinfo", &format!("100644,{id},a.txt")],
         );
         git(d.path(), &["update-index", "--skip-worktree", "a.txt"]);
-        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let c = complete_uncommitted_capture(d.path(), "sparse staged content");
         assert_eq!(c.files.len(), 1);
         assert!(c.patches.values().any(|p| p.contains("+staged")));
     }
@@ -1682,13 +1698,13 @@ mod tests {
         let d = init();
         git(d.path(), &["config", "core.filemode", "false"]);
         git(d.path(), &["update-index", "--chmod=+x", "a.txt"]);
-        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let c = complete_uncommitted_capture(d.path(), "staged executable mode");
         assert_eq!(c.files.len(), 1);
         assert!(c.patches.values().any(|p| p.contains("new mode 100755")));
         std::fs::write(d.path().join("new.txt"), "new\n").unwrap();
         git(d.path(), &["add", "new.txt"]);
         git(d.path(), &["update-index", "--chmod=+x", "new.txt"]);
-        let c = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let c = complete_uncommitted_capture(d.path(), "new staged executable");
         assert!(c
             .patches
             .values()
@@ -1823,7 +1839,7 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret"), "MUST NOT APPEAR").unwrap();
         symlink(outside.path(), d.path().join("escape")).unwrap();
-        let a = capture(d.path(), Comparison::Uncommitted, None).unwrap();
+        let a = complete_uncommitted_capture(d.path(), "untracked directory symlink");
         assert!(a.files.iter().any(|f| f.path == "escape"));
         assert!(!a.patches.values().any(|p| p.contains("MUST NOT APPEAR")));
         assert!(safe_path(Path::new("../escape")).is_err());
