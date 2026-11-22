@@ -71,8 +71,8 @@ all its detailed diagnostics to fixed payload-free categories.
   whitespace close-out checks. Inspect/restore generated lock metadata only.
   Record actual counts and classify warnings against this diff. No source-only
   result may be described as a complete capture owner or native proof.
-- [ ] Obtain fresh whole-diff review plus current `/code-review medium` before merge,
-  handle findings through focused tests, and complete the normal PR lifecycle.
+- [x] Obtain fresh whole-diff review plus current `/code-review medium` before merge
+  and handle findings through focused tests. Track the normal PR lifecycle in #1959.
   Keep source/native/physical/Start parent gates open and tie off only an actually
   matching active recommendation.
 
@@ -106,7 +106,7 @@ outside the returned bytes.
 Total11/25 for this bounded source slice. Self-review completed once against
 the design for interface consistency, complete namespace traversal, retention/
 error behavior and compatibility; no material gap remained. Disposition: **Approved for bounded source implementation;
-source/focused checks complete; full verification passed; final review pending.** The five-file candidate set is not registered or
+source/focused/full checks complete; required routing fix verified; current medium review passed.** The five-file candidate set is not registered or
 qualified as the actual integration inventory by this plan.
 
 Review effort: use `/code-review medium` for the final current diff. The coupled

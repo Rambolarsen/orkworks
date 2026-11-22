@@ -182,14 +182,24 @@ and prepared Start remain gated. Supported production roles remain empty.
 The shared renderer and dormant projector are implemented. Independent Python/
 hashlib literals pin complete POSIX/Windows command bundles and fingerprints;
 canonical output is compared with the independent complete native JSON literal.
-Seven focused projector tests passed, then the current 103-test integration
+Seven focused projector tests passed, then the current 105-test integration
 suite passed, including the actual manual merge/fingerprint golden regression,
 Antigravity and Windows formatting cases, decoded namespace/duplicate keys,
 retained recursion limit and both logical-absence/owned positive 256 KiB input
 boundaries. No installed/user configuration or native coding tool was read.
-Full repository verification passed: Rust3,639/0fail/24ignored plus integration
-suites, reporter32, desktop1,795/0fail/5skipped, native ABI/type-check/build,
-docs2,566/site build and close-out checks. Final review is recorded in #1959.
+Final review identified and corrected a shared-renderer routing gap: manual
+merge/probe now consume the returned final bundle directly, with lazy resolution
+preserved. Two new regressions first failed for missing consumers, then all 105
+integration tests passed. The current medium whole-diff review has no required or
+optional findings; reviewed `codex.rs` blob
+`2026a0e3469c0a28aa4a5154e5418c0f49216fc3`.
+
+Fresh full verification after that fix passed: Rust 3,641/0 failures/24 ignored
+plus integration suites, reporter 32, desktop 1,795/0 failures/5 skipped, native
+ABI/type-check/build, docs 2,566/site build and diff/doc/worktree close-out checks.
+The initial final-run prerequisite stopped at a host Node/Electron fs-ext ABI
+mismatch; the prescribed Node 22 rebuild succeeded before the fresh passing run.
+Final PR lifecycle and review evidence are recorded in #1959.
 
 The new projector has no production capture caller. Its module is explicitly
 source-only; parsing a copied carrier into exact source bytes establishes no

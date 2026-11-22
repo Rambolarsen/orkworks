@@ -88,6 +88,7 @@ pub(super) fn command_bundle(
     (fingerprint, invocations)
 }
 
+#[cfg(test)]
 fn base_platform_invocation(
     reporter: &Path,
     event: &str,
@@ -99,29 +100,21 @@ fn base_platform_invocation(
     ))
 }
 
-pub(crate) fn current_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+fn resolved_command_bundle(
+    reporter: &Path,
+) -> Result<(String, [ReporterInvocation; 6]), IntegrationError> {
     Ok(command_bundle(
         &resolved_base_invocation(reporter)?,
         ReporterPlatform::current(),
-    )
-    .0)
+    ))
+}
+
+pub(crate) fn current_hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
+    Ok(resolved_command_bundle(reporter)?.0)
 }
 
 pub(crate) fn hook_fingerprint(reporter: &Path) -> Result<String, IntegrationError> {
     current_hook_fingerprint(reporter)
-}
-
-fn platform_invocation(
-    reporter: &Path,
-    event: &str,
-) -> Result<ReporterInvocation, IntegrationError> {
-    let invocation = base_platform_invocation(reporter, event)?;
-    let fingerprint = current_hook_fingerprint(reporter)?;
-    Ok(append_fingerprint(
-        invocation,
-        ReporterPlatform::current(),
-        &fingerprint,
-    ))
 }
 
 pub(super) const MARKER: &str = "orkworks:harness-integration:v2:codex";
@@ -265,28 +258,45 @@ fn probe(
     // install() reconciles the missing script instead of leaving a hook
     // that reports installed but can never run.
     let expected_available = reporter.try_exists().unwrap_or(false);
+    let existing = groups(document)?;
+    let bundle = (expected_available && !existing.is_empty())
+        .then(|| resolved_command_bundle(reporter))
+        .transpose()?;
+    Ok(probe_command_bundle(
+        &existing,
+        bundle.as_ref().map(|(_, commands)| commands),
+    ))
+}
+
+fn probe_command_bundle(
+    existing: &[(String, Value)],
+    expected: Option<&[ReporterInvocation; 6]>,
+) -> FragmentState {
     let mut installed_events = 0;
     let mut saw_owned = false;
     let mut saw_drifted = false;
     let mut owned_events = std::collections::HashSet::new();
-    for (event, group) in groups(document)? {
-        let expected = expected_available
-            .then(|| platform_invocation(reporter, &event))
-            .transpose()?;
-        let next = marker_state(&event, &group, expected.as_ref());
+    for (event, group) in existing {
+        let invocation = expected.and_then(|commands| {
+            CODEX_EVENTS
+                .iter()
+                .position(|known| known == event)
+                .map(|index| &commands[index])
+        });
+        let next = marker_state(event, group, invocation);
         match next {
             FragmentState::Absent => {}
-            FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
+            FragmentState::Ambiguous => return FragmentState::Ambiguous,
             FragmentState::Installed => {
                 if !owned_events.insert(event) {
-                    return Ok(FragmentState::Ambiguous);
+                    return FragmentState::Ambiguous;
                 }
                 saw_owned = true;
                 installed_events += 1;
             }
             FragmentState::Drifted => {
                 if !owned_events.insert(event) {
-                    return Ok(FragmentState::Ambiguous);
+                    return FragmentState::Ambiguous;
                 }
                 saw_owned = true;
                 saw_drifted = true;
@@ -294,11 +304,11 @@ fn probe(
         }
     }
     if !saw_owned {
-        Ok(FragmentState::Absent)
+        FragmentState::Absent
     } else if !saw_drifted && installed_events == CODEX_EVENTS.len() {
-        Ok(FragmentState::Installed)
+        FragmentState::Installed
     } else {
-        Ok(FragmentState::Drifted)
+        FragmentState::Drifted
     }
 }
 
@@ -306,12 +316,20 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
     if remove(document)? == FragmentState::Ambiguous {
         return Err(IntegrationError::OwnershipAmbiguous);
     }
+    let (_, commands) = resolved_command_bundle(reporter)?;
+    merge_command_bundle(document, &commands)
+}
+
+fn merge_command_bundle(
+    document: &mut Map<String, Value>,
+    commands: &[ReporterInvocation; 6],
+) -> Result<(), IntegrationError> {
     let hooks = document
         .entry("hooks")
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
-    for event in CODEX_EVENTS {
+    for (event, invocation) in CODEX_EVENTS.into_iter().zip(commands) {
         let event_hooks = hooks
             .entry(event)
             .or_insert_with(|| json!([]))
@@ -319,7 +337,6 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
             .ok_or_else(|| {
                 IntegrationError::InvalidConfig(format!("Codex {event} hooks must be an array."))
             })?;
-        let invocation = platform_invocation(reporter, event)?;
         event_hooks.push(json!({
             "hooks":[{"type":"command","command":invocation.shell_command}]
         }));
@@ -372,6 +389,60 @@ mod tests {
 
     fn reporter_path(home: &std::path::Path) -> std::path::PathBuf {
         home.join(".orkworks/hook-scripts/report-harness-event.sh")
+    }
+
+    // The manual consumers must copy the final producer result, never reassemble it.
+    #[test]
+    fn manual_consumers_use_the_exact_returned_bundle() {
+        let base = super::super::portable_reporter_invocation_from_path(
+            Path::new("$HOME/.orkworks/hook-scripts/report-harness-event.sh"),
+            MARKER,
+        );
+        let (_, mut commands) = command_bundle(&base, ReporterPlatform::Posix);
+        for command in &mut commands {
+            command.shell_command.push_str(" --shared-final-assembly");
+        }
+        let mut document = Map::new();
+        merge_command_bundle(&mut document, &commands).unwrap();
+        let fixture: Value =
+            serde_json::from_str(include_str!("codex_fragment_vectors.json")).unwrap();
+        for (index, event) in CODEX_EVENTS.iter().enumerate() {
+            let expected = format!(
+                "{} --shared-final-assembly",
+                fixture["posix"]["commands"][index].as_str().unwrap()
+            );
+            assert_eq!(document["hooks"][event][0]["hooks"][0]["command"], expected);
+        }
+        let existing = groups(&document).unwrap();
+        assert!(matches!(
+            probe_command_bundle(&existing, Some(&commands)),
+            FragmentState::Installed
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_keeps_bundle_resolution_lazy_for_absent_reporter_or_groups() {
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let outside = tempfile::tempdir().unwrap();
+        let reporter = outside.path().join("reporter.sh");
+        std::fs::write(&reporter, "fixture").unwrap();
+        assert!(matches!(
+            probe(&Map::new(), &reporter).unwrap(),
+            FragmentState::Absent
+        ));
+        let fixture: Value =
+            serde_json::from_str(include_str!("codex_fragment_vectors.json")).unwrap();
+        let carrier: Value =
+            serde_json::from_str(fixture["posix"]["canonical"].as_str().unwrap()).unwrap();
+        let document = carrier.as_object().unwrap();
+        assert!(matches!(
+            probe(document, &outside.path().join("missing")).unwrap(),
+            FragmentState::Drifted
+        ));
+        // With groups and a present reporter, the invalid home-relative context is read.
+        assert!(probe(document, &reporter).is_err());
     }
 
     #[cfg(unix)]
@@ -792,7 +863,7 @@ mod tests {
         );
     }
 
-    // These three tests exercise merge()/probe() through platform_invocation,
+    // These three tests exercise merge()/probe() through the resolved command bundle,
     // which is POSIX-only by design (ADR 0036) — on Windows it takes the
     // reporter_invocation branch instead, producing a powershell.exe/-File
     // command these assertions don't expect.
