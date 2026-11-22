@@ -2650,6 +2650,9 @@ html, body, #root {
 @media (max-height: 480px) {
   .shell-region--sessions { overflow-y: auto; }
   .shell-region--sessions > .panel-content { min-height: 120px; }
+  /* Let the Actions heading scroll away when it would squeeze out its controls. */
+  [data-shell-region="utility"]:has(> .actions-overview) { overflow-y: auto; }
+  [data-shell-region="utility"] > .actions-overview { flex-shrink: 0; overflow: visible; }
 }
 @media (pointer: coarse) { .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .shell-layout *, .shell-layout *::before, .shell-layout *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

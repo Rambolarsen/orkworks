@@ -1827,6 +1827,42 @@ if (process.versions.electron) {
           assert.equal(await evaluate('fixture.selections'),0);
           assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'actions-short-window') {
+          // A fixed utility header must not leave a scrollport too short for Open.
+          await evaluate('document.getElementById("root").style.height="100%";document.getElementById("root").style.paddingTop="38px";fixture.setSessionState({attention:"needs_you",detectedQuestion:"Ready to continue?"})');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Session attention: 2")');
+          for (const [width,height,zoom] of [[1000,570,2],[720,480,2],[640,700,1]]) {
+            win.webContents.setZoomFactor(zoom);
+            win.setContentSize(width,height);
+            await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+            await click('next-action');
+            await waitFor('document.activeElement.hasAttribute("data-action-key")');
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor('document.activeElement===document.querySelector("[data-actions-detail] button")');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const geometry=await evaluate(`(()=>{
+              const button=document.activeElement,r=button.getBoundingClientRect();
+              let top=0,bottom=innerHeight,left=0,right=innerWidth;
+              const clips=[];
+              for(let parent=button.parentElement;parent;parent=parent.parentElement){
+                const style=getComputedStyle(parent),p=parent.getBoundingClientRect();
+                if(/auto|scroll|hidden|clip/.test(style.overflowY)){top=Math.max(top,p.top+parent.clientTop);bottom=Math.min(bottom,p.top+parent.clientTop+parent.clientHeight);clips.push({className:parent.className,top:p.top,height:parent.clientHeight});}
+                if(/auto|scroll|hidden|clip/.test(style.overflowX)){left=Math.max(left,p.left+parent.clientLeft);right=Math.min(right,p.left+parent.clientLeft+parent.clientWidth);}
+              }
+              return {button:r.toJSON(),top,bottom,left,right,clips};
+            })()`);
+            assert.ok(geometry.button.top-4>=geometry.top&&geometry.button.bottom+4<=geometry.bottom&&geometry.button.left-4>=geometry.left&&geometry.button.right+4<=geometry.right,
+              'Open and its full focus outline fit all clipping ancestors at '+JSON.stringify({width,height,zoom,geometry}));
+            assert.equal(await evaluate('fixture.selections'),0,'reaching Open does not select a session');
+            await evaluate('document.querySelector("[data-shell-return]").focus()');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            assert.ok(await evaluate('(()=>{const b=document.activeElement,r=b.getBoundingClientRect();return b.hasAttribute("data-shell-return")&&r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest("button")===b})()'),'return remains visible and hit-testable after focusing it');
+            await evaluate('document.activeElement.click()');
+            await waitFor('!document.querySelector(".actions-overview")');
+          }
+          assert.deepEqual(await evaluate('fixture.input'),[]);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'actions') {
           await waitFor('document.querySelector("[data-shell-command=actions]")?.getAttribute("aria-description").includes("Session attention: 1")');
           await evaluate('fixture.setSessionState({detectedQuestion:["First?","","Second?"].join(String.fromCharCode(10))})');
@@ -2633,7 +2669,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
