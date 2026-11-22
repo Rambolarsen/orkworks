@@ -116,11 +116,12 @@ if (process.versions.electron) {
           win.setContentSize(width,height);
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const bounds = await evaluate(`(()=>{
+            const main=document.querySelector('.shell-main').getBoundingClientRect();
             const shell=document.querySelector('.terminal-shell').getBoundingClientRect();
             const container=document.querySelector('.terminal-container').getBoundingClientRect();
             const viewport=document.querySelector('.xterm-viewport').getBoundingClientRect();
             const screen=document.querySelector('.xterm-screen').getBoundingClientRect();
-            return {shell:shell.toJSON(),container:container.toJSON(),viewport:viewport.toJSON(),screen:screen.toJSON()};
+            return {main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),viewport:viewport.toJSON(),screen:screen.toJSON()};
           })()`);
           // Check the painted remainder before geometry, so this catches the black strip directly.
           const screenshot=await win.webContents.capturePage();
@@ -132,6 +133,9 @@ if (process.versions.electron) {
           for (const edge of ['left','right','top','bottom']) {
             assert.ok(Math.abs(bounds.container[edge]-bounds.shell[edge])<1,'terminal fills shell '+edge);
             assert.ok(Math.abs(bounds.viewport[edge]-bounds.container[edge])<1,'viewport fills terminal '+edge);
+          }
+          for (const edge of ['left','right','bottom']) {
+            assert.ok(Math.abs(bounds.shell[edge]-bounds.main[edge])<1,'terminal reaches main pane '+edge);
           }
           assert.ok(bounds.screen.right<=bounds.container.right+1,'fitted columns stay inside terminal');
           assert.ok(bounds.screen.bottom<=bounds.container.bottom+1,'fitted rows stay inside terminal');
