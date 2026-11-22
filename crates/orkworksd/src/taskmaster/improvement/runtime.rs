@@ -515,7 +515,26 @@ fn publish_history(
 }
 
 // Lock order is runtime inference authority -> per-run dispatch -> workspace.
-// Custom transports enter here with inference authority already held through spawn.
+// Called inside `TaskmasterRuntime::invoke_authorized_inference` (or `authorized_dispatch`),
+// where runtime inference authority is already held.
+fn dispatch_under_held_authority<T>(
+    state: &Arc<crate::AppState>,
+    capture: &Capture,
+    manifest: &store::Manifest,
+    entry: &Active,
+    deadline: Instant,
+    apply: impl FnOnce(&crate::WorkspaceState) -> Result<T, String>,
+) -> Result<T, String> {
+    let _dispatch = entry.dispatch.lock().map_err(|_| "runtime_unavailable")?;
+    if entry.settled.load(Ordering::SeqCst)
+        || entry.cancelled.load(Ordering::SeqCst)
+        || Instant::now() >= deadline
+    {
+        return Err("cancelled".into());
+    }
+    access::guarded_workspace(state, capture, Some(manifest), None, apply)
+}
+
 fn authorized_dispatch<T>(
     state: &Arc<crate::AppState>,
     runtime: &TaskmasterRuntime,
@@ -523,36 +542,23 @@ fn authorized_dispatch<T>(
     manifest: &store::Manifest,
     entry: &Active,
     deadline: Instant,
-    authority_held: bool,
     apply: impl FnOnce(&crate::WorkspaceState) -> Result<T, String>,
 ) -> Result<T, String> {
     let mut apply = Some(apply);
-    let mut inner = || {
-        let _dispatch = entry.dispatch.lock().map_err(|_| "runtime_unavailable")?;
-        if entry.settled.load(Ordering::SeqCst)
-            || entry.cancelled.load(Ordering::SeqCst)
-            || Instant::now() >= deadline
-        {
-            return Err("cancelled".into());
-        }
-        access::guarded_workspace(
-            state,
-            capture,
-            Some(manifest),
-            None,
-            apply.take().ok_or("dispatch_unavailable")?,
-        )
-    };
-    if authority_held {
-        return inner();
-    }
     let mut outcome = None;
     let valid = runtime.with_current_evaluation(
         &state.harness_store,
         &capture.path,
         &capture.evaluation,
         || {
-            outcome = Some(inner());
+            outcome = Some(dispatch_under_held_authority(
+                state,
+                capture,
+                manifest,
+                entry,
+                deadline,
+                apply.take().expect("one guarded action"),
+            ));
         },
     )?;
     if !valid {
@@ -571,61 +577,48 @@ fn controlled_invoke(
     prompt: &str,
     final_call: bool,
 ) -> Result<String, String> {
-    use crate::providers::{
-        native_inference::{NativeProfile, NativeResponseShape},
-        InferenceControl,
-    };
-    let selection = capture
-        .evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("provider_unavailable")?;
+    use crate::providers::{native_inference::NativeResponseShape, InferenceControl};
     let control = InferenceControl::new(deadline, entry.cancelled.clone());
     if control.is_cancelled() || control.remaining().is_zero() {
         return Err("cancelled".into());
     }
-    let custom = capture.evaluation.custom_inference.is_some();
     let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-        authorized_dispatch(
-            state,
-            runtime,
-            capture,
-            manifest,
-            entry,
-            deadline,
-            custom,
-            |_| Ok(start()),
-        )
-        .ok()
+        dispatch_under_held_authority(state, capture, manifest, entry, deadline, |_| Ok(start()))
+            .ok()
     };
-    let result = if let Some(captured) = capture.evaluation.custom_inference.as_ref() {
-        runtime.invoke_custom_inference_controlled(
-            &state.harness_store,
-            captured,
-            prompt.into(),
-            &mut gate,
-            &control,
-        )
-    } else if let Some(native) = capture.evaluation.native_revision.as_ref() {
-        state.providers.invoke_native_taskmaster_prompt_controlled(
-            native.profile,
-            &selection.model,
-            selection.reasoning_effort.as_deref(),
-            selection.ollama_base_url.as_deref(),
-            prompt.into(),
-            (native.profile == NativeProfile::Codex).then_some(if final_call {
-                NativeResponseShape::ImprovementFinalV1
-            } else {
-                NativeResponseShape::ImprovementEvidenceV1
-            }),
-            &mut gate,
-            &control,
-        )
+    let shape = if final_call {
+        NativeResponseShape::ImprovementFinalV1
     } else {
-        return Err("provider_unavailable".into());
+        NativeResponseShape::ImprovementEvidenceV1
     };
-    result.map_err(|error| crate::taskmaster::assessment_failure::provider_code(&error).to_owned())
+    runtime
+        .invoke_authorized_inference(
+            &state.providers,
+            &state.harness_store,
+            &capture.path,
+            &capture.evaluation,
+            crate::taskmaster::runtime::AuthorizedInferenceRequest {
+                prompt: prompt.into(),
+                codex_response_shape: Some(shape),
+                control: Some(&control),
+            },
+            &mut gate,
+        )
+        .map_err(|error| match error {
+            crate::taskmaster::runtime::AuthorizedInferenceError::MissingTransport => {
+                "provider_unavailable".to_owned()
+            }
+            crate::taskmaster::runtime::AuthorizedInferenceError::Rejected(error) => {
+                if control.is_cancelled() || control.remaining().is_zero() {
+                    crate::taskmaster::assessment_failure::provider_code(&error).to_owned()
+                } else {
+                    "inputs_changed".to_owned()
+                }
+            }
+            crate::taskmaster::runtime::AuthorizedInferenceError::Provider(error) => {
+                crate::taskmaster::assessment_failure::provider_code(&error).to_owned()
+            }
+        })
 }
 
 fn execute(
@@ -698,7 +691,6 @@ fn execute(
                     &manifest,
                     &entry,
                     deadline,
-                    false,
                     |_| Ok(()),
                 )?;
                 invoke(invocation.prompt, invocation.remaining)
@@ -734,7 +726,6 @@ fn execute(
             &manifest,
             &entry,
             deadline,
-            false,
             |workspace| {
                 let now = crate::taskmaster::readiness_store::now();
                 let recommendation =

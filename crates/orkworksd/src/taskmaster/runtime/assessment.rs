@@ -10,6 +10,28 @@ pub(crate) const IMPROVEMENT_CAPABILITY: &str = "taskmaster-improvement-v1";
 pub(crate) const IMPROVEMENT_ENTRY_PAGE_ID: &str = "playbooks/taskmaster-improvement.md";
 
 impl TaskmasterRuntime {
+    fn with_verified_snapshot_proof<T, E>(
+        &self,
+        snapshot: &EvaluationSnapshot,
+        workspace_check: Option<&Path>,
+        acquire_err: impl FnOnce(String) -> E,
+        lock_err: impl FnOnce() -> E,
+        changed_err: impl FnOnce() -> E,
+        apply: impl FnOnce(&super::RuntimeData) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let _guard = PersistenceGuard::acquire(&self.root).map_err(acquire_err)?;
+        let mut data = self.data.lock().map_err(|_| lock_err())?;
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable
+            || data.ledger.generation != snapshot.generation
+            || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
+            || workspace_check.is_some_and(|path| canonical_workspace_key(path).is_none())
+        {
+            return Err(changed_err());
+        }
+        apply(&data)
+    }
+
     /// Captures the improvement evaluation only from a fresh signed capability
     /// whose entry page explicitly links every rubric concept page.
     pub(crate) fn improvement_evaluation_snapshot(
@@ -22,52 +44,49 @@ impl TaskmasterRuntime {
         ),
         String,
     > {
-        let snapshot = self
+        let mut snapshot = self
             .manual_evaluation_snapshot(workspace)
             .ok_or("Taskmaster improvement configuration is unavailable")?;
-        let _guard = PersistenceGuard::acquire(&self.root)?;
-        let mut data = self
-            .data
-            .lock()
-            .map_err(|_| "Improvement guidance is unavailable")?;
-        reload_durable(&self.root, &mut data);
-        if !data.ledger_readable
-            || data.ledger.generation != snapshot.generation
-            || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
-        {
-            return Err("Improvement configuration or guidance changed during capture".into());
-        }
-        let proof = data
-            .verified_knowledge
-            .as_ref()
-            .ok_or("Verified improvement guidance is unavailable")?;
-        let bundle = proof.bundle();
-        if bundle.format_version != 2
-            || !bundle
-                .capabilities
-                .iter()
-                .any(|id| id == IMPROVEMENT_CAPABILITY)
-        {
-            return Err("Complete verified improvement guidance is unavailable".into());
-        }
-        let rubric = bundle
-            .readiness_rubric
-            .clone()
-            .ok_or("Improvement rubric is missing")?;
-        rubric.validate(&bundle.pages)?;
-        let entry = bundle
-            .pages
-            .iter()
-            .find(|page| page.id == IMPROVEMENT_ENTRY_PAGE_ID)
-            .ok_or("Improvement entry page is missing")?;
-        if rubric
-            .concepts
-            .iter()
-            .any(|concept| !entry.related_ids.contains(&concept.page_id))
-        {
-            return Err("Improvement entry page does not link every rubric concept".into());
-        }
-        let mut snapshot = snapshot;
+        let rubric = self.with_verified_snapshot_proof(
+            &snapshot,
+            None,
+            |err| err,
+            || "Improvement guidance is unavailable".into(),
+            || "Improvement configuration or guidance changed during capture".into(),
+            |data| {
+                let proof = data
+                    .verified_knowledge
+                    .as_ref()
+                    .ok_or("Verified improvement guidance is unavailable")?;
+                let bundle = proof.bundle();
+                if bundle.format_version != 2
+                    || !bundle
+                        .capabilities
+                        .iter()
+                        .any(|id| id == IMPROVEMENT_CAPABILITY)
+                {
+                    return Err("Complete verified improvement guidance is unavailable".into());
+                }
+                let rubric = bundle
+                    .readiness_rubric
+                    .clone()
+                    .ok_or("Improvement rubric is missing")?;
+                rubric.validate(&bundle.pages)?;
+                let entry = bundle
+                    .pages
+                    .iter()
+                    .find(|page| page.id == IMPROVEMENT_ENTRY_PAGE_ID)
+                    .ok_or("Improvement entry page is missing")?;
+                if rubric
+                    .concepts
+                    .iter()
+                    .any(|concept| !entry.related_ids.contains(&concept.page_id))
+                {
+                    return Err("Improvement entry page does not link every rubric concept".into());
+                }
+                Ok(rubric)
+            },
+        )?;
         snapshot.readiness_rubric = Some(rubric.clone());
         Ok((snapshot, rubric))
     }
@@ -90,7 +109,7 @@ impl TaskmasterRuntime {
 
     fn bind_readiness_evaluation(
         &self,
-        snapshot: EvaluationSnapshot,
+        mut snapshot: EvaluationSnapshot,
     ) -> Result<
         (
             EvaluationSnapshot,
@@ -98,37 +117,33 @@ impl TaskmasterRuntime {
         ),
         String,
     > {
-        let _guard = PersistenceGuard::acquire(&self.root)?;
-        let mut data = self
-            .data
-            .lock()
-            .map_err(|_| "Readiness knowledge is unavailable")?;
-        reload_durable(&self.root, &mut data);
-        if !data.ledger_readable
-            || data.ledger.generation != snapshot.generation
-            || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
-        {
-            return Err("Readiness configuration or guidance changed during capture".into());
-        }
-        let proof = data
-            .verified_knowledge
-            .as_ref()
-            .ok_or("Verified readiness guidance is unavailable")?;
-        if proof.bundle().format_version != 2
-            || !proof
-                .bundle()
-                .capabilities
-                .iter()
-                .any(|id| id == "taskmaster-readiness-v1")
-        {
-            return Err("Complete verified readiness guidance is unavailable".into());
-        }
-        let rubric = proof
-            .bundle()
-            .readiness_rubric
-            .clone()
-            .ok_or("Readiness rubric is missing")?;
-        let mut snapshot = snapshot;
+        let rubric = self.with_verified_snapshot_proof(
+            &snapshot,
+            None,
+            |err| err,
+            || "Readiness knowledge is unavailable".into(),
+            || "Readiness configuration or guidance changed during capture".into(),
+            |data| {
+                let proof = data
+                    .verified_knowledge
+                    .as_ref()
+                    .ok_or("Verified readiness guidance is unavailable")?;
+                if proof.bundle().format_version != 2
+                    || !proof
+                        .bundle()
+                        .capabilities
+                        .iter()
+                        .any(|id| id == "taskmaster-readiness-v1")
+                {
+                    return Err("Complete verified readiness guidance is unavailable".into());
+                }
+                proof
+                    .bundle()
+                    .readiness_rubric
+                    .clone()
+                    .ok_or_else(|| "Readiness rubric is missing".into())
+            },
+        )?;
         snapshot.readiness_rubric = Some(rubric.clone());
         Ok((snapshot, rubric))
     }
@@ -161,28 +176,22 @@ impl TaskmasterRuntime {
         workspace: &Path,
     ) -> Result<EvaluationSnapshot, &'static str> {
         self.assessment_knowledge_availability()?;
-        let snapshot = self
+        let mut snapshot = self
             .manual_evaluation_snapshot(workspace)
             .ok_or("Taskmaster assessment is unavailable for this workspace.")?;
-        let _guard = PersistenceGuard::acquire(&self.root)
-            .map_err(|_| "Taskmaster assessment configuration is unavailable.")?;
-        let mut data = self
-            .data
-            .lock()
-            .map_err(|_| "Taskmaster assessment configuration is unavailable.")?;
-        reload_durable(&self.root, &mut data);
-        if !data.ledger_readable
-            || data.ledger.generation != snapshot.generation
-            || !proof_matches(&data, snapshot.knowledge_identity.as_ref())
-            || canonical_workspace_key(workspace).is_none()
-        {
-            return Err("Taskmaster assessment configuration changed.");
-        }
-        let mut snapshot = snapshot;
-        snapshot.readiness_rubric = data
-            .verified_knowledge
-            .as_ref()
-            .and_then(|p| p.bundle().readiness_rubric.clone());
+        snapshot.readiness_rubric = self.with_verified_snapshot_proof(
+            &snapshot,
+            Some(workspace),
+            |_| "Taskmaster assessment configuration is unavailable.",
+            || "Taskmaster assessment configuration is unavailable.",
+            || "Taskmaster assessment configuration changed.",
+            |data| {
+                Ok(data
+                    .verified_knowledge
+                    .as_ref()
+                    .and_then(|p| p.bundle().readiness_rubric.clone()))
+            },
+        )?;
         Ok(snapshot)
     }
 }

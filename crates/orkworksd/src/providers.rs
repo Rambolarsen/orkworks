@@ -2763,6 +2763,7 @@ impl ProviderManager {
 
     /// Keep workspace admission locked through the native transport's actual
     /// process or HTTP dispatch boundary, then release it while inference runs.
+    #[cfg(test)]
     pub(crate) fn invoke_native_taskmaster_prompt_with_dispatch_gate(
         &self,
         profile: native_inference::NativeProfile,

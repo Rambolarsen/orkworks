@@ -1318,16 +1318,9 @@ fn invoke_native_baseline(
         .ok_or("provider_unavailable")?;
     let control = InferenceControl::new(deadline, entry.cancelled.clone());
     let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-        authorized_dispatch(
-            state,
-            runtime,
-            capture,
-            manifest,
-            entry,
-            deadline,
-            false,
-            |_| Ok(start()),
-        )
+        authorized_dispatch(state, runtime, capture, manifest, entry, deadline, |_| {
+            Ok(start())
+        })
         .ok()
     };
     state

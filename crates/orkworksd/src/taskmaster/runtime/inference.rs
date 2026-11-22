@@ -9,11 +9,40 @@ use crate::harness::{
     inference::InferenceCapability,
     store::{HarnessSnapshot, HarnessStore},
 };
-use crate::providers::{custom_inference, ProviderOperationError, ProviderOperationErrorCode};
-use crate::taskmaster::inference_trust::{AdapterIdentity, InferenceTrustStore};
+use crate::providers::{
+    custom_inference,
+    native_inference::{NativeProfile, NativeResponseShape},
+    InferenceControl, ProviderDispatchGate, ProviderManager, ProviderOperationError,
+    ProviderOperationErrorCode,
+};
+use crate::taskmaster::{
+    inference_trust::{AdapterIdentity, InferenceTrustStore},
+    provider_catalog::{self, Availability, Transport},
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProviderBindError {
+    CatalogUnavailable,
+    MissingSelection,
+    ProviderUnavailable,
+    ProviderChanged,
+}
+
+pub(crate) struct AuthorizedInferenceRequest<'a> {
+    pub(crate) prompt: String,
+    pub(crate) codex_response_shape: Option<NativeResponseShape>,
+    pub(crate) control: Option<&'a InferenceControl>,
+}
+
+#[derive(Debug)]
+pub(crate) enum AuthorizedInferenceError {
+    MissingTransport,
+    Rejected(ProviderOperationError),
+    Provider(ProviderOperationError),
+}
 
 /// An immutable evaluation identity, never deserialized from caller-supplied data.
 #[derive(Clone, Debug, Serialize)]
@@ -307,6 +336,200 @@ impl TaskmasterRuntime {
         }
     }
 
+    /// Inspect the provider catalog against current trust state, verify the
+    /// selected provider is ready, and bind its transport onto `snapshot`.
+    pub(crate) fn bind_ready_evaluation_provider(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &mut EvaluationSnapshot,
+    ) -> Result<(), ProviderBindError> {
+        let trust = InferenceTrustStore::new(self.root.clone());
+        let providers = provider_catalog::inspect(harnesses, Some(&trust))
+            .map_err(|_| ProviderBindError::CatalogUnavailable)?;
+        let selection = snapshot
+            .settings
+            .selection
+            .as_ref()
+            .ok_or(ProviderBindError::MissingSelection)?;
+        if provider_catalog::evaluation_availability(&providers, selection) != Availability::Ready {
+            return Err(ProviderBindError::ProviderUnavailable);
+        }
+        let transport = providers
+            .iter()
+            .find(|provider| provider.id == selection.provider)
+            .map(|provider| provider.transport.clone())
+            .ok_or(ProviderBindError::ProviderUnavailable)?;
+        if !self.bind_evaluation_transport(harnesses, workspace, snapshot, transport) {
+            return Err(ProviderBindError::ProviderChanged);
+        }
+        Ok(())
+    }
+
+    /// Bind once before collecting permitted context. A custom selection that loses
+    /// its capability or approval must abort, never use the native provider branch.
+    pub(crate) fn bind_evaluation_transport(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &mut EvaluationSnapshot,
+        transport: Transport,
+    ) -> bool {
+        snapshot.custom_inference = None;
+        snapshot.native_revision = None;
+        match transport {
+            Transport::Native(revision) => {
+                if !harnesses
+                    .with_locked_snapshot(|current| {
+                        current.document_revision == revision.document_revision
+                    })
+                    .unwrap_or(false)
+                {
+                    return false;
+                }
+                snapshot.native_revision = Some(revision);
+                true
+            }
+            Transport::Unsupported => false,
+            Transport::Custom => {
+                let capture = if snapshot.settings.enabled {
+                    self.capture_custom_inference(harnesses, workspace, snapshot)
+                } else {
+                    self.capture_manual_custom_inference(harnesses, workspace, snapshot)
+                };
+                let Ok(Some(captured)) = capture else {
+                    return false;
+                };
+                snapshot.custom_inference = Some(captured);
+                true
+            }
+        }
+    }
+
+    /// Invoke either the bound custom or native transport while holding
+    /// Taskmaster inference authority (`HarnessStore -> PersistenceGuard ->
+    /// RuntimeData`) symmetrically across `before_spawn` and actual dispatch.
+    ///
+    /// `before_spawn` runs *inside* that authority guard and therefore must
+    /// never re-enter `TaskmasterRuntime` authority checks; it only enforces
+    /// inner caller guards (such as workspace/input freshness) and invokes the
+    /// supplied `start` callback while holding them.
+    pub(crate) fn invoke_authorized_inference(
+        &self,
+        providers: &ProviderManager,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        request: AuthorizedInferenceRequest<'_>,
+        before_spawn: &mut ProviderDispatchGate<'_>,
+    ) -> Result<String, AuthorizedInferenceError> {
+        let Some(selection) = snapshot.settings.selection.as_ref() else {
+            return Err(AuthorizedInferenceError::MissingTransport);
+        };
+        if let Some(captured) = snapshot.custom_inference.as_ref() {
+            if !captured.matches_snapshot(workspace, snapshot) {
+                return Err(AuthorizedInferenceError::Rejected(ProviderOperationError {
+                    code: ProviderOperationErrorCode::StaleGeneration,
+                    message: "custom inference authorization or configuration changed".into(),
+                }));
+            }
+            let mut gate_rejected = false;
+            let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+                let result = before_spawn(start);
+                if result.is_none() {
+                    gate_rejected = true;
+                }
+                result
+            };
+            self.invoke_custom_inference_inner(
+                harnesses,
+                captured,
+                request.prompt,
+                &mut gate,
+                request.control,
+            )
+            .map_err(|error| {
+                if gate_rejected
+                    || matches!(
+                        error.code,
+                        ProviderOperationErrorCode::StaleGeneration
+                            | ProviderOperationErrorCode::VerificationRequired
+                    )
+                {
+                    AuthorizedInferenceError::Rejected(error)
+                } else {
+                    AuthorizedInferenceError::Provider(error)
+                }
+            })
+        } else if let Some(native) = snapshot.native_revision.as_ref() {
+            let mut gate_rejected = false;
+            let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+                let result = self.run_native_dispatch_gate(
+                    harnesses,
+                    workspace,
+                    snapshot,
+                    before_spawn,
+                    start,
+                );
+                if result.is_none() {
+                    gate_rejected = true;
+                }
+                result
+            };
+            let shape = (native.profile == NativeProfile::Codex)
+                .then_some(request.codex_response_shape)
+                .flatten();
+            let result = if let Some(control) = request.control {
+                providers.invoke_native_taskmaster_prompt_controlled(
+                    native.profile,
+                    &selection.model,
+                    selection.reasoning_effort.as_deref(),
+                    selection.ollama_base_url.as_deref(),
+                    request.prompt,
+                    shape,
+                    &mut gate,
+                    control,
+                )
+            } else {
+                providers.invoke_native_taskmaster_prompt_with_response_shape(
+                    native.profile,
+                    &selection.model,
+                    selection.reasoning_effort.as_deref(),
+                    selection.ollama_base_url.as_deref(),
+                    request.prompt,
+                    shape,
+                    &mut gate,
+                )
+            };
+            result.map_err(|error| {
+                if gate_rejected {
+                    AuthorizedInferenceError::Rejected(error)
+                } else {
+                    AuthorizedInferenceError::Provider(error)
+                }
+            })
+        } else {
+            Err(AuthorizedInferenceError::MissingTransport)
+        }
+    }
+
+    pub(crate) fn run_native_dispatch_gate(
+        &self,
+        harnesses: &HarnessStore,
+        workspace: &Path,
+        snapshot: &EvaluationSnapshot,
+        before_spawn: &mut ProviderDispatchGate<'_>,
+        start: &mut dyn FnMut() -> std::io::Result<()>,
+    ) -> Option<std::io::Result<()>> {
+        let mut dispatch_result = None;
+        let current = self
+            .with_current_native_evaluation(harnesses, workspace, snapshot, || {
+                dispatch_result = before_spawn(start);
+            })
+            .unwrap_or(false);
+        current.then_some(dispatch_result).flatten()
+    }
+
     /// Invoke only the captured custom transport, revalidating through actual
     /// spawn. This does not reserve usage or accept output into recommendations;
     /// the scheduler must do both separately before this path can be activated.
@@ -318,36 +541,7 @@ impl TaskmasterRuntime {
         prompt: String,
     ) -> Result<String, ProviderOperationError> {
         let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| Some(start());
-        self.invoke_custom_inference_with_dispatch_gate(harnesses, captured, prompt, &mut gate)
-    }
-
-    /// Run workspace admission and process spawn together at the provider's
-    /// side-effect boundary. The gate is released before waiting for output.
-    pub(crate) fn invoke_custom_inference_with_dispatch_gate(
-        &self,
-        harnesses: &HarnessStore,
-        captured: &CapturedInference,
-        prompt: String,
-        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
-    ) -> Result<String, ProviderOperationError> {
-        self.invoke_custom_inference_inner(harnesses, captured, prompt, dispatch_gate, None)
-    }
-
-    pub(crate) fn invoke_custom_inference_controlled(
-        &self,
-        harnesses: &HarnessStore,
-        captured: &CapturedInference,
-        prompt: String,
-        dispatch_gate: &mut crate::providers::ProviderDispatchGate<'_>,
-        control: &crate::providers::InferenceControl,
-    ) -> Result<String, ProviderOperationError> {
-        self.invoke_custom_inference_inner(
-            harnesses,
-            captured,
-            prompt,
-            dispatch_gate,
-            Some(control),
-        )
+        self.invoke_custom_inference_inner(harnesses, captured, prompt, &mut gate, None)
     }
 
     fn invoke_custom_inference_inner(

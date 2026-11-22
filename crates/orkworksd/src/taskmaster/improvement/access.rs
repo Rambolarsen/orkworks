@@ -57,36 +57,18 @@ pub(crate) fn capture(
     if evaluation.settings.context_level == ContextLevel::SessionObservations {
         return Err("Repository access unavailable".into());
     }
-    let trust = crate::taskmaster::inference_trust::InferenceTrustStore::new(
-        runtime.root_path().to_path_buf(),
-    );
-    let providers =
-        crate::taskmaster::provider_catalog::inspect(&state.harness_store, Some(&trust))
-            .map_err(|_| "Provider unavailable")?;
-    let selection = evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("Provider unavailable")?;
-    if crate::taskmaster::provider_catalog::evaluation_availability(&providers, selection)
-        != crate::taskmaster::provider_catalog::Availability::Ready
-    {
-        return Err("Provider unavailable".into());
-    }
-    let transport = providers
-        .iter()
-        .find(|provider| provider.id == selection.provider)
-        .map(|provider| provider.transport.clone())
-        .ok_or("Provider unavailable")?;
-    if !crate::taskmaster::evaluator::bind_evaluation_transport(
-        runtime,
-        &state.harness_store,
-        &path,
-        &mut evaluation,
-        transport,
-    ) {
-        return Err("Provider changed".into());
-    }
+    runtime
+        .bind_ready_evaluation_provider(&state.harness_store, &path, &mut evaluation)
+        .map_err(|error| match error {
+            crate::taskmaster::runtime::ProviderBindError::ProviderChanged => {
+                "Provider changed".to_string()
+            }
+            crate::taskmaster::runtime::ProviderBindError::CatalogUnavailable
+            | crate::taskmaster::runtime::ProviderBindError::MissingSelection
+            | crate::taskmaster::runtime::ProviderBindError::ProviderUnavailable => {
+                "Provider unavailable".to_string()
+            }
+        })?;
     let evaluation_key = evaluation.cache_key(IDENTITY_VERSION)?;
     let lock = state
         .workspace
