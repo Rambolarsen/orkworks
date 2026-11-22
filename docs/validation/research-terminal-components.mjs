@@ -30,6 +30,8 @@ export function validateTerminalWidths(r,jobBytes){
    if(snapshot!==null)assert(size({key:snapshot.key,value:snapshot.value})<=max,name+' snapshot wrapper limit');
   }}
  if(r.table==='research_coordination_receipts')assert(size(r.value.receipt)<=4096,'coordination receipt limit');
+ if(r.table==='research_turn_completions'){const ev=r.value.body.evidence;
+  if(ev.kind==='child_terminal_without_receipt')assert(size(ev.session)<=16384,'terminal evidence snapshot limit');}
  assert(size({key:r.key,value:r.value})<=caps[r.table],'complete wrapper limit');
  assert(Number.isSafeInteger(jobBytes)&&jobBytes>=0&&jobBytes<=1048576,'independent job limit');}
 function checkOutcomeVerdict(outcome){
@@ -59,8 +61,9 @@ export function validateResearchTerminal(p){
  assert.equal(p.turn.variant,'child_terminal_without_receipt/synthetic-runtime/supplied-handler-labeling','supplied-origin labeling');
  assert(!('turnDigest' in turn),'accepted turn body carries no digest field');
  const turnRow=p.turn.row;
+ assert.deepEqual(turnRow.value.body,clone(turn),'persisted turn body equals the validated copy');
  assert.deepEqual(Object.keys(turnRow.value).sort(),['body','digest','lastCommit','schemaVersion'],'turn family value shape');
- assert.equal(turnRow.value.digest,digest('orkworks.research-source-turn-completion.v1',clone(turn)),'turn family digest over the exact body');
+ assert.equal(turnRow.value.digest,digest('orkworks.research-source-turn-completion.v1',clone(turnRow.value.body)),'turn family digest over the persisted body');
  assert.equal(turn.acceptedTaskVersion,turn.expectedTaskVersion+1,'accepted version follows the expected version');
  assert.deepEqual(turnRow.key,turn.task,'turn family keyed by the execution task');
  const terminalSnapshot=turn.evidence.session;
@@ -93,6 +96,7 @@ export function validateResearchTerminal(p){
  assert.equal(row.value.receipt.planVersion,2,'completion receipt reports the resulting plan version');
  assert(['coordination','recovery'].includes(trigger.kind),'accepted completion trigger union');
  assert.equal(row.value.receipt.runVersion,row.value.body.readSet.run.value.body.runVersion+1,'no second completion record');
+ assert.equal(row.value.body.readSet.run.value.body.stageContinueRequired,false,'captured stage gate admits completion');
  // absorbing terminal transition
  const before=p.terminal.runBefore.value.body,after=p.terminal.runAfter.value.body;
  assert.equal(after.state,'complete','absorbing terminal value');

@@ -84,11 +84,25 @@ labels. No wire decoder, header, manifest, row/change hash, runtime reducer,
 native/model probe, database, migration or executable product plan is
 supplied.
 
+## Hosted review corrections — 2026-11-22
+
+Three bounded hosted-review cycles were applied. Cycle 1 (five P2s) fixed the
+reused turn/coordination body shapes, the terminal session snapshot read, the
+task-version advance, `expectedPlanVersion` and stored-trigger validation.
+Cycle 2 (five P2s) fixed the accepted PlanRef shapes, the shared compound
+commit reference, individual snapshot wrapper limits, the required
+`grantRevokedAtCompletion` label and raw clarification-binding preservation.
+Cycle 3 (five P2s) fixed persisted-turn-body validation, captured-blocker
+preservation (raw blockers are preserved, not required empty), the terminal
+evidence snapshot's 16 KiB limit, captured-stage-gate eligibility, and the
+captured run binding the execution plan as `currentPlan` per the approved
+execution context.
+
 ## Verification and measurements
 
 Node 22 `node --test` runs all prior documentation packets unchanged (the
 packet's own 17 regressions pass, including independent regeneration
-equality, twelve semantic-mutation denials, helper oracles separating
+equality, eighteen semantic-mutation denials, helper oracles separating
 completion admission from terminal retries, and literal domain/bound/catalog
 pins). The generator-derived measurements record the exact key plus committed
 occurrence projection for the retained rows; they are not storage charges or
