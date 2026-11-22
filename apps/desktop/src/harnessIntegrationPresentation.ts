@@ -64,11 +64,12 @@ function hasOutdatedHook(status: IntegrationStatus): boolean {
 
 export function workspaceHookNotices(groups: readonly GroupedIntegrationStatus[]) {
   return groups.flatMap(({ key, consumers, status }) => {
-    if (!status.enabled || !status.toolDetected || consumers.length === 0) return [];
+    if (!status.enabled || !status.toolDetected || consumers.length === 0
+      || !shouldShowInstalledConfirmation(status.diagnostics)) return [];
     let action: string;
     if (hasOutdatedHook(status)) {
       action = "OrkWorks hook update available.";
-    } else if (status.registration === "absent") {
+    } else if (status.registration === "absent" && status.confirmation?.relativePaths.length) {
       action = "OrkWorks hook needs installation.";
     } else if (status.registration === "installed" && status.activation === "needs_trust") {
       action = key.adapterId === "codex"

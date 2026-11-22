@@ -351,8 +351,8 @@ function workspaceGroup(overrides: Partial<GroupedIntegrationStatus["status"]> =
   const result = integrationStatus(overrides);
   if (!result.ok) throw new Error(result.error);
   return {
-    key: { adapterId: "codex", targetId: "workspace" },
-    consumers: [{ harnessId: "codex", harnessName: "Codex" }],
+    key: { adapterId: result.status.harnessId, targetId: "workspace" },
+    consumers: [{ harnessId: result.status.harnessId, harnessName: result.status.confirmation?.toolName ?? "Codex" }],
     status: result.status,
   };
 }
@@ -373,7 +373,15 @@ test("workspace hook notice explains Codex trust and missing hooks", () => {
   const untrusted = workspaceGroup({ activation: "needs_trust" });
   assert.match(workspaceHookNotices([untrusted])[0].text, /Codex.*\/hooks.*trust/i);
   assert.match(workspaceHookNotices([
-    workspaceGroup({ registration: "absent", ownership: "none", activation: "unknown" }),
+    workspaceGroup({
+      registration: "absent",
+      ownership: "none",
+      activation: "unknown",
+      confirmation: {
+        toolName: "Codex", workspaceLabel: "repo", coverageSummary: "Session ID capture",
+        relativePaths: [".codex/hooks.json"], executableCodeWarning: true,
+      },
+    }),
   ])[0].text, /Codex.*hook.*install/i);
 });
 
@@ -385,5 +393,22 @@ test("workspace hook notice omits healthy, disabled, unsupported and unrelated e
     workspaceGroup({ registration: "unsupported", activation: "needs_trust" }),
     workspaceGroup({ registration: "error", activation: "needs_trust" }),
     workspaceGroup({ registration: "drifted", ownership: "ambiguous" }),
+    workspaceGroup({
+      harnessId: "aider",
+      registration: "absent",
+      ownership: "none",
+      confirmation: {
+        toolName: "Aider", workspaceLabel: "repo", coverageSummary: "Peon attention fallback",
+        relativePaths: [], executableCodeWarning: false,
+      },
+    }),
+    workspaceGroup({
+      registration: "absent",
+      diagnostics: [{ code: "unsupported_tool_version", message: "Unsupported" }],
+      confirmation: {
+        toolName: "Codex", workspaceLabel: "repo", coverageSummary: "Session ID capture",
+        relativePaths: [".codex/hooks.json"], executableCodeWarning: true,
+      },
+    }),
   ]), []);
 });
