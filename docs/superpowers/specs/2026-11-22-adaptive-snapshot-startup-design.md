@@ -1,14 +1,14 @@
 ---
-type: Design Proposal
+type: Design
 title: Publish adaptive workspace status before Git enrichment
 description: Give new adaptive subscribers a coherent session list while repository inspection is pending.
 tags: [orkworks, sessions, performance, workspace-updates]
-status: draft
+status: stable
 ---
 
 # Publish adaptive workspace status before Git enrichment
 
-Approval requested for the behavior and contract amendment below. [#1965](https://github.com/Rambolarsen/orkworks/issues/1965)
+The owner approved this behavior and contract amendment. [#1965](https://github.com/Rambolarsen/orkworks/issues/1965)
 
 ## Evidence and outcome
 
@@ -37,8 +37,10 @@ actions continue to resolve against current server-owned state.
   placeholder, omits optional enrichment fields, and carries
   `{state: "pending", checkedAt: null}`.
 - An initial subscription or reconnect requests a fresh status capture.
-  Coalesce requests through the publisher. A subscriber can adopt a publication
-  only after a status capture whose admission revision meets its request.
+  Coalesce requests through a publisher-local status request revision, so a
+  subscription leaves legacy workspace invalidation revisions alone. A subscriber
+  can adopt a publication only after a status capture whose admission revision
+  meets its request.
   Compare the request as a lower bound on the admitted capture. Later terminal
   output does not invalidate the earlier request. Use the existing
   workspace-owner, complete-read, and status publication checks on that
@@ -112,7 +114,7 @@ There is no stored-state transition.
 
 ## Plan review
 
-Ready for owner decision. The previous desktop reducer validates the existing
+Ready for implementation under the approved contract. The previous desktop reducer validates the existing
 pending representation, the sidecar already emits it on row changes, and the
 status capture already runs without Git inspection. A direct reducer probe
 accepted a pending first snapshot, rejected an older revision, applied the

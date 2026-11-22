@@ -66,6 +66,7 @@ impl Owner {
 pub(super) struct Shared {
     owner: Owner,
     sender: watch::Sender<Option<Arc<Display>>>,
+    status_requests: watch::Sender<u64>,
 }
 
 #[derive(Clone, Default)]
@@ -73,8 +74,8 @@ struct Display {
     status: Vec<Value>,
     enrichment: HashMap<String, Value>,
     recommendations: u64,
-    epoch: u64,
-    validated_epoch: Option<u64>,
+    captured_request: Option<u64>,
+    captured_enrichment: u64,
     last_output_change: Option<tokio::time::Instant>,
 }
 fn key(prepared: &StreamProjection, id: &str, epoch: u64) -> String {
@@ -105,6 +106,13 @@ fn pending(row: &Value) -> Value {
         "data":{"cwd":""}, "state":"pending", "checkedAt":null})
 }
 impl Display {
+    fn admits_snapshot(&self, required_status: u64, current_enrichment: u64) -> bool {
+        self.captured_enrichment == current_enrichment
+            && self
+                .captured_request
+                .is_some_and(|revision| revision >= required_status)
+    }
+
     // Membership comes only from the current status capture, never a late scan.
     fn status(&mut self, prepared: &StreamProjection, epoch: u64) -> bool {
         let next = status_rows(prepared, epoch);
@@ -136,16 +144,11 @@ impl Display {
                 });
             enrichment.insert(id.to_owned(), value);
         }
-        if invalidated || self.epoch != epoch {
-            self.validated_epoch = None;
-        }
-        self.epoch = epoch;
         self.status = next;
         self.enrichment = enrichment;
         invalidated
     }
     fn inspect(&mut self, prepared: &StreamProjection, epoch: u64, checked_at: u64) {
-        let mut matched = 0;
         for info in &prepared.infos {
             let Some(current) = self.enrichment.get_mut(&info.id) else {
                 continue;
@@ -153,7 +156,6 @@ impl Display {
             if current["revision"] != key(prepared, &info.id, epoch) {
                 continue;
             }
-            matched += 1;
             let mut data = serde_json::to_value(info).expect("session serializes");
             data.as_object_mut()
                 .unwrap()
@@ -171,11 +173,8 @@ impl Display {
             *current = json!({"id": info.id, "revision": current["revision"],
                 "data":data, "state":availability, "checkedAt":checked_at});
         }
-        if epoch == self.epoch && matched == self.status.len() {
-            self.validated_epoch = Some(epoch);
-        }
     }
-    fn rows(&self) -> Vec<Value> {
+    fn rows(&self, now: u64) -> Vec<Value> {
         self.status
             .iter()
             .map(|status| {
@@ -184,8 +183,16 @@ impl Display {
                 row.as_object_mut()
                     .unwrap()
                     .extend(enrichment["data"].as_object().unwrap().clone());
-                row["enrichment"] =
-                    json!({"state":enrichment["state"], "checkedAt":enrichment["checkedAt"]});
+                let freshness = match (
+                    enrichment["state"].as_str().unwrap(),
+                    enrichment["checkedAt"].as_u64(),
+                ) {
+                    ("ready", Some(checked_at)) if now.saturating_sub(checked_at) >= 5_000 => {
+                        "stale"
+                    }
+                    (freshness, _) => freshness,
+                };
+                row["enrichment"] = json!({"state":freshness, "checkedAt":enrichment["checkedAt"]});
                 row
             })
             .collect()
@@ -214,18 +221,23 @@ fn subscribe_shared(
     state: Arc<AppState>,
     workspace: String,
     root: PathBuf,
-) -> Option<(u64, u64, watch::Receiver<Option<Arc<Display>>>)> {
+) -> Option<(Owner, u64, watch::Receiver<Option<Arc<Display>>>)> {
     let mut shared = state.updates.shared.lock().unwrap();
     if let Some(existing) = shared.as_ref().filter(|entry| {
         entry.owner.workspace == workspace
             && entry.owner.root == root
             && entry.owner.current(&state)
     }) {
-        state.updates.sessions_changed();
-        let epoch = state.updates.revisions.borrow().enrichment;
+        // This wakes only the shared adaptive publisher. Legacy streams and
+        // outstanding inspections continue to observe actual workspace changes.
+        let mut required = 0;
+        existing.status_requests.send_modify(|revision| {
+            *revision = revision.wrapping_add(1);
+            required = *revision;
+        });
         return Some((
-            existing.owner.generation,
-            epoch,
+            existing.owner.clone(),
+            required,
             existing.sender.subscribe(),
         ));
     }
@@ -244,18 +256,22 @@ fn subscribe_shared(
         documents,
     };
     let (sender, receiver) = watch::channel(None);
+    let (status_requests, requests) = watch::channel(1);
     *shared = Some(Shared {
         owner: owner.clone(),
         sender: sender.clone(),
+        status_requests,
     });
-    let generation = owner.generation;
-    state.updates.sessions_changed();
-    let epoch = state.updates.revisions.borrow().enrichment;
-    tokio::spawn(publish(state.clone(), owner, sender));
-    Some((generation, epoch, receiver))
+    tokio::spawn(publish(state.clone(), owner.clone(), sender, requests));
+    Some((owner, 1, receiver))
 }
 
-async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Option<Arc<Display>>>) {
+async fn publish(
+    state: Arc<AppState>,
+    owner: Owner,
+    sender: watch::Sender<Option<Arc<Display>>>,
+    mut requests: watch::Receiver<u64>,
+) {
     let mut revisions = state.updates.subscribe();
     let global = crate::taskmaster::assessment_access::runtime_for(&state)
         .root_path()
@@ -263,17 +279,18 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
     let mut watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
     let mut consumed = *revisions.borrow_and_update();
     let mut display = Display::default();
-    let mut initialized = false;
+    let mut consumed_request = *requests.borrow_and_update();
     let mut status: Option<Job> = None;
     let mut status_epoch = consumed.enrichment;
-    let mut inspection: Option<Job> = Some(launch(&state, true));
+    let mut status_request = consumed_request;
+    let mut inspection: Option<Job> = None;
     let mut inspection_epoch = consumed.enrichment;
     let mut inspection_started = now_millis();
     let mut next_status = tokio::time::Instant::now();
     let mut last_inspection = tokio::time::Instant::now();
     let mut reconcile = tokio::time::Instant::now() + Duration::from_secs(30);
-    let mut status_dirty = false;
-    let mut inspection_dirty = false;
+    let mut status_dirty = true;
+    let mut inspection_dirty = true;
     let mut publish_dirty = false;
     let mut consecutive_stale_inspections: usize = 0;
     loop {
@@ -284,18 +301,20 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
         if current.enrichment != consumed.enrichment {
             // Known mutation/unknown scope invalidates all until a new status
             // capture establishes new revision keys. Do not publish old paths.
-            display.validated_epoch = None;
             for value in display.enrichment.values_mut() {
                 value["data"] = json!({"cwd":""});
                 value["state"] = json!("pending");
+                value["checkedAt"] = Value::Null;
             }
             inspection_dirty = true;
             status_dirty = true;
             publish_dirty = true;
         }
-        if current.sessions != consumed.sessions {
+        let requested = *requests.borrow_and_update();
+        if current.sessions != consumed.sessions || requested != consumed_request {
             status_dirty = true;
         }
+        consumed_request = requested;
         if current.watcher != consumed.watcher {
             watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
         }
@@ -304,7 +323,7 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
             publish_dirty = true;
         }
         consumed = current;
-        if initialized && publish_dirty {
+        if display.captured_request.is_some() && publish_dirty {
             sender.send_replace(Some(Arc::new(display.clone())));
             publish_dirty = false;
         }
@@ -314,14 +333,17 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
             watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
             reconcile = now + Duration::from_secs(30);
         }
-        if initialized && status.is_none() && status_dirty && now >= next_status {
+        if status.is_none() && status_dirty && now >= next_status {
             status_epoch = current.enrichment;
+            status_request = requested;
             status = Some(launch(&state, false));
             status_dirty = false;
             next_status = now + STATUS_INTERVAL;
         }
         let next_inspection = inspection_deadline(last_inspection, display.last_output_change, now);
-        if inspection.is_none() && (inspection_dirty || now >= next_inspection) {
+        // Publish the initial complete status capture before starting Git work.
+        let can_inspect = display.captured_request.is_some() && inspection.is_none();
+        if can_inspect && (inspection_dirty || now >= next_inspection) {
             inspection = Some(launch(&state, true));
             inspection_dirty = false;
             inspection_epoch = current.enrichment;
@@ -329,12 +351,12 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
             last_inspection = now;
         }
         // Only armed deadlines participate; a running task cannot cause a busy loop.
-        let status_deadline = if initialized && status.is_none() && status_dirty {
+        let status_deadline = if status.is_none() && status_dirty {
             next_status
         } else {
             reconcile
         };
-        let inspect_deadline = if inspection.is_none() {
+        let inspect_deadline = if display.captured_request.is_some() && inspection.is_none() {
             next_inspection
         } else {
             reconcile
@@ -343,6 +365,7 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
         tokio::select! {
             _ = sender.closed() => break,
             changed = revisions.changed() => { if changed.is_err() { break; } },
+            requested = requests.changed() => { if requested.is_err() { break; } },
             _ = tokio::time::sleep_until(deadline) => {},
             result = async { status.as_mut().unwrap().await }, if status.is_some() => {
                 status = None;
@@ -355,6 +378,8 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
                     status_dirty = true; continue;
                 }
                 inspection_dirty |= display.status(&prepared, status_epoch);
+                display.captured_request = Some(status_request);
+                display.captured_enrichment = status_epoch;
                 publish_dirty = true;
             },
             result = async { inspection.as_mut().unwrap().await }, if inspection.is_some() => {
@@ -366,10 +391,6 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
                     Ok(Ok(prepared)) if publication_epoch == inspection_epoch
                         && prepared.locations.iter().all(|(id, value)| LocationInputs::capture(&state, id) == *value) => {
                         consecutive_stale_inspections = 0;
-                        if !initialized {
-                            display.status(&prepared, inspection_epoch);
-                            initialized = true; status_dirty = true;
-                        }
                         display.inspect(&prepared, inspection_epoch, inspection_started);
                         publish_dirty = true;
                     }
@@ -412,7 +433,7 @@ pub(super) async fn run(
     workspace: String,
     root: PathBuf,
 ) {
-    let Some((generation, required_epoch, mut updates)) =
+    let Some((owner, required_status, mut updates)) =
         subscribe_shared(state.clone(), workspace.clone(), root)
     else {
         return;
@@ -422,12 +443,17 @@ pub(super) async fn run(
     let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
     heartbeat.tick().await;
     loop {
+        if baseline.is_none() && !owner.current(&state) {
+            break;
+        }
         let next = updates.borrow_and_update().clone();
         if let Some(next) = next.filter(|next| {
-            baseline.is_some()
-                || next
-                    .validated_epoch
-                    .is_some_and(|epoch| epoch >= required_epoch)
+            if baseline.is_some() {
+                return true;
+            }
+            let revisions = *state.updates.revisions.borrow();
+            revisions.workspace == owner.generation
+                && next.admits_snapshot(required_status, revisions.enrichment)
         }) {
             let mut messages = Vec::new();
             if let Some(old) = &baseline {
@@ -452,7 +478,7 @@ pub(super) async fn run(
                 }
             } else {
                 messages.push(
-                    json!({"type":"snapshot", "capability":CAPABILITY, "sessions":next.rows()}),
+                    json!({"type":"snapshot", "capability":CAPABILITY, "sessions":next.rows(now_millis())}),
                 );
             }
             for mut message in messages {
@@ -463,7 +489,7 @@ pub(super) async fn run(
                 message["version"] = json!(1);
                 message["instance"] = json!(state.updates.instance);
                 message["workspace"] = json!(workspace);
-                message["generation"] = json!(generation);
+                message["generation"] = json!(owner.generation);
                 message["sequence"] = json!(sequence);
                 if !send(&mut socket, message).await {
                     return;
@@ -494,8 +520,25 @@ mod tests {
         Arc<AppState>,
         crate::metadata::MetadataStore,
     ) {
+        fixture_with_layout(32, 1)
+    }
+
+    fn fixture_with_layout(
+        rows: usize,
+        repositories: usize,
+    ) -> (
+        tempfile::TempDir,
+        Arc<AppState>,
+        crate::metadata::MetadataStore,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         git2::Repository::init(dir.path()).unwrap();
+        let mut roots = vec![dir.path().to_path_buf()];
+        for n in 1..repositories {
+            let root = dir.path().join(format!("repo-{n}"));
+            git2::Repository::init(&root).unwrap();
+            roots.push(root);
+        }
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let root = state
             .workspace
@@ -506,7 +549,7 @@ mod tests {
             .metadata
             .root_path();
         let metadata = crate::metadata::MetadataStore::new(&root);
-        for n in 0..32 {
+        for n in 0..rows {
             let mut record = crate::test_support::test_session_metadata(
                 format!("row-{n}"),
                 format!("Row {n}"),
@@ -515,11 +558,43 @@ mod tests {
                 "2026-10-24T10:00:00Z",
                 "2026-10-24T10:00:00Z",
             );
-            record.cwd = dir.path().display().to_string();
+            record.cwd = roots[n % roots.len()].display().to_string();
             metadata.write_session(&record);
         }
         (dir, state, metadata)
     }
+    fn block_inspection(
+        state: &AppState,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv_timeout(Duration::from_secs(15));
+        }));
+        (entered_rx, release_tx)
+    }
+
+    fn adaptive_url(address: std::net::SocketAddr, workspace: &Path) -> url::Url {
+        let mut url = url::Url::parse(&format!("ws://{address}/workspace/updates")).unwrap();
+        url.query_pairs_mut()
+            .append_pair("workspace", workspace.to_str().unwrap())
+            .append_pair("capability", CAPABILITY);
+        url
+    }
+
     async fn display_where(
         rx: &mut watch::Receiver<Option<Arc<Display>>>,
         predicate: impl Fn(&Display) -> bool,
@@ -537,6 +612,23 @@ mod tests {
         .await
         .expect("publisher made progress")
     }
+    #[test]
+    fn a_mutation_after_status_capture_blocks_first_snapshot_admission() {
+        let (_dir, state, _) = fixture();
+        let mut display = Display::default();
+        display.captured_request = Some(1);
+        let captured = state.updates.revisions.borrow().enrichment;
+        display.captured_enrichment = captured;
+        assert!(display.admits_snapshot(1, captured));
+        state.updates.output_changed();
+        assert!(display.admits_snapshot(1, state.updates.revisions.borrow().enrichment));
+        assert!(!display.admits_snapshot(2, captured));
+
+        state.updates.sessions_changed();
+        let superseding = state.updates.revisions.borrow().enrichment;
+        assert!(!display.admits_snapshot(1, superseding));
+    }
+
     #[test]
     fn periodic_deadline_tracks_output_activity_without_postponing_work() {
         let start = tokio::time::Instant::now();
@@ -602,7 +694,11 @@ mod tests {
             metadata.root_path(),
         )
         .unwrap();
-        display_where(&mut rx, |d| d.validated_epoch == Some(required)).await;
+        display_where(&mut rx, |d| {
+            d.captured_request == Some(required)
+                && d.enrichment.values().all(|e| e["state"] != "pending")
+        })
+        .await;
         let before = state.updates.inspections.load(Ordering::SeqCst);
         tokio::time::sleep(Duration::from_secs(6)).await;
         assert_eq!(
@@ -615,7 +711,7 @@ mod tests {
     #[tokio::test]
     async fn upgrade_cannot_reuse_another_workspaces_publisher() {
         let (dir, state, metadata) = fixture();
-        let _current = subscribe_shared(
+        let (owner, _, _current) = subscribe_shared(
             state.clone(),
             dir.path().display().to_string(),
             metadata.root_path(),
@@ -629,38 +725,192 @@ mod tests {
             metadata.root_path()
         )
         .is_none());
+        // The owner object changes before the router signals a new generation.
+        state.workspace.lock().unwrap().as_mut().unwrap().metadata =
+            crate::metadata::MetadataStore::new(&metadata.root_path());
+        assert!(!owner.current(&state));
     }
 
     #[tokio::test]
-    async fn reconnect_requests_fresh_inspection_instead_of_adopting_cached_snapshot() {
+    async fn cold_socket_delivers_pending_snapshot_before_git_inspection_finishes() {
+        use futures_util::StreamExt;
+
         let (dir, state, metadata) = fixture();
-        let (_, _, mut first) = subscribe_shared(
-            state.clone(),
-            dir.path().display().to_string(),
-            metadata.root_path(),
-        )
-        .unwrap();
-        display_where(&mut first, |_| true).await;
-        let before = state.updates.revisions.borrow().enrichment;
-        let (_, required, mut second) = subscribe_shared(
-            state.clone(),
-            dir.path().display().to_string(),
-            metadata.root_path(),
-        )
-        .unwrap();
-        assert!(second.borrow().as_ref().unwrap().validated_epoch.unwrap() < required);
-        let refreshed = display_where(&mut second, |d| {
-            d.validated_epoch.is_some_and(|epoch| epoch >= required)
+        metadata
+            .mutate_session(
+                "row-0",
+                crate::metadata::session_transactions::WriteScope::ALL,
+                |record| {
+                    record.worktree_binding = Some(crate::session_location::WorktreeBinding {
+                        root: dir.path().join("missing").display().to_string(),
+                        common_dir: dir.path().join(".git").display().to_string(),
+                    });
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let (entered_rx, release_tx) = block_inspection(&state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = crate::build_router(state);
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let url = adaptive_url(address, dir.path());
+        let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .unwrap();
+
+        let baseline = tokio::time::timeout(Duration::from_secs(4), async {
+            entered_rx.await.unwrap();
+            socket.next().await
         })
         .await;
-        assert!(refreshed
-            .enrichment
-            .values()
-            .all(|e| e["state"] != "pending"));
-        assert_ne!(
-            state.updates.revisions.borrow().enrichment,
-            before,
-            "a new snapshot must request fresh validation"
+        release_tx.send(()).unwrap();
+        let baseline: Value = serde_json::from_str(
+            baseline
+                .expect("status snapshot must arrive without Git")
+                .unwrap()
+                .unwrap()
+                .to_text()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(baseline["type"], "snapshot");
+        assert_eq!(baseline["capability"], CAPABILITY);
+        let rows = baseline["sessions"].as_array().unwrap();
+        assert_eq!(rows.len(), 32);
+        assert!(rows.iter().all(|row| {
+            row["cwd"] == ""
+                && row["enrichment"] == json!({"state":"pending", "checkedAt":null})
+                && row.get("planDocuments").is_none()
+        }));
+        let update: Value = serde_json::from_str(
+            tokio::time::timeout(Duration::from_secs(10), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .to_text()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(update["type"], "session-enrichment-delta");
+        assert_eq!(update["base"], baseline["sequence"]);
+        let changed = update["changed"].as_array().unwrap();
+        assert_eq!(changed.len(), 32);
+        assert!(changed.iter().all(|entry| {
+            entry["state"] != "pending"
+                && rows.iter().any(|row| {
+                    row["id"] == entry["id"] && row["enrichmentRevision"] == entry["revision"]
+                })
+        }));
+        let unavailable = changed.iter().find(|row| row["id"] == "row-0").unwrap();
+        assert_eq!(unavailable["state"], "unavailable");
+        assert_eq!(unavailable["data"]["repoRoot"], Value::Null);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn adaptive_reconnect_uses_new_owner_while_old_inspection_is_blocked() {
+        use futures_util::StreamExt;
+
+        let (dir, state, _) = fixture();
+        let (replacement_dir, replacement, metadata) = fixture();
+        let mut record = metadata
+            .try_read_revisioned_session("row-0")
+            .unwrap()
+            .unwrap()
+            .metadata;
+        record.label = "Replacement workspace".into();
+        metadata.write_session(&record);
+        let (entered, release) = block_inspection(&state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = crate::build_router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let old_url = adaptive_url(address, dir.path());
+        let (mut old, _) = tokio_tungstenite::connect_async(old_url.as_str())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(8), async {
+            let frame = old.next().await.unwrap().unwrap();
+            let snapshot: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+            assert_eq!(snapshot["type"], "snapshot");
+            assert_eq!(snapshot["generation"], 0);
+            entered.await.unwrap();
+        })
+        .await
+        .unwrap();
+
+        *state.workspace.lock().unwrap() = replacement.workspace.lock().unwrap().take();
+        state
+            .updates
+            .revisions
+            .send_modify(|revisions| revisions.workspace += 1);
+        state.updates.sessions_changed();
+        let new_url = adaptive_url(address, replacement_dir.path());
+        let (mut new, _) = tokio_tungstenite::connect_async(new_url.as_str())
+            .await
+            .unwrap();
+        let next = tokio::time::timeout(Duration::from_secs(8), new.next()).await;
+        release.send(()).unwrap();
+        let frame = next.unwrap().unwrap().unwrap();
+        let snapshot: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+        assert_eq!(snapshot["type"], "snapshot");
+        assert_eq!(snapshot["generation"], 1);
+        assert!(snapshot["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["label"] == "Replacement workspace"));
+        let old_frame = tokio::time::timeout(Duration::from_secs(8), old.next())
+            .await
+            .unwrap();
+        if let Some(Ok(frame)) = old_frame {
+            if let Ok(text) = frame.to_text() {
+                let message: Value = serde_json::from_str(text).unwrap();
+                assert_eq!(message["type"], "unavailable");
+            } else {
+                assert!(frame.is_close());
+            }
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn reconnect_captures_status_without_invalidating_shared_enrichment() {
+        let (dir, state, metadata) = fixture();
+        let workspace = dir.path().display().to_string();
+        tokio::time::pause();
+        let (_, _, mut first) =
+            subscribe_shared(state.clone(), workspace.clone(), metadata.root_path()).unwrap();
+        let initial = display_where_frozen(&mut first, |d| {
+            !d.enrichment.is_empty() && d.enrichment.values().all(|e| e["state"] != "pending")
+        })
+        .await;
+        let before = state.updates.revisions.borrow().enrichment;
+        let inspections = state.updates.inspections.load(Ordering::SeqCst);
+        let mut record = metadata
+            .try_read_revisioned_session("row-0")
+            .unwrap()
+            .unwrap()
+            .metadata;
+        record.label = "Renamed before reconnect".into();
+        metadata.write_session(&record);
+        let (_, _, mut second) =
+            subscribe_shared(state.clone(), workspace, metadata.root_path()).unwrap();
+        assert!(first.same_channel(&second));
+        assert_eq!(state.updates.revisions.borrow().enrichment, before);
+        tokio::time::advance(STATUS_INTERVAL).await;
+        let refreshed = display_where_frozen(&mut second, |d| {
+            d.status
+                .iter()
+                .any(|row| row["label"] == "Renamed before reconnect")
+        })
+        .await;
+        assert_eq!(refreshed.enrichment, initial.enrichment);
+        assert_eq!(
+            state.updates.inspections.load(Ordering::SeqCst),
+            inspections
         );
     }
 
@@ -678,7 +928,11 @@ mod tests {
         let (_, required, second) =
             subscribe_shared(state.clone(), dir.path().display().to_string(), root).unwrap();
         assert!(first.same_channel(&second));
-        display_where_frozen(&mut first, |d| d.validated_epoch == Some(required)).await;
+        display_where_frozen(&mut first, |d| {
+            d.captured_request == Some(required)
+                && d.enrichment.values().all(|e| e["state"] != "pending")
+        })
+        .await;
         let before = state.updates.inspections.load(Ordering::SeqCst);
         let mut record = metadata
             .try_read_revisioned_session("row-0")
@@ -723,45 +977,58 @@ mod tests {
             metadata.root_path(),
         )
         .unwrap();
-        display_where(&mut rx, |_| true).await;
-        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
-        let store = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .branch_documents
-            .clone();
-        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
-            let _ = entered_tx.send(());
-            release_rx.recv_timeout(Duration::from_secs(15)).unwrap();
-        }));
+        display_where(&mut rx, |d| {
+            d.enrichment.values().all(|e| e["state"] != "pending")
+        })
+        .await;
+        let (entered_rx, release_tx) = block_inspection(&state);
         state.updates.sessions_changed();
         tokio::time::timeout(Duration::from_secs(10), entered_rx)
             .await
             .unwrap()
             .unwrap();
-        let mut record = metadata
-            .try_read_revisioned_session("row-0")
-            .unwrap()
-            .unwrap()
-            .metadata;
-        record.label = "Updated while blocked".into();
-        metadata.write_session(&record);
-        state.updates.output_changed();
-        let result = display_where(&mut rx, |d| {
-            d.status
-                .iter()
-                .any(|r| r["label"] == "Updated while blocked")
+        let root = dir.path().to_str().unwrap();
+        let binding = crate::session_location::WorktreeBinding::resolve(root, root).unwrap();
+        metadata
+            .mutate_session(
+                "row-0",
+                crate::metadata::session_transactions::WriteScope::ALL,
+                |record| {
+                    record.label = "Updated while blocked".into();
+                    record.worktree_binding = Some(binding.clone());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        state.updates.sessions_changed();
+        let (_, required, mut reconnect) = subscribe_shared(
+            state.clone(),
+            dir.path().display().to_string(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        assert!(rx.same_channel(&reconnect));
+        let result = display_where(&mut reconnect, |d| {
+            d.captured_request
+                .is_some_and(|revision| revision >= required)
+                && d.status
+                    .iter()
+                    .any(|r| r["label"] == "Updated while blocked")
         })
         .await;
         let input_available = state.projection_lock.try_lock().is_ok();
         release_tx.send(()).unwrap();
         assert!(input_available);
         assert_eq!(result.status.len(), 32);
+        assert_eq!(result.enrichment["row-0"]["state"], "pending");
+        let recovered = display_where(&mut reconnect, |d| {
+            d.enrichment["row-0"]["state"] != "pending"
+        })
+        .await;
+        assert_eq!(
+            recovered.enrichment["row-0"]["data"]["worktreeBinding"],
+            json!(binding)
+        );
     }
 
     #[tokio::test]
@@ -820,7 +1087,9 @@ mod tests {
         )
         .unwrap();
         let published = display_where(&mut rx, |d| {
-            d.validated_epoch.is_some_and(|epoch| epoch >= required)
+            d.captured_request
+                .is_some_and(|revision| revision >= required)
+                && d.enrichment.get(id).is_some_and(|e| e["state"] == "ready")
         })
         .await;
         assert!(published.status.iter().any(|row| row["id"] == id));
@@ -918,7 +1187,13 @@ mod tests {
         assert!(["legacy-idle", "split-idle", "legacy-busy", "split-busy"].contains(&mode.as_str()));
         let split = mode.starts_with("split-");
         let busy = mode.ends_with("-busy");
-        let (dir, state, metadata) = fixture();
+        let (rows, repositories) =
+            if std::env::var("ORKWORKS_REFRESH_BENCH_LAYOUT").as_deref() == Ok("populated") {
+                (800, 19)
+            } else {
+                (32, 1)
+            };
+        let (dir, state, metadata) = fixture_with_layout(rows, repositories);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let app = crate::build_router(state.clone());
@@ -931,45 +1206,76 @@ mod tests {
         if split {
             url.query_pairs_mut().append_pair("capability", CAPABILITY);
         }
-        let (mut first, _) = tokio_tungstenite::connect_async(url.as_str())
-            .await
-            .unwrap();
-        let (mut second, _) = tokio_tungstenite::connect_async(url.as_str())
-            .await
-            .unwrap();
-        for socket in [&mut first, &mut second] {
-            let message = tokio::time::timeout(Duration::from_secs(20), socket.next())
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            let initial: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
-            assert_eq!(initial["type"], "snapshot");
-        }
-        let mut record = metadata
-            .try_read_revisioned_session("row-0")
-            .unwrap()
-            .unwrap()
-            .metadata;
-        let mut output = tokio::time::interval(Duration::from_millis(100));
-        output.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(35);
+        let writer = if busy {
+            let (started, writing) = tokio::sync::oneshot::channel();
+            let updates = state.updates.clone();
+            let writer = tokio::spawn(async move {
+                let mut record = metadata
+                    .try_read_revisioned_session("row-0")
+                    .unwrap()
+                    .unwrap()
+                    .metadata;
+                let mut ticker = tokio::time::interval(Duration::from_millis(100));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                ticker.tick().await;
+                record.last_output_at = Some(crate::workspace_runtime::iso_now());
+                metadata.write_session(&record);
+                updates.output_changed();
+                let _ = started.send(());
+                let mut writes = 1;
+                loop {
+                    tokio::select! {
+                        _ = tokio::time::sleep_until(deadline) => return writes,
+                        _ = ticker.tick() => {
+                            record.last_output_at = Some(crate::workspace_runtime::iso_now());
+                            metadata.write_session(&record);
+                            updates.output_changed();
+                            writes += 1;
+                        }
+                    }
+                }
+            });
+            writing.await.unwrap();
+            Some(writer)
+        } else {
+            None
+        };
+        let connect = || async {
+            let start = std::time::Instant::now();
+            let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
+                .await
+                .unwrap();
+            let initial = tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    let frame = socket.next().await.unwrap().unwrap();
+                    let value: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+                    if value["type"] != "heartbeat" {
+                        return value;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            let elapsed = start.elapsed().as_millis();
+            assert_eq!(initial["type"], "snapshot");
+            assert_eq!(initial["sessions"].as_array().unwrap().len(), rows);
+            (socket, elapsed)
+        };
+        let ((mut first, first_ms), (mut second, second_ms)) = tokio::join!(connect(), connect());
         let mut messages = 0;
-        let mut writes = 0;
         loop {
             tokio::select! {
                 _ = tokio::time::sleep_until(deadline) => break,
-                _ = output.tick(), if busy => {
-                    record.last_output_at = Some(crate::workspace_runtime::iso_now());
-                    metadata.write_session(&record);
-                    state.updates.output_changed();
-                    writes += 1;
-                },
                 message = first.next() => { assert!(message.unwrap().is_ok()); messages += 1; },
                 message = second.next() => { assert!(message.unwrap().is_ok()); messages += 1; },
             }
         }
-        eprintln!("STREAM_BENCH mode={mode} rows=32 subscribers=2 duration_seconds=35 writes={writes} messages={messages} shared_inspections={}", state.updates.inspections.load(Ordering::SeqCst));
+        let writes = match writer {
+            Some(writer) => writer.await.unwrap(),
+            None => 0,
+        };
+        eprintln!("STREAM_BENCH mode={mode} rows={rows} repositories={repositories} subscribers=2 first_snapshot_ms=[{first_ms}, {second_ms}] duration_seconds=35 writes={writes} messages={messages} shared_inspections={}", state.updates.inspections.load(Ordering::SeqCst));
         drop(first);
         drop(second);
         server.abort();
@@ -1036,6 +1342,10 @@ mod tests {
         let mut display = Display::default();
         display.status(&prepared, 0);
         display.inspect(&prepared, 0, 100);
+        assert_eq!(
+            display.rows(5_100)[0]["enrichment"],
+            json!({"state":"stale","checkedAt":100})
+        );
         let mut status = crate::session_projection::SessionProjection::new(state.clone())
             .stream_projection(false)
             .unwrap();

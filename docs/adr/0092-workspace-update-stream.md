@@ -73,3 +73,13 @@ This amendment authorizes source implementation, not a claim of runtime or
 installer qualification. Idle/busy performance and mixed-version checks are
 required before enabling the capability. ADR 0103's format-2/version-2 activation
 and scoped supersession are unchanged; the new capability does not activate it.
+
+## Amendment — 2026-11-22
+
+The [approved startup design](../superpowers/specs/2026-11-22-adaptive-snapshot-startup-design.md)
+makes the first adaptive snapshot authoritative for a complete, newly captured
+session status list. It carries the matching enrichment state and check time.
+Git and document details can arrive independently as enrichment deltas. A
+subscription requests fresh status from the shared publisher. Explicit refresh
+continues to request a full inspection. Retain the ordered cursor, current
+action validation, legacy complete snapshots, and REST recovery.

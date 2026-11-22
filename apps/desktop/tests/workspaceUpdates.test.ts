@@ -135,6 +135,21 @@ test("heartbeats renew liveness only after the first workspace snapshot", async 
 const splitSnapshot = () => ({ ...snapshot(), capability: "status-enrichment-v1", sessions: [
   { ...row("a"), branch: "main", enrichmentRevision: "r1", enrichment: { state: "ready", checkedAt: 1000 } },
 ] });
+test("a pending negotiated snapshot establishes status and accepts independently checked enrichment", () => {
+  const state = createStreamState("/workspace");
+  const { branch: _, ...status } = splitSnapshot().sessions[0];
+  const pending = { ...status, cwd: "", enrichment: { state: "pending", checkedAt: null } };
+  const result = state.apply({ ...splitSnapshot(), sessions: [pending] });
+  assert.equal(result.sessions?.[0].status, "running");
+  assert.equal(result.sessions?.[0].repoRoot, undefined);
+  assert.deepEqual(result.sessions?.[0].enrichment, pending.enrichment);
+
+  const checked = state.apply({ ...header, type: "session-enrichment-delta", base: 0, sequence: 1,
+    changed: [{ id: "a", revision: "r1", data: { cwd: "/workspace", branch: "main" }, state: "ready", checkedAt: 1000 }] });
+  assert.equal(checked.sessions?.[0].status, "running");
+  assert.equal(checked.sessions?.[0].branch, "main");
+  assert.equal(state.expire(6000).sessions?.[0].enrichment?.state, "stale");
+});
 test("negotiated status preserves enrichment and enrichment cannot roll back newer status", () => {
   const state = createStreamState("/workspace"); state.apply(splitSnapshot());
   const { cwd: _, ...status } = row("a", "new status");
