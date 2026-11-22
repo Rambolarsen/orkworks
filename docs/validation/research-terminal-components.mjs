@@ -23,7 +23,12 @@ export function measureTerminalRow(r){const value=clone(r.value);delete value.la
  return {chargeBytes:size({key:r.key,value}),wrapperBytes:size({key:r.key,value:r.value})};}
 export function validateTerminalWidths(r,jobBytes){
  assert(Object.hasOwn(caps,r.table),'supported family');
- if(r.table==='research_lifecycle_records')assert(size(r.value.receipt)<=4096,'receipt limit');
+ if(r.table==='research_lifecycle_records'){
+  assert(size(r.value.receipt)<=4096,'receipt limit');
+  for(const [name,max] of [['run',1048576],['lifecycle',16384],['currentPlan',16384],['pendingPlan',16384]]){
+   const snapshot=r.value.body.readSet[name];
+   if(snapshot!==null)assert(size({key:snapshot.key,value:snapshot.value})<=max,name+' snapshot wrapper limit');
+  }}
  if(r.table==='research_coordination_receipts')assert(size(r.value.receipt)<=4096,'coordination receipt limit');
  assert(size({key:r.key,value:r.value})<=caps[r.table],'complete wrapper limit');
  assert(Number.isSafeInteger(jobBytes)&&jobBytes>=0&&jobBytes<=1048576,'independent job limit');}
@@ -98,11 +103,19 @@ export function validateResearchTerminal(p){
  assert.equal(after.stageContinueRequired,false,'raw stage gate value preserved (false stays false)');
  assert.deepEqual(after.blockers,[],'raw blocker values preserved');
  assert.deepEqual(after.currentInput,before.currentInput,'current input unchanged by the terminal transition');
+ if(before.pendingClarification!==null)
+  assert.deepEqual(after.pendingClarification,before.pendingClarification,'raw clarification binding preserved through completion');
+ const capturedRead=row.value.body.readSet.run.value.body;
+ if(capturedRead.pendingClarification!==null)
+  assert.deepEqual(after.pendingClarification,capturedRead.pendingClarification,'captured raw clarification binding preserved');
  assert.equal(after.parentRuntime,null,'parent runtime pointer cleared');
  assert.equal(after.pendingPlan,null,'pendingPlan cleared');
  assert.deepEqual(after.planReferences,before.planReferences,'planReferences retained');
+ for(const ref of after.planReferences)
+  assert.deepEqual(Object.keys(ref).sort(),['planDefinitionDigest','planId','planRevision','runId','workspaceId'],'accepted PlanRef shape');
  // selector preservation
  const selectorAfter=p.terminal.selectorAfter.value.body;
+ assert.deepEqual(Object.keys(selectorAfter.completedResearchPlan).sort(),['planDefinitionDigest','planId','planRevision','runId','workspaceId'],'selector PlanRef shape');
  assert.deepEqual(selectorAfter.completedResearchPlan,p.terminal.selectorBefore.value.body.completedResearchPlan,
   'completedResearchPlan unchanged by execution completion');
  assert.equal(selectorAfter.completedResearchPlan.planId,'prefix-plan','selector keeps the research plan');
@@ -114,6 +127,7 @@ export function validateResearchTerminal(p){
  const grants=p.terminal.grantRevocation;
  assert.equal(grants.labels.expected,'label-assertions-only/never-serialized/never-restored','grant label rule');
  assert.equal(grants.labels.grantExisted,'supplied','grant labels are assertions, never serialized credentials');
+ assert.equal(grants.labels.grantRevokedAtCompletion,'supplied','completion revoked the grant');
  assert.deepEqual(Object.keys(grants.retainedApprovalFacts).sort(),['approvalDigest','approvalId','commitRef','planDigest'],
   'retained approval facts as historical bindings');
  // waits and terminal mapping labels

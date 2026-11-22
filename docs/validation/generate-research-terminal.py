@@ -75,12 +75,14 @@ def packet():
     coordination_request=dict(schemaVersion=1,task=execution_task,reservation=turn_body['reservation'],
         childSessionId='execution-child',expectedTaskVersion=8,outcome='completed',
         summary='The execution task completed under its accepted result contract.')
+    shared_C=origin('terminal-completion',3)
     coordination_receipt=dict(schemaVersion=1,task=execution_task,reservation=turn_body['reservation'],
-        childSessionId='execution-child',acceptedTaskVersion=9,commit=origin('terminal-coordination',2))
+        childSessionId='execution-child',acceptedTaskVersion=9,commit=shared_C)
     coordination_row=dict(table='research_coordination_receipts',key=execution_task,
         value=dict(schemaVersion=1,request=coordination_request,
             requestDigest=digest('orkworks.research-source-coordination-request.v1',coordination_request),
-            receipt=coordination_receipt,lastCommit=origin('terminal-coordination',3)))
+            receipt=coordination_receipt,lastCommit=shared_C))
+    research_plan_ref=clone(completion['completions'][0]['row']['value']['body']['request']['plan'])
     # completion trigger + lifecycle record (plan-completion under the execution plan)
     trigger=dict(kind='coordination',task=execution_task,acceptedTaskVersion=9,
         requestDigest=digest('orkworks.research-source-coordination-request.v1',coordination_request))
@@ -91,12 +93,12 @@ def packet():
     run_read=row('research_run_controls',run,dict(schemaVersion=1,profile='single-task-retained-file-research-execution-v1',
         **pick(chain['startup']['context']['run'],'workspaceId runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),
         runVersion=52,state='awaiting_execution_approval',currentInput=dict(**run,preparationRevision=3,inputRevision=3,
-            inputDigest=sha('UNQUALIFIED current input digest')),planReferences=[dict(researcher_task|{},planId='prefix-plan',planRevision=1),execution_plan_ref],
+            inputDigest=sha('UNQUALIFIED current input digest')),
+        planReferences=[clone(research_plan_ref),execution_plan_ref],
         currentPlan=None,pendingPlan=execution_plan_ref,parentRuntime=parent,blockers=[],stageContinueRequired=False,
         pendingClarification=None,pauseReason=None,resumeTarget=None),'terminal-run-read',2)
     selector_read=row('research_lifecycle_state',run,dict(schemaVersion=1,run=run,summaryVersion=2,
-        completedResearchPlan=dict(researcher_task|{},planId='prefix-plan',planRevision=1,
-            planDefinitionDigest=sha('UNQUALIFIED research plan digest')),
+        completedResearchPlan=clone(research_plan_ref),
         currentSummary=dict(**run,summaryVersion=2,summaryDigest=sha('UNQUALIFIED summary digest')),
         pendingStageContinue=None,finishDisposition=None),'terminal-selector-read',2)
     pending_plan_read=row('research_plan_controls',execution_plan_ref,
@@ -107,27 +109,27 @@ def packet():
     lifecycle_body=dict(schemaVersion=1,key=lifecycle_key,request=completion_request,readSet=readSet)
     lifecycle_digest=digest('orkworks.research-lifecycle-decision.v1',lifecycle_body)
     lifecycle_receipt=dict(schemaVersion=1,key=lifecycle_key,decisionDigest=lifecycle_digest,runVersion=53,
-        planVersion=2,commit=origin('terminal-completion',2))
+        planVersion=2,commit=shared_C)
     lifecycle_row=dict(table='research_lifecycle_records',key=lifecycle_key,
         value=dict(schemaVersion=1,body=lifecycle_body,digest=lifecycle_digest,receipt=lifecycle_receipt,
-            lastCommit=origin('terminal-completion',3)))
+            lastCommit=shared_C))
     # absorbing terminal transition
     terminal_run=dict(schemaVersion=1,profile='single-task-retained-file-research-execution-v1',
         **pick(chain['startup']['context']['run'],'workspaceId runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),
         runVersion=53,state='complete',currentInput=dict(**run,preparationRevision=3,inputRevision=3,
             inputDigest=sha('UNQUALIFIED current input digest')),
-        planReferences=[dict(researcher_task|{},planId='prefix-plan',planRevision=1),execution_plan_ref],
+        planReferences=[clone(research_plan_ref),execution_plan_ref],
         currentPlan=None,pendingPlan=None,parentRuntime=None,blockers=[],stageContinueRequired=False,
         pendingClarification=None,pauseReason=None,resumeTarget=None)
     terminal_run_row=row('research_run_controls',run,terminal_run,'terminal-transition',2)
     terminal_selector=row('research_lifecycle_state',run,dict(schemaVersion=1,run=run,summaryVersion=2,
-        completedResearchPlan=dict(researcher_task|{},planId='prefix-plan',planRevision=1,
-            planDefinitionDigest=sha('UNQUALIFIED research plan digest')),
+        completedResearchPlan=clone(research_plan_ref),
         currentSummary=dict(**run,summaryVersion=2,summaryDigest=sha('UNQUALIFIED summary digest')),
         pendingStageContinue=None,finishDisposition=None),'terminal-transition',2)
     terminal_plan=row('research_plan_controls',execution_plan_ref,
         dict(schemaVersion=1,plan=execution_plan_ref,planVersion=2,status='complete',latestApproval=None,
             task=execution_task,replaces=None),'terminal-transition',2)
+    failed_plan_refs=[clone(research_plan_ref),execution_plan_ref]
     # collection/expectation retirement (research task's rows; execution task has none in this slice)
     retired_collection=row('research_collections',run,
         dict(schemaVersion=1,workspaceId=run['workspaceId'],runId=run['runId'],collectionVersion=3,active=False,
@@ -152,7 +154,7 @@ def packet():
             **pick(chain['startup']['context']['run'],'workspaceId runId parentSessionId runDefinitionDigest bootstrapConfigurationDigest repositoryBindingDigest sourceWorktreeBindingDigest'),
             runVersion=53,state='blocked',currentInput=dict(**run,preparationRevision=3,inputRevision=3,
                 inputDigest=sha('UNQUALIFIED current input digest')),
-            planReferences=[dict(researcher_task|{},planId='prefix-plan',planRevision=1),execution_plan_ref],
+            planReferences=failed_plan_refs,
             currentPlan=execution_plan_ref,pendingPlan=None,parentRuntime=parent,
             blockers=[dict(id='failed-execution',kind='launch-interrupted',task=execution_task,
                 detail='Supplied failed execution outcome; recovery revision remains unclosed.')],

@@ -14,6 +14,7 @@ import {canonical,hash} from './root-bootstrap-components.mjs';
 const raw=readFileSync(new URL('research-terminal-components.json',import.meta.url));
 const packet=()=>JSON.parse(raw),clone=structuredClone;
 const domain=(n,b)=>{const c=clone(b);return hash(n+'\n'+canonical(c));};
+const origin2=label=>({storageEpoch:'f'.repeat(64),commitSequence:'9',changeDigest:hash('UNQUALIFIED diverged: '+label)});
 test('independent regeneration and decoded validation preserve exact oracle bytes',()=>{
  assert.deepEqual(generate(),raw);const p=packet(),before=canonical(p);
  assert.deepEqual(validateResearchTerminal(p),p.measurements);assert.equal(canonical(p),before);

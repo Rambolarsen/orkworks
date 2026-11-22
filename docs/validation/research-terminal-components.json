@@ -336,14 +336,14 @@
           "acceptedTaskVersion": 9,
           "commit": {
             "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "commitSequence": "2",
-            "changeDigest": "cdad5f6db2861e994daa5aa4cabb3ba8b96396ff7862f14dcac692d3047006d6"
+            "commitSequence": "3",
+            "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
           }
         },
         "lastCommit": {
           "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           "commitSequence": "3",
-          "changeDigest": "cdad5f6db2861e994daa5aa4cabb3ba8b96396ff7862f14dcac692d3047006d6"
+          "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
         }
       }
     },
@@ -396,8 +396,8 @@
       "acceptedTaskVersion": 9,
       "commit": {
         "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "commitSequence": "2",
-        "changeDigest": "cdad5f6db2861e994daa5aa4cabb3ba8b96396ff7862f14dcac692d3047006d6"
+        "commitSequence": "3",
+        "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
       }
     }
   },
@@ -551,7 +551,7 @@
                       "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                       "planId": "prefix-plan",
                       "planRevision": 1,
-                      "taskId": "prefix-task"
+                      "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
                     },
                     {
                       "workspaceId": "workspace-1",
@@ -611,8 +611,7 @@
                     "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
                     "planId": "prefix-plan",
                     "planRevision": 1,
-                    "taskId": "prefix-task",
-                    "planDefinitionDigest": "1b4f7e85b1d5813d9c937370f57e83ae8b305050c2f950bf3e7520b7b6fe0958"
+                    "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
                   },
                   "currentSummary": {
                     "workspaceId": "workspace-1",
@@ -672,7 +671,7 @@
             }
           }
         },
-        "digest": "fbe58aae2e6acf86684a465615083402d35c6637f4b2bd0435a8950548d3bc61",
+        "digest": "8c568966518858a1d4dc00df077f2e6a787c0ed8723ef436efd2cc8ead6f1a84",
         "receipt": {
           "schemaVersion": 1,
           "key": {
@@ -685,12 +684,12 @@
               "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
             }
           },
-          "decisionDigest": "fbe58aae2e6acf86684a465615083402d35c6637f4b2bd0435a8950548d3bc61",
+          "decisionDigest": "8c568966518858a1d4dc00df077f2e6a787c0ed8723ef436efd2cc8ead6f1a84",
           "runVersion": 53,
           "planVersion": 2,
           "commit": {
             "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "commitSequence": "2",
+            "commitSequence": "3",
             "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
           }
         },
@@ -750,7 +749,7 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "prefix-plan",
               "planRevision": 1,
-              "taskId": "prefix-task"
+              "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
             },
             {
               "workspaceId": "workspace-1",
@@ -823,7 +822,7 @@
               "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
               "planId": "prefix-plan",
               "planRevision": 1,
-              "taskId": "prefix-task"
+              "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
             },
             {
               "workspaceId": "workspace-1",
@@ -869,8 +868,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "prefix-plan",
             "planRevision": 1,
-            "taskId": "prefix-task",
-            "planDefinitionDigest": "1b4f7e85b1d5813d9c937370f57e83ae8b305050c2f950bf3e7520b7b6fe0958"
+            "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
           },
           "currentSummary": {
             "workspaceId": "workspace-1",
@@ -908,8 +906,7 @@
             "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
             "planId": "prefix-plan",
             "planRevision": 1,
-            "taskId": "prefix-task",
-            "planDefinitionDigest": "1b4f7e85b1d5813d9c937370f57e83ae8b305050c2f950bf3e7520b7b6fe0958"
+            "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
           },
           "currentSummary": {
             "workspaceId": "workspace-1",
@@ -1193,7 +1190,7 @@
           "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
           "planId": "prefix-plan",
           "planRevision": 1,
-          "taskId": "prefix-task"
+          "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
         },
         {
           "workspaceId": "workspace-1",
@@ -1321,8 +1318,8 @@
           "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
         }
       },
-      "chargeBytes": 7054,
-      "wrapperBytes": 7450
+      "chargeBytes": 7098,
+      "wrapperBytes": 7494
     },
     {
       "table": "research_run_controls",
@@ -1330,8 +1327,8 @@
         "workspaceId": "workspace-1",
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
       },
-      "chargeBytes": 1619,
-      "wrapperBytes": 1819
+      "chargeBytes": 1686,
+      "wrapperBytes": 1886
     },
     {
       "table": "research_lifecycle_state",
@@ -1339,8 +1336,8 @@
         "workspaceId": "workspace-1",
         "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
       },
-      "chargeBytes": 864,
-      "wrapperBytes": 1064
+      "chargeBytes": 841,
+      "wrapperBytes": 1041
     },
     {
       "table": "research_plan_controls",
