@@ -112,6 +112,21 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'app-review-terminal-fill') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        const density = await evaluate(`new Promise(resolve=>{
+          const term=fixture.runtime().terminal;
+          const configured=term.options.lineHeight;
+          const rowHeight=()=>term.element.querySelector('.xterm-screen').getBoundingClientRect().height/term.rows;
+          const configuredHeight=rowHeight();
+          term.options.lineHeight=1;
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            const baseHeight=rowHeight();
+            term.options.lineHeight=configured;
+            requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({configuredHeight,baseHeight})));
+          }));
+        })`);
+        assert.ok(density.baseHeight>0,'row density is measured from a visible terminal grid');
+        assert.ok(density.configuredHeight>=density.baseHeight,'row spacing retains the natural glyph height');
+        assert.ok(density.configuredHeight<=density.baseHeight*1.25,'coding-tool rows stay within 25% of the natural terminal grid: '+JSON.stringify(density));
         for (const [width,height] of [[1280,700],[910,633],[640,511]]) {
           win.setContentSize(width,height);
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');

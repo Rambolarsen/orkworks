@@ -17,10 +17,9 @@ test("keeps the ork-lime cursor on the lifted graphite base", () => {
   assert.equal(orkworksTerminalTheme.cursorAccent, "#111319");
 });
 
-test("uses a modern mono stack with a thin bar cursor and airy lines", () => {
+test("uses a modern mono stack with a thin bar cursor", () => {
   assert.match(orkworksTerminalOptions.fontFamily, /^'SF Mono'/);
   assert.equal(orkworksTerminalOptions.fontSize, 13);
-  assert.equal(orkworksTerminalOptions.lineHeight, 1.4);
   assert.equal(orkworksTerminalOptions.cursorStyle, "bar");
   assert.equal(orkworksTerminalOptions.theme, orkworksTerminalTheme);
 });
