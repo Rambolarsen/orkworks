@@ -112,6 +112,7 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'app-review-terminal-fill') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate('document.getElementById("root").style.height="100vh"');
         const density = await evaluate(`new Promise(resolve=>{
           const term=fixture.runtime().terminal;
           const configured=term.options.lineHeight;
@@ -131,6 +132,7 @@ if (process.versions.electron) {
         await evaluate('fixture.runtime().terminal.focus()');
         for (const [width,height] of [[1280,700],[910,633],[640,511]]) {
           win.setContentSize(width,height);
+          await waitFor('innerWidth==='+width+' && innerHeight==='+height);
           await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const bounds = await evaluate(`(()=>{
             const main=document.querySelector('.shell-main').getBoundingClientRect();
@@ -142,7 +144,7 @@ if (process.versions.electron) {
             const content={left:container.left+padding[0],right:container.right-padding[1],top:container.top+padding[2],bottom:container.bottom-padding[3]};
             const viewport=document.querySelector('.xterm-viewport').getBoundingClientRect();
             const screen=document.querySelector('.xterm-screen').getBoundingClientRect();
-            return {main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),padding,content,viewport:viewport.toJSON(),screen:screen.toJSON()};
+            return {windowHeight:innerHeight,main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),padding,content,viewport:viewport.toJSON(),screen:screen.toJSON()};
           })()`);
           // Check the painted remainder before geometry, so this catches the black strip directly.
           const screenshot=await win.webContents.capturePage();
@@ -152,6 +154,7 @@ if (process.versions.electron) {
             const pixel=[...screenshot.crop({x:Math.floor(x*scale),y:Math.floor(y*scale),width:1,height:1}).toBitmap().subarray(0,3)];
             assert.ok(pixel.every((channel,index)=>Math.abs(channel-[25,19,17][index])<=1),'terminal remainder and inner spacing share the graphite background (BGRA): '+pixel);
           }
+          assert.ok(Math.abs(bounds.main.bottom-bounds.windowHeight)<1,'main pane reaches the resized window bottom without clipping');
           assert.ok(bounds.padding.every(value=>value>0&&value<=12&&value===bounds.padding[0]),'terminal content has even modest breathing room');
           for (const edge of ['left','right','top','bottom']) {
             assert.ok(Math.abs(bounds.container[edge]-bounds.shell[edge])<1,'terminal fills shell '+edge);
