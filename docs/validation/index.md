@@ -167,6 +167,8 @@ Capability research, validation results, and evidence fixtures.
 
 - [Offline research execution-proposal components](research-execution-components.md) — Accepted execution-proposal source examples: exact summary binding, publication/approval/rejection records with label-assertion grants; supplied authority and qualification facts stay unqualified.
 
+- [Offline research terminal-completion components](research-terminal-components.md) — Accepted execution final-completion source examples: typed trigger reuse, absorbing terminal transition, collection retirement and label-assertion grants; supplied authority and launch-chain facts stay unqualified.
+
 - [Offline ordinary-review source components](ordinary-review-source-components.md) — Canonical registry bytes, conservative artifact binding and serialized logical admission/fault traces; no runtime or durability qualification.
 
 - [Offline ordinary-review launch inputs](ordinary-review-launch-input-components.md) — Exact proposal/configuration/prepared bytes and digest, finite bounds and conditional owner/draft joins; no production qualification.
