@@ -5573,11 +5573,6 @@ fn transition_status_blocking(
             return false;
         }
         let decision = transition_handle_session(&mut sessions, &id, &status, expected_generation);
-        if matches!(decision, HandleTransition::Applied { .. }) {
-            if let Some(failure) = &startup_failure {
-                sessions.get_mut(&id).unwrap().info.startup_failure = Some(failure.clone());
-            }
-        }
         match decision {
             HandleTransition::Aborted => return false,
             HandleTransition::Missing => (None, (None, None), false, false, false),
@@ -5585,13 +5580,18 @@ fn transition_status_blocking(
                 resume,
                 entered_running,
                 already_ending,
-            } => (
-                Some(true),
-                resume,
-                entered_running,
-                is_terminal,
-                already_ending,
-            ),
+            } => {
+                if let Some(failure) = &startup_failure {
+                    sessions.get_mut(&id).unwrap().info.startup_failure = Some(failure.clone());
+                }
+                (
+                    Some(true),
+                    resume,
+                    entered_running,
+                    is_terminal,
+                    already_ending,
+                )
+            }
         }
     };
     if entered_terminal {
@@ -5616,63 +5616,60 @@ fn transition_status_blocking(
             .or_insert_with(tokio::time::Instant::now);
     }
     let now = iso_now();
-    let mut applied = handle_decision.unwrap_or(false);
     loop {
         let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
-                Ok(phase) => phase,
-                Err(PhaseCheck::Retry) => {
-                    drop(ws_guard);
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
-                }
-                Err(PhaseCheck::Abort) => return false,
-            };
-            match persist_lifecycle_transition(
-                ws,
-                LifecyclePersist {
-                    id: &id,
-                    is_terminal,
-                    status: &status,
-                    already_ending,
-                    live_phase: live_handle_phase,
-                    resume: session_resume,
-                    timestamp: now.clone(),
-                    had_live_handle: handle_decision.is_some(),
-                    previous: handle_decision.unwrap_or(false),
-                    startup_failure: startup_failure.clone(),
-                },
-            ) {
-                PersistOutcome::Applied => applied = true,
-                PersistOutcome::NoSession => return false,
-                PersistOutcome::SoftError(error, previous) => {
-                    tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
-                    // The owned process already changed lifecycle. Preserve
-                    // its live transition so terminal finalization still runs;
-                    // no durable event or successful metadata write is claimed.
-                    return previous;
-                }
+        let Some(ws) = ws_guard.as_ref() else {
+            return handle_decision.unwrap_or(false);
+        };
+        let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
+            Ok(phase) => phase,
+            Err(PhaseCheck::Retry) => {
+                drop(ws_guard);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
             }
-            if applied {
-                ws.metadata.append_event(
-                    &id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now,
-                        status,
-                        observed_status: None,
-                        confidence: None,
-                        summary: None,
-                        source: None,
-                        recommendation_id: None,
-                    },
-                );
+            Err(PhaseCheck::Abort) => return false,
+        };
+        match persist_lifecycle_transition(
+            ws,
+            LifecyclePersist {
+                id: &id,
+                is_terminal,
+                status: &status,
+                already_ending,
+                live_phase: live_handle_phase,
+                resume: session_resume,
+                timestamp: now.clone(),
+                had_live_handle: handle_decision.is_some(),
+                previous: handle_decision.unwrap_or(false),
+                startup_failure: startup_failure.clone(),
+            },
+        ) {
+            PersistOutcome::Applied => {}
+            PersistOutcome::NoSession => return false,
+            PersistOutcome::SoftError(error, previous) => {
+                tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
+                // The owned process already changed lifecycle. Preserve
+                // its live transition so terminal finalization still runs;
+                // no durable event or successful metadata write is claimed.
+                return previous;
             }
         }
-        break;
+        ws.metadata.append_event(
+            &id,
+            &metadata::Event {
+                event_type: "session.status".into(),
+                timestamp: now,
+                status,
+                observed_status: None,
+                confidence: None,
+                summary: None,
+                source: None,
+                recommendation_id: None,
+            },
+        );
+        return true;
     }
-    applied
 }
 
 /// The sessions-lock mutation step of a status transition.
@@ -14652,6 +14649,31 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .label,
             placeholder
         );
+    }
+
+    #[tokio::test]
+    async fn transition_session_status_without_workspace_keeps_live_terminal_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "status-transition-no-workspace";
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+        *state.workspace.lock().unwrap() = None;
+
+        assert!(
+            SessionApplication::new(state.clone())
+                .transition_session_status(id, None, "ended")
+                .await
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id].info;
+        assert_eq!(live.status, "running");
+        assert_eq!(live.lifecycle_phase, "ending");
+        assert_eq!(live.lifecycle, "stopping");
     }
 
     #[tokio::test]
