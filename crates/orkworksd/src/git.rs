@@ -211,6 +211,8 @@ mod tests {
         const CHILD: &str = "ORKWORKS_GIT_CONTEXT_FIFO_TEST";
         if let Some(control) = std::env::var_os(CHILD) {
             use std::os::unix::ffi::OsStrExt;
+            let start = std::time::Instant::now();
+            eprintln!("FIFO child: setup started");
             let dir = tempfile::tempdir().unwrap();
             init_repo(dir.path());
             std::fs::create_dir(dir.path().join("nested")).unwrap();
@@ -218,7 +220,16 @@ mod tests {
             let path = dir.path().join(control);
             let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
             assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            eprintln!(
+                "FIFO child: unavailable scan started after {:?}",
+                start.elapsed()
+            );
             let info = projected_git(dir.path());
+            eprintln!(
+                "FIFO child: unavailable scan finished after {:?}; recommendation={}",
+                start.elapsed(),
+                info["recommendation"]
+            );
             assert!(info["dirty"].is_null(), "failed scan must not imply clean");
             assert!(info.get("lineChanges").is_none());
             assert!(info["recommendation"]
@@ -226,7 +237,17 @@ mod tests {
                 .unwrap()
                 .contains("unavailable"));
             std::fs::remove_file(path).unwrap();
+            eprintln!(
+                "FIFO child: recovery scan started after {:?}",
+                start.elapsed()
+            );
             let recovered = projected_git(dir.path());
+            eprintln!(
+                "FIFO child: recovery scan finished after {:?}; dirty={}, lineChanges={}",
+                start.elapsed(),
+                recovered["dirty"],
+                recovered["lineChanges"]
+            );
             assert_eq!(recovered["dirty"], true);
             assert_eq!(
                 recovered["lineChanges"],
@@ -251,7 +272,8 @@ mod tests {
                 .stderr(std::process::Stdio::inherit())
                 .spawn()
                 .unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(7);
+            let start = std::time::Instant::now();
+            let deadline = start + std::time::Duration::from_secs(7);
             loop {
                 if let Some(status) = child.try_wait().unwrap() {
                     assert!(status.success(), "control: {control}");
@@ -260,7 +282,10 @@ mod tests {
                 if std::time::Instant::now() > deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    panic!("{control} blocked live Git context");
+                    panic!(
+                        "{control}: FIFO fixture parent deadline exceeded after {:?}; see child stage diagnostics",
+                        start.elapsed()
+                    );
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
