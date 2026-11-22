@@ -3127,6 +3127,9 @@ html, body, #root {
   border-bottom: 1px solid var(--border-default);
 }
 
+.workspace-hook-notice { color: var(--state-warn); font-size: var(--text-sm); }
+.workspace-hook-notice > [role="status"] { min-width: 0; overflow-wrap: anywhere; }
+
 /* Ordinary session creation is part of the central pane. */
 .new-session-composer {
   flex: 1;

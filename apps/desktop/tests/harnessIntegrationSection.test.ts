@@ -6,9 +6,11 @@ import {
   integrationOperationForHarness,
   isAttentionSignal,
   shouldShowInstalledConfirmation,
+  workspaceHookNotices,
 } from "../src/harnessIntegrationPresentation.ts";
 import type {
   ActiveHarnessIntegrationResult,
+  GroupedIntegrationStatus,
   IntegrationStatusResult,
 } from "../src/harnessIntegrationPresentation.ts";
 
@@ -342,4 +344,46 @@ test("deriveIntegrationDisplayState returns neutral spinner state while integrat
   assert.equal(display.appearance, "in-progress");
   assert.equal(display.glyph, "spinner");
   assert.match(display.description, /in progress/i);
+});
+
+
+function workspaceGroup(overrides: Partial<GroupedIntegrationStatus["status"]> = {}): GroupedIntegrationStatus {
+  const result = integrationStatus(overrides);
+  if (!result.ok) throw new Error(result.error);
+  return {
+    key: { adapterId: "codex", targetId: "workspace" },
+    consumers: [{ harnessId: "codex", harnessName: "Codex" }],
+    status: result.status,
+  };
+}
+
+test("workspace hook notice names the enabled consumers of an outdated hook", () => {
+  const group = workspaceGroup({
+    registration: "drifted",
+    activation: "needs_trust",
+    diagnostics: [{ code: "reporter_asset_drifted", message: "Outdated" }],
+  });
+  group.consumers.push({ harnessId: "codex-local", harnessName: "Local Codex" });
+  assert.deepEqual(workspaceHookNotices([group]), [
+    { key: "codex/workspace", text: "Codex, Local Codex: OrkWorks hook update available." },
+  ]);
+});
+
+test("workspace hook notice explains Codex trust and missing hooks", () => {
+  const untrusted = workspaceGroup({ activation: "needs_trust" });
+  assert.match(workspaceHookNotices([untrusted])[0].text, /Codex.*\/hooks.*trust/i);
+  assert.match(workspaceHookNotices([
+    workspaceGroup({ registration: "absent", ownership: "none", activation: "unknown" }),
+  ])[0].text, /Codex.*hook.*install/i);
+});
+
+test("workspace hook notice omits healthy, disabled, unsupported and unrelated errors", () => {
+  assert.deepEqual(workspaceHookNotices([
+    workspaceGroup(),
+    workspaceGroup({ enabled: false, activation: "needs_trust" }),
+    workspaceGroup({ toolDetected: false, registration: "absent" }),
+    workspaceGroup({ registration: "unsupported", activation: "needs_trust" }),
+    workspaceGroup({ registration: "error", activation: "needs_trust" }),
+    workspaceGroup({ registration: "drifted", ownership: "ambiguous" }),
+  ]), []);
 });
