@@ -171,9 +171,11 @@ by that logical component evidence.
 
 The [Codex capture inventory/custody proposal](../docs/superpowers/specs/2026-11-22-review-codex-capture-design.md)
 and [staged qualification roadmap](../docs/superpowers/plans/2026-11-22-review-codex-capture-qualification.md)
-under #1966 propose a complete first-profile resource set, retained read-only
-observation and shared checked owner. They are unapproved design proposals;
-no actual collector, mutation coverage, native role or prepared Start is enabled.
+under #1966 define the architecture owner-accepted on 2026-11-22: a complete
+first-profile resource set, retained read-only observation and shared checked
+owner. Initial native descriptor evidence leaves concurrent-spawn custody
+unqualified under #1981. No actual collector, mutation coverage, native role or
+prepared Start is enabled.
 
 ### Independence is valuable
 

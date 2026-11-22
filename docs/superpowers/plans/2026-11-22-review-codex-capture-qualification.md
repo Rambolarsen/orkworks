@@ -1,14 +1,14 @@
 ---
 type: Qualification Plan
 title: Qualify the first Codex capture inventory and custody
-description: Proposed staged evidence plan for a retained-resource observer and shared configuration capture owner, without producer activation.
+description: Accepted staged evidence roadmap for a retained-resource observer and shared configuration capture owner, without producer activation.
 tags: [orkworks, review, codex, qualification]
-status: draft
+status: stable
 ---
 
 # Qualify the first Codex capture inventory and custody
 
-Outcome: make the complete-inventory/custody proposal reviewable and define the
+Outcome: qualify the accepted complete-inventory/custody architecture and define the
 proof obligations before any actual producer can use it. Track
 [#1966](https://github.com/Rambolarsen/orkworks/issues/1966).
 Read the [design](../specs/2026-11-22-review-codex-capture-design.md) and its accepted
@@ -30,15 +30,18 @@ needs its bounded executable plan and issue when its prerequisites are proven.
 - [x] Run docs metadata/index/link tests and site build, diff/doc/worktree checks;
   prepare the design-only draft PR package with evidence and remaining gates. No cargo/desktop
   installation or tests are needed for this documentation-only change.
-- [ ] Obtain owner approval of the proposed architecture and availability choices.
+- [x] Obtain owner approval of the proposed architecture and availability choices.
 
 ## Qualification sequence after approval
 
 1. **Bounded resource observation proof.** Own a focused private observer slice
    adjacent to the integration source, with Unix/macOS private worker transport
    and synthetic temporary roots. Before implementation, finalize the fixed
-   descriptor/result contract and lifecycle under a bounded plan, and record the
-   architecture decision through the ADR lifecycle before observer code. TDD must prove
+   descriptor/result contract and lifecycle under a bounded plan. First close
+   [#1981](https://github.com/Rambolarsen/orkworks/issues/1981)'s received-descriptor
+   inheritance boundary against actual concurrent sidecar child launch; a serial
+   receiver fcntl is insufficient. Any material architecture change needs approval.
+   Record the architecture decision through the ADR lifecycle before observer code. TDD must prove
    same opened-object descriptor transfer, no-follow traversal/absence,
    hard-link/root-alias refusal, exact bytes, limits, deadline/cancellation,
    saturation, worker termination/reap and permit retention after uncertain
@@ -91,7 +94,7 @@ separately and is not claimed by that rollback statement.
 Total 13/25 for the proposal slice. Self-review checked that every design
 requirement has a stage and denial oracle, while no stage treats the existing
 leaf/projector tests as physical custody or native evidence. Current disposition:
-**Fresh builder and contract reviews passed with no required or optional findings; ready for owner review; production Investigate; implementation unapproved.**
+**Architecture owner-approved on 2026-11-22; fresh builder/contract review passed; physical observer Investigate under #1981; later stages remain gated.**
 
 Review routing: one owner writes this design/plan. Two read-only fresh reviewers
 (maximum two agents, one round) examine the same merged artifacts independently:
@@ -108,3 +111,22 @@ shipped behavior nor milestone availability. Existing circular/chunk warnings
 are outside the diff. Generated pnpm executable lock metadata was inspected and
 restored. Foreign edits/worktrees remain untouched. No code/native/installed-file
 verification is claimed; the production disposition stays Investigate.
+
+## Approval and first qualification disposition
+
+Owner approved the concrete architecture with “go ahead” after #1972. The
+[native temporary-file descriptor experiment](../../validation/ordinary-review-codex-descriptor-qualification.md)
+executed on macOS arm64 before observer code, exposing a receive-to-close-on-exec
+inheritance interval. The ordinary Rust child inherited an unset descriptor;
+setting it inside the Rust parent prevented inheritance in the serial control.
+This is finite native evidence, not complete worker or race qualification.
+Stage 1 remains Investigate until #1981 supplies a supported concrete custody
+mechanism. No bounded observer implementation plan may assume that gate passed.
+No product implementation, enrollment or prepared Start is claimed here.
+
+Fresh approval/evidence documentation verification passed: all 2,566 docs tests,
+metadata/index checks and site build (112.67 seconds), plus whitespace/doc/worktree
+closeout. The native experiment and serial control ran as recorded; no full
+observer/runtime/native-Codex qualification is inferred. README needs no edit
+because shipped behavior and availability are unchanged. Generated lock metadata
+was inspected/restored; foreign worktrees and shared-checkout edits remain intact.

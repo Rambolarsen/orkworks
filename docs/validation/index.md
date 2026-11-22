@@ -172,3 +172,5 @@ Capability research, validation results, and evidence fixtures.
 - [Offline ordinary-review launch inputs](ordinary-review-launch-input-components.md) — Exact proposal/configuration/prepared bytes and digest, finite bounds and conditional owner/draft joins; no production qualification.
 
 - [Offline ordinary-review configuration leaves](ordinary-review-configuration-leaf-components.md) — Complete logical source-byte commitments, independent inventory coverage and conditional prepared-input joins; no actual capture/native qualification.
+
+- [Codex capture descriptor inheritance on macOS](ordinary-review-codex-descriptor-qualification.md) — Temporary native evidence and the unresolved concurrent-spawn custody gate.

@@ -1,14 +1,16 @@
 ---
 type: Design
 title: Complete Codex capture inventory and custody
-description: Proposed first-profile resource inventory, retained custody and shared configuration owner for ordinary-review Codex capture.
+description: Accepted first-profile inventory and custody architecture with explicit physical observation and shared-owner qualification gates.
 tags: [orkworks, review, codex, custody, source-contracts]
-status: draft
+status: stable
 ---
 
 # Complete Codex capture inventory and custody
 
-**Proposed for owner approval; documentation and source inspection only.**
+**Owner accepted this architecture and first-profile availability choices on
+2026-11-22 with “go ahead” after reviewing draft #1972.** Qualification may proceed
+within this scope; acceptance does not qualify an observer or enable capture.
 Track [#1966](https://github.com/Rambolarsen/orkworks/issues/1966), under
 #68/#66/#1899 and #738/#741. Inspected source base:
 `12d4c93c` (main after #1959). No actual capture, installed hooks/native probe,
@@ -30,14 +32,14 @@ code-selected inventory and retained live owners. A client cannot select expecte
 resources, supply currentness facts or turn Installed into authority. Failure is
 unavailable/changed, with no repair, mutation, retry or ordinary-launch fallback.
 
-Propose one first profile: stock canonical Codex, explicit qualified model,
+The accepted first profile is: stock canonical Codex, explicit qualified model,
 direct macOS arm64, source-owned standard POSIX commands, packaged sidecar assets,
 active workspace selection, exact installed owned hook bundle and matching
 historical hook observation. The existing stock catalog requires the user harness
 document to be physically absent. Present even-empty documents remain unavailable.
 Wrappers, custom definitions/paths, developer source-directory fallback, Windows,
 Linux, legacy/no-option versions, resume and native app-server launches are out.
-These are my proposed availability choices, not prior owner decisions. Manual
+These availability choices were proposed here and accepted in that owner decision. Manual
 launch/install/repair/remove behavior retains its existing broader support.
 
 Packaged-only is deliberately narrower than current `scripts_source_dir`, which
@@ -152,7 +154,7 @@ retained source-owned expectations. An unrelated carrier edit may conservatively
 invalidate on an observed identity/change indicator even if projection is equal.
 No promise of atomic exclusion against uncooperative external writers is made.
 
-Proposed physical observer mechanism: one private same-sidecar worker process per
+The accepted, still unqualified physical observer mechanism is: one private same-sidecar worker process per
 capture/validation, receiving retained root descriptors and a fixed compiled
 operation selector over a private bounded channel. On macOS it returns opened
 resource/directory descriptors via descriptor passing plus bounded typed result
@@ -162,7 +164,7 @@ The worker must prove no-follow traversal and same-object descriptor transfer;
 a summary of metadata alone cannot qualify custody. This new mechanism is an
 explicit qualification prerequisite, not a claim existing process helpers supply it.
 
-Proposed per-operation caps: one worker, three-second wall deadline, 256 KiB per
+Accepted per-operation caps: one worker, three-second wall deadline, 256 KiB per
 file including carrier, 64 KiB embedded catalog, at most 16 retained directory/file
 descriptors including absence/root custody, and 2 MiB total raw file reads across
 a single capture or validation. Count retries/EOF checks against that total;
@@ -180,7 +182,7 @@ cleanup is confirmed. Unconfirmed cleanup cannot publish and blocks replacement
 work in that slot. No queued I/O or OS wait under terminal-input/application
 locks. These proposed physical bounds require actual macOS fault/stall/cleanup
 proof; logical fixtures cannot attest them. Existing preview entry/aggregate caps
-also apply. Propose a process-wide cap of 256 retained descriptors across all
+also apply. Use a process-wide cap of 256 retained descriptors across all
 observer/draining operations and preview custody bindings. Reserve 16 before
 starting each observer, transfer the actual charge on publication, and release
 unused reservation only when ownership/cleanup is confirmed. Saturation denies
@@ -190,7 +192,7 @@ or shutdown, without extending preview lifetime.
 
 ## One shared checked owner
 
-Propose a process-local configuration capture owner spanning global catalog plus
+The accepted design uses a process-local configuration capture owner spanning global catalog plus
 workspace integration dependencies. It has a UUIDv4, a checked positive u64 epoch,
 a short in-memory admission fence and retained owner references. Every relevant
 controlled writer enrolls **before its first possible effect**, increments the
@@ -270,9 +272,8 @@ loss for this optional future profile, not reason to narrow existing launch supp
 
 Investigated uncertainties: source asset fallback, helper's additional context,
 trust write/clear asymmetry, and write-before-catalog-publication all change the
-boundary above. None is counted as already solved by fixture codecs. Proposed
-hard-link refusal, packaged-only availability and physical caps require owner
-approval. Current disposition: **Design for review; production Investigate.**
+boundary above. None is counted as already solved by fixture codecs. Hard-link refusal, packaged-only availability and physical caps were included in
+the owner approval. Current disposition: **Architecture accepted; production Investigate.**
 
 ## Fresh review — 2026-11-22
 
@@ -283,3 +284,15 @@ against accepted parent contracts and inspected source. Both reviewed the added
 claim physical observer, contextual/native evidence, enrollment or prepared
 admission qualification from this documentation. This is review evidence for
 owner consideration, not owner approval or production capability evidence.
+
+## Initial physical qualification — 2026-11-22
+
+The [native descriptor observation](../../validation/ordinary-review-codex-descriptor-qualification.md)
+found that SCM_RIGHTS yielded an inheritable descriptor and an ordinary Rust
+child inherited it. A serial close-on-exec control worked, but does not qualify
+the interval against concurrent spawn. The actual multithreaded receiver remains
+unqualified under [#1981](https://github.com/Rambolarsen/orkworks/issues/1981).
+No receive/spawn fence or separate persistent owner is silently added to this
+accepted design; either material resolution must be concretely reviewed first.
+This finding is an availability gate before observer code, not an existing
+runtime capture leak or a rejection of the five-resource inventory.
