@@ -53,7 +53,8 @@ for approval; ordinary framing details may be settled under this decision.
    binding, rejection of unknown inherited handles and zero capabilities in the
    worker environment. Validate the actual controller byte-reader behavior on
    unexpected ancillary rights. Exercise failure before/after each bootstrap
-   publication, total three-second admission, partial readiness, late startup
+   publication, measured startup/idle memory and CPU cost, total three-second
+   admission, partial readiness, late startup
    quarantine and cleanup-unconfirmed ownership. No extra creation after seal.
 2. **Reusable private worker lease.** Implement four-slot accounting across all
    booting/idle/bound/busy/draining/unknown actors, per-slot 16-descriptor

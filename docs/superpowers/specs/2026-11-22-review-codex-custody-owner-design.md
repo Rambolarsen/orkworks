@@ -161,7 +161,9 @@ A local worker timer is defense in depth, never renewal of the parent's original
 - There is no new ordinary-launch mutex, descriptor-closing policy, user-facing
   dialog, persisted setting, installed asset change or permission. Future enabled
   availability costs up to three seconds of startup preparation and up to four
-  lightweight idle helpers. Native profile/activation approval remains separate.
+  idle helpers. Resident memory/CPU cost is unmeasured and must be recorded during
+  qualification; no small-footprint claim is made. Native profile/activation
+  approval remains separate.
 
 No production pool exists today. Qualification uses synthetic temporary roots
 and the actual supported macOS process/descriptor boundary. The implemented
