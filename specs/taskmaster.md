@@ -169,6 +169,12 @@ coverage and exact command/source joins with offline logical qualification.
 No collector, adapter inventory, native profile or launch path is qualified
 by that logical component evidence.
 
+The [Codex capture inventory/custody proposal](../docs/superpowers/specs/2026-11-22-review-codex-capture-design.md)
+and [staged qualification roadmap](../docs/superpowers/plans/2026-11-22-review-codex-capture-qualification.md)
+under #1966 propose a complete first-profile resource set, retained read-only
+observation and shared checked owner. They are unapproved design proposals;
+no actual collector, mutation coverage, native role or prepared Start is enabled.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.

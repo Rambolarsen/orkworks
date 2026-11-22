@@ -394,3 +394,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Codex isolation probe and render components](2026-11-20-review-codex-isolation-components.md) — Approved bounded Rust extraction preserving actual manual isolation and capability filtering.
 
 - [Codex owned-fragment source components](2026-11-22-review-codex-fragment-components.md) — Accepted bounded renderer/projector work with independent bytes, ambiguity rejection and manual compatibility evidence.
+
+- [Qualify the first Codex capture inventory and custody](2026-11-22-review-codex-capture-qualification.md) — Proposed staged physical observation and shared-owner evidence roadmap.
