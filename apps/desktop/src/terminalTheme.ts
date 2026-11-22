@@ -33,7 +33,7 @@ export const orkworksTerminalOptions = {
   theme: orkworksTerminalTheme,
   fontFamily: "'SF Mono', 'SFMono-Regular', ui-monospace, 'Menlo', 'Monaco', monospace",
   fontSize: 13,
-  lineHeight: 1.4,
+  lineHeight: 1.2,
   cursorStyle: "bar",
   cursorWidth: 2,
 } as const;
