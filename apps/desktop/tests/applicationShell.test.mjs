@@ -223,6 +223,9 @@ if (process.versions.electron) {
             await evaluate('document.querySelector(".terminal-shell").style.removeProperty("display")');
           }
           await waitFor(`(${snapshot})?.natural.every(size=>Number.isFinite(size)) && (${snapshot})?.rows.some(row=>row.trim()==="last-row")`);
+          // The recorded-size label changes the content box after the first
+          // render. Wait for ResizeObserver to fit that final layout too.
+          await waitFor(`(${snapshot}).screen.right<=(${snapshot}).content.right+1 && (${snapshot}).screen.bottom<=(${snapshot}).content.bottom+1`);
           const original = await assertReplay();
           const label = initiallyHidden ? 'revealed' : 'visible';
           await captureReplay(label + '-wide');
