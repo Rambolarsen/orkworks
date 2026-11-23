@@ -1,7 +1,9 @@
 pub(crate) mod ending_completion;
+pub(crate) mod harness_reporting;
 pub(crate) mod hook_observation;
 pub(crate) mod identity_completion;
 mod input_submission_scope;
+pub(crate) mod metadata_access;
 mod recommendation_delivery;
 
 #[cfg(test)]

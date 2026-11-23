@@ -201,7 +201,7 @@ fn launch(state: &Arc<AppState>, enrich: bool) -> Job {
     }
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
-        crate::http::session_handlers::query_stream_sessions(&state, enrich)
+        crate::session_projection::SessionProjection::new(state).stream_projection(enrich)
     })
 }
 fn now_millis() -> u64 {
@@ -553,8 +553,9 @@ mod tests {
     #[test]
     fn only_new_output_on_existing_rows_selects_the_active_cadence() {
         let (_dir, state, _) = fixture();
-        let mut prepared =
-            crate::http::session_handlers::query_stream_sessions(&state, false).unwrap();
+        let mut prepared = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
         prepared.infos[0].last_output_at = Some("2026-11-19T10:00:00Z".into());
         let mut display = Display::default();
         display.status(&prepared, 0);
@@ -1005,13 +1006,16 @@ mod tests {
             Err(_) => vec![true, false],
             _ => panic!("benchmark mode must be status or full"),
         };
-        crate::http::session_handlers::query_stream_sessions(&state, true).unwrap();
+        crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(true)
+            .unwrap();
         for round in 0..5 {
             for &enrich in &modes {
                 let start = Instant::now();
                 for _ in 0..20 {
                     assert_eq!(
-                        crate::http::session_handlers::query_stream_sessions(&state, enrich)
+                        crate::session_projection::SessionProjection::new(state.clone())
+                            .stream_projection(enrich)
                             .unwrap()
                             .infos
                             .len(),
@@ -1026,12 +1030,15 @@ mod tests {
     #[test]
     fn late_inspection_cannot_resurrect_deleted_rows_or_overwrite_status() {
         let (_dir, state, _) = fixture();
-        let prepared = crate::http::session_handlers::query_stream_sessions(&state, true).unwrap();
+        let prepared = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(true)
+            .unwrap();
         let mut display = Display::default();
         display.status(&prepared, 0);
         display.inspect(&prepared, 0, 100);
-        let mut status =
-            crate::http::session_handlers::query_stream_sessions(&state, false).unwrap();
+        let mut status = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
         status.infos.remove(0);
         status.infos[0].label = "Newer".into();
         display.status(&status, 1);
