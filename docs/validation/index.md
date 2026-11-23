@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Ordinary-review Codex capture source audit](ordinary-review-codex-capture-audit.md) — Actual adapter inputs, late isolation mutation and missing pure capture/owner qualification.
+
 - [Fixed native supervisor check reporting](native-supervisor-checks.md) — Synthetic host-check diagnostics and static startup-inspection limits without native execution.
 
 - [Native operation-lock namespace](native-history-operation-locks.md) — Narrow synthetic history compatibility correction, static source limits and unchanged native qualification gates.
@@ -158,3 +160,19 @@ Capability research, validation results, and evidence fixtures.
 - [Offline reserved research membership and report invalidation](research-prospective-components.md) — Independent finite A/B roles, immutable report-input invalidation and exact original rejection/retry comparisons.
 
 - [Offline reports after revision rejection](research-post-report-components.md) — Independent original disposition/report/input/summary alternatives and exact retry/denial checks; no publisher or history qualification.
+
+- [Offline research review-task components](research-review-components.md) — Accepted declared-reviewer-task source examples: two-task plan, digest-free delivery entry, snapshot/outcome/request/receipt joins, stale-review replacement and typed summary citation; supplied reviewer and authority facts stay unqualified.
+
+- [Offline research clarification components](research-clarification-components.md) — Accepted material-clarification source examples: assessment manifest/request/pending binding, user-origin answer admission and copied-decision outcome, fresh-assessment retention and gate-respecting states; supplied authority facts stay unqualified.
+
+- [Offline research execution-proposal components](research-execution-components.md) — Accepted execution-proposal source examples: exact summary binding, publication/approval/rejection records with label-assertion grants; supplied authority and qualification facts stay unqualified.
+
+- [Offline research terminal-completion components](research-terminal-components.md) — Accepted execution final-completion source examples: typed trigger reuse, absorbing terminal transition, collection retirement and label-assertion grants; supplied authority and launch-chain facts stay unqualified.
+
+- [Offline ordinary-review source components](ordinary-review-source-components.md) — Canonical registry bytes, conservative artifact binding and serialized logical admission/fault traces; no runtime or durability qualification.
+
+- [Offline ordinary-review launch inputs](ordinary-review-launch-input-components.md) — Exact proposal/configuration/prepared bytes and digest, finite bounds and conditional owner/draft joins; no production qualification.
+
+- [Offline ordinary-review configuration leaves](ordinary-review-configuration-leaf-components.md) — Complete logical source-byte commitments, independent inventory coverage and conditional prepared-input joins; no actual capture/native qualification.
+
+- [Codex capture descriptor inheritance on macOS](ordinary-review-codex-descriptor-qualification.md) — Temporary native evidence and the unresolved concurrent-spawn custody gate.

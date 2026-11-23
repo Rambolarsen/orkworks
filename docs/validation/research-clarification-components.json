@@ -1,0 +1,922 @@
+{
+  "prefixSha256": "32c476ae68f228b33dc207301b99577dc8492d9859a43eff4d8aea2cf6b3a392",
+  "assumptions": [
+    "separate decoded examples, not a store or legal event history and independent of the prefix packet revision numbering",
+    "current Main authority, epoch, owner, lease, health, rate and shown context supplied, never authenticated here",
+    "sidecar-derived user-origin provenance, runtime eligibility and complete publication facts supplied and unqualified",
+    "complete source/consumer/index memberships, original H/C/proofs, ledgers and actual effects unqualified"
+  ],
+  "assessment": {
+    "manifest": {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 2,
+        "inputRevision": 2
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "preparationRevision": 2,
+          "inputRevision": 2,
+          "goalDigest": "e7d37003ee26a7997607ae0034e406d578ade2820bf996752c9ffd738ad00bd1",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "decision": {
+            "schemaVersion": 1,
+            "inputRevision": 2,
+            "clarificationNeeded": true,
+            "researchNeeded": false,
+            "reasons": [
+              "The goal does not state the replacement policy."
+            ],
+            "question": {
+              "questionId": "goal-scope",
+              "questionText": "May existing records be replaced during the import?",
+              "whyItMatters": "Determines whether the proposed approach preserves or replaces rows.",
+              "suggestions": [
+                "Replace only duplicated rows.",
+                "Ask before each replacement."
+              ]
+            }
+          },
+          "records": [
+            {
+              "kind": "configuration",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "configurationId": "prefix-configuration",
+                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+              }
+            }
+          ],
+          "inputDigest": "3aaa4e0dce2d7e94668a4053000d86dffe02a8c4908a4adf18c0b7f940c3bcf6"
+        },
+        "producer": {
+          "kind": "parent",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "sessionId": "parent-1",
+          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "f120db954567b19f7790159b426a20b65304ba02bc1c1538af8af65055bc1dac"
+        }
+      }
+    },
+    "decision": {
+      "schemaVersion": 1,
+      "inputRevision": 2,
+      "clarificationNeeded": true,
+      "researchNeeded": false,
+      "reasons": [
+        "The goal does not state the replacement policy."
+      ],
+      "question": {
+        "questionId": "goal-scope",
+        "questionText": "May existing records be replaced during the import?",
+        "whyItMatters": "Determines whether the proposed approach preserves or replaces rows.",
+        "suggestions": [
+          "Replace only duplicated rows.",
+          "Ask before each replacement."
+        ]
+      }
+    },
+    "request": {
+      "table": "research_clarification_requests",
+      "key": {
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
+        "questionId": "goal-scope",
+        "questionVersion": 1
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "inputRevision": 2,
+          "question": {
+            "questionId": "goal-scope",
+            "questionText": "May existing records be replaced during the import?",
+            "whyItMatters": "Determines whether the proposed approach preserves or replaces rows.",
+            "suggestions": [
+              "Replace only duplicated rows.",
+              "Ask before each replacement."
+            ]
+          },
+          "producer": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+        },
+        "digest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "f120db954567b19f7790159b426a20b65304ba02bc1c1538af8af65055bc1dac"
+        }
+      }
+    },
+    "runAfter": {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "profile": "single-task-retained-file-research-clarification-v1",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "parentSessionId": "parent-1",
+          "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+          "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+          "runVersion": 3,
+          "state": "awaiting_clarification",
+          "currentInput": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "preparationRevision": 2,
+            "inputRevision": 2,
+            "inputDigest": "3aaa4e0dce2d7e94668a4053000d86dffe02a8c4908a4adf18c0b7f940c3bcf6"
+          },
+          "planReferences": [],
+          "currentPlan": null,
+          "pendingPlan": null,
+          "parentRuntime": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "blockers": [],
+          "stageContinueRequired": false,
+          "pendingClarification": {
+            "questionId": "goal-scope",
+            "questionVersion": 1,
+            "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+          },
+          "pauseReason": null,
+          "resumeTarget": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "f120db954567b19f7790159b426a20b65304ba02bc1c1538af8af65055bc1dac"
+        }
+      }
+    },
+    "pending": {
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+    },
+    "gated": {
+      "blocked": {
+        "schemaVersion": 1,
+        "profile": "single-task-retained-file-research-clarification-v1",
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "parentSessionId": "parent-1",
+        "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+        "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+        "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+        "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+        "runVersion": 3,
+        "state": "blocked",
+        "currentInput": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "preparationRevision": 2,
+          "inputRevision": 2,
+          "inputDigest": "3aaa4e0dce2d7e94668a4053000d86dffe02a8c4908a4adf18c0b7f940c3bcf6"
+        },
+        "planReferences": [],
+        "currentPlan": null,
+        "pendingPlan": null,
+        "parentRuntime": {
+          "kind": "parent",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "sessionId": "parent-1",
+          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+        },
+        "blockers": [
+          {
+            "id": "retained-attempt",
+            "kind": "launch-interrupted",
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "detail": "Supplied unknown original native disposition; no capacity release."
+          }
+        ],
+        "stageContinueRequired": false,
+        "pendingClarification": {
+          "questionId": "goal-scope",
+          "questionVersion": 1,
+          "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+        },
+        "pauseReason": null,
+        "resumeTarget": null
+      },
+      "expected": "question-asked/higher-gate-governs",
+      "stageFence": {
+        "stageContinueRequired": true,
+        "expected": "clarification-mutations-rejected-under-stage-fence"
+      }
+    }
+  },
+  "answer": {
+    "request": {
+      "schemaVersion": 1,
+      "action": "orkworks.research-clarification.answer.v1",
+      "run": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "answerId": "answer-1",
+      "answerText": "Replace only duplicated rows.",
+      "reviewContextId": "1a97641e7b347005957180aeca3a6c50b330e54e14ac010aebb22a384c37bfcc",
+      "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "expectedInputRevision": 2
+    },
+    "body": {
+      "schemaVersion": 1,
+      "run": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "answerId": "answer-1",
+      "answerText": "Replace only duplicated rows.",
+      "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf",
+      "origin": {
+        "policy": "research-clarification-answer-v1",
+        "reviewContextId": "1a97641e7b347005957180aeca3a6c50b330e54e14ac010aebb22a384c37bfcc",
+        "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b"
+    },
+    "row": {
+      "table": "research_clarification_answers",
+      "key": {
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
+        "questionId": "goal-scope",
+        "questionVersion": 1,
+        "answerId": "answer-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "request": {
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "questionId": "goal-scope",
+          "questionVersion": 1,
+          "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+        },
+        "answer": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "questionId": "goal-scope",
+          "questionVersion": 1,
+          "answerId": "answer-1",
+          "answerText": "Replace only duplicated rows.",
+          "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf",
+          "origin": {
+            "policy": "research-clarification-answer-v1",
+            "reviewContextId": "1a97641e7b347005957180aeca3a6c50b330e54e14ac010aebb22a384c37bfcc",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b"
+        },
+        "receipt": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "questionId": "goal-scope",
+          "questionVersion": 1,
+          "answerId": "answer-1",
+          "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b",
+          "runVersion": 4,
+          "inputRevision": 3,
+          "commit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "2",
+            "changeDigest": "79716bce9f66b6ed6605a540c010f9e230d73d0bed660f73ef40b7ce2f296593"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "79716bce9f66b6ed6605a540c010f9e230d73d0bed660f73ef40b7ce2f296593"
+        }
+      }
+    },
+    "receipt": {
+      "schemaVersion": 1,
+      "run": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "answerId": "answer-1",
+      "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b",
+      "runVersion": 4,
+      "inputRevision": 3,
+      "commit": {
+        "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "commitSequence": "2",
+        "changeDigest": "79716bce9f66b6ed6605a540c010f9e230d73d0bed660f73ef40b7ce2f296593"
+      }
+    },
+    "manifest": {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 3,
+        "inputRevision": 3
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "preparationRevision": 3,
+          "inputRevision": 3,
+          "goalDigest": "e7d37003ee26a7997607ae0034e406d578ade2820bf996752c9ffd738ad00bd1",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "decision": {
+            "schemaVersion": 1,
+            "inputRevision": 2,
+            "clarificationNeeded": true,
+            "researchNeeded": false,
+            "reasons": [
+              "The goal does not state the replacement policy."
+            ],
+            "question": {
+              "questionId": "goal-scope",
+              "questionText": "May existing records be replaced during the import?",
+              "whyItMatters": "Determines whether the proposed approach preserves or replaces rows.",
+              "suggestions": [
+                "Replace only duplicated rows.",
+                "Ask before each replacement."
+              ]
+            }
+          },
+          "records": [
+            {
+              "kind": "clarification-answer",
+              "reference": {
+                "run": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+                },
+                "questionId": "goal-scope",
+                "questionVersion": 1,
+                "answerId": "answer-1",
+                "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b"
+              }
+            },
+            {
+              "kind": "configuration",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "configurationId": "prefix-configuration",
+                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+              }
+            }
+          ],
+          "inputDigest": "7fe72f005139c6f9e81f54346ee27391d94394733ef3204e075a5e569105d730"
+        },
+        "producer": {
+          "policy": "research-clarification-answer-v1",
+          "reviewContextId": "1a97641e7b347005957180aeca3a6c50b330e54e14ac010aebb22a384c37bfcc",
+          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "6163cfde04c25004e53c70616b957c0e91ac643eea20e412186594050e35a4c2"
+        }
+      }
+    },
+    "runAfter": {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "profile": "single-task-retained-file-research-clarification-v1",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "parentSessionId": "parent-1",
+          "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+          "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+          "runVersion": 4,
+          "state": "assessing",
+          "currentInput": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "preparationRevision": 3,
+            "inputRevision": 3,
+            "inputDigest": "7fe72f005139c6f9e81f54346ee27391d94394733ef3204e075a5e569105d730"
+          },
+          "planReferences": [],
+          "currentPlan": null,
+          "pendingPlan": null,
+          "parentRuntime": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "blockers": [],
+          "stageContinueRequired": false,
+          "pendingClarification": null,
+          "pauseReason": null,
+          "resumeTarget": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "6163cfde04c25004e53c70616b957c0e91ac643eea20e412186594050e35a4c2"
+        }
+      }
+    },
+    "admission": {
+      "exactRetry": {
+        "expected": "original-receipt-before-CAS/even-after-terminal"
+      },
+      "conflict": {
+        "sameAnswerIdDifferentBytes": "206cb5c75b3f3e30d08806a7741acb3292bd943b50d7884e7ba4747780119001",
+        "expected": "conflict-no-mutation"
+      },
+      "staleRequest": {
+        "questionVersion": 2,
+        "requestDigest": "2d3e226dc804e56dfb6dfb018d7bab00d1f52361b4d9ff94f94c80765645c273",
+        "expected": "reject-with-current-request/no-version"
+      },
+      "staleInput": {
+        "expectedInputRevision": 2,
+        "currentInputRevision": 3,
+        "expected": "reject-stale-input"
+      },
+      "rendererProvenance": {
+        "suppliedField": true,
+        "expected": "never-trusted/derive-from-authorized-operation"
+      },
+      "bearerAsUser": {
+        "parentRuntime": {
+          "kind": "parent",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "sessionId": "parent-1",
+          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+        },
+        "expected": "never-user-provenance"
+      },
+      "runtimeCast": {
+        "kind": "child",
+        "expected": "never-cast-into-user-origin"
+      },
+      "duplicateQuestionId": {
+        "reuse": true,
+        "expected": "questionId-never-recycled"
+      }
+    },
+    "stateAlternatives": [
+      {
+        "id": "assessing-when-eligible",
+        "state": "assessing",
+        "expected": "runtime-active/no-higher-gate"
+      },
+      {
+        "id": "blocked-retained",
+        "state": "blocked",
+        "blockers": [
+          {
+            "id": "retained-attempt",
+            "kind": "launch-interrupted",
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "detail": "Supplied unknown original native disposition; no capacity release."
+          }
+        ],
+        "expected": "retained-blocker-keeps-run-blocked"
+      },
+      {
+        "id": "paused-retained",
+        "state": "paused",
+        "pauseReason": "parent_ended",
+        "resumeTarget": "assessing",
+        "expected": "paused-retained/resumeTarget-assessing/exact-identity-resume-first"
+      },
+      {
+        "id": "awaiting-resume-retained",
+        "state": "awaiting_resume_approval",
+        "expected": "resume-approval-gate-retained"
+      }
+    ]
+  },
+  "freshAssessment": {
+    "manifest": {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 4,
+        "inputRevision": 4
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "preparationRevision": 4,
+          "inputRevision": 4,
+          "goalDigest": "e7d37003ee26a7997607ae0034e406d578ade2820bf996752c9ffd738ad00bd1",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "decision": {
+            "schemaVersion": 1,
+            "inputRevision": 4,
+            "clarificationNeeded": false,
+            "researchNeeded": true,
+            "reasons": [
+              "The replacement policy is now explicit."
+            ],
+            "scope": {
+              "task": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "planId": "prefix-plan",
+                "planRevision": 1,
+                "taskId": "prefix-task"
+              },
+              "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+            }
+          },
+          "records": [
+            {
+              "kind": "clarification-answer",
+              "reference": {
+                "run": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+                },
+                "questionId": "goal-scope",
+                "questionVersion": 1,
+                "answerId": "answer-1",
+                "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b"
+              }
+            },
+            {
+              "kind": "configuration",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "configurationId": "prefix-configuration",
+                "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+              }
+            },
+            {
+              "kind": "research-capture",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "sourceId": "source-b",
+                "captureDigest": "2319f1fee4621f6e8182e2345c818e4d08e557eccd15cdbcb8754e5a3168656c"
+              }
+            },
+            {
+              "kind": "research-capture",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "sourceId": "source-a",
+                "captureDigest": "b2519c8e5b6b6968a547c06750ffc3bd8f405c7ee3fc418ce8be5c18bcaf066c"
+              }
+            },
+            {
+              "kind": "research-scope",
+              "reference": {
+                "task": {
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "planId": "prefix-plan",
+                  "planRevision": 1,
+                  "taskId": "prefix-task"
+                },
+                "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+              }
+            }
+          ],
+          "inputDigest": "e7f8ad14e1cdeb7ad3ca3cdd518c933b98c4536ade90d68176a989daff1727c6"
+        },
+        "producer": {
+          "kind": "parent",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "sessionId": "parent-1",
+          "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "f573bfe0248087f2dae405d641172b8b3be8ab2e9b7e42aa4d8ecec0c50c7f75"
+        }
+      }
+    },
+    "retainedAnswers": [
+      {
+        "kind": "clarification-answer",
+        "reference": {
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "questionId": "goal-scope",
+          "questionVersion": 1,
+          "answerId": "answer-1",
+          "answerDigest": "b637ac4a488a8ee4cffe8f76597e880cc5ec18f4f304891be682e4f49f50fe1b"
+        }
+      }
+    ],
+    "expected": "retained-applicable-clarification-answer-entries/fresh-decision-at-own-revision/parent-producer"
+  },
+  "changedAnswer": {
+    "request": {
+      "table": "research_clarification_requests",
+      "key": {
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
+        "questionId": "goal-scope",
+        "questionVersion": 2
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "inputRevision": 4,
+          "question": {
+            "questionId": "goal-scope",
+            "questionText": "May existing records be replaced during the import?",
+            "whyItMatters": "Determines whether the proposed approach preserves or replaces rows.",
+            "suggestions": [
+              "Replace only duplicated rows.",
+              "Ask before each replacement."
+            ]
+          },
+          "producer": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "requestDigest": "d055406a0d20292154b4e9ea3425ea387229351ed9bc507fa9a939eb52e443c2"
+        },
+        "digest": "d055406a0d20292154b4e9ea3425ea387229351ed9bc507fa9a939eb52e443c2",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "0da84c44acb6b2d64c8b871dc6cd66949f3112803dc60bf44d24b5dd4fee7487"
+        }
+      }
+    },
+    "previous": {
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+    },
+    "expected": "changed-answer-re-ask-at-questionVersion-plus-one/original-retained"
+  },
+  "exhaustion": {
+    "pairs": 32,
+    "revisions": 64,
+    "expected": "atomic-denial/no-wrap-reset-pruning"
+  },
+  "resume": {
+    "restoredBinding": {
+      "questionId": "goal-scope",
+      "questionVersion": 1,
+      "requestDigest": "f03773aa4e6c8f9d0b71b052c2212dedaca718a0951a9ca807f3c0cfdea13baf"
+    },
+    "expected": "same-request-identity-version/no-duplicate-no-replacement"
+  },
+  "effects": [
+    {
+      "id": "assessment",
+      "expected": "fresh-parent-decision/request-row/pending-binding/awaiting-clarification-gated"
+    },
+    {
+      "id": "answer-admission",
+      "expected": "main-authority-shown-context-before-lookup/identical-retry-before-CAS"
+    },
+    {
+      "id": "answer-outcome",
+      "expected": "answer-row/next-input-revision-copied-decision-user-origin/pending-cleared/runVersion-once"
+    },
+    {
+      "id": "consumer-invalidation",
+      "expected": "recognized-pending-proposals-invalidated/history-retained"
+    },
+    {
+      "id": "fresh-assessment",
+      "expected": "separate-outcome/retained-answer-entries/per-decision-records"
+    },
+    {
+      "id": "changed-answer",
+      "expected": "new-request-version/no-overwrite"
+    },
+    {
+      "id": "exhaustion",
+      "expected": "atomic-denial"
+    },
+    {
+      "id": "resume",
+      "expected": "exact-restoration"
+    }
+  ],
+  "measurements": [
+    {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 2,
+        "inputRevision": 2
+      },
+      "chargeBytes": 1825,
+      "wrapperBytes": 2025
+    },
+    {
+      "table": "research_clarification_requests",
+      "key": {
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
+        "questionId": "goal-scope",
+        "questionVersion": 1
+      },
+      "chargeBytes": 1202,
+      "wrapperBytes": 1402
+    },
+    {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 1753,
+      "wrapperBytes": 1953
+    },
+    {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 3,
+        "inputRevision": 3
+      },
+      "chargeBytes": 1947,
+      "wrapperBytes": 2147
+    },
+    {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 1614,
+      "wrapperBytes": 1814
+    },
+    {
+      "table": "research_control_inputs",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 4,
+        "inputRevision": 4
+      },
+      "chargeBytes": 3067,
+      "wrapperBytes": 3267
+    },
+    {
+      "table": "research_clarification_requests",
+      "key": {
+        "run": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+        },
+        "questionId": "goal-scope",
+        "questionVersion": 2
+      },
+      "chargeBytes": 1202,
+      "wrapperBytes": 1402
+    }
+  ]
+}

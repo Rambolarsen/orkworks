@@ -4,6 +4,7 @@ import orkworksIcon from "../build/icon-dark.svg?no-inline";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import ApplicationShell, { type ShellCommand, type ShellCommandRequest, type ShellDestination } from "./components/ApplicationShell";
 import ShellPreferencesNotice from "./components/ShellPreferencesNotice";
+import WorkspaceHookNotice from "./components/WorkspaceHookNotice";
 import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
 import FixWithAiDialog from "./components/FixWithAiDialog";
@@ -364,8 +365,8 @@ function App() {
         || navigationIntent.current === reviewLoadIntent.current);
   const lastReviewKind = useRef<import("./api").PlanDocumentKind | undefined>(undefined);
   const lastReviewDocument = useRef<ReviewDocument | null>(null);
-  const reviewLocation = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
-  const reviewScope = JSON.stringify([activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
+  const reviewLocation = JSON.stringify([activeSession?.enrichmentRevision, activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch]);
+  const reviewScope = JSON.stringify([activeSession?.enrichmentRevision, activeSession?.repoRoot ?? activeSession?.cwd, activeSession?.planDocuments?.branch ?? activeSession?.branch,
     activeSession?.planDocuments?.steps.map(step => [step.kind, step.selectionId, step.available])]);
   const review = useSessionReview(activeSessionId, shellNavigation.workspaceGeneration,
     // A picker attempt can be cancelled without changing the workspace generation.
@@ -909,6 +910,14 @@ function App() {
             />
           </section>
         </div>
+      )}
+      {workspace && backendStatus === "connected" && sessionAdmissionEnabled && !isSwitchingWorkspace && (
+        <WorkspaceHookNotice
+          key={shellNavigation.workspaceGeneration}
+          activeHarnessIds={activeHarnessIds}
+          settingsOpen={settingsOpen}
+          onOpenSettings={() => void openSettings("tools")}
+        />
       )}
       <ShellPreferencesNotice migrationNotice={shellMigrationNotice} needsRebuild={shellNeedsRebuild}
         dismissMigrationNotice={dismissMigrationNotice} onCommand={requestShellCommand} />

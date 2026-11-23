@@ -53,3 +53,23 @@ The accepted [storage contract](../../specs/session-storage.md) and
 [delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) govern
 the replacement. Current format-1 source behavior remains until implementation
 and activation; this does not claim a shipped SQLite migration.
+
+## Amendment — 2026-11-19
+
+The owner approved [independent status and enrichment refreshes](../superpowers/specs/2026-11-18-session-status-enrichment-design.md)
+to address the active-projection CPU cost reserved in the consequences above.
+Negotiated `status-enrichment-v1` subscribers receive separate typed status and
+repository-enrichment messages under the existing cursor. One workspace-owned
+publisher shares work across those subscribers. Status retains two-second
+coalescing; enrichment starts every five seconds during recent output activity
+and every 30 seconds when idle, with no overlap or unbounded catch-up queue.
+A changed output timestamp on an existing row selects the active cadence for
+ten seconds; ordinary metadata changes and open-session count do not. Explicit
+refresh and known location/document mutations bypass the periodic wait. Expired display information is visibly stale, not
+newly validated by a status event. Explicit refresh and document/action validation
+stay fresh. Legacy clients and REST retain the complete projection and recovery.
+
+This amendment authorizes source implementation, not a claim of runtime or
+installer qualification. Idle/busy performance and mixed-version checks are
+required before enabling the capability. ADR 0103's format-2/version-2 activation
+and scoped supersession are unchanged; the new capability does not activate it.

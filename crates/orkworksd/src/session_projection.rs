@@ -146,8 +146,16 @@ struct WorkspaceSnapshot {
     workspace_path: PathBuf,
 }
 
+pub(crate) struct StreamProjection {
+    pub(crate) infos: Vec<SessionInfo>,
+    pub(crate) locations: HashMap<String, Option<LocationInputs>>,
+    pub(crate) plans: HashMap<String, Option<metadata::PlanReference>>,
+}
+
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
+    live_ids: HashSet<String>,
+    plans: HashMap<String, Option<metadata::PlanReference>>,
 }
 
 /// Only location-relevant state participates in optimistic validation. Output,
@@ -210,7 +218,15 @@ impl LocationInputs {
     // Caller holds the projection fence; this captures state and durable
     // metadata without resolving Git, process CWD or filesystem paths.
     pub(crate) fn capture(state: &AppState, id: &str) -> Option<Self> {
-        let info = crate::session_location::subject_info(state, id).ok()?;
+        Self::capture_with_remembered(state, id, None)
+    }
+
+    fn capture_with_remembered(
+        state: &AppState,
+        id: &str,
+        remembered: Option<&SessionInfo>,
+    ) -> Option<Self> {
+        let info = crate::session_location::subject_info(state, id, remembered).ok()?;
         let runtime = state
             .sessions
             .lock()
@@ -328,6 +344,7 @@ impl SessionProjection {
         Self { state }
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> io::Result<ProjectionSnapshot> {
         let mut plans = PlanAvailabilityResolver::default();
         self.snapshot_with_plan_resolver(&mut |workspace, reference| {
@@ -426,6 +443,15 @@ impl SessionProjection {
                 .collect()
         };
 
+        let plans = metadata_map
+            .iter()
+            .map(|(id, meta)| (id.clone(), meta.plan_path.clone()))
+            .chain(
+                remembered_sessions
+                    .iter()
+                    .map(|meta| (meta.id.clone(), meta.plan_path.clone())),
+            )
+            .collect();
         let mut infos = live_sessions
             .into_iter()
             .map(|info| {
@@ -464,15 +490,22 @@ impl SessionProjection {
             ));
         }
 
-        Ok(ProjectionSnapshot { infos })
+        Ok(ProjectionSnapshot {
+            infos,
+            live_ids,
+            plans,
+        })
     }
 
     pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
         self.list_with_capacity_analysis(|cache, inputs| cache.analyze(inputs))
     }
 
-    // The compute dependency is private and used by the real projection path;
-    // tests can stall it without adding a runtime race-injection switch.
+    pub(crate) fn stream_projection(&self, enrich: bool) -> io::Result<StreamProjection> {
+        self.prepare_projection(|cache, inputs| cache.analyze(inputs), enrich)
+    }
+
+    // Tests can stall capacity analysis without adding runtime race switches.
     fn list_with_capacity_analysis(
         &self,
         analyze: impl FnOnce(
@@ -480,6 +513,18 @@ impl SessionProjection {
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
     ) -> io::Result<Vec<SessionInfo>> {
+        self.prepare_projection(analyze, true)
+            .map(|prepared| prepared.infos)
+    }
+
+    fn prepare_projection(
+        &self,
+        analyze: impl FnOnce(
+            &mut CapacityAnalysisCache,
+            Vec<CapacityInput>,
+        ) -> HashMap<String, PreparedCapacity>,
+        enrich: bool,
+    ) -> io::Result<StreamProjection> {
         let analysis = self
             .state
             .session_directory_state
@@ -512,7 +557,14 @@ impl SessionProjection {
                 ));
             }
         }
-        let mut infos = self.project_capacity(self.snapshot()?, &prepared)?;
+        // Capture metadata only under the input fence. Even legacy plan
+        // availability can inspect Git and belongs outside that fence.
+        let ProjectionSnapshot {
+            infos,
+            live_ids,
+            plans,
+        } = self.snapshot_with_plan_resolver(&mut |_, _| Err("not inspected".into()))?;
+        let mut infos = self.project_capacity(infos, &prepared)?;
         self.project_organization(&mut infos);
         let documents = self
             .state
@@ -524,13 +576,35 @@ impl SessionProjection {
         let captured: HashMap<_, _> = infos
             .iter()
             .map(|info| {
+                // Remembered rows already carry the location from the metadata
+                // snapshot. Fresh reads still validate it before publication.
+                let remembered = (!live_ids.contains(&info.id)).then_some(info);
                 (
                     info.id.clone(),
-                    LocationInputs::capture(&self.state, &info.id),
+                    LocationInputs::capture_with_remembered(&self.state, &info.id, remembered),
                 )
             })
             .collect();
+        if !enrich {
+            return Ok(StreamProjection {
+                infos,
+                locations: captured,
+                plans,
+            });
+        }
         drop(_fence);
+        let mut plan_resolver = PlanAvailabilityResolver::default();
+        for info in &mut infos {
+            info.has_openable_plan =
+                plans
+                    .get(&info.id)
+                    .and_then(Option::as_ref)
+                    .and_then(|reference| {
+                        workspace.as_ref().map(|workspace| {
+                            plan_resolver.resolve(&workspace.path, reference).is_ok()
+                        })
+                    });
+        }
         let mut locations = DocumentLocations::default();
         let contexts: HashMap<_, _> = captured
             .iter()
@@ -570,7 +644,11 @@ impl SessionProjection {
                 "workspace or session location changed during document inspection",
             ));
         }
-        Ok(infos)
+        Ok(StreamProjection {
+            infos,
+            locations: captured,
+            plans,
+        })
     }
 
     fn capture_capacity(&self) -> io::Result<(Option<CapacityWorkspace>, Vec<CapacityInput>)> {
@@ -888,7 +966,7 @@ impl SessionProjection {
 
     fn project_capacity(
         &self,
-        snapshot: ProjectionSnapshot,
+        projected_infos: Vec<SessionInfo>,
         prepared: &HashMap<String, PreparedCapacity>,
     ) -> io::Result<Vec<SessionInfo>> {
         let registry = self
@@ -897,7 +975,6 @@ impl SessionProjection {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let projected_infos = snapshot.infos;
         // Only immutable references were retained for compute. No text is
         // normalized or copied here, and the input gate is never awaited.
         let mut sessions = self.state.sessions.lock().unwrap();
@@ -1236,12 +1313,19 @@ pub(crate) fn enrich_sessions_with_git_context<F>(
 ) where
     F: FnMut(&std::path::Path) -> git::GitContext,
 {
-    enrich_sessions_with_git_context_using(infos, effective_cwds, git::worktree_root, detect_git);
+    enrich_sessions_with_git_context_using(
+        infos,
+        effective_cwds,
+        |binding| binding.validate().is_ok(),
+        git::worktree_root,
+        detect_git,
+    );
 }
 
 fn enrich_sessions_with_git_context_using(
     infos: &mut [SessionInfo],
     effective_cwds: &HashMap<String, String>,
+    mut valid_binding: impl FnMut(&crate::session_location::WorktreeBinding) -> bool,
     mut worktree_root: impl FnMut(&Path) -> Option<PathBuf>,
     mut detect_git: impl FnMut(&Path) -> git::GitContext,
 ) {
@@ -1257,12 +1341,16 @@ fn enrich_sessions_with_git_context_using(
     // so repository creation/removal is observed on the next projection.
     let mut roots: HashMap<String, String> = HashMap::new();
     let mut contexts: HashMap<String, git::GitContext> = HashMap::new();
+    // Like root discovery, binding validation opens Git configuration. Share
+    // identical identities only within this invocation; publication and action
+    // checks retain their own fresh validation passes.
+    let mut bindings: HashMap<(String, String), bool> = HashMap::new();
     for info in infos.iter_mut() {
-        if info
-            .worktree_binding
-            .as_ref()
-            .is_some_and(|binding| binding.validate().is_err())
-        {
+        if info.worktree_binding.as_ref().is_some_and(|binding| {
+            !*bindings
+                .entry((binding.root.clone(), binding.common_dir.clone()))
+                .or_insert_with(|| valid_binding(binding))
+        }) {
             info.repo_root = None;
             info.branch = None;
             info.dirty = None;
@@ -1403,6 +1491,68 @@ mod tests {
             },
         );
         (dir, state, receiver)
+    }
+
+    #[tokio::test]
+    async fn status_projection_reuses_remembered_location_without_rereading() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "remembered-location";
+        let mut metadata = test_session_metadata(
+            id,
+            "Remembered",
+            dir.path().to_str().unwrap(),
+            "ended",
+            "2026-11-19T10:00:00Z",
+            "2026-11-19T10:00:00Z",
+        );
+        git2::Repository::init(dir.path()).unwrap();
+        metadata.cwd = dir.path().to_str().unwrap().into();
+        metadata.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(&metadata.cwd, &metadata.cwd)
+                .unwrap(),
+        );
+        let path = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            store.sessions_dir().join(format!("{id}.json"))
+        };
+        let mut reread = crate::metadata::session_reader::testing::hold_nth_read(&path, 1);
+        let projection_state = state.clone();
+        let mut projection = tokio::task::spawn_blocking(move || {
+            SessionProjection::new(projection_state).stream_projection(false)
+        });
+        let result = tokio::select! {
+            _ = reread.entered() => None,
+            result = &mut projection => Some(result.unwrap().unwrap()),
+        };
+        drop(reread);
+        let Some(result) = result else {
+            projection.await.unwrap().unwrap();
+            panic!("status refresh reread the remembered session for its location");
+        };
+        let fresh = super::LocationInputs::capture(&state, id);
+        assert!(fresh.is_some());
+        assert_eq!(result.locations.get(id), Some(&fresh));
+    }
+
+    #[test]
+    fn status_projection_does_not_inspect_repository_or_resolve_plans() {
+        let (dir, state, _receiver) = input_fixture();
+        git2::Repository::init(dir.path()).unwrap();
+        crate::branch_documents::REPOSITORY_OPENS.with(|n| n.set(0));
+        let prepared = SessionProjection::new(state)
+            .stream_projection(false)
+            .unwrap();
+        assert_eq!(prepared.infos.len(), 1);
+        assert!(prepared.infos[0].branch.is_none());
+        assert!(prepared.infos[0].plan_documents.is_none());
+        assert_eq!(
+            crate::branch_documents::REPOSITORY_OPENS.with(|n| n.get()),
+            0
+        );
+        assert!(prepared.locations.contains_key("lag-test"));
     }
 
     #[tokio::test]
@@ -1934,6 +2084,111 @@ mod tests {
                 .control_revision()
                 .unwrap()
                 > 0
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_output_recency_file_sync_allows_other_session_input() {
+        check_input_during_recency_sync(crate::metadata::atomic_write::testing::SyncPoint::File)
+            .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stalled_output_recency_directory_sync_allows_other_session_input() {
+        check_input_during_recency_sync(
+            crate::metadata::atomic_write::testing::SyncPoint::Directory,
+        )
+        .await;
+    }
+
+    async fn check_input_during_recency_sync(
+        point: crate::metadata::atomic_write::testing::SyncPoint,
+    ) {
+        use crate::runtime::session_runtime::RuntimeCommand;
+        use std::time::Duration;
+
+        const OUTPUT_ID: &str = "recency-output";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        let (dir, state, mut receiver) = input_fixture();
+        let output_meta = crate::test_support::test_session_metadata(
+            OUTPUT_ID,
+            "Output",
+            &dir.path().display().to_string(),
+            "running",
+            "now",
+            "now",
+        );
+        let (identity, sender) = {
+            let sessions = state.sessions.lock().unwrap();
+            let runtime = &sessions["lag-test"].runtime;
+            (runtime.identity(), runtime.control_tx.clone())
+        };
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&output_meta);
+        }
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let writer_state = state.clone();
+        let writer = tokio::task::spawn_blocking(move || {
+            let mut entered_tx = Some(entered_tx);
+            let _hook = crate::metadata::atomic_write::testing::install(move |event, _| {
+                if event == point {
+                    if let Some(tx) = entered_tx.take() {
+                        let _ = tx.send(());
+                        let _ = release_rx.recv_timeout(Duration::from_secs(10));
+                    }
+                }
+                Ok(())
+            });
+            crate::session_application::SessionApplication::new(writer_state)
+                .persist_test_output_recency(OUTPUT_ID, TIMESTAMP.into());
+        });
+        let entered = tokio::time::timeout(Duration::from_secs(5), entered_rx).await;
+        let mut input = tokio::spawn(async move {
+            crate::runtime::terminal_runtime::submit_approved_input_to_runtime(
+                &state,
+                "lag-test",
+                &identity,
+                &sender,
+                "x".into(),
+            )
+            .await
+        });
+        let delivered = if let Ok(Some(RuntimeCommand::Input {
+            accepted: Some(ack),
+            data,
+        })) = tokio::time::timeout(Duration::from_secs(2), receiver.recv()).await
+        {
+            let _ = ack.send(Ok(()));
+            data == "x"
+        } else {
+            false
+        };
+        let completed = delivered
+            && matches!(
+                tokio::time::timeout(Duration::from_secs(2), &mut input).await,
+                Ok(Ok(Ok(())))
+            );
+        let _ = release_tx.send(());
+        writer.await.unwrap();
+        input.abort();
+        assert!(
+            matches!(entered, Ok(Ok(()))),
+            "recency write must reach the sync hook"
+        );
+        assert!(
+            delivered,
+            "input must reach the writer while another session's recency sync is paused"
+        );
+        assert!(
+            completed,
+            "input bookkeeping must finish while recency sync is paused"
         );
     }
 
@@ -2959,6 +3214,83 @@ mod tests {
     }
 
     #[test]
+    fn git_binding_validation_scales_with_distinct_identities_and_refreshes() {
+        use std::{collections::HashMap, path::Path};
+        let temp = tempfile::tempdir().unwrap();
+        let primary = temp.path().join("primary");
+        let other = temp.path().join("other");
+        warning_repo(&primary);
+        warning_repo(&other);
+        let valid = crate::session_location::WorktreeBinding::resolve(
+            primary.to_str().unwrap(),
+            primary.to_str().unwrap(),
+        )
+        .unwrap();
+        let second = crate::session_location::WorktreeBinding::resolve(
+            other.to_str().unwrap(),
+            other.to_str().unwrap(),
+        )
+        .unwrap();
+        let invalid = crate::session_location::WorktreeBinding {
+            root: valid.root.clone(),
+            common_dir: second.common_dir.clone(),
+        };
+        let bindings = [valid, second, invalid];
+        let mut infos = (0..300)
+            .map(|i| {
+                let binding = bindings[i % 3].clone();
+                let mut info =
+                    warning_session(&format!("session-{i}"), Path::new(&binding.root), "running");
+                info.worktree_binding = Some(binding);
+                info
+            })
+            .collect::<Vec<_>>();
+        let mut validations = 0;
+        super::enrich_sessions_with_git_context_using(
+            &mut infos,
+            &HashMap::new(),
+            |binding| {
+                validations += 1;
+                binding.validate().is_ok()
+            },
+            crate::git::worktree_root,
+            crate::git::detect,
+        );
+        for (i, info) in infos.iter().enumerate() {
+            assert_eq!(
+                info.dirty.is_some(),
+                i % 3 != 2,
+                "invalid identity must not inherit another binding's result"
+            );
+        }
+        assert_eq!(
+            validations, 3,
+            "history must not multiply binding validation"
+        );
+
+        std::fs::remove_dir_all(&primary).unwrap();
+        validations = 0;
+        super::enrich_sessions_with_git_context_using(
+            &mut infos,
+            &HashMap::new(),
+            |binding| {
+                validations += 1;
+                binding.validate().is_ok()
+            },
+            crate::git::worktree_root,
+            crate::git::detect,
+        );
+        assert_eq!(validations, 3, "each invocation must revalidate");
+        for (i, info) in infos.iter().enumerate() {
+            assert_eq!(
+                info.dirty.is_some(),
+                i % 3 == 1,
+                "removed repositories must become unavailable"
+            );
+        }
+    }
+
+    #[test]
     fn git_root_discovery_scales_with_distinct_effective_directories() {
         let repo = tempfile::tempdir().unwrap();
         git2::Repository::init(repo.path()).unwrap();
@@ -2989,6 +3321,7 @@ mod tests {
         super::enrich_sessions_with_git_context_using(
             &mut infos,
             &effective_cwds,
+            |binding| binding.validate().is_ok(),
             |cwd| {
                 root_reads += 1;
                 crate::git::worktree_root(cwd)

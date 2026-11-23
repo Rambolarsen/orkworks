@@ -200,7 +200,9 @@ async fn native_sql_commits_before_live_acknowledgement_and_uses_owned_clear() {
         "production coordination gate remains closed"
     );
     // Re-issue from a fresh observation; the test-only path cannot enable production.
-    let effect = clear(&state);
+    // This success case owns observation time, not the storage-latency budget.
+    let clock = super::super::codex_approval::test_clock::Clock::scoped();
+    let effect = clear_with_clock(&state, || clock.now());
     assert_eq!(
         writes
             .native_coordinated_for_test(ID.into(), effect, Arc::new(AtomicBool::new(false)))
@@ -213,6 +215,13 @@ async fn native_sql_commits_before_live_acknowledgement_and_uses_owned_clear() {
     assert_eq!(document["metadataRevision"], "3");
     let sessions = state.sessions.lock().unwrap();
     assert_eq!(sessions[ID].info.attention.as_deref(), Some("working"));
+    assert!(sessions[ID]
+        .runtime
+        .native_approval
+        .as_ref()
+        .unwrap()
+        .sql_ownership
+        .is_none());
     drop(sessions);
     store.close().await.unwrap();
 }

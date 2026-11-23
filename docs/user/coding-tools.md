@@ -45,6 +45,11 @@ supported. They can give OrkWorks more direct session signals. Check the
 reported detection, registration, and activation state; an installed
 integration is not necessarily active in an already-running session.
 
+Current source builds show a workspace notice when an enabled coding tool
+needs an OrkWorks hook installed, updated, or trusted. Open **Coding tools**
+from the notice to update hooks. For Codex trust, run `/hooks` inside Codex
+and approve the current OrkWorks hooks.
+
 Codex resume uses the exact conversation ID captured by its hook. If the
 session-start hook report is missed, a later owned Codex hook can supply the
 initial ID. OrkWorks checks that Codex still has the thread and its local

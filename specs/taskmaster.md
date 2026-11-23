@@ -147,6 +147,36 @@ This changes neither the existing selected-session fixed review prompt nor
 #610's exact-plan, capability and implementation gates. It adds no launch route;
 ordinary session creation remains subject to its explicit Start contract.
 
+The [production preview binding proposal](../docs/superpowers/specs/2026-11-19-review-handoff-binding-design.md)
+defines the authenticated read and consuming Start design accepted by the
+owner on 2026-11-19. Acceptance covers ordinary plan-review/current-root scope,
+volatile inspection/cache bounds, visible status validation and reference-only
+artifact transport; source/attempt codecs and runtime implementation remain gated.
+It does not implement a review recommendation type or change passive accept.
+
+The [source/admission contract](../docs/superpowers/specs/2026-11-19-review-source-qualification-design.md)
+is owner-accepted with offline logical epoch/registry/admission fixtures; it does
+not qualify actual source custody, physical storage or runtime Start. The
+[typed launch-input contract](../docs/superpowers/specs/2026-11-19-review-launch-input-design.md)
+defines the owner-accepted ordinary plan-review proposal, narrow configuration
+and prepared-input byte/digest rules with offline logical qualification. Actual
+source/native/storage and Start integration remain unqualified; automatic #66 intent producers, effective configuration
+leaf codecs, capability evidence and actual launch behavior remain gated.
+
+The [effective configuration-leaf contract](../docs/superpowers/specs/2026-11-20-review-configuration-leaves-design.md)
+defines the owner-accepted stock-catalog bytes, owned integration resource
+coverage and exact command/source joins with offline logical qualification.
+No collector, adapter inventory, native profile or launch path is qualified
+by that logical component evidence.
+
+The [Codex capture inventory/custody proposal](../docs/superpowers/specs/2026-11-22-review-codex-capture-design.md)
+and [staged qualification roadmap](../docs/superpowers/plans/2026-11-22-review-codex-capture-qualification.md)
+under #1966 define the architecture owner-accepted on 2026-11-22: a complete
+first-profile resource set, retained read-only observation and shared checked
+owner. Initial native descriptor evidence leaves concurrent-spawn custody
+unqualified under #1981. No actual collector, mutation coverage, native role or
+prepared Start is enabled.
+
 ### Independence is valuable
 
 When recommending review, Taskmaster should prefer a new session and, where practical, a different harness or model family from the implementation session.

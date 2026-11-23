@@ -4,7 +4,10 @@
 
 use super::{normalize_session_metadata, MetadataStore, SessionMetadata};
 use serde::{Deserialize, Serialize};
-use std::{fs, io};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 /// Opaque to callers; only this module interprets or advances the counter.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,31 +116,104 @@ impl MetadataStore {
         &self,
         id: &str,
     ) -> io::Result<Option<RevisionedSession>> {
-        let path = self.sessions_dir().join(format!("{id}.json"));
-        let bytes = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let mut record: RevisionedSession = serde_json::from_slice(&bytes)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        if record.metadata.id != id {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "session identity mismatch",
-            ));
-        }
-        record.metadata = normalize_session_metadata(record.metadata);
-        record.metadata.provenance.hydrate_legacy(
-            &record.metadata.metadata_source,
-            record.metadata.metadata_confidence,
-            fs::metadata(&path)
-                .ok()
-                .and_then(|stamp| stamp.modified().ok()),
-        );
-        Ok(Some(record))
+        read_revisioned_session_at(&self.sessions_dir().join(format!("{id}.json")), id)
     }
 
+    /// Attempt publication without parking behind another writer under the workspace lock.
+    pub(crate) fn publish_output_recency(
+        &self,
+        id: &str,
+        staged: &StagedOutputRecency,
+    ) -> Result<(), SessionTransactionError> {
+        super::session_reader::try_with_session_write_lock(&self.session_write_locks, id, || {
+            let current = self.try_read_revisioned_session(id)?;
+            let Some(current) = current else {
+                return Err(io::Error::from(io::ErrorKind::NotFound).into());
+            };
+            if current.metadata.created_at != staged.created_at {
+                return Err(
+                    io::Error::new(io::ErrorKind::InvalidData, "session was replaced").into(),
+                );
+            }
+            if current.revision != staged.expected_revision {
+                return Err(SessionTransactionError::Conflict);
+            }
+            crate::durable_file::replace(&staged.file, &staged.path)?;
+            Ok(())
+        })
+        .ok_or(SessionTransactionError::Conflict)?
+    }
+}
+
+pub(crate) struct StagedOutputRecency {
+    path: PathBuf,
+    file: tempfile::TempPath,
+    expected_revision: MetadataRevision,
+    created_at: String,
+}
+
+impl StagedOutputRecency {
+    pub(crate) fn prepare(path: &Path, id: &str, timestamp: &str) -> io::Result<Option<Self>> {
+        let Ok(incoming) = chrono::DateTime::parse_from_rfc3339(timestamp) else {
+            return Ok(None);
+        };
+        let Some(mut record) = read_revisioned_session_at(path, id)? else {
+            return Ok(None);
+        };
+        if record
+            .metadata
+            .last_output_at
+            .as_deref()
+            .and_then(|stored| chrono::DateTime::parse_from_rfc3339(stored).ok())
+            .is_some_and(|stored| incoming < stored)
+        {
+            return Ok(None);
+        }
+        let expected_revision = record.revision;
+        record.revision = expected_revision.next()?;
+        record.metadata.last_output_at = Some(timestamp.to_owned());
+        let json = serde_json::to_vec_pretty(&record)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let file = super::atomic_write::stage(path, &json)?;
+        Ok(Some(Self {
+            path: path.to_owned(),
+            file,
+            expected_revision,
+            created_at: record.metadata.created_at,
+        }))
+    }
+
+    pub(crate) fn sync_after_publish(self) -> io::Result<()> {
+        super::atomic_write::sync_parent(&self.path)
+    }
+}
+
+fn read_revisioned_session_at(path: &Path, id: &str) -> io::Result<Option<RevisionedSession>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut record: RevisionedSession = serde_json::from_slice(&bytes)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    if record.metadata.id != id {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "session identity mismatch",
+        ));
+    }
+    record.metadata = normalize_session_metadata(record.metadata);
+    record.metadata.provenance.hydrate_legacy(
+        &record.metadata.metadata_source,
+        record.metadata.metadata_confidence,
+        fs::metadata(path)
+            .ok()
+            .and_then(|stamp| stamp.modified().ok()),
+    );
+    Ok(Some(record))
+}
+
+impl MetadataStore {
     /// Check and mutate the latest record while holding the same per-session
     /// lock as owned native clears, from read through atomic replacement.
     ///

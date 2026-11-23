@@ -66,6 +66,8 @@ export function buildActionsOverview(
   const recommendationCountValue = countValue(recommendationRows.length, recommendationsStatus);
   return {
     rows: [...sessionRows, ...recommendationRows],
+    sessionsStatus,
+    recommendationsStatus,
     sessionCount: sessionsStatus === "ready" ? attentionCount : null,
     recommendationCount: recommendationsStatus === "ready" ? recommendationRows.length : null,
     sessionCountValue,

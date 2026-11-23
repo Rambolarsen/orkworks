@@ -10,6 +10,7 @@ if (process.versions.electron) {
   }));
   progress('importing Electron');
   const { app, BrowserWindow } = await import('electron');
+  app.on('window-all-closed', () => {});
   app.on('will-quit', () => progress('app will-quit'));
   app.on('quit', (_event, code) => progress(`app quit: ${code}`));
   process.on('exit', code => progress(`process exit: ${code}`));
@@ -67,6 +68,7 @@ if (process.versions.electron) {
         })),
       })`), null, 2));
     };
+    let exitCode = 0;
     try {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
@@ -109,6 +111,68 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.input'),[]);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         }
+        return;
+      } else if (scenario === 'app-review-terminal-fill') {
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate('document.getElementById("root").style.height="100vh"');
+        const density = await evaluate(`new Promise(resolve=>{
+          const term=fixture.runtime().terminal;
+          const configured=term.options.lineHeight;
+          const rowHeight=()=>term.element.querySelector('.xterm-screen').getBoundingClientRect().height/term.rows;
+          const configuredHeight=rowHeight();
+          term.options.lineHeight=1;
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            const baseHeight=rowHeight();
+            term.options.lineHeight=configured;
+            requestAnimationFrame(()=>requestAnimationFrame(()=>resolve({configuredHeight,baseHeight})));
+          }));
+        })`);
+        assert.ok(density.baseHeight>0,'row density is measured from a visible terminal grid');
+        assert.ok(density.configuredHeight>=density.baseHeight,'row spacing retains the natural glyph height');
+        assert.ok(density.configuredHeight<=density.baseHeight*1.25,'coding-tool rows stay within 25% of the natural terminal grid: '+JSON.stringify(density));
+        await evaluate('new Promise(resolve=>fixture.runtime().terminal.write(Array.from({length:80},(_,i)=>"  Checking workspace item "+(i+1)).concat(["", "$ pnpm check", "  Typecheck passed", "  Tests passed", "", "Ready for the next task.", ""]).join(String.fromCharCode(13,10)),resolve))');
+        await evaluate('fixture.runtime().terminal.focus()');
+        for (const [width,height] of [[1280,700],[910,633],[640,511]]) {
+          win.setContentSize(width,height);
+          await waitFor('innerWidth==='+width+' && innerHeight==='+height);
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          const bounds = await evaluate(`(()=>{
+            const main=document.querySelector('.shell-main').getBoundingClientRect();
+            const shell=document.querySelector('.terminal-shell').getBoundingClientRect();
+            const host=document.querySelector('.terminal-container');
+            const container=host.getBoundingClientRect();
+            const style=getComputedStyle(host);
+            const padding=['Left','Right','Top','Bottom'].map(side=>parseFloat(style['padding'+side]));
+            const content={left:container.left+padding[0],right:container.right-padding[1],top:container.top+padding[2],bottom:container.bottom-padding[3]};
+            const viewport=document.querySelector('.xterm-viewport').getBoundingClientRect();
+            const screen=document.querySelector('.xterm-screen').getBoundingClientRect();
+            return {windowHeight:innerHeight,main:main.toJSON(),shell:shell.toJSON(),container:container.toJSON(),padding,content,viewport:viewport.toJSON(),screen:screen.toJSON()};
+          })()`);
+          // Check the painted remainder before geometry, so this catches the black strip directly.
+          const screenshot=await win.webContents.capturePage();
+          const scale=screenshot.getSize().width/await evaluate('innerWidth');
+          const x=(bounds.viewport.left+bounds.viewport.right)/2;
+          for (const y of [bounds.viewport.bottom-1,bounds.container.bottom-1]) {
+            const pixel=[...screenshot.crop({x:Math.floor(x*scale),y:Math.floor(y*scale),width:1,height:1}).toBitmap().subarray(0,3)];
+            assert.ok(pixel.every((channel,index)=>Math.abs(channel-[25,19,17][index])<=1),'terminal remainder and inner spacing share the graphite background (BGRA): '+pixel);
+          }
+          assert.ok(Math.abs(bounds.main.bottom-bounds.windowHeight)<1,'main pane reaches the resized window bottom without clipping');
+          assert.ok(bounds.padding.every(value=>value>0&&value<=12&&value===bounds.padding[0]),'terminal content has even modest breathing room');
+          for (const edge of ['left','right','top','bottom']) {
+            assert.ok(Math.abs(bounds.container[edge]-bounds.shell[edge])<1,'terminal fills shell '+edge);
+            assert.ok(Math.abs(bounds.viewport[edge]-bounds.content[edge])<1,'viewport fills the padded content box '+edge);
+          }
+          for (const edge of ['left','right','bottom']) {
+            assert.ok(Math.abs(bounds.shell[edge]-bounds.main[edge])<1,'terminal reaches main pane '+edge);
+          }
+          assert.ok(bounds.screen.right<=bounds.content.right+1,'fitted columns stay inside terminal content');
+          assert.ok(bounds.screen.bottom<=bounds.content.bottom+1,'fitted rows stay inside terminal content');
+          // Keep the static synthetic output at its newest rows in the preview.
+          await evaluate('fixture.runtime().terminal.scrollToBottom()');
+          await captureReplay('terminal-polish-'+width);
+        }
+        await captureReplay('terminal-fill');
+        assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
       } else if (scenario === 'app-review-replay') {
         // Real App -> TerminalPanel -> HistoricalTerminal -> xterm. Only the
@@ -161,6 +225,9 @@ if (process.versions.electron) {
             await evaluate('document.querySelector(".terminal-shell").style.removeProperty("display")');
           }
           await waitFor(`(${snapshot})?.natural.every(size=>Number.isFinite(size)) && (${snapshot})?.rows.some(row=>row.trim()==="last-row")`);
+          // The recorded-size label changes the content box after the first
+          // render. Wait for ResizeObserver to fit that final layout too.
+          await waitFor(`(${snapshot}).screen.right<=(${snapshot}).content.right+1 && (${snapshot}).screen.bottom<=(${snapshot}).content.bottom+1`);
           const original = await assertReplay();
           const label = initiallyHidden ? 'revealed' : 'visible';
           await captureReplay(label + '-wide');
@@ -402,6 +469,22 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector(".workspace-picker-screen .workspace-history-other-folder")'), true);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
+      } else if (scenario === 'app-workspace-hook-notice') {
+        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Codex: OrkWorks hook update available.")');
+        await evaluate('document.querySelector(".workspace-hook-notice button").click()');
+        await waitFor('document.querySelector(".settings-content h3")?.textContent === "Active coding tools"');
+        await evaluate('fixture.hookState = "trust"; document.querySelector("[aria-label=\\"Close settings\\"]").click()');
+        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Run /hooks in Codex")');
+        await evaluate('fixture.hookState = "active"; window.dispatchEvent(new Event("focus"))');
+        await waitFor('!document.querySelector(".workspace-hook-notice")');
+        await evaluate('fixture.deferHookStatus = true; window.dispatchEvent(new Event("focus"))');
+        await waitFor('!!fixture.releaseHookStatus');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:null,activeHarnessIds:["codex"]},historyDiagnostic:null})');
+        await waitFor('fixture.hookReads >= 5 && document.querySelector(".shell-workspace .titlebar-text")?.textContent === "other"');
+        await evaluate('fixture.releaseHookStatus(); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('!!document.querySelector(".workspace-hook-notice")'), false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'app-startup-composer') {
         await waitFor('!!fixture.releaseSessions');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=new-session]")'), false,
@@ -498,9 +581,12 @@ if (process.versions.electron) {
         return;
       } else if (scenario === 'open-session-app') {
         await waitFor('document.querySelector("[data-session-app-trigger]").textContent.includes("Open in")');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.deepEqual(await evaluate('fixture.nativeInspections'), [], 'rendering a selected session does not inspect destinations');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [], 'rendering never opens an application');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector(".session-app-menu").textContent.includes("Native ID not captured")');
+        assert.deepEqual(await evaluate('fixture.nativeInspections'), [['/real/test','coding','native'],['/real/test','coding','vscode']]);
         assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true);
         assert.equal(await evaluate('document.querySelector("[data-session-app-vscode]")'), null, 'VS Code is hidden without installation');
         await evaluate('fixture.vscodeInstalled=true;document.querySelector("[data-session-app-trigger]").click()');
@@ -545,9 +631,10 @@ if (process.versions.electron) {
         await waitFor('!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!document.querySelector(".session-app-popover")');
-        await evaluate('fixture.deferNative=true;document.querySelector("[data-session-app-trigger]").click()');
+        await evaluate('fixture.finishNative=null;fixture.deferNative=true;document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('!!fixture.finishNative');
-        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), false, 'opening uses the prefetched availability while rechecking');
+        assert.match(await evaluate('document.querySelector("[data-session-app-open]").textContent'), /Checking/);
+        assert.equal(await evaluate('document.querySelector("[data-session-app-open]").disabled'), true, 'reopening waits for a fresh inspection');
         await evaluate('fixture.deferNative=false;fixture.nativeUnavailable=true;fixture.setSessionState({harnessId:"claude-code",lifecycle:"alive"})');
         await waitFor('document.querySelector(".session-app-menu").textContent.includes("Close this session first")');
         await evaluate('fixture.finishNative()');
@@ -561,8 +648,11 @@ if (process.versions.electron) {
         await evaluate('document.querySelector("[data-session-app-open]").click()');
         await waitFor('fixture.nativeOpened.length===1');
         assert.deepEqual(await evaluate('fixture.nativeOpened'), [['/real/test','coding','native']]);
+        const inspectionsBeforeSelection = await evaluate('fixture.nativeInspections.length');
         await evaluate('fixture.select("other")');
         await waitFor('document.querySelector(".shell-context h1").textContent==="other"');
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('fixture.nativeInspections.length'), inspectionsBeforeSelection, 'changing the selected session does not inspect destinations');
         await evaluate('fixture.nativeFailure=true;document.querySelector("[data-session-app-trigger]").click()');
         await waitFor('document.querySelector("[data-session-app-open]")&&!document.querySelector("[data-session-app-open]").disabled');
         await evaluate('document.querySelector("[data-session-app-open]").click()');
@@ -1726,6 +1816,11 @@ if (process.versions.electron) {
           await click('actions');
           await waitFor('document.querySelector(".actions-overview")');
           assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).map(el=>el.dataset.actionKey)'),['session:coding','session:other','recommendation:r2','recommendation:r1']);
+          await evaluate(`(()=>{const row=document.querySelector('[data-action-key="recommendation:r1"]').closest('.actions-row');[...row.querySelectorAll('span')].find(element=>element.textContent==='Recommendation').click()})()`);
+          await waitFor('document.querySelector("[data-actions-detail] h3")?.textContent==="r1"');
+          assert.deepEqual(await evaluate('fixture.openedRecommendations'),[],'source metadata only inspects recommendations');
+          assert.equal(await evaluate('document.querySelector("[data-action-key=\\"recommendation:r1\\"]").getAttribute("aria-label")'),'r1');
+          assert.equal(await evaluate('document.querySelector("[data-action-key=\\"recommendation:r1\\"]").getAttribute("aria-description")'),'Recommendation');
           await evaluate('fixture.setSessionSourceStatus("unavailable")');
           await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Session attention: unavailable")');
           await click('next-action');
@@ -1754,11 +1849,74 @@ if (process.versions.electron) {
           assert.equal(await evaluate('Array.from(document.querySelectorAll("[data-action-key]")).some(el=>el.dataset.actionKey==="recommendation:old")'),false);
           await evaluate('fixture.pendingRecommendations[1]({recommendations:[fixture.recommendation("new")],diagnostics:[]})');
           await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 1")');
+          await evaluate('fixture.pauseRecommendations=false;fixture.partial=false;fixture.emptyRecommendations=true;fixture.setEmpty(true);fixture.setSessionSourceStatus("ready");fixture.advanceWorkspace()');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Recommendations: 0")');
+          await evaluate('document.querySelector(".actions-overview").focus()');
+          for (const [status,title,value] of [
+            ['loading','Loading actions','loading'],
+            ['unavailable','Actions unavailable','unavailable'],
+            ['partial','No actions in available data','0 known (partial)'],
+            ['ready','No current actions','0'],
+          ]) {
+            await evaluate('fixture.setSessionSourceStatus('+javascriptLiteral(status)+')');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            assert.equal(await evaluate('document.querySelector(".actions-empty h3")?.textContent'),title,'empty state distinguishes '+status+' source data');
+            assert.deepEqual(await evaluate('Array.from(document.querySelectorAll(".actions-source-summary > div")).map(el=>[el.querySelector("dt").textContent,el.querySelector("dd").textContent])'),[['Session attention',value],['Recommendations','0']]);
+            assert.equal(await evaluate('document.activeElement.classList.contains("actions-overview")'),true,'source updates preserve focus');
+          }
+          await evaluate('fixture.pauseRecommendations=true;fixture.setBackendStatus("unreachable")');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="Actions unavailable"');
+          await evaluate('fixture.setBackendStatus("connected")');
+          await waitFor('fixture.pendingRecommendations.length===3');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="Loading actions"');
+          await evaluate('fixture.pendingRecommendations[2]({recommendations:[],diagnostics:[{code:"partial",message:"missing source"}]})');
+          await waitFor('document.querySelector(".actions-empty h3")?.textContent==="No actions in available data"');
+          await win.setContentSize(360,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+          assert.equal(await evaluate('(()=>{const summary=document.querySelector(".actions-source-summary");const empty=document.querySelector(".actions-empty");return summary.scrollWidth<=summary.clientWidth+1&&empty.scrollWidth<=empty.clientWidth+1})()'),true,'source summary and empty copy fit a narrow page');
           assert.equal(await evaluate('fixture.selections'),0);
           assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
+        } else if (scenario === 'actions-short-window') {
+          // A fixed utility header must not leave a scrollport too short for Open.
+          await evaluate('document.getElementById("root").style.height="100%";document.getElementById("root").style.paddingTop="38px";fixture.setSessionState({attention:"needs_you",detectedQuestion:"Ready to continue?"})');
+          await waitFor('document.querySelector("[data-shell-command=actions]").getAttribute("aria-description").includes("Session attention: 2")');
+          for (const [width,height,zoom] of [[1000,570,2],[720,480,2],[640,700,1]]) {
+            win.webContents.setZoomFactor(zoom);
+            win.setContentSize(width,height);
+            await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
+            await click('next-action');
+            await waitFor('document.activeElement.hasAttribute("data-action-key")');
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor('document.activeElement===document.querySelector("[data-actions-detail] button")');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const geometry=await evaluate(`(()=>{
+              const button=document.activeElement,r=button.getBoundingClientRect();
+              let top=0,bottom=innerHeight,left=0,right=innerWidth;
+              const clips=[];
+              for(let parent=button.parentElement;parent;parent=parent.parentElement){
+                const style=getComputedStyle(parent),p=parent.getBoundingClientRect();
+                if(/auto|scroll|hidden|clip/.test(style.overflowY)){top=Math.max(top,p.top+parent.clientTop);bottom=Math.min(bottom,p.top+parent.clientTop+parent.clientHeight);clips.push({className:parent.className,top:p.top,height:parent.clientHeight});}
+                if(/auto|scroll|hidden|clip/.test(style.overflowX)){left=Math.max(left,p.left+parent.clientLeft);right=Math.min(right,p.left+parent.clientLeft+parent.clientWidth);}
+              }
+              return {button:r.toJSON(),top,bottom,left,right,clips};
+            })()`);
+            assert.ok(geometry.button.top-4>=geometry.top&&geometry.button.bottom+4<=geometry.bottom&&geometry.button.left-4>=geometry.left&&geometry.button.right+4<=geometry.right,
+              'Open and its full focus outline fit all clipping ancestors at '+JSON.stringify({width,height,zoom,geometry}));
+            assert.equal(await evaluate('fixture.selections'),0,'reaching Open does not select a session');
+            await evaluate('document.querySelector("[data-shell-return]").focus()');
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            assert.ok(await evaluate('(()=>{const b=document.activeElement,r=b.getBoundingClientRect();return b.hasAttribute("data-shell-return")&&r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest("button")===b})()'),'return remains visible and hit-testable after focusing it');
+            await evaluate('document.activeElement.click()');
+            await waitFor('!document.querySelector(".actions-overview")');
+          }
+          assert.deepEqual(await evaluate('fixture.input'),[]);
+          assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'actions') {
           await waitFor('document.querySelector("[data-shell-command=actions]")?.getAttribute("aria-description").includes("Session attention: 1")');
+          await evaluate('fixture.setSessionState({detectedQuestion:["First?","","Second?"].join(String.fromCharCode(10))})');
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
           const attentionBefore = await evaluate('document.querySelectorAll(".session-row--unread.session-row--loud").length');
           assert.equal(attentionBefore,1);
           await click('next-action');
@@ -1787,15 +1945,47 @@ if (process.versions.electron) {
             const {writeFileSync}=await import('node:fs');
             writeFileSync(process.env.ORKWORKS_CAPTURE_ACTIONS+'-compact.png',(await win.webContents.capturePage()).toPNG());
           }
-          await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").click()');
+          const sourcePoint = await evaluate(`(()=>{
+            const row=document.querySelector('[data-action-key="session:coding"]').closest('.actions-row');
+            const source=[...row.querySelectorAll('span')].find(element=>element.textContent==='Session');
+            const r=source.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
+          })()`);
+          win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...sourcePoint});
+          win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...sourcePoint});
+          await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+          assert.equal(await evaluate('document.querySelector("[data-actions-detail] h3")?.textContent'),'coding','source metadata clicks inspect their own action');
+          assert.equal(await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").getAttribute("aria-label")'),'coding','source metadata does not change the action name');
+          assert.equal(await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").getAttribute("aria-description")'),'Session');
           await waitFor('document.querySelector("[data-actions-detail] h3")?.textContent=== "coding"');
           await win.setContentSize(1280,700);
           await waitFor('document.querySelector("[data-shell-region=inspector]")');
           assert.equal(await evaluate('document.querySelector("[data-actions-detail] h3")?.textContent'), 'coding', 'responsive host changes retain the inspected identity');
+          const rowGeometry = await evaluate(`(()=>{
+            const button=document.querySelector('[data-action-key="session:other"]');
+            const title=button.querySelector('.actions-row-title');
+            const source=button.querySelector('.actions-row-source');
+            const r=button.getBoundingClientRect(),s=source.getBoundingClientRect();
+            return {rowOverflows:button.scrollWidth>button.clientWidth+1,titleOverflows:title.scrollWidth>title.clientWidth+1,sourceInside:s.left>=r.left&&s.right<=r.right&&s.top>=r.top&&s.bottom<=r.bottom};
+          })()`);
+          assert.equal(rowGeometry.rowOverflows,false,'long action rows stay within the narrow inspector');
+          assert.equal(rowGeometry.titleOverflows,false,'unbroken action titles wrap within their row');
+          assert.equal(rowGeometry.sourceInside,true,'source metadata stays inside the full row hit area');
+          const summaryGeometry = await evaluate(`(()=>{
+            const summary=[...document.querySelectorAll('[data-actions-detail] p')].find(element=>element.textContent.startsWith('First?'));
+            const text=summary.firstChild;
+            const first=document.createRange();first.setStart(text,0);first.setEnd(text,6);
+            const second=document.createRange();second.setStart(text,text.textContent.indexOf('Second?'));second.setEnd(text,text.textContent.length);
+            const a=first.getBoundingClientRect(),b=second.getBoundingClientRect();
+            return {lines:summary.textContent.split(String.fromCharCode(10)),firstTop:a.top,firstHeight:a.height,secondTop:b.top,overflows:summary.scrollWidth>summary.clientWidth+1};
+          })()`);
+          assert.deepEqual(summaryGeometry.lines,['First?','','Second?']);
+          assert.ok(summaryGeometry.secondTop-summaryGeometry.firstTop>=2*summaryGeometry.firstHeight,'inspection preserves blank lines between summary paragraphs');
+          assert.equal(summaryGeometry.overflows,false,'summary fits the narrow inspector');
           await evaluate('fixture.setSessionState({attention:"working"})');
           await waitFor('!document.querySelector("[data-actions-detail]")');
           assert.equal(await evaluate('fixture.selections'),0);
           assert.match(await evaluate('document.querySelector(".actions-overview").textContent'),/unavailable or changed/);
+          assert.equal(await evaluate('Array.from(document.querySelectorAll(".actions-overview button")).some(button=>button.textContent.startsWith("Open "))'),false,'stale inspection has no Open action');
           await evaluate('fixture.setSessionState({})');
           await evaluate('new Promise(resolve=>requestAnimationFrame(resolve))');
           assert.equal(await evaluate('!!document.querySelector("[data-actions-detail]")'),false,'stale inspection cannot reactivate when its revision returns');
@@ -1809,6 +1999,77 @@ if (process.versions.electron) {
           await evaluate('document.querySelector("[data-shell-return]").click()');
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
           await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus") || document.activeElement.classList.contains("xterm-helper-textarea")');
+          await click('actions');
+          await waitFor('document.querySelector(".actions-overview")');
+          await evaluate('fixture.setExtraActionCount(24)');
+          await waitFor('document.querySelectorAll("[data-action-key]").length===26');
+          await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail] h3")?.textContent==="coding"');
+          for (const width of [1280,360]) {
+            await win.setContentSize(width,700);
+            await waitFor(width===1280?'document.querySelector("[data-shell-region=inspector]")':'document.querySelector(".shell-layout").dataset.mode==="compact"');
+            const inspectionGeometry=await evaluate(`(()=>{
+              const trigger=document.querySelector('[data-action-key="session:coding"]');
+              const detail=document.querySelector('[data-actions-detail]');
+              const next=document.querySelector('[data-action-key="session:extra-0"]');
+              const a=trigger.getBoundingClientRect(),b=detail.getBoundingClientRect(),c=next.getBoundingClientRect();
+              return {gap:b.top-a.bottom,detailBottom:b.bottom,nextTop:c.top,overflows:detail.scrollWidth>detail.clientWidth+1};
+            })()`);
+            assert.ok(inspectionGeometry.gap>=0&&inspectionGeometry.gap<40,'inspection stays beside its selected row in a long list');
+            assert.ok(inspectionGeometry.detailBottom<=inspectionGeometry.nextTop,'the next action follows the inspected details');
+            assert.equal(inspectionGeometry.overflows,false);
+            await evaluate('document.querySelector("[data-action-key=\\"session:coding\\"]").focus()');
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+            await waitFor('document.activeElement===document.querySelector("[data-actions-detail] button")');
+            for (const theme of ['dark','light']) {
+              await evaluate(`document.documentElement.dataset.theme=${javascriptLiteral(theme)};new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+              const cues=await evaluate(`(()=>{
+                const selected=document.querySelector('[data-action-key="session:coding"]');
+                const peer=document.querySelector('[data-action-key="session:extra-0"]');
+                const a=getComputedStyle(selected),b=getComputedStyle(peer);
+                return {pressed:selected.getAttribute('aria-pressed'),selectedFill:a.backgroundColor,peerFill:b.backgroundColor,selectedBorder:a.borderColor,peerBorder:b.borderColor};
+              })()`);
+              assert.equal(cues.pressed,'true','inspection remains selected when keyboard focus moves to Open');
+              assert.notEqual(cues.selectedFill,cues.peerFill,'inspected row retains a distinct fill without keyboard focus');
+              assert.equal(cues.selectedBorder,cues.peerBorder,'inspection retains the same neutral border as other action rows');
+              // The hidden window does not activate native pointer hover; exercise its computed styles explicitly.
+              win.webContents.debugger.attach('1.3');
+              try {
+                await win.webContents.debugger.sendCommand('DOM.enable');
+                await win.webContents.debugger.sendCommand('CSS.enable');
+                const {root}=await win.webContents.debugger.sendCommand('DOM.getDocument');
+                const {nodeId}=await win.webContents.debugger.sendCommand('DOM.querySelector',{nodeId:root.nodeId,selector:'[data-action-key="session:extra-0"]'});
+                await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:['hover']});
+                const hovered=await evaluate(`(()=>{
+                  const selected=document.querySelector('[data-action-key="session:coding"]');
+                  const peer=document.querySelector('[data-action-key="session:extra-0"]');
+                  return {selectedFill:getComputedStyle(selected).backgroundColor,peerFill:getComputedStyle(peer).backgroundColor,pressed:peer.getAttribute('aria-pressed'),openFocused:document.activeElement===document.querySelector('[data-actions-detail] button')};
+                })()`);
+                assert.notEqual(hovered.peerFill,cues.peerFill,'hover gives an uninspected action visible feedback');
+                assert.notEqual(hovered.peerFill,cues.selectedFill,'hover remains distinct from the inspected row');
+                assert.equal(hovered.selectedFill,cues.selectedFill);
+                assert.equal(hovered.pressed,'false','hover does not inspect an action');
+                assert.equal(hovered.openFocused,true,'hover does not move keyboard focus');
+                await win.webContents.debugger.sendCommand('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+                assert.equal(await evaluate('getComputedStyle(document.querySelector("[data-action-key=\\"session:extra-0\\"]")).backgroundColor'),cues.peerFill,'leaving hover restores the uninspected row');
+              } finally { win.webContents.debugger.detach(); }
+            }
+          }
+          await evaluate('delete document.documentElement.dataset.theme');
+          assert.equal(await evaluate('fixture.selections'),0,'long-list inspection and keyboard navigation do not select a session');
+          await evaluate('fixture.setExtraActionCount(0)');
+          await waitFor('document.querySelectorAll("[data-action-key]").length===2');
+          await evaluate('document.querySelector("[data-action-key=\\"session:other\\"]").click()');
+          await waitFor('document.querySelector("[data-actions-detail] button")');
+          assert.equal(await evaluate('fixture.selections'),0,'inspection alone never selects a session');
+          await evaluate('document.querySelector("[data-actions-detail] button").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});
+          win.webContents.sendInputEvent({type:'char',keyCode:String.fromCharCode(13)});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});
+          await waitFor('fixture.activeSessionId==="other" && !document.querySelector(".actions-overview")');
+          assert.equal(await evaluate('fixture.selections'),1,'explicit Open selects only the inspected session');
+          assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'resume-session') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
@@ -2301,13 +2562,27 @@ if (process.versions.electron) {
           await waitFor('!document.querySelector("[data-shell-region=utility]")');
           await waitFor('fixture.runtime()?.terminal.textarea===document.activeElement');
         } else if (scenario === 'utility-scope') {
-          for (const width of [1280,1000,640]) {
+          for (const width of [1280,1000,640,360]) {
             await win.setContentSize(width,700);
             await waitFor(`document.querySelector(".shell-layout").dataset.mode==="${width>=1180?'wide':width>=860?'medium':'compact'}"`);
             for (const destination of ['recommendations','actions']) {
               await evaluate('fixture.command('+javascriptLiteral(destination)+')');
               await waitFor('document.querySelector("[data-shell-page-heading]")');
               assert.match(await evaluate('document.querySelector("[data-shell-page-heading]").parentElement.textContent'),/Workspace: \/tmp\/test/);
+              if (await evaluate('!!document.querySelector("[data-shell-region=utility]")')) {
+                const geometry = await evaluate(`(()=>{
+                  const heading=document.querySelector('[data-shell-page-heading]');
+                  const header=heading.parentElement;
+                  const scope=header.querySelector('.shell-utility-scope');
+                  const rect=element=>{const r=element.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}};
+                  return {heading:rect(heading),scope:rect(scope),back:rect(header.querySelector('[data-shell-return]')),header:rect(header),overflows:scope.scrollWidth>scope.clientWidth+1};
+                })()`);
+                assert.ok(Math.abs(geometry.heading.left-geometry.scope.left)<=1,'workspace scope aligns with the page title');
+                assert.ok(geometry.scope.top>=geometry.heading.bottom,'workspace scope follows the title');
+                assert.ok(geometry.back.bottom<=geometry.scope.top,'return stays on the title row above the workspace path');
+                assert.ok(geometry.back.right<=geometry.header.right && geometry.back.top>=geometry.header.top,'return stays within the header');
+                assert.equal(geometry.overflows,false,'long unbroken workspace paths wrap within the header');
+              }
               await evaluate('fixture.command('+javascriptLiteral(destination)+')');
               await waitFor('!document.querySelector("[data-shell-page-heading]")');
             }
@@ -2423,32 +2698,28 @@ if (process.versions.electron) {
       console.log('Fixed shell responsive destinations, resizing, zoom, and focus checks passed');
 
     } catch (error) {
+      exitCode = 1;
       console.error('Shell scenario failed:', error);
       progress('capturing failure');
       try { await captureReplay('failure'); } catch (captureError) { console.error('Replay capture failed:', captureError); }
-      throw error;
     } finally {
-      progress('destroying window');
-      win.destroy();
-      progress('requesting app quit');
-      app.quit();
+      progress(`exiting app: ${exitCode}`);
+      app.exit(exitCode);
     }
-    app.quit();
   }).catch(error => { console.error(error); app.exit(1); });
 } else {
   const { default: test } = await import('node:test');
-  const { spawnSync } = await import('node:child_process');
-  const { assertShellSubprocess } = await import('./fixtures/shellSubprocess.mjs');
+  const { assertShellSubprocess, runShellSubprocess } = await import('./fixtures/shellSubprocess.mjs');
   const { createRequire } = await import('node:module');
   const { mkdirSync, mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
-    const replayArtifacts = scenario === 'app-review-replay'
+    const replayArtifacts = ['app-review-replay','app-review-terminal-fill'].includes(scenario)
       ? (process.env.ORKWORKS_REPLAY_ARTIFACT_DIR ? resolve(process.env.ORKWORKS_REPLAY_ARTIFACT_DIR) : mkdtempSync(join(tmpdir(), 'orkworks-replay-artifacts-')))
       : scenario === 'app-review-terminal-links'
         ? mkdtempSync(join(tmpdir(), 'orkworks-terminal-links-artifacts-'))
@@ -2501,8 +2772,9 @@ if (process.versions.electron) {
           fixture.runtime=()=>getTerminal(fixture.activeSessionId||'coding');
           fixture.runtimeCount=()=>getLiveTerminalCount();
           window.orkworks = {getSkillInventory:async()=>({skills:[],diagnostics:[],roots:[],apm:{available:true,compatible:true,path:"/usr/local/bin/apm",version:"0.33.0",executableOverride:null,message:"APM 0.33.0 supports reviewed installation."}}),pickSkillSource:async()=>'/tmp/skill',previewSkillAdd:async request=>{fixture.skillRequest=request;return null},notifyPanelVisibility:()=>{},getBackendUrl:()=>Promise.resolve('http://127.0.0.1:12345'),getWorkspaceHistory:async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null})};
-          fixture.nativeOpened=[];fixture.nativeMissing=${javascriptLiteral(scenario)}==='open-session-app';
-          window.orkworks.inspectSessionApp=async(_workspace,_id,destination)=>{
+          fixture.nativeInspections=[];fixture.nativeOpened=[];fixture.nativeMissing=${javascriptLiteral(scenario)}==='open-session-app';
+          window.orkworks.inspectSessionApp=async(workspace,id,destination)=>{
+            fixture.nativeInspections.push([workspace,id,destination]);
             if(destination==='vscode')return {label:'Visual Studio Code',installed:!!fixture.vscodeInstalled,available:!!fixture.vscodeInstalled};
             if(fixture.nativeInspectionFailure)throw new Error('Destination lookup failed');
             const value=fixture.nativeMissing?{label:'ChatGPT',available:false,reason:'Native ID not captured'}:fixture.nativeUnavailable?{label:'Claude',available:false,reason:'Close this session first'}:{label:fixture.nativeHarness==='claude-code'?'Claude':'ChatGPT',available:true};
@@ -2566,6 +2838,16 @@ if (process.versions.electron) {
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
             });
+            if (${scenario === 'app-workspace-hook-notice'}) {
+              window.orkworks.getBackendToken=()=>"hook-notice-test-token";
+              window.orkworks.getSettings=async()=>({
+                hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},
+                debug:{showSessionIds:false,rendererHealthLogMs:0},
+                providers:{version:2,revision:0,peonModel:null,ollamaBaseUrl:"http://localhost:11434",providers:[]}
+              });
+              window.orkworks.verifyPeonProvider=async()=>({ok:false});
+              window.orkworks.getAppliedPeonProvider=async()=>({provider:null});
+            }
             window.fetch=async (url,options={})=>{
               const path=new URL(url).pathname;
               const response=value=>({ok:true,status:200,json:async()=>value});
@@ -2582,6 +2864,22 @@ if (process.versions.electron) {
               }
               if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${javascriptLiteral(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
+              if(path==='/workspace/integrations' && ${scenario === 'app-workspace-hook-notice'}) {
+                if(new Headers(options.headers).get("x-orkworks-renderer-token")!=="hook-notice-test-token")return {ok:false,status:401};
+                const state=fixture.hookState??"drifted";
+                fixture.hookReads=(fixture.hookReads??0)+1;
+                const group=state=>({
+                  key:{adapterId:"codex",targetId:"workspace"},consumers:[{harnessId:"codex",harnessName:"Codex"}],
+                  status:{harnessId:"codex",enabled:true,toolDetected:true,registration:state==="drifted"?"drifted":"installed",
+                    ownership:"ork_works",activation:state==="trust"?"needs_trust":"active",coverage:"limited",confirmation:null,
+                    diagnostics:state==="drifted"?[{code:"owned_fragment_drifted",message:"Outdated"}]:[]}
+                });
+                if(fixture.deferHookStatus){
+                  fixture.deferHookStatus=false;
+                  return new Promise(resolve=>{fixture.releaseHookStatus=()=>resolve(response([group("drifted")]));});
+                }
+                return response([group(state)]);
+              }
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
               if(path==='/workspace/active-session'){fixture.activeWrites++;return response({})}
@@ -2633,7 +2931,7 @@ if (process.versions.electron) {
             fixture.recommendation=id=>({workspaceId:'/tmp/test',id,title:id,summary:'Summary '+id,status:'proposed',updatedAt:'2026-10-14',rollupMemberIds:[]});
             window.fetch=async url=>{
               if(new URL(url).pathname!=='/taskmaster/recommendations')throw new Error('Unexpected Actions request');
-              const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
+              const body=fixture.pauseRecommendations ? await new Promise(resolve=>fixture.pendingRecommendations.push(resolve)) : {recommendations:fixture.emptyRecommendations?[]:[fixture.recommendation('r2'),fixture.recommendation('r1')],diagnostics:fixture.partial?[{code:'partial',message:'missing source'}]:[]};
               return {ok:true,json:async()=>body};
             };
           }
@@ -2667,6 +2965,7 @@ if (process.versions.electron) {
             const [reviewing,setReviewing]=useState(false);fixture.openReview=()=>setReviewing(true);
             const [creating,setCreating]=useState(false);fixture.setCreating=setCreating;
             const [empty,setEmpty]=useState(false);fixture.setEmpty=setEmpty;
+            const [extraActionCount,setExtraActionCount]=useState(0);fixture.setExtraActionCount=setExtraActionCount;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setGeneration(n=>n+1)};
             const [backendStatus,setBackendStatus]=useState('connected');
             const [commandRequest,setCommandRequest]=useState(null);
@@ -2676,8 +2975,8 @@ if (process.versions.electron) {
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
-            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other']).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
+            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
+              workspace={{path:${javascriptLiteral(scenario)}==='utility-scope'?'/tmp/test/'+'LongWorkspaceDirectory'.repeat(12):'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
               newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
               onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
               commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
@@ -2712,15 +3011,15 @@ if (process.versions.electron) {
       if (process.platform === 'linux') args.unshift('--no-sandbox');
       const headlessLinux = process.platform === 'linux' && !env.DISPLAY;
       if (headlessLinux) args.unshift('-a', electron);
-      const result = spawnSync(headlessLinux ? 'xvfb-run' : electron, args,
-        { env, encoding: 'utf8', timeout: 30000, windowsHide: true });
+      const result = await runShellSubprocess(headlessLinux ? 'xvfb-run' : electron, args,
+        { env, timeout: 30000, logDir: directory, windowsHide: true });
       if (replayArtifacts) {
         writeFileSync(join(replayArtifacts, 'subprocess.log'), [result.error?.stack, result.stdout, result.stderr].filter(Boolean).join('\n'));
         console.log('Replay artifacts:', replayArtifacts);
       }
       assertShellSubprocess(result);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 }

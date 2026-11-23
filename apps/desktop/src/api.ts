@@ -73,6 +73,8 @@ export type SessionState = "active" | "closed" | "archived";
 export type SessionAction = "close" | "archive" | "restore" | "delete";
 
 export interface SessionInfo {
+  enrichmentRevision?: string;
+  enrichment?: { state: "pending" | "ready" | "stale" | "unavailable"; checkedAt: number | null };
   startupFailure?: StartupFailure;
   sessionState?: SessionState | null;
   sessionActionToken?: string | null;

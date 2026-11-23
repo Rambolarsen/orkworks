@@ -1369,8 +1369,23 @@ html, body, #root {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: var(--space-2);
+  /* Live wrappers are absolutely positioned and inset by this value;
+     content-box keeps FitAddon (which reads the parent's computed size)
+     from counting padding/border as usable terminal space. */
+  --terminal-padding: var(--space-2);
+  box-sizing: content-box;
+  margin: 0;
+  padding: var(--terminal-padding);
   position: relative;
+  background: var(--term-bg);
+  border: 0;
+  border-radius: 0;
+}
+
+.terminal-container .xterm-viewport {
+  /* xterm's stylesheet defaults this layer to black, including the remainder
+     below the last complete row. Match the terminal canvas instead. */
+  background-color: var(--term-bg);
 }
 
 .terminal-container .xterm {
@@ -2530,6 +2545,8 @@ html, body, #root {
 .shell-grid { position: relative; display: grid; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-left: var(--space-3); }
 .shell-main > .shell-region { flex: 1; }
+/* The terminal canvas fills the main pane; other surfaces retain their gutter. */
+.shell-layout:not([data-mode="compact"]) .shell-main > [data-shell-region="terminal"] { margin-left: calc(-1 * var(--space-3)); }
 /* Cover the main gutter while preserving toolbar content alignment. */
 .shell-layout:not([data-mode="compact"]) .shell-toolbar { margin-left: calc(-1 * var(--space-3)); padding-left: calc(2 * var(--space-3)); }
 /* Paint beneath the Sessions resize strip without intercepting its input. */
@@ -2557,7 +2574,7 @@ html, body, #root {
    individual controls retain their own focus outlines. */
 .shell-region--sessions:has(#sessions-list:focus-within, [data-shell-sessions-heading]:focus-within) > .shell-sessions-header,
 .shell-main:has([data-shell-region="terminal"] .terminal-container:focus-within) > .shell-toolbar {
-  background: color-mix(in srgb, var(--accent-focus) 8%, var(--surface-0));
+  background: color-mix(in srgb, var(--accent-focus) 4%, var(--surface-0));
   box-shadow: inset 0 -2px 0 var(--accent-focus);
 }
 /* The inspector keeps its compact region cue. */
@@ -2575,6 +2592,9 @@ html, body, #root {
   background: var(--accent-focus);
 }
 .shell-region-header { display: flex; flex-wrap: wrap; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 38px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-subtle); }
+.shell-utility-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.shell-utility-header > .shell-utility-scope { grid-area: 2 / 1 / auto / -1; }
+.shell-utility-header > [data-shell-return] { grid-area: 1 / 2; justify-self: end; }
 .shell-region--inspector > .shell-region-header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; }
 .shell-region--inspector > .shell-region-header h2 { grid-area: 1 / 1; align-self: center; overflow-wrap: anywhere; }
 .shell-region--inspector > .shell-region-header [data-shell-pin] { grid-area: 1 / 2; }
@@ -2628,6 +2648,9 @@ html, body, #root {
 @media (max-height: 480px) {
   .shell-region--sessions { overflow-y: auto; }
   .shell-region--sessions > .panel-content { min-height: 120px; }
+  /* Let the Actions heading scroll away when it would squeeze out its controls. */
+  [data-shell-region="utility"]:has(> .actions-overview) { overflow-y: auto; }
+  [data-shell-region="utility"] > .actions-overview { flex-shrink: 0; overflow: visible; }
 }
 @media (pointer: coarse) { .shell-toolbar button, .shell-region-header button, .shell-sidebar-heading > button, .shell-sidebar-navigation button, .shell-sidebar-footer button, .shell-navigation-menu summary { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .shell-layout *, .shell-layout *::before, .shell-layout *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }
@@ -3102,6 +3125,9 @@ html, body, #root {
   border-bottom: 1px solid var(--border-default);
 }
 
+.workspace-hook-notice { color: var(--state-warn); font-size: var(--text-sm); }
+.workspace-hook-notice > [role="status"] { min-width: 0; overflow-wrap: anywhere; }
+
 /* Ordinary session creation is part of the central pane. */
 .new-session-composer {
   flex: 1;
@@ -3175,14 +3201,31 @@ html, body, #root {
 .shell-actions-controls [data-actions-source] strong { font-weight:var(--weight-medium); color:var(--text-secondary); }
 .actions-overview { overflow:auto; min-height:0; padding:12px; font-size:13px; }
 .actions-overview h3 { margin:14px 0 6px; font-size:13px; }
+.actions-source-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 16px; padding-bottom:12px; border-bottom:1px solid var(--border-subtle); overflow-wrap:anywhere; }
+.actions-source-summary dt { font-size:11px; color:var(--text-muted); }
+.actions-source-summary dd { margin:4px 0 0; font-weight:var(--weight-medium); line-height:1.5; color:var(--text-primary); }
+.actions-empty { padding:16px; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--surface-1); overflow-wrap:anywhere; }
+.actions-empty h3 { margin:0; font-weight:var(--weight-medium); }
+.actions-empty p { margin:6px 0 0; font-size:12px; line-height:1.5; color:var(--text-secondary); }
 .actions-row { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:6px 0; }
-.actions-row button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
-.actions-row span { font-size:11px; color:var(--text-secondary); }
-.actions-overview [data-actions-detail] { border-top:1px solid var(--border-default); margin-top:12px; overflow-wrap:anywhere; }
+.actions-row > button { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.actions-row-title { flex:1 1 12ch; min-width:0; }
+.actions-row-source { flex:0 1 auto; min-width:0; max-width:100%; }
+.actions-row > span, .actions-row-source { font-size:11px; color:var(--text-secondary); }
+.actions-inspection { margin-top:16px; padding:12px; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); background:var(--surface-1); line-height:1.5; overflow-wrap:anywhere; }
+.actions-inspection h3 { margin:0; font-size:14px; font-weight:var(--weight-medium); color:var(--text-primary); }
+.actions-detail-source { margin:0 0 4px; font-size:11px; color:var(--text-muted); }
+.actions-detail-summary { margin:8px 0 0; white-space:pre-wrap; line-height:1.6; }
+.actions-inspection > button { margin-top:12px; max-width:100%; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.actions-inspection > .advice-warning { margin-bottom:12px; }
+.actions-row > .actions-inspection { margin-top:2px; }
 .actions-overview button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
 .actions-overview button { border:1px solid var(--border-default); background:var(--surface-2); color:var(--text-primary); padding:8px; border-radius:var(--radius-sm); cursor:pointer; font:inherit; }
-.actions-overview button[aria-pressed="true"] { border-color:var(--accent); }
+.actions-row > button[aria-pressed="true"] { background:var(--surface-3); }
+@media (hover: hover) {
+  .actions-row > button:not([aria-pressed="true"]):hover { background:color-mix(in srgb,var(--surface-2),var(--surface-3)); }
+}
 
 /* Ordinary analysis has one status surface from admission through completion. */
 .taskmaster-analysis-feedback { margin-bottom: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-2); }

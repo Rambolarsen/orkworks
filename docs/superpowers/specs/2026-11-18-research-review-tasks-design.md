@@ -780,3 +780,24 @@ clarification, parallel/multi-reviewer research, stage-cancel and
 rejection interplay with declared reviews, user-correction input origins and
 separately approved executable plans remain open. #1689/#1089 stay open;
 #740 stays closed research. Gate 2 remains **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-19
+
+After PR #1908 merged and the hosted/local review evidence recorded above,
+the owner answered "Accept all" to the explicit twenty-choice question
+covering this and the clarification, execution-proposal and terminal-completion
+proposals. This accepts the five choices above — the declared reviewer-task
+slice, the reviewer v3 specialization with the digest-free delivery entry,
+the review-input snapshot and immutable per-question outcome, the
+request/receipt family plus the review-input object kind (conditional
+candidate 57→59) and shared existing pools, and the collection
+`reviewTask`/typed summary evidence-source/currentness rules with
+reviewer-only replacement — **for offline documentation components only**.
+
+It does not select a storage format, close review transport/adapter
+qualification, qualify an execution or reviewer profile, authorize any
+runtime/native/model execution, or complete Gate 2 (still Investigate).
+#1689/#1089 stay open; #740 stays closed research. The bounded offline
+packet may now follow under this acceptance, labeling auth, transport,
+coverage, currentness, proof and outcome facts as supplied.

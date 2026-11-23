@@ -141,9 +141,10 @@ may still use the earlier resume controls.
 
 ## Open a session in its desktop app
 
-In current source builds, the top-bar **Open in…** menu shows application icons
-and checks which destinations are available. It refreshes when the selected
-session's identity, lifecycle or project directory changes. Built-in Codex sessions can open the same conversation in **ChatGPT**.
+In current source builds, the top-bar **Open in…** menu checks which destinations
+are available when you open it. While the menu is open, it refreshes when the
+session's identity, lifecycle or project directory changes. Built-in Codex
+sessions can open the same conversation in **ChatGPT**.
 Built-in Claude Code sessions can open in **Claude** after you explicitly
 **Close** the session in OrkWorks. Opening never closes a running session for you.
 
@@ -223,7 +224,11 @@ Published installers may still use the earlier panel layout.
 Peon is OrkWorks’ AI observer. With a provider configured, it reads recent
 terminal output and produces summaries and attention signals. Some coding
 tools can also report events through an explicitly installed integration.
-For OpenCode, an active integration reports prompt-driven **Needs You**.
+In current source builds, the OpenCode integration follows the main conversation.
+It reports **Working** during model steps and **Needs You** for an explicit
+question or permission request. Once the integration reports attention, Peon
+continues to update summaries while OpenCode controls the status. Update the
+OpenCode integration through Settings and start a fresh session for this behavior.
 Current source builds also read Codex's own terminal status: manual prompts
 show **Needs You**, while automatic approval review stays **Working**.
 This works without reinstalling hooks. Codex versions that do not emit this
@@ -289,7 +294,15 @@ Pure renames contribute no line changes. Binary files count toward files but
 contribute no lines. Sessions sharing a
 worktree show the same totals; the counter does not identify which agent made
 each edit. Git results are reused for five seconds; committing or undoing
-changes updates the counter on the first session refresh after that window.
+changes updates the counter on the next Git refresh after that window.
+Current source builds update activity separately from Git and document summaries.
+Details shows when those summaries are being checked, may be out of date, or
+are unavailable. Git/document checks normally start every five seconds during
+output activity and every 30 seconds when quiet; slow checks can take longer.
+Information is marked out of date after five seconds, including between idle
+checks. Explicit refresh requests a new check immediately. Opening a document or performing an action
+still validates its current location. Older app/sidecar combinations retain the
+previous full-refresh behavior. This does not establish installer availability.
 Line totals are omitted when they cannot be read. A stalled Git scan is stopped after
 five seconds, leaving Git facts unavailable instead of displaying clean or zero
 counts. Session refreshes can recover after the filesystem problem is fixed.

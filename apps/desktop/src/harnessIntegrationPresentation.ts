@@ -9,10 +9,12 @@ export type { ActiveHarnessIntegrationResult, ActiveHarnessSaveResult, Integrati
 // the integration status instead of duplicating the current integration
 // catalog here. Codex's SessionStart remains identity-only, while its
 // turn-event bundle reports deterministic attention; OpenCode's plugin also
-// reports attention events (idle/permission/busy, issue #104).
+// reports attention events (idle/permission/busy, issue #104); Antigravity's
+// hooks report working/idle turn boundaries (issue #1937).
 export function isAttentionSignal(harnessId: string): boolean {
   switch (harnessId) {
     case "aider":
+    case "antigravity":
     case "claude-code":
     case "codex":
     case "copilot":
@@ -49,6 +51,36 @@ export interface GroupedIntegrationStatus {
   key: IntegrationKey;
   consumers: IntegrationConsumer[];
   status: IntegrationStatus;
+}
+
+function hasOutdatedHook(status: IntegrationStatus): boolean {
+  return status.registration === "drifted"
+    && status.ownership === "ork_works"
+    && status.diagnostics.length > 0
+    && status.diagnostics.every(({ code }) =>
+      INFORMATIONAL_DIAGNOSTIC_CODES.has(code) || OUTDATED_HOOK_DIAGNOSTIC_CODES.has(code),
+    );
+}
+
+export function workspaceHookNotices(groups: readonly GroupedIntegrationStatus[]) {
+  return groups.flatMap(({ key, consumers, status }) => {
+    if (!status.enabled || !status.toolDetected || consumers.length === 0
+      || !shouldShowInstalledConfirmation(status.diagnostics)) return [];
+    let action: string;
+    if (hasOutdatedHook(status)) {
+      action = "OrkWorks hook update available.";
+    } else if (status.registration === "absent" && status.confirmation?.relativePaths.length) {
+      action = "OrkWorks hook needs installation.";
+    } else if (status.registration === "installed" && status.activation === "needs_trust") {
+      action = key.adapterId === "codex"
+        ? "Run /hooks in Codex to trust the OrkWorks hook."
+        : "Approve the OrkWorks hook inside the coding tool.";
+    } else {
+      return [];
+    }
+    const names = consumers.map(({ harnessName }) => harnessName).join(", ");
+    return [{ key: key.adapterId + "/" + key.targetId, text: names + ": " + action }];
+  });
 }
 
 /** Projects one grouped save outcome onto the row that consumes its adapter. */
@@ -133,15 +165,7 @@ export function deriveIntegrationDisplayState({
   }
 
   const current = status.status;
-  const outdatedHook = enabled
-    && current.registration === "drifted"
-    && current.ownership === "ork_works"
-    && current.diagnostics.length > 0
-    && current.diagnostics.every((item) =>
-      INFORMATIONAL_DIAGNOSTIC_CODES.has(item.code) || OUTDATED_HOOK_DIAGNOSTIC_CODES.has(item.code),
-    );
-
-  if (outdatedHook) {
+  if (enabled && hasOutdatedHook(current)) {
     const description = "Enabled, but the installed OrkWorks hook is out of date.";
     return displayState(
       "needs-you",

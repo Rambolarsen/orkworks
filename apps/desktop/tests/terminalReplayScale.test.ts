@@ -28,7 +28,7 @@ test("returns 1 for a zero or negative natural size instead of dividing by zero"
 });
 
 test("availableContentBox subtracts per-side padding from the client size", () => {
-  // Matches `.terminal-container { padding: var(--space-2); }` (8px on each side):
+  // A padded host (8px on each side) still needs its content box measured:
   // clientWidth/clientHeight include padding, but xterm lives inside the content box.
   const box = availableContentBox(
     { width: 800, height: 400 },

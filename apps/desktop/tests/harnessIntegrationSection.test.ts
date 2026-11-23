@@ -6,9 +6,11 @@ import {
   integrationOperationForHarness,
   isAttentionSignal,
   shouldShowInstalledConfirmation,
+  workspaceHookNotices,
 } from "../src/harnessIntegrationPresentation.ts";
 import type {
   ActiveHarnessIntegrationResult,
+  GroupedIntegrationStatus,
   IntegrationStatusResult,
 } from "../src/harnessIntegrationPresentation.ts";
 
@@ -18,6 +20,10 @@ test("isAttentionSignal is true for codex turn hooks while SessionStart remains 
 
 test("isAttentionSignal is true for opencode, whose plugin reports idle/permission/busy attention events (issue #104)", () => {
   assert.equal(isAttentionSignal("opencode"), true);
+});
+
+test("isAttentionSignal is true for antigravity, whose hooks report working and idle turn boundaries", () => {
+  assert.equal(isAttentionSignal("antigravity"), true);
 });
 
 test("isAttentionSignal is true for harnesses whose hook reports needs-input attention", () => {
@@ -338,4 +344,71 @@ test("deriveIntegrationDisplayState returns neutral spinner state while integrat
   assert.equal(display.appearance, "in-progress");
   assert.equal(display.glyph, "spinner");
   assert.match(display.description, /in progress/i);
+});
+
+
+function workspaceGroup(overrides: Partial<GroupedIntegrationStatus["status"]> = {}): GroupedIntegrationStatus {
+  const result = integrationStatus(overrides);
+  if (!result.ok) throw new Error(result.error);
+  return {
+    key: { adapterId: result.status.harnessId, targetId: "workspace" },
+    consumers: [{ harnessId: result.status.harnessId, harnessName: result.status.confirmation?.toolName ?? "Codex" }],
+    status: result.status,
+  };
+}
+
+test("workspace hook notice names the enabled consumers of an outdated hook", () => {
+  const group = workspaceGroup({
+    registration: "drifted",
+    activation: "needs_trust",
+    diagnostics: [{ code: "reporter_asset_drifted", message: "Outdated" }],
+  });
+  group.consumers.push({ harnessId: "codex-local", harnessName: "Local Codex" });
+  assert.deepEqual(workspaceHookNotices([group]), [
+    { key: "codex/workspace", text: "Codex, Local Codex: OrkWorks hook update available." },
+  ]);
+});
+
+test("workspace hook notice explains Codex trust and missing hooks", () => {
+  const untrusted = workspaceGroup({ activation: "needs_trust" });
+  assert.match(workspaceHookNotices([untrusted])[0].text, /Codex.*\/hooks.*trust/i);
+  assert.match(workspaceHookNotices([
+    workspaceGroup({
+      registration: "absent",
+      ownership: "none",
+      activation: "unknown",
+      confirmation: {
+        toolName: "Codex", workspaceLabel: "repo", coverageSummary: "Session ID capture",
+        relativePaths: [".codex/hooks.json"], executableCodeWarning: true,
+      },
+    }),
+  ])[0].text, /Codex.*hook.*install/i);
+});
+
+test("workspace hook notice omits healthy, disabled, unsupported and unrelated errors", () => {
+  assert.deepEqual(workspaceHookNotices([
+    workspaceGroup(),
+    workspaceGroup({ enabled: false, activation: "needs_trust" }),
+    workspaceGroup({ toolDetected: false, registration: "absent" }),
+    workspaceGroup({ registration: "unsupported", activation: "needs_trust" }),
+    workspaceGroup({ registration: "error", activation: "needs_trust" }),
+    workspaceGroup({ registration: "drifted", ownership: "ambiguous" }),
+    workspaceGroup({
+      harnessId: "aider",
+      registration: "absent",
+      ownership: "none",
+      confirmation: {
+        toolName: "Aider", workspaceLabel: "repo", coverageSummary: "Peon attention fallback",
+        relativePaths: [], executableCodeWarning: false,
+      },
+    }),
+    workspaceGroup({
+      registration: "absent",
+      diagnostics: [{ code: "unsupported_tool_version", message: "Unsupported" }],
+      confirmation: {
+        toolName: "Codex", workspaceLabel: "repo", coverageSummary: "Session ID capture",
+        relativePaths: [".codex/hooks.json"], executableCodeWarning: true,
+      },
+    }),
+  ]), []);
 });

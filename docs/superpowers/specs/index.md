@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Separate session status and repository enrichment](2026-11-18-session-status-enrichment-design.md) — Proposed #1895 protocol, freshness, scheduling and recovery contract; owner approval required before implementation.
+
 - [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Owner-approved policy-3 status and consumer compatibility boundary; implementation and qualification tracked in #1694.
 
 - [Inert improvement text and fixed handoffs](2026-11-13-improvement-text-contract.md) — Owner-approved and implemented policy 2 and fixed handoffs for #1694; usefulness qualification and activation remain gated.
@@ -347,3 +349,25 @@ Dated design records; these do not establish current product behavior.
 - [Research review tasks and report-consuming outcomes](2026-11-18-research-review-tasks-design.md) — Proposed declared reviewer tasks, retained review input, immutable review outcomes and summary review references; scoped offline-component choices pending.
 
 - [Research material clarification and changed answers](2026-11-18-research-clarification-design.md) — Proposed clarification decision/request/answer records, Main-authorized user provenance, atomic input/state effects and gate precedence; scoped offline-component choices pending.
+
+- [Production review preview binding](2026-11-19-review-handoff-binding-design.md) — Owner-accepted inspection/draft design; production source and Start admission qualification remain gated.
+
+- [Research-to-execution proposal and approval source](2026-11-19-research-execution-proposal-design.md) — Proposed execution decision/plan source with exact summary bindings, approval/rejection/invalidation records and a fresh server-held grant; scoped offline-component choices pending.
+
+- [Execution final completion and terminal continuation](2026-11-19-research-execution-completion-design.md) — Proposed typed execution-plan completion trigger, absorbing run-terminal transition with authority revocation and collection disposition under the sole run owner; scoped offline-component choices pending.
+
+- [Review artifact revision and Start admission sources](2026-11-19-review-source-qualification-design.md) — Accepted artifact epoch and bounded ordinary-review admission/recovery contract; offline logical evidence, with production qualification gated.
+
+- [Ordinary plan-review proposal and prepared input](2026-11-19-review-launch-input-design.md) — Accepted typed request/proposal, narrow reviewer profile and logical prepared-input commitment; production source/native qualification remains gated.
+
+- [Ordinary-review catalog and integration leaves](2026-11-20-review-configuration-leaves-design.md) — Accepted logical stock-catalog source bytes, owned integration inventory and command/digest joins, with pure-capture and native qualification gates.
+
+- [Freeze ordinary-review Codex isolation before capture](2026-11-20-review-codex-isolation-design.md) — Accepted literal-command ordering and source-only separation, with native/capture/creator gates retained.
+
+- [Project the exact owned Codex hook fragment](2026-11-22-review-codex-fragment-design.md) — Accepted strict pure projection and shared actual command template without retaining shared user configuration.
+
+- [Complete Codex capture inventory and custody](2026-11-22-review-codex-capture-design.md) — Proposed complete inventory, retained custody and shared owner prerequisites.
+
+- [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
+
+- [Research complete discovery and invalidation ownership](2026-11-23-research-discovery-invalidation-design.md) — Proposed per-family discovery ownership in both lookup directions, invalidation-ownership table and shared finite bounds over the accepted catalog; no format or runtime qualification.

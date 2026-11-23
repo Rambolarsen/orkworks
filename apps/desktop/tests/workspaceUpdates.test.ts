@@ -51,3 +51,174 @@ test("transport adopts only a valid snapshot and restores fallback on a gap; dis
   sockets[0].onmessage?.({ data: JSON.stringify(snapshot()) });
   assert.equal(lists.length, count); assert.equal(timers.size, 0);
 });
+
+test("heartbeats renew liveness only after the first workspace snapshot", async () => {
+  const sockets: Array<{
+    onmessage: ((event: { data: string }) => void) | null;
+    onclose: (() => void) | null;
+    onerror: (() => void) | null;
+    closed: boolean;
+    close(): void;
+  }> = [];
+  const timers = new Map<number, { at: number; callback: () => void }>();
+  let now = 0;
+  let timerId = 0;
+  const advanceTo = (until: number) => {
+    for (;;) {
+      const next = [...timers].sort((left, right) => left[1].at - right[1].at)[0];
+      if (!next || next[1].at > until) break;
+      const [id, { at, callback }] = next;
+      now = at;
+      timers.delete(id);
+      callback();
+    }
+    now = until;
+  };
+  const health: boolean[] = [];
+  const published: string[][] = [];
+  const stream = startWorkspaceUpdates({
+    workspacePath: "/workspace",
+    getBackendUrl: async () => "http://localhost:1234",
+    createSocket: () => {
+      const socket = {
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+        closed: false,
+        close() { this.closed = true; },
+      };
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+    scheduler: {
+      set(callback, delay) { timers.set(++timerId, { at: now + delay, callback }); return timerId; },
+      clear(handle) { timers.delete(handle as number); },
+    },
+    onHealthy: value => health.push(value),
+    onSessions: rows => published.push(rows.map(session => session.id)),
+    onRecommendationsInvalidated() {},
+  });
+
+  try {
+    await Promise.resolve();
+    const first = sockets[0];
+    const staleMessage = first.onmessage!;
+    const heartbeat = { data: JSON.stringify({ type: "heartbeat" }) };
+    for (const at of [10_000, 20_000]) {
+      advanceTo(at);
+      first.onmessage?.(heartbeat);
+    }
+    advanceTo(29_999);
+    assert.equal(first.closed, false);
+    advanceTo(30_000);
+    assert.equal(first.closed, true, "heartbeats must not postpone the first snapshot deadline");
+    staleMessage({ data: JSON.stringify(snapshot()) });
+    assert.deepEqual(published, []);
+    assert.deepEqual(health, [false]);
+
+    advanceTo(32_000);
+    await Promise.resolve();
+    const retry = sockets[1];
+    retry.onmessage?.({ data: JSON.stringify(snapshot()) });
+    assert.deepEqual(published, [["a", "b"]]);
+    assert.deepEqual(health, [false, true]);
+    advanceTo(55_000);
+    retry.onmessage?.(heartbeat);
+    advanceTo(70_000);
+    assert.equal(retry.closed, false, "an established stream renews its heartbeat deadline");
+  } finally {
+    stream.dispose();
+  }
+  assert.equal(timers.size, 0);
+});
+
+const splitSnapshot = () => ({ ...snapshot(), capability: "status-enrichment-v1", sessions: [
+  { ...row("a"), branch: "main", enrichmentRevision: "r1", enrichment: { state: "ready", checkedAt: 1000 } },
+] });
+test("negotiated status preserves enrichment and enrichment cannot roll back newer status", () => {
+  const state = createStreamState("/workspace"); state.apply(splitSnapshot());
+  const { cwd: _, ...status } = row("a", "new status");
+  const next = state.apply({ ...header, type: "session-status-delta", base: 0, sequence: 1,
+    changed: [{ ...status, enrichmentRevision: "r1" }], removed: [] });
+  assert.equal(next.sessions?.[0].branch, "main");
+  const enriched = state.apply({ ...header, type: "session-enrichment-delta", base: 1, sequence: 2,
+    changed: [{ id: "a", revision: "r1", data: { cwd: "/new", branch: "feature" }, state: "ready", checkedAt: 2000 }] });
+  assert.equal(enriched.sessions?.[0].label, "new status");
+  assert.equal(enriched.sessions?.[0].branch, "feature");
+});
+test("negotiated status clears enrichment on replacement and rejects late results atomically", () => {
+  const state = createStreamState("/workspace"); state.apply(splitSnapshot());
+  const { cwd: _, ...status } = row("a");
+  const next = state.apply({ ...header, type: "session-status-delta", base: 0, sequence: 1,
+    changed: [{ ...status, enrichmentRevision: "r2" }], removed: [] });
+  assert.equal(next.sessions?.[0].branch, undefined);
+  assert.throws(() => state.apply({ ...header, type: "session-enrichment-delta", base: 1, sequence: 2,
+    changed: [{ id: "a", revision: "r1", data: { cwd: "/stale" }, state: "ready", checkedAt: 2000 }] }));
+  assert.throws(() => state.apply({ ...header, type: "session-status-delta", base: 1, sequence: 2,
+    changed: [{ ...status, branch: "injected", enrichmentRevision: "r2" }], removed: [] }));
+});
+test("unnegotiated clients reject status messages and freshness expires without network traffic", () => {
+  const legacy = createStreamState("/workspace"); legacy.apply(snapshot());
+  assert.throws(() => legacy.apply({ ...header, type: "session-status-delta", base: 0, sequence: 1, changed: [], removed: [] }));
+  const split = createStreamState("/workspace"); split.apply(splitSnapshot());
+  assert.equal(split.expire(5999).sessions, undefined);
+  assert.equal(split.expire(6000).sessions?.[0].enrichment?.state, "stale");
+});
+
+test("status replacement clears optional fields and enrichment clears old document values", () => {
+  const state = createStreamState("/workspace");
+  const initial = splitSnapshot();
+  state.apply({ ...initial, sessions: [{ ...initial.sessions[0], summary: "old", hasOpenablePlan: true }] });
+  const { cwd: _, ...status } = row("a");
+  const result = state.apply({ ...header, type: "session-status-delta", base: 0, sequence: 1,
+    changed: [{ ...status, enrichmentRevision: "r1" }], removed: [] });
+  assert.equal(result.sessions?.[0].summary, undefined);
+  assert.equal(result.sessions?.[0].hasOpenablePlan, true);
+  const enriched = state.apply({ ...header, type: "session-enrichment-delta", base: 1, sequence: 2,
+    changed: [{ id: "a", revision: "r1", data: { cwd: "/tmp" }, state: "ready", checkedAt: 2000 }] });
+  assert.equal(enriched.sessions?.[0].hasOpenablePlan, undefined);
+  assert.equal(enriched.sessions?.[0].branch, undefined);
+});
+test("an invalid enrichment batch cannot partly update valid rows or advance its cursor", () => {
+  const state = createStreamState("/workspace"); state.apply(splitSnapshot());
+  const good = { id: "a", revision: "r1", data: { cwd: "/valid", branch: "new" }, state: "ready", checkedAt: 2000 };
+  assert.throws(() => state.apply({ ...header, type: "session-enrichment-delta", base: 0, sequence: 1,
+    changed: [good, { ...good, id: "missing" }] }));
+  const result = state.apply({ ...header, type: "session-enrichment-delta", base: 0, sequence: 1, changed: [good] });
+  assert.equal(result.sessions?.[0].branch, "new");
+});
+
+test("workspace subscription offers its renderer credential and requests the split stream", async () => {
+  const calls: Array<{ url: URL; protocols: string[] }> = [];
+  const originalSocket = globalThis.WebSocket;
+  globalThis.WebSocket = class {
+    constructor(url: string, protocols: string[]) {
+      calls.push({ url: new URL(url), protocols });
+    }
+    close() {}
+  } as unknown as typeof WebSocket;
+  const globals = globalThis as Record<string, unknown>;
+  const originalWindow = Object.getOwnPropertyDescriptor(globals, "window");
+  Object.defineProperty(globals, "window", {
+    configurable: true,
+    value: Object.assign(new EventTarget(), { orkworks: { getBackendToken: () => "fixture-token" } }),
+  });
+  const stream = startWorkspaceUpdates({
+    workspacePath: "/workspace",
+    getBackendUrl: async () => "http://localhost:1234",
+    onSessions() {},
+    onHealthy() {},
+    onRecommendationsInvalidated() {},
+  });
+  try {
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url.searchParams.get("capability"), "status-enrichment-v1");
+    assert.deepEqual(calls[0].protocols, ["orkworks.v1", "orkworks.token.fixture-token"]);
+  } finally {
+    stream.dispose();
+    globalThis.WebSocket = originalSocket;
+    if (originalWindow) Object.defineProperty(globals, "window", originalWindow);
+    else delete globals.window;
+  }
+});

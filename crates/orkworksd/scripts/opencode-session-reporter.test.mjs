@@ -246,6 +246,23 @@ test('session.created still re-captures when OpenCode emits it', async () => {
   });
 });
 
+test('child creation and attention events cannot replace the root conversation', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push({ type: 'session.created', data: { sessionID: 'ses_early_child', parentID: 'ses_1' } });
+    await push(sessionEvent('session.step.started', { sessionID: 'ses_early_child' }));
+    await push(created());
+    await push(sessionEvent('session.step.started'));
+    await push({ type: 'session.created', data: { sessionID: 'ses_child', parentID: 'ses_1' } });
+    await push({ type: 'session.created', data: { info: { id: 'ses_other_child', parentID: 'ses_1' } } });
+    await push(sessionEvent('permission.asked', { sessionID: 'ses_child', id: 'p1' }));
+    await push(sessionEvent('session.execution.succeeded', { sessionID: 'ses_other_child' }));
+    await push(sessionEvent('session.execution.succeeded'));
+
+    assert.deepEqual(harnessPosts(posts).map(({ body }) => body.harnessSessionId), ['ses_1']);
+    assert.deepEqual(attention(posts).map(({ status }) => status), ['idle', 'working', 'idle']);
+  });
+});
+
 test('permission and question resolutions restore the latest turn state', async () => {
   await withReporter(async ({ push, posts }) => {
     await push(created());

@@ -1,3 +1,7 @@
+#[cfg(windows)]
+#[path = "session_runtime/windows_cwd.rs"]
+mod windows_cwd;
+
 use super::input_submission::{Error as ReportError, Flush, InputFact, PhaseResult, Reporter};
 use crate::runtime::observed_status::ProcessTransition;
 #[cfg(windows)]
@@ -830,6 +834,7 @@ pub(crate) struct SessionRuntime {
     pub(crate) peon_output_revision: u64,
     pub(crate) min_peon_output_revision: u64,
     pub(crate) peon_output_capture: Option<peon::PeonOutputCapture>,
+    output_recency_reader: Option<Arc<crate::metadata::session_reader::SessionReader>>,
     last_output_persisted_at: Option<tokio::time::Instant>,
     pending_output_at: Option<String>,
     output_flush_scheduled: bool,
@@ -889,6 +894,7 @@ impl SessionRuntime {
                 peon_output_revision: 0,
                 min_peon_output_revision: 0,
                 peon_output_capture: None,
+                output_recency_reader: None,
                 last_output_persisted_at: None,
                 pending_output_at: None,
                 output_flush_scheduled: false,
@@ -948,6 +954,7 @@ impl SessionRuntime {
             peon_output_revision: 0,
             min_peon_output_revision: 0,
             peon_output_capture: None,
+            output_recency_reader: None,
             last_output_persisted_at: None,
             pending_output_at: None,
             output_flush_scheduled: false,
@@ -995,6 +1002,58 @@ impl SessionRuntime {
     #[cfg(test)]
     pub(crate) fn last_size(&self) -> (u16, u16) {
         (self.last_rows, self.last_cols)
+    }
+
+    pub(crate) fn bind_output_recency_store(
+        &mut self,
+        reader: Arc<crate::metadata::session_reader::SessionReader>,
+    ) {
+        if self
+            .output_recency_reader
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &reader))
+        {
+            return;
+        }
+        self.output_recency_reader = Some(reader);
+        // Pending output from the retired store must not follow the new store.
+        self.pending_output_at = None;
+        self.output_flush_scheduled = false;
+    }
+
+    pub(crate) fn rebind_output_recency_store(
+        &mut self,
+        reader: &Arc<crate::metadata::session_reader::SessionReader>,
+    ) {
+        if self
+            .output_recency_reader
+            .as_ref()
+            .is_some_and(|current| current.root() == reader.root())
+        {
+            self.bind_output_recency_store(reader.clone());
+        }
+    }
+
+    pub(crate) fn output_recency_target(
+        &self,
+        id: &str,
+    ) -> Option<crate::session_application::OutputRecencyTarget> {
+        Some(crate::session_application::OutputRecencyTarget {
+            id: id.to_owned(),
+            generation: self.run_generation,
+            reader: self.output_recency_reader.clone()?,
+        })
+    }
+
+    fn owns_output_recency(
+        &self,
+        target: &crate::session_application::OutputRecencyTarget,
+    ) -> bool {
+        self.run_generation == target.generation
+            && self
+                .output_recency_reader
+                .as_ref()
+                .is_some_and(|reader| Arc::ptr_eq(reader, &target.reader))
     }
 
     fn record_output_recency(
@@ -1062,21 +1121,20 @@ fn output_recency_timestamp(data: &[u8], timestamp: String) -> Option<String> {
     (!data.is_empty()).then_some(timestamp)
 }
 
-async fn flush_output_recency(state: &Arc<AppState>, id: &str) {
+fn persist_pending_output_recency(
+    state: &Arc<AppState>,
+    target: crate::session_application::OutputRecencyTarget,
+) {
     let timestamp = state
         .sessions
         .lock()
         .unwrap()
-        .get_mut(id)
+        .get_mut(&target.id)
+        .filter(|handle| handle.runtime.owns_output_recency(&target))
         .and_then(|handle| handle.runtime.flush_output_recency());
     if let Some(timestamp) = timestamp {
-        let state = state.clone();
-        let id = id.to_string();
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::session_application::SessionApplication::new(state)
-                .persist_output_recency(&id, timestamp)
-        })
-        .await;
+        crate::session_application::SessionApplication::new(state.clone())
+            .persist_output_recency(target, timestamp);
     }
 }
 
@@ -1670,15 +1728,25 @@ pub(crate) async fn handle_runtime_exit(
     };
     crate::session_application::SessionApplication::new(state.clone())
         .clear_ended_session_tracking_for_runtime(id, &runtime_identity);
-    if tokio::time::timeout(
-        EXIT_STATUS_TRANSITION_GRACE,
-        flush_output_recency(state, id),
-    )
-    .await
-    .is_err()
+    let recency_state = state.clone();
+    let recency_id = id.to_owned();
+    let final_recency = tokio::task::spawn_blocking(move || {
+        let target = recency_state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&recency_id)
+            .filter(|h| h.runtime.run_generation() == generation)
+            .and_then(|h| h.runtime.output_recency_target(&recency_id));
+        if let Some(target) = target {
+            persist_pending_output_recency(&recency_state, target);
+        }
+    });
+    if tokio::time::timeout(EXIT_STATUS_TRANSITION_GRACE, final_recency)
+        .await
+        .is_err()
     {
-        // The persistence task is detached by timeout and will finish when
-        // the workspace lock is released; do not hold runtime shutdown open.
+        // An admitted persistence task retains its original ownership after timeout.
         tracing::warn!(session_id = %id, "output-recency persistence is still waiting; continuing runtime finalization");
     }
     schedule_session_ending_finalization(
@@ -2545,6 +2613,12 @@ async fn run_session_runtime(
     let mut execution_env = Vec::new();
     let mut cmd = CommandBuilder::new(&program);
     cmd.args(&command.args);
+    #[cfg(windows)]
+    let process_cwd = windows_cwd::process_cwd(&command.cwd, &program)
+        .map_err(|error| StartupError::classified(Code::ProcessSpawnFailed, error))?;
+    #[cfg(windows)]
+    cmd.cwd(&process_cwd);
+    #[cfg(not(windows))]
     cmd.cwd(&command.cwd);
     for (key, value) in std::env::vars() {
         if should_forward_terminal_env(&key) {
@@ -2642,6 +2716,9 @@ async fn run_session_runtime(
         }
         cmd = CommandBuilder::new(owned.resolved_executable());
         cmd.args(owned.tui_args());
+        #[cfg(windows)]
+        cmd.cwd(&process_cwd);
+        #[cfg(not(windows))]
         cmd.cwd(&command.cwd);
         cmd.env_clear();
         for (key, value) in &execution_env {
@@ -3267,19 +3344,25 @@ async fn run_session_runtime(
                             let mut promoted_working = false;
                             let mut output_recency_to_persist = None;
                             let mut output_flush_delay = None;
+                            let mut output_recency_target = None;
                             {
                                 let mut sessions = driver_state.sessions.lock().unwrap();
-                                if let Some(handle) = sessions.get_mut(&driver_id) {
+                                if let Some(handle) = sessions.get_mut(&driver_id)
+                                    .filter(|handle| handle.runtime.run_generation() == run_generation)
+                                {
                                     if let Some(output_at) = output_at {
                                         let output_persist_at = tokio::time::Instant::now();
                                         handle.info.last_output_at = Some(output_at.clone());
-                                        driver_state.updates.sessions_changed();
+                                        driver_state.updates.output_changed();
                                         output_recency_to_persist = handle
                                             .runtime
                                             .record_output_recency(output_at, output_persist_at);
                                         output_flush_delay = handle
                                             .runtime
                                             .schedule_output_recency_flush(output_persist_at);
+                                        if output_recency_to_persist.is_some() || output_flush_delay.is_some() {
+                                            output_recency_target = handle.runtime.output_recency_target(&driver_id);
+                                        }
                                     }
                                     // ADR 0065: reassemble hard-wrapped rows
                                     // before they enter the shared buffer,
@@ -3323,21 +3406,21 @@ async fn run_session_runtime(
                                 }
                             }
 
-                            if let Some(timestamp) = output_recency_to_persist {
+                            if let Some(target) = output_recency_target {
                                 let state = driver_state.clone();
-                                let id = driver_id.clone();
-                                tokio::task::spawn_blocking(move || {
-                                    crate::session_application::SessionApplication::new(state)
-                                        .persist_output_recency(&id, timestamp)
-                                });
-                            }
-                            if let Some(delay) = output_flush_delay {
-                                let state = driver_state.clone();
-                                let id = driver_id.clone();
-                                tokio::spawn(async move {
-                                    tokio::time::sleep(delay).await;
-                                    flush_output_recency(&state, &id).await;
-                                });
+                                if let Some(timestamp) = output_recency_to_persist {
+                                    tokio::task::spawn_blocking(move || {
+                                        crate::session_application::SessionApplication::new(state)
+                                            .persist_output_recency(target, timestamp);
+                                    });
+                                } else if let Some(delay) = output_flush_delay {
+                                    tokio::spawn(async move {
+                                        tokio::time::sleep(delay).await;
+                                        tokio::task::spawn_blocking(move || {
+                                            persist_pending_output_recency(&state, target);
+                                        });
+                                    });
+                                }
                             }
 
                             if driver_state.peon.config.enabled {
@@ -5023,6 +5106,88 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
             Some(std::time::Duration::from_secs(4))
         );
         assert_eq!(runtime.flush_output_recency(), Some(second));
+    }
+
+    #[test]
+    fn output_recency_retired_timer_leaves_post_reopen_output_pending() {
+        use crate::session_application::SessionApplication;
+        use std::time::Duration;
+
+        const ID: &str = "recency-reopen-timer";
+        const START: &str = "2026-11-19T08:00:00Z";
+        const OLD: &str = "2026-11-19T08:00:01Z";
+        const NEW: &str = "2026-11-19T08:00:02Z";
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let app = SessionApplication::new(state.clone());
+        let generation = app.test_output_recency_generation(ID);
+        app.bind_output_recency_store(ID, generation);
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let metadata =
+                crate::test_support::test_session_metadata(ID, ID, ".", "running", "now", "now");
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+        }
+        let now = tokio::time::Instant::now();
+        let old_target = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let runtime = &mut sessions.get_mut(ID).unwrap().runtime;
+            runtime.record_output_recency(START.into(), now).unwrap();
+            assert!(runtime
+                .record_output_recency(OLD.into(), now + Duration::from_secs(1))
+                .is_none());
+            assert!(runtime
+                .schedule_output_recency_flush(now + Duration::from_secs(1))
+                .is_some());
+            runtime.output_recency_target(ID).unwrap()
+        };
+        let new_target = {
+            let mut workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_mut().unwrap();
+            ws.metadata = ws.metadata.reopen_with_shared_workspace_memory();
+            let mut sessions = state.sessions.lock().unwrap();
+            let runtime = &mut sessions.get_mut(ID).unwrap().runtime;
+            runtime.rebind_output_recency_store(&ws.metadata.session_reader());
+            assert!(runtime
+                .record_output_recency(NEW.into(), now + Duration::from_secs(2))
+                .is_none());
+            assert!(runtime
+                .schedule_output_recency_flush(now + Duration::from_secs(2))
+                .is_some());
+            runtime.output_recency_target(ID).unwrap()
+        };
+
+        persist_pending_output_recency(&state, old_target);
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(ID)
+            .unwrap()
+            .last_output_at
+            .is_none());
+        persist_pending_output_recency(&state, new_target);
+        assert_eq!(
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(ID)
+                .unwrap()
+                .last_output_at
+                .as_deref(),
+            Some(NEW)
+        );
     }
 
     #[test]
@@ -7654,12 +7819,26 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
         let state = crate::test_support::test_app_state_with_workspace(dir.path());
         let id = "held-exit-workspace-lock".to_string();
         let (mut runtime, _control_rx) = SessionRuntime::live(24, 80);
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let ws = workspace.as_ref().unwrap();
+            let metadata = crate::test_support::test_session_metadata(
+                &id,
+                "Held exit",
+                "/tmp",
+                "running",
+                "t0",
+                "t0",
+            );
+            ws.metadata.write_session(&metadata);
+            runtime.bind_output_recency_store(ws.metadata.session_reader());
+        }
         let now = tokio::time::Instant::now();
         assert!(runtime
-            .record_output_recency("first-output".into(), now)
+            .record_output_recency("2026-11-19T08:00:00Z".into(), now)
             .is_some());
         assert!(runtime
-            .record_output_recency("pending-output".into(), now + Duration::from_secs(1))
+            .record_output_recency("2026-11-19T08:00:01Z".into(), now + Duration::from_secs(1))
             .is_none());
         let generation = runtime.run_generation();
         let (kill_tx, _) = tokio::sync::watch::channel(false);

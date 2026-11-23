@@ -4,6 +4,10 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Session status and enrichment delivery](2026-11-19-session-status-enrichment.md) — Approved #1895 implementation, compatibility and performance checks.
+
+- [Keep terminal input responsive during output timestamp writes](2026-11-19-terminal-output-recency-contention.md) — Approved lock-scope repair and regression for #1222.
+
 - [Owned packet process cleanup](2026-11-17-packet-owned-cleanup.md) — Approved original-child cleanup and safe failure receipts for #1741; offline implementation and verification underway.
 
 - [Confirm a settling probe leader after Darwin EPERM](2026-11-10-probe-exit-confirmation.md) — Approved bounded #957 cleanup confirmation with original-child proof and one shared deadline.
@@ -380,3 +384,15 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Session projection CPU](2026-11-18-session-projection-cpu.md) — Evidence and delivery boundaries for reducing refresh cost.
 
 - [Review handoff preview implementation](2026-11-18-review-handoff-preview.md) — Proposed isolated interactive preview slice and explicit production read/approval prerequisites.
+
+- [Offline review source qualification components](2026-11-19-review-source-components.md) — Accepted finite artifact/registry/admission oracles; no application storage or process effects.
+
+- [Offline ordinary-review launch-input components](2026-11-19-review-launch-input-components.md) — Accepted finite proposal/prepared byte, digest and source/draft join oracles without runtime effects.
+
+- [Offline ordinary-review configuration leaves](2026-11-20-review-configuration-leaf-components.md) — Accepted finite leaf bytes, expected resource-set coverage and prepared-input joins without actual capture or launch.
+
+- [Codex isolation probe and render components](2026-11-20-review-codex-isolation-components.md) — Approved bounded Rust extraction preserving actual manual isolation and capability filtering.
+
+- [Codex owned-fragment source components](2026-11-22-review-codex-fragment-components.md) — Accepted bounded renderer/projector work with independent bytes, ambiguity rejection and manual compatibility evidence.
+
+- [Qualify the first Codex capture inventory and custody](2026-11-22-review-codex-capture-qualification.md) — Proposed staged physical observation and shared-owner evidence roadmap.

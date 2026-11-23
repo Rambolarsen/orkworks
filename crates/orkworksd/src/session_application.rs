@@ -279,6 +279,12 @@ pub(crate) struct WorkspaceSnapshot {
         std::collections::BTreeSet<crate::harness::integration::IntegrationKey>,
 }
 
+pub(crate) struct OutputRecencyTarget {
+    pub(crate) id: String,
+    pub(crate) generation: crate::runtime::session_runtime::RuntimeGeneration,
+    pub(crate) reader: Arc<metadata::session_reader::SessionReader>,
+}
+
 pub(crate) struct SessionApplication {
     state: Arc<AppState>,
     unverified_advice_view: bool,
@@ -357,6 +363,34 @@ fn opencode_event_allows_status(event: &str, status: &str) -> bool {
     }
 }
 
+/// Antigravity hooks report only turn boundaries: every model call is
+/// `PreInvocation` (working) and the turn ends at one fully idle `Stop`.
+/// Session identity, tool events and `PostInvocation` never carry attention,
+/// and Needs You is not a hook signal.
+fn antigravity_event_allows_status(event: &str, status: &str) -> bool {
+    matches!(
+        (event, status),
+        ("PreInvocation", "working") | ("Stop", "idle")
+    )
+}
+
+/// The harness whose live session may use a source's report-token authority.
+fn token_hook_harness(source: Option<&str>) -> Option<&'static str> {
+    match source {
+        Some("opencode_hook") => Some("opencode"),
+        Some("antigravity_hook") => Some("antigravity"),
+        _ => None,
+    }
+}
+
+fn hook_event_allows_status(harness: &str, event: &str, status: &str) -> bool {
+    match harness {
+        "opencode" => opencode_event_allows_status(event, status),
+        "antigravity" => antigravity_event_allows_status(event, status),
+        _ => false,
+    }
+}
+
 pub(crate) struct DebugAttentionSignal {
     pub(crate) attention: String,
     pub(crate) message: Option<String>,
@@ -390,7 +424,11 @@ pub(crate) struct AttentionMergeSignal {
     pub(crate) debug_hint_mutation: Option<DebugHintMutation>,
 }
 
+/// Report-token authority for hook sources whose harness has no installed
+/// prompt contract (OpenCode and Antigravity). `harness` is the one live
+/// session harness the report was validated against.
 pub(crate) struct OpenCodeReportAuthority {
+    harness: &'static str,
     token: String,
     runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
 }
@@ -1420,7 +1458,7 @@ impl SessionApplication {
                     packet_mutation.is_some(),
                 )
                 .map_err(|_| RecommendationAcceptError::Conflict)?;
-                let prompt = if let Some(prompt) = fixed {
+                let begin_execution = || {
                     workspace
                         .recommendation_store
                         .begin_execution(
@@ -1429,58 +1467,54 @@ impl SessionApplication {
                             chrono::Utc::now().to_rfc3339(),
                         )
                         .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
-                } else if crate::taskmaster::is_improvement_investigation(&recommendation) {
-                    if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
-                        return Err(RecommendationAcceptError::Conflict);
+                        .ok_or(RecommendationAcceptError::Conflict)
+                };
+                let prompt = match (fixed, recommendation.completion_packet.as_ref()) {
+                    (Some(prompt), _) => {
+                        begin_execution()?;
+                        prompt
                     }
-                    let prompt = crate::taskmaster::build_fix_prompt(&recommendation);
-                    workspace
-                        .recommendation_store
-                        .begin_execution(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
-                } else if let Some(packet) = &recommendation.completion_packet {
-                    if prompt_override.is_some() {
-                        return Err(RecommendationAcceptError::Conflict);
+                    (None, _)
+                        if crate::taskmaster::is_improvement_investigation(&recommendation) =>
+                    {
+                        if recommendation.completion_packet.is_some() || packet_mutation.is_some() {
+                            return Err(RecommendationAcceptError::Conflict);
+                        }
+                        let prompt = crate::taskmaster::build_fix_prompt(&recommendation);
+                        begin_execution()?;
+                        prompt
                     }
-                    let mutation = packet_mutation
-                        .as_ref()
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    workspace
-                        .recommendation_store
-                        .begin_execution_checked(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                            mutation,
-                            "user".into(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
-                } else {
-                    let prompt = prompt_override
-                        .map(|prompt| {
-                            ensure_recommendation_handoff_contract(prompt, &recommendation)
-                        })
-                        .unwrap_or_else(|| crate::taskmaster::build_fix_prompt(&recommendation));
-                    workspace
-                        .recommendation_store
-                        .begin_execution(
-                            id,
-                            session_id.to_string(),
-                            chrono::Utc::now().to_rfc3339(),
-                        )
-                        .map_err(RecommendationAcceptError::Store)?
-                        .ok_or(RecommendationAcceptError::Conflict)?;
-                    prompt
+                    (None, Some(packet)) => {
+                        if prompt_override.is_some() {
+                            return Err(RecommendationAcceptError::Conflict);
+                        }
+                        let mutation = packet_mutation
+                            .as_ref()
+                            .ok_or(RecommendationAcceptError::Conflict)?;
+                        workspace
+                            .recommendation_store
+                            .begin_execution_checked(
+                                id,
+                                session_id.to_string(),
+                                chrono::Utc::now().to_rfc3339(),
+                                mutation,
+                                "user".into(),
+                            )
+                            .map_err(RecommendationAcceptError::Store)?
+                            .ok_or(RecommendationAcceptError::Conflict)?;
+                        format!("{}\r", packet.action.prompt.trim_end_matches('\r'))
+                    }
+                    (None, None) => {
+                        let prompt = prompt_override
+                            .map(|prompt| {
+                                ensure_recommendation_handoff_contract(prompt, &recommendation)
+                            })
+                            .unwrap_or_else(|| {
+                                crate::taskmaster::build_fix_prompt(&recommendation)
+                            });
+                        begin_execution()?;
+                        prompt
+                    }
                 };
                 let delivery_guard =
                     RecommendationDeliveryGuard::new(&workspace.path, &recommendation.id);
@@ -1602,61 +1636,32 @@ impl SessionApplication {
             return Err(RecommendationCompleteError::Conflict);
         }
 
-        if existing.completion_packet.is_some() {
-            let mutation = packet_mutation
-                .as_ref()
-                .ok_or(RecommendationCompleteError::Conflict)?;
-            let completed = workspace
-                .recommendation_store
-                .complete_accepted_checked(id, chrono::Utc::now().to_rfc3339(), mutation)
-                .map_err(RecommendationCompleteError::Store)?
-                .ok_or(RecommendationCompleteError::Conflict)?;
-            // A retry after the agent has already reported completion is safe
-            // only when it carries the same packet revision, evidence
-            // fingerprint, and idempotency key.
-            if existing.status == RecommendationStatus::Completed {
-                return Ok(Some(completed));
-            }
-            let event = metadata::Event {
-                event_type: "taskmaster_fix_completed".into(),
-                timestamp: iso_now(),
-                status: "working".into(),
-                observed_status: Some("working".into()),
-                confidence: None,
-                summary: Some(completion_summary(&existing, summary)),
-                source: Some("agent".into()),
-                recommendation_id: Some(id.to_string()),
-            };
-            if let Err(error) = workspace.metadata.try_append_event(session_id, &event) {
-                if let Err(rollback_error) = workspace.recommendation_store.put(&existing) {
-                    tracing::error!(
-                        recommendation_id = %id,
-                        %error,
-                        %rollback_error,
-                        "failed to roll back recommendation after completion event persistence failure"
-                    );
+        let completed = match (&existing.completion_packet, &existing.status) {
+            (Some(_), _) => {
+                let mutation = packet_mutation
+                    .as_ref()
+                    .ok_or(RecommendationCompleteError::Conflict)?;
+                let completed = workspace
+                    .recommendation_store
+                    .complete_accepted_checked(id, chrono::Utc::now().to_rfc3339(), mutation)
+                    .map_err(RecommendationCompleteError::Store)?
+                    .ok_or(RecommendationCompleteError::Conflict)?;
+                // A completed packet retry still needs the same revision,
+                // evidence fingerprint, and idempotency key checked above.
+                if existing.status == RecommendationStatus::Completed {
+                    return Ok(Some(completed));
                 }
-                return Err(RecommendationCompleteError::Store(
-                    crate::taskmaster::store::StoreError::Io(error),
-                ));
+                completed
             }
-            return Ok(Some(completed));
-        }
-
-        // A retry after an agent has already reported completion is safe and
-        // does not append a duplicate history event.
-        if existing.status == RecommendationStatus::Completed {
-            return Ok(Some(existing));
-        }
-        if existing.status != RecommendationStatus::Accepted {
-            return Err(RecommendationCompleteError::Conflict);
-        }
-
-        let completed = workspace
-            .recommendation_store
-            .complete_accepted(id, chrono::Utc::now().to_rfc3339())
-            .map_err(RecommendationCompleteError::Store)?
-            .ok_or(RecommendationCompleteError::Conflict)?;
+            // Completed legacy retries never append another history event.
+            (None, RecommendationStatus::Completed) => return Ok(Some(existing)),
+            (None, RecommendationStatus::Accepted) => workspace
+                .recommendation_store
+                .complete_accepted(id, chrono::Utc::now().to_rfc3339())
+                .map_err(RecommendationCompleteError::Store)?
+                .ok_or(RecommendationCompleteError::Conflict)?,
+            (None, _) => return Err(RecommendationCompleteError::Conflict),
+        };
         let event = metadata::Event {
             event_type: "taskmaster_fix_completed".into(),
             timestamp: iso_now(),
@@ -1829,6 +1834,20 @@ impl SessionApplication {
             }
 
             Some(handle)
+                if handle.active_work_hook
+                    && handle.info.lifecycle == "alive"
+                    && handle.info.lifecycle_phase == "active"
+                    && handle
+                        .info
+                        .harness_id
+                        .as_deref()
+                        .or(handle.info.harness.as_deref())
+                        == Some("opencode") =>
+            {
+                metadata::PeonAttentionPolicy::PreserveAttention
+            }
+
+            Some(handle)
                 if matches!(
                     handle
                         .info
@@ -1840,17 +1859,7 @@ impl SessionApplication {
                     && handle.info.lifecycle == "alive"
                     && handle.info.lifecycle_phase == "active" =>
             {
-                match (
-                    handle.info.observed_status.as_deref(),
-                    handle.info.attention_source(),
-                ) {
-                    (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
-                        status,
-                        confidence: handle.info.attention_confidence().unwrap_or(1.0),
-                        source,
-                    },
-                    _ => metadata::PeonAttentionPolicy::NonPrompt,
-                }
+                Self::hook_attention_policy(&handle.info)
             }
             Some(handle)
                 if matches!(
@@ -1871,19 +1880,7 @@ impl SessionApplication {
                             .protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
                     })
                 {
-                    match (
-                        handle.info.observed_status.as_deref(),
-                        handle.info.attention_source(),
-                    ) {
-                        (Some(status), Some(source)) => {
-                            metadata::PeonAttentionPolicy::PreserveHook {
-                                status,
-                                confidence: handle.info.attention_confidence().unwrap_or(1.0),
-                                source,
-                            }
-                        }
-                        _ => metadata::PeonAttentionPolicy::NonPrompt,
-                    }
+                    Self::hook_attention_policy(&handle.info)
                 } else {
                     metadata::PeonAttentionPolicy::NonPrompt
                 }
@@ -1991,6 +1988,19 @@ impl SessionApplication {
                     workspace_path,
                 }
             }
+        }
+    }
+
+    fn hook_attention_policy(
+        info: &crate::session_types::SessionInfo,
+    ) -> metadata::PeonAttentionPolicy<'_> {
+        match (info.observed_status.as_deref(), info.attention_source()) {
+            (Some(status), Some(source)) => metadata::PeonAttentionPolicy::PreserveHook {
+                status,
+                confidence: info.attention_confidence().unwrap_or(1.0),
+                source,
+            },
+            _ => metadata::PeonAttentionPolicy::NonPrompt,
         }
     }
 
@@ -2452,23 +2462,117 @@ impl SessionApplication {
         (ws.metadata.read_terminal_size(id) == Some((cols, rows))).then_some((cols, rows))
     }
 
-    /// Persists output recency without allowing delayed writes to move the
-    /// stored timestamp backwards. The metadata read, monotonicity check, and
-    /// write stay adjacent under the workspace lock.
-    pub(crate) fn persist_output_recency(&self, id: &str, timestamp: String) {
-        let ws_guard = self.state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
+    #[cfg(test)]
+    pub(crate) fn bind_output_recency_store(
+        &self,
+        id: &str,
+        generation: crate::runtime::session_runtime::RuntimeGeneration,
+    ) {
+        let workspace = self.state.workspace.lock().unwrap();
+        let Some(ws) = workspace.as_ref() else {
             return;
         };
-        let _ = ws
-            .metadata
-            .mutate_session_optional(id, WriteScope::NONE, |meta| {
-                if !should_persist_output_recency(meta.last_output_at.as_deref(), &timestamp) {
-                    return Ok(false);
+        let mut sessions = self.state.sessions.lock().unwrap();
+        if let Some(handle) = sessions
+            .get_mut(id)
+            .filter(|h| h.runtime.run_generation() == generation)
+        {
+            handle
+                .runtime
+                .bind_output_recency_store(ws.metadata.session_reader());
+        }
+    }
+
+    #[cfg(test)]
+    fn capture_test_output_recency(&self, id: &str) -> Option<OutputRecencyTarget> {
+        let generation = self.test_output_recency_generation(id);
+        self.bind_output_recency_store(id, generation);
+        self.state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(id)?
+            .runtime
+            .output_recency_target(id)
+    }
+
+    pub(crate) fn persist_output_recency(&self, target: OutputRecencyTarget, timestamp: String) {
+        use metadata::session_transactions::{SessionTransactionError, StagedOutputRecency};
+
+        let path = target
+            .reader
+            .root()
+            .join("sessions")
+            .join(format!("{}.json", target.id));
+        // One fresh attempt after a same-store record conflict. The candidate never
+        // reserves the workspace or input fence while its bytes are being synced.
+        for _ in 0..2 {
+            let Ok(Some(staged)) = StagedOutputRecency::prepare(&path, &target.id, &timestamp)
+            else {
+                return;
+            };
+            let result = {
+                let workspace = self.state.workspace.lock().unwrap();
+                let Some(ws) = workspace
+                    .as_ref()
+                    .filter(|ws| Arc::ptr_eq(&target.reader, &ws.metadata.session_reader()))
+                else {
+                    return;
+                };
+                let sessions = self.state.sessions.lock().unwrap();
+                if !sessions
+                    .get(&target.id)
+                    .is_some_and(|handle| handle.runtime.run_generation() == target.generation)
+                {
+                    return;
                 }
-                meta.last_output_at = Some(timestamp);
-                Ok(true)
-            });
+                ws.metadata.publish_output_recency(&target.id, &staged)
+            };
+            match result {
+                Ok(()) => {
+                    let _ = staged.sync_after_publish();
+                    return;
+                }
+                Err(SessionTransactionError::Conflict) => {}
+                Err(SessionTransactionError::Io(_)) => return,
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn persist_test_output_recency(&self, id: &str, timestamp: String) {
+        if let Some(target) = self.capture_test_output_recency(id) {
+            self.persist_output_recency(target, timestamp);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_output_recency_generation(
+        &self,
+        id: &str,
+    ) -> crate::runtime::session_runtime::RuntimeGeneration {
+        self.state
+            .sessions
+            .lock()
+            .unwrap()
+            .entry(id.into())
+            .or_insert_with(|| {
+                let (kill_tx, _) = tokio::sync::watch::channel(false);
+                SessionHandle {
+                    info: crate::test_support::test_session_info(id, id, ".", "running", "now"),
+                    runtime: crate::runtime::session_runtime::SessionRuntime::detached_test(),
+                    kill_tx,
+                    active_work_hook: false,
+                    output_buffer: crate::peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    pending_work_signal: None,
+                    terminal_attached: false,
+                    resume_in_progress: false,
+                    capacity: Default::default(),
+                }
+            })
+            .runtime
+            .run_generation()
     }
 
     /// Appends one already-parsed terminal-output batch under the workspace
@@ -3784,14 +3888,17 @@ impl SessionApplication {
         {
             let workspace = workspace.as_ref().expect("workspace was just adopted");
             let now = iso_now();
+            let reader = workspace.metadata.session_reader();
             let live_ids: std::collections::HashSet<String> = self
                 .state
                 .sessions
                 .lock()
                 .unwrap()
-                .iter()
-                .filter(|(_, handle)| handle.info.has_live_runtime())
-                .map(|(id, _)| id.clone())
+                .iter_mut()
+                .filter_map(|(id, handle)| {
+                    handle.runtime.rebind_output_recency_store(&reader);
+                    handle.info.has_live_runtime().then(|| id.clone())
+                })
                 .collect();
             for session in workspace.metadata.read_all_sessions() {
                 if matches!(session.status.as_str(), "running" | "creating")
@@ -4324,11 +4431,11 @@ impl SessionApplication {
             return false;
         }
         handle.runtime.codex_terminal_status_active = true;
-        let can_replace = |source: &str, origin: &str| {
-            if source == "user" || (source == "agent" && origin != "harness_hook") {
-                return false;
-            }
-            status != Status::Unknown || origin == "codex_terminal"
+        let can_replace = |source: &str, origin: &str| match (source, origin) {
+            ("user", _) => false,
+            ("agent", origin) if origin != "harness_hook" => false,
+            (_, "codex_terminal") => true,
+            _ => status != Status::Unknown,
         };
         if !can_replace(
             handle.info.attention_source().unwrap_or("unknown"),
@@ -4387,7 +4494,7 @@ impl SessionApplication {
         handle.info.suggested_options = stored.suggested_options;
         handle.info.provenance = stored.provenance;
         handle.pending_work_signal = None;
-        self.state.updates.sessions_changed();
+        self.state.updates.output_changed();
         true
     }
 
@@ -4873,7 +4980,7 @@ impl SessionApplication {
         let Some(source) = signal.source.as_deref() else {
             return Ok(false);
         };
-        if source == "opencode_hook" {
+        if token_hook_harness(Some(source)).is_some() {
             return Ok(false);
         }
         if source != "codex_hook" {
@@ -5466,11 +5573,6 @@ fn transition_status_blocking(
             return false;
         }
         let decision = transition_handle_session(&mut sessions, &id, &status, expected_generation);
-        if matches!(decision, HandleTransition::Applied { .. }) {
-            if let Some(failure) = &startup_failure {
-                sessions.get_mut(&id).unwrap().info.startup_failure = Some(failure.clone());
-            }
-        }
         match decision {
             HandleTransition::Aborted => return false,
             HandleTransition::Missing => (None, (None, None), false, false, false),
@@ -5478,13 +5580,18 @@ fn transition_status_blocking(
                 resume,
                 entered_running,
                 already_ending,
-            } => (
-                Some(true),
-                resume,
-                entered_running,
-                is_terminal,
-                already_ending,
-            ),
+            } => {
+                if let Some(failure) = &startup_failure {
+                    sessions.get_mut(&id).unwrap().info.startup_failure = Some(failure.clone());
+                }
+                (
+                    Some(true),
+                    resume,
+                    entered_running,
+                    is_terminal,
+                    already_ending,
+                )
+            }
         }
     };
     if entered_terminal {
@@ -5509,63 +5616,60 @@ fn transition_status_blocking(
             .or_insert_with(tokio::time::Instant::now);
     }
     let now = iso_now();
-    let mut applied = handle_decision.unwrap_or(false);
     loop {
         let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
-                Ok(phase) => phase,
-                Err(PhaseCheck::Retry) => {
-                    drop(ws_guard);
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
-                }
-                Err(PhaseCheck::Abort) => return false,
-            };
-            match persist_lifecycle_transition(
-                ws,
-                LifecyclePersist {
-                    id: &id,
-                    is_terminal,
-                    status: &status,
-                    already_ending,
-                    live_phase: live_handle_phase,
-                    resume: session_resume,
-                    timestamp: now.clone(),
-                    had_live_handle: handle_decision.is_some(),
-                    previous: handle_decision.unwrap_or(false),
-                    startup_failure: startup_failure.clone(),
-                },
-            ) {
-                PersistOutcome::Applied => applied = true,
-                PersistOutcome::NoSession => return false,
-                PersistOutcome::SoftError(error, previous) => {
-                    tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
-                    // The owned process already changed lifecycle. Preserve
-                    // its live transition so terminal finalization still runs;
-                    // no durable event or successful metadata write is claimed.
-                    return previous;
-                }
+        let Some(ws) = ws_guard.as_ref() else {
+            return handle_decision.unwrap_or(false);
+        };
+        let live_handle_phase = match live_handle_phase(&state, &id, expected_generation) {
+            Ok(phase) => phase,
+            Err(PhaseCheck::Retry) => {
+                drop(ws_guard);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
             }
-            if applied {
-                ws.metadata.append_event(
-                    &id,
-                    &metadata::Event {
-                        event_type: "session.status".into(),
-                        timestamp: now,
-                        status,
-                        observed_status: None,
-                        confidence: None,
-                        summary: None,
-                        source: None,
-                        recommendation_id: None,
-                    },
-                );
+            Err(PhaseCheck::Abort) => return false,
+        };
+        match persist_lifecycle_transition(
+            ws,
+            LifecyclePersist {
+                id: &id,
+                is_terminal,
+                status: &status,
+                already_ending,
+                live_phase: live_handle_phase,
+                resume: session_resume,
+                timestamp: now.clone(),
+                had_live_handle: handle_decision.is_some(),
+                previous: handle_decision.unwrap_or(false),
+                startup_failure: startup_failure.clone(),
+            },
+        ) {
+            PersistOutcome::Applied => {}
+            PersistOutcome::NoSession => return false,
+            PersistOutcome::SoftError(error, previous) => {
+                tracing::warn!(session_id = %id, %error, "failed to persist lifecycle transition");
+                // The owned process already changed lifecycle. Preserve
+                // its live transition so terminal finalization still runs;
+                // no durable event or successful metadata write is claimed.
+                return previous;
             }
         }
-        break;
+        ws.metadata.append_event(
+            &id,
+            &metadata::Event {
+                event_type: "session.status".into(),
+                timestamp: now,
+                status,
+                observed_status: None,
+                confidence: None,
+                summary: None,
+                source: None,
+                recommendation_id: None,
+            },
+        );
+        return true;
     }
-    applied
 }
 
 /// The sessions-lock mutation step of a status transition.
@@ -5915,8 +6019,8 @@ fn reject_mismatched_opencode_authority(
         handle.runtime.matches_identity(&authority.runtime_identity)
             && handle.info.lifecycle == "alive"
             && handle.info.lifecycle_phase == "active"
-            && (handle.info.harness_id.as_deref() == Some("opencode")
-                || handle.info.harness.as_deref() == Some("opencode"))
+            && (handle.info.harness_id.as_deref() == Some(authority.harness)
+                || handle.info.harness.as_deref() == Some(authority.harness))
     });
     if !same_live_runtime
         || !crate::runtime::terminal_runtime::verify_workflow_report_token(
@@ -6143,9 +6247,9 @@ fn opencode_report_authority(
     id: &str,
     signal: &AttentionSignal,
 ) -> Result<Option<OpenCodeReportAuthority>, SessionError> {
-    if signal.source.as_deref() != Some("opencode_hook") {
+    let Some(harness) = token_hook_harness(signal.source.as_deref()) else {
         return Ok(None);
-    }
+    };
     let token = signal
         .report_token
         .as_deref()
@@ -6162,8 +6266,8 @@ fn opencode_report_authority(
         .filter(|handle| {
             handle.info.lifecycle == "alive"
                 && handle.info.lifecycle_phase == "active"
-                && (handle.info.harness_id.as_deref() == Some("opencode")
-                    || handle.info.harness.as_deref() == Some("opencode"))
+                && (handle.info.harness_id.as_deref() == Some(harness)
+                    || handle.info.harness.as_deref() == Some(harness))
         })
         .map(|handle| handle.runtime.identity())
         .ok_or(SessionError::EmptyBadRequest)?;
@@ -6171,18 +6275,19 @@ fn opencode_report_authority(
         .event
         .as_deref()
         .ok_or(SessionError::EmptyBadRequest)?;
-    if signal.observed_at.is_none() || !opencode_event_allows_status(event, &signal.status) {
+    if signal.observed_at.is_none() || !hook_event_allows_status(harness, event, &signal.status) {
         return Err(SessionError::EmptyBadRequest);
     }
     Ok(Some(OpenCodeReportAuthority {
+        harness,
         token: token.to_owned(),
         runtime_identity,
     }))
 }
 
-/// Whether the source identifies an authority-checked opencode hook.
+/// Whether the source identifies a report-token-checked hook (OpenCode or Antigravity).
 fn opencode_hook_by_source(source: &Option<String>) -> bool {
-    source.as_deref() == Some("opencode_hook")
+    token_hook_harness(source.as_deref()).is_some()
 }
 
 /// Accepted attention merges refresh the reported working directory and drop
@@ -6242,19 +6347,6 @@ impl ResumeAdmission {
         self.previous_handle = None;
         self.rollback = None;
     }
-}
-
-fn should_persist_output_recency(existing: Option<&str>, incoming: &str) -> bool {
-    let Ok(incoming) = chrono::DateTime::parse_from_rfc3339(incoming) else {
-        return false;
-    };
-    let Some(existing) = existing else {
-        return true;
-    };
-    let Ok(existing) = chrono::DateTime::parse_from_rfc3339(existing) else {
-        return true;
-    };
-    incoming >= existing
 }
 
 impl Drop for ResumeAdmission {
@@ -6442,6 +6534,7 @@ pub(crate) fn try_install_claimed_resume_handle(
     {
         return Err(());
     }
+    replacement.runtime.bind_output_recency_store(reader);
     replacement.resume_in_progress = true;
     let generation = replacement.runtime.run_generation();
     let previous_handle = sessions.insert(id.to_string(), replacement);
@@ -7334,6 +7427,9 @@ async fn create_session_workflow(
         meta_git_ctx = scan_git(next_cwd.clone()).await?;
         metadata_git_cwd = next_cwd;
     };
+    if let Some(ws) = creation_workspace.as_ref() {
+        runtime.bind_output_recency_store(ws.metadata.session_reader());
+    }
     state.sessions.lock().unwrap().insert(
         id.clone(),
         SessionHandle {
@@ -9015,6 +9111,7 @@ mod tests {
                 require_alive: true,
                 activate_work_hook: true,
                 opencode_authority: Some(OpenCodeReportAuthority {
+                    harness: "opencode",
                     token: "opencode-test-token".into(),
                     runtime_identity,
                 }),
@@ -9074,6 +9171,7 @@ mod tests {
                     require_alive: true,
                     activate_work_hook: true,
                     opencode_authority: Some(OpenCodeReportAuthority {
+                        harness: "opencode",
                         token: "opencode-test-token".into(),
                         runtime_identity: original_identity,
                     }),
@@ -9299,6 +9397,217 @@ mod tests {
         assert!(!opencode_event_allows_status("session.idle", "idle"));
         assert!(!opencode_event_allows_status("session.status", "working"));
         assert!(!opencode_event_allows_status("session.deleted", "idle"));
+    }
+
+    fn antigravity_attention_state(
+        root: &std::path::Path,
+        id: &str,
+        harness: &str,
+    ) -> Arc<AppState> {
+        let state = crate::test_support::test_app_state_with_workspace(root);
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Antigravity",
+            root.display().to_string(),
+            "running",
+            "before",
+            "before",
+        );
+        meta.harness = harness.into();
+        meta.lifecycle = "alive".into();
+        meta.lifecycle_phase = "active".into();
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let mut handle = attention_test_handle(id, root);
+        handle.info.harness_id = Some(harness.into());
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "antigravity-test-token".into(),
+        );
+        state
+    }
+
+    fn antigravity_attention_signal(event: &str, status: &str) -> AttentionSignal {
+        AttentionSignal {
+            status: status.into(),
+            event: Some(event.into()),
+            source: Some("antigravity_hook".into()),
+            report_token: Some("antigravity-test-token".into()),
+            observed_at: Some("2026-11-20T12:00:00.123456Z".into()),
+            message: None,
+            plan_path: metadata::PlanPathUpdate::Unchanged,
+            cwd: None,
+            hook_fingerprint: None,
+        }
+    }
+
+    fn stored_observed_status(state: &AppState, id: &str) -> Option<String> {
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap()
+            .observed_status
+    }
+
+    #[tokio::test]
+    async fn antigravity_hook_reports_work_then_idle_and_takes_attention_authority() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "antigravity-turn";
+        let state = antigravity_attention_state(root.path(), id, "antigravity");
+        let application = SessionApplication::new(state.clone());
+        assert!(!state.sessions.lock().unwrap()[id].active_work_hook);
+
+        application
+            .report_attention(id, antigravity_attention_signal("PreInvocation", "working"))
+            .await
+            .unwrap();
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        assert_eq!(
+            stored_observed_status(&state, id).as_deref(),
+            Some("working")
+        );
+        let stored = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(id)
+            .unwrap();
+        assert_eq!(stored.attention_source(), "agent");
+
+        // Hook receipts are ordered by `observedAt`; an equal stamp is stale.
+        let mut stop = antigravity_attention_signal("Stop", "idle");
+        stop.observed_at = Some("2026-11-20T12:00:01.123456Z".into());
+        application.report_attention(id, stop).await.unwrap();
+        assert_eq!(stored_observed_status(&state, id).as_deref(), Some("idle"));
+        assert_eq!(
+            state.sessions.lock().unwrap()[id]
+                .info
+                .observed_status
+                .as_deref(),
+            Some("idle")
+        );
+    }
+
+    #[test]
+    fn antigravity_event_matrix_is_exact_and_not_shared_with_opencode() {
+        for (event, allowed) in [("PreInvocation", "working"), ("Stop", "idle")] {
+            for status in ["idle", "working", "waiting_for_input", "blocked"] {
+                assert_eq!(
+                    hook_event_allows_status("antigravity", event, status),
+                    status == allowed,
+                    "{event}/{status}"
+                );
+                assert!(
+                    !hook_event_allows_status("opencode", event, status),
+                    "{event}/{status}"
+                );
+            }
+        }
+        // Session identity and tool/post events never carry attention: Needs
+        // You is not a hook signal, and PreToolUse output steers permissions.
+        for event in [
+            "SessionStart",
+            "PostInvocation",
+            "PreToolUse",
+            "PostToolUse",
+        ] {
+            for status in ["idle", "working", "waiting_for_input"] {
+                assert!(
+                    !hook_event_allows_status("antigravity", event, status),
+                    "{event}/{status}"
+                );
+            }
+        }
+        assert!(!hook_event_allows_status(
+            "antigravity",
+            "session.step.started",
+            "working"
+        ));
+        assert!(hook_event_allows_status(
+            "opencode",
+            "session.step.started",
+            "working"
+        ));
+    }
+
+    #[tokio::test]
+    async fn antigravity_hook_rejects_unverified_or_cross_harness_reports_without_mutation() {
+        for case in [
+            "missing_token",
+            "wrong_token",
+            "other_session_token",
+            "opencode_session",
+            "ended",
+            "missing_observed_at",
+            "malformed_observed_at",
+            "invalid_status_for_event",
+            "unknown_event",
+            "opencode_source_on_antigravity_session",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let id = "antigravity-invalid-report";
+            let harness = if case == "opencode_session" {
+                "opencode"
+            } else {
+                "antigravity"
+            };
+            let state = antigravity_attention_state(root.path(), id, harness);
+            let mut signal = antigravity_attention_signal("PreInvocation", "working");
+            match case {
+                "missing_token" => signal.report_token = None,
+                "wrong_token" => signal.report_token = Some("wrong".into()),
+                "other_session_token" => {
+                    crate::runtime::terminal_runtime::set_workflow_report_token(
+                        "other-antigravity-session",
+                        "other-token".into(),
+                    );
+                    signal.report_token = Some("other-token".into());
+                }
+                "opencode_session" => {}
+                "ended" => {
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get_mut(id)
+                        .unwrap()
+                        .info
+                        .lifecycle = "ended".into();
+                }
+                "missing_observed_at" => signal.observed_at = None,
+                "malformed_observed_at" => signal.observed_at = Some("invalid".into()),
+                "invalid_status_for_event" => signal.status = "idle".into(),
+                "unknown_event" => signal.event = Some("PreToolUse".into()),
+                "opencode_source_on_antigravity_session" => {
+                    signal = opencode_attention_signal("session.step.started", "working");
+                    signal.report_token = Some("antigravity-test-token".into());
+                }
+                _ => unreachable!(),
+            }
+            let result = SessionApplication::new(state.clone())
+                .report_attention(id, signal)
+                .await;
+            assert_eq!(result, Err(SessionError::EmptyBadRequest), "{case}");
+            assert_eq!(stored_observed_status(&state, id), None, "{case}");
+            let sessions = state.sessions.lock().unwrap();
+            assert!(!sessions[id].active_work_hook, "{case}");
+            assert_eq!(sessions[id].info.observed_status, None, "{case}");
+        }
     }
 
     fn usage_limit_test_state(id: &str) -> Arc<AppState> {
@@ -12213,7 +12522,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     #[test]
     fn codex_terminal_status_never_replaces_explicit_attention_in_either_store() {
         use crate::runtime::codex_terminal_status::Status;
-        for source in ["agent", "user"] {
+        for (source, origin) in [
+            ("agent", "direct_agent"),
+            ("agent", "native_codex"),
+            ("agent", "codex_terminal"),
+            ("user", "user"),
+            ("user", "codex_terminal"),
+        ] {
             for live in [false, true] {
                 let id = "terminal-preserves-explicit";
                 let (_root, state, generation) = codex_terminal_status_fixture(id);
@@ -12223,14 +12538,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     let mut sessions = state.sessions.lock().unwrap();
                     let info = &mut sessions.get_mut(id).unwrap().info;
                     info.provenance.attention_source = Some(source.into());
-                    info.provenance.attention_origin = Some(
-                        if source == "agent" {
-                            "direct_agent"
-                        } else {
-                            "user"
-                        }
-                        .into(),
-                    );
+                    info.provenance.attention_origin = Some(origin.into());
                 } else {
                     state
                         .workspace
@@ -12241,14 +12549,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                         .metadata
                         .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
                             meta.provenance.attention_source = Some(source.into());
-                            meta.provenance.attention_origin = Some(
-                                if source == "agent" {
-                                    "direct_agent"
-                                } else {
-                                    "user"
-                                }
-                                .into(),
-                            );
+                            meta.provenance.attention_origin = Some(origin.into());
                             meta.provenance.attention_updated_at =
                                 Some("2000-01-01T00:00:00Z".into());
                             Ok(true)
@@ -12261,7 +12562,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                     Status::Idle,
                     Status::Failed,
                 ] {
-                    assert!(!app.apply_codex_terminal_status(id, generation, status));
+                    assert!(
+                        !app.apply_codex_terminal_status(id, generation, status),
+                        "{source}/{origin}, live={live}, status={status:?} must stay protected"
+                    );
                     assert_eq!(
                         state.sessions.lock().unwrap()[id].info.attention.as_deref(),
                         Some("needs_you")
@@ -13031,9 +13335,9 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
         let application = SessionApplication::new(state.clone());
 
-        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
-        application.persist_output_recency(id, "2026-07-29T10:00:01Z".into());
-        application.persist_output_recency(id, "2026-07-29T09:59:59Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency(id, "2026-07-29T09:59:59Z".into());
 
         let stored = state
             .workspace
@@ -13073,7 +13377,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
 
         SessionApplication::new(state.clone())
-            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+            .persist_test_output_recency(id, "2026-07-29T10:00:00Z".into());
 
         let stored = state
             .workspace
@@ -13114,7 +13418,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
 
         SessionApplication::new(state.clone())
-            .persist_output_recency(id, "2026-07-29T10:00:00Z".into());
+            .persist_test_output_recency(id, "2026-07-29T10:00:00Z".into());
 
         let stored = state
             .workspace
@@ -13154,7 +13458,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .metadata
             .write_session(&metadata);
 
-        SessionApplication::new(state.clone()).persist_output_recency(id, "not-a-timestamp".into());
+        SessionApplication::new(state.clone())
+            .persist_test_output_recency(id, "not-a-timestamp".into());
 
         let stored = state
             .workspace
@@ -13177,9 +13482,155 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
 
-        application.persist_output_recency("missing", "2026-07-29T10:00:00Z".into());
+        application.persist_test_output_recency("missing", "2026-07-29T10:00:00Z".into());
         *state.workspace.lock().unwrap() = None;
-        application.persist_output_recency("missing", "2026-07-29T10:00:01Z".into());
+        application.persist_test_output_recency("missing", "2026-07-29T10:00:01Z".into());
+    }
+
+    #[test]
+    fn output_recency_publication_revalidates_ownership_and_retries_revision_conflicts() {
+        use crate::metadata::atomic_write::testing::{install, SyncPoint};
+        use std::time::Duration;
+
+        const ID: &str = "staged-output-recency";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        const NEWER: &str = "2026-11-19T09:00:00Z";
+        for change in ["reopen", "resume", "delete", "revision", "newer"] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let metadata = crate::test_support::test_session_metadata(
+                ID, "Original", ".", "running", "now", "now",
+            );
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+            let app = SessionApplication::new(state.clone());
+            let target = app.capture_test_output_recency(ID).unwrap();
+            let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let write = std::thread::spawn(move || {
+                let mut entered_tx = Some(entered_tx);
+                let _hook = install(move |event, _| {
+                    if event == SyncPoint::File {
+                        if let Some(tx) = entered_tx.take() {
+                            let _ = tx.send(());
+                            let _ = release_rx.recv_timeout(Duration::from_secs(10));
+                        }
+                    }
+                    Ok(())
+                });
+                app.persist_output_recency(target, TIMESTAMP.into());
+            });
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            {
+                let mut workspace = state.workspace.lock().unwrap();
+                let ws = workspace.as_mut().unwrap();
+                match change {
+                    "reopen" => ws.metadata = ws.metadata.reopen_with_shared_workspace_memory(),
+                    "resume" => {
+                        state.sessions.lock().unwrap().get_mut(ID).unwrap().runtime =
+                            crate::runtime::session_runtime::SessionRuntime::detached_test();
+                    }
+                    "delete" => ws.metadata.delete_session(ID).unwrap(),
+                    "revision" | "newer" => {
+                        ws.metadata
+                            .mutate_session(ID, WriteScope::NONE, |record| {
+                                record.label = "Concurrent change".into();
+                                if change == "newer" {
+                                    record.last_output_at = Some(NEWER.into());
+                                }
+                                Ok(())
+                            })
+                            .unwrap();
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            release_tx.send(()).unwrap();
+            write.join().unwrap();
+            let workspace = state.workspace.lock().unwrap();
+            let record = workspace.as_ref().unwrap().metadata.read_session(ID);
+            match change {
+                "delete" => assert!(record.is_none()),
+                "revision" | "newer" => {
+                    let record = record.unwrap();
+                    assert_eq!(record.label, "Concurrent change");
+                    assert_eq!(
+                        record.last_output_at.as_deref(),
+                        Some(if change == "newer" { NEWER } else { TIMESTAMP })
+                    );
+                }
+                _ => assert_eq!(record.unwrap().last_output_at, None, "{change}"),
+            }
+        }
+    }
+
+    #[test]
+    fn output_recency_sync_errors_preserve_the_rename_cutoff() {
+        use crate::metadata::atomic_write::testing::install;
+        #[cfg(unix)]
+        use crate::metadata::atomic_write::testing::SyncPoint;
+        #[cfg(unix)]
+        use std::{cell::Cell, rc::Rc};
+
+        const ID: &str = "failed-output-recency-sync";
+        const TIMESTAMP: &str = "2026-11-19T08:00:00Z";
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let metadata =
+            crate::test_support::test_session_metadata(ID, "Output", ".", "running", "now", "now");
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+        let app = SessionApplication::new(state.clone());
+
+        let read_timestamp = || {
+            state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(ID)
+                .unwrap()
+                .last_output_at
+        };
+        {
+            let _hook = install(|_, _| Err(std::io::Error::other("recency file sync failed")));
+            app.persist_test_output_recency(ID, TIMESTAMP.into());
+        }
+        assert_eq!(read_timestamp(), None);
+
+        #[cfg(unix)]
+        {
+            let stages = Rc::new(Cell::new(0));
+            let hook_stages = stages.clone();
+            let _hook = install(move |point, _| match point {
+                SyncPoint::File => {
+                    hook_stages.set(hook_stages.get() + 1);
+                    Ok(())
+                }
+                SyncPoint::Directory => Err(std::io::Error::other("recency directory sync failed")),
+            });
+            app.persist_test_output_recency(ID, TIMESTAMP.into());
+            assert_eq!(read_timestamp().as_deref(), Some(TIMESTAMP));
+            assert_eq!(
+                stages.get(),
+                1,
+                "published writes must not retry after directory sync failure"
+            );
+        }
     }
 
     #[tokio::test]
@@ -14193,6 +14644,31 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .label,
             placeholder
         );
+    }
+
+    #[tokio::test]
+    async fn transition_session_status_without_workspace_keeps_live_terminal_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "status-transition-no-workspace";
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, root.path()));
+        *state.workspace.lock().unwrap() = None;
+
+        assert!(
+            SessionApplication::new(state.clone())
+                .transition_session_status(id, None, "ended")
+                .await
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = &sessions[id].info;
+        assert_eq!(live.status, "running");
+        assert_eq!(live.lifecycle_phase, "ending");
+        assert_eq!(live.lifecycle, "stopping");
     }
 
     #[tokio::test]
@@ -16888,6 +17364,47 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             panic!("expected terminal input");
         };
         assert_eq!(data, expected_prompt);
+        let reserved = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .get(&recommendation_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reserved.status, RecommendationStatus::Executing);
+        assert_eq!(reserved.target_session_id.as_deref(), Some(session_id));
+        let duplicate = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            SessionApplication::new(state.clone()).accept_recommendation_with_packet(
+                &recommendation_id,
+                session_id,
+                None,
+                None,
+            ),
+        )
+        .await
+        .expect("a reserved recommendation must reject duplicate acceptance");
+        assert!(matches!(
+            duplicate,
+            Err(RecommendationAcceptError::Conflict)
+        ));
+        assert!(matches!(
+            control_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_events(session_id)
+            .iter()
+            .all(|event| event.event_type != "taskmaster_fix_requested"));
         accepted.unwrap().send(Ok(())).unwrap();
 
         let accepted_recommendation = request.await.unwrap().unwrap().unwrap();
@@ -16908,9 +17425,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .read_events(session_id);
-        assert!(events
-            .iter()
-            .any(|event| event.event_type == "taskmaster_fix_requested"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "taskmaster_fix_requested")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -16977,68 +17498,134 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .any(|event| event.event_type == "taskmaster_fix_completed"));
     }
 
-    #[test]
-    fn complete_recommendation_records_id_and_summary_in_session_history() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let recommendation_id = proposed_recommendation_id(&state, "complete-happy");
-        let session_id = "complete-target-session";
-        write_alive_session(&state, root.path(), session_id);
-
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let store = &workspace.as_ref().unwrap().recommendation_store;
+    fn accept_completion_test_recommendation(
+        state: &Arc<AppState>,
+        recommendation_id: &str,
+        session_id: &str,
+        with_packet: bool,
+    ) -> Option<CompletionMutationRequest> {
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().recommendation_store;
+        let mutation = if with_packet {
+            let mut item = store.get(recommendation_id).unwrap().unwrap();
+            let mut packet = crate::taskmaster::completion_tests::test_packet();
+            packet.source_session_id = item.source_session_ids[0].clone();
+            packet.provenance.source_session_id = packet.source_session_id.clone();
+            packet.provenance.workspace_id = item.workspace_id.clone();
+            packet.subject.workspace_id = item.workspace_id.clone();
+            packet.evidence_fingerprint = packet.computed_evidence_fingerprint();
+            let mutation = CompletionMutationRequest {
+                packet_revision: packet.revision,
+                evidence_fingerprint: packet.evidence_fingerprint.clone(),
+                idempotency_key: "completion-test-approval".into(),
+            };
+            item.completion_packet = Some(packet);
+            store.put(&item).unwrap();
+            store
+                .begin_execution_checked(
+                    recommendation_id,
+                    session_id.into(),
+                    "2026-09-07T10:00:00Z".into(),
+                    &mutation,
+                    "user".into(),
+                )
+                .unwrap();
+            Some(mutation)
+        } else {
             store
                 .begin_execution(
-                    &recommendation_id,
+                    recommendation_id,
                     session_id.into(),
                     "2026-09-07T10:00:00Z".into(),
                 )
                 .unwrap();
-            store
-                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
-                .unwrap();
-        }
+            None
+        };
+        store
+            .complete_execution(recommendation_id, "2026-09-07T10:00:01Z".into())
+            .unwrap();
+        mutation
+    }
 
-        let application = SessionApplication::new(state.clone());
-        let completed = application
-            .complete_recommendation_with_packet(
+    #[test]
+    fn complete_recommendation_records_id_and_summary_in_session_history() {
+        for with_packet in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let recommendation_id = proposed_recommendation_id(&state, "complete-happy");
+            let session_id = "complete-target-session";
+            write_alive_session(&state, root.path(), session_id);
+            let mutation = accept_completion_test_recommendation(
+                &state,
                 &recommendation_id,
                 session_id,
-                Some("Verified the fix in the target session.".into()),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(completed.status, RecommendationStatus::Completed);
-
-        let repeated = application
-            .complete_recommendation_with_packet(&recommendation_id, session_id, None, None)
-            .unwrap()
-            .unwrap();
-        assert_eq!(repeated.status, RecommendationStatus::Completed);
-
-        let events = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .read_events(session_id);
-        let completions: Vec<_> = events
-            .iter()
-            .filter(|event| event.event_type == "taskmaster_fix_completed")
-            .collect();
-        assert_eq!(completions.len(), 1);
-        assert_eq!(
-            completions[0].recommendation_id.as_deref(),
-            Some(recommendation_id.as_str())
-        );
-        assert_eq!(
-            completions[0].summary.as_deref(),
-            Some("Verified the fix in the target session.")
-        );
+                with_packet,
+            );
+            let application = SessionApplication::new(state.clone());
+            let completed = application
+                .complete_recommendation_with_packet(
+                    &recommendation_id,
+                    session_id,
+                    Some("Verified the fix in the target session.".into()),
+                    mutation.clone(),
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(completed.status, RecommendationStatus::Completed);
+            if let Some(mutation) = &mutation {
+                assert!(matches!(
+                    application.complete_recommendation_with_packet(
+                        &recommendation_id,
+                        session_id,
+                        None,
+                        None,
+                    ),
+                    Err(RecommendationCompleteError::Conflict)
+                ));
+                let mut stale = mutation.clone();
+                stale.packet_revision += 1;
+                assert!(matches!(
+                    application.complete_recommendation_with_packet(
+                        &recommendation_id,
+                        session_id,
+                        None,
+                        Some(stale),
+                    ),
+                    Err(RecommendationCompleteError::Store(
+                        crate::taskmaster::store::StoreError::StalePacket { .. }
+                    ))
+                ));
+            }
+            let repeated = application
+                .complete_recommendation_with_packet(&recommendation_id, session_id, None, mutation)
+                .unwrap()
+                .unwrap();
+            assert_eq!(repeated, completed);
+            let events = state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_events(session_id);
+            let completions: Vec<_> = events
+                .iter()
+                .filter(|event| event.event_type == "taskmaster_fix_completed")
+                .collect();
+            assert_eq!(completions.len(), 1);
+            assert_eq!(
+                completions[0].recommendation_id.as_deref(),
+                Some(recommendation_id.as_str())
+            );
+            assert_eq!(
+                completions[0].summary.as_deref(),
+                Some("Verified the fix in the target session.")
+            );
+            assert_eq!(completions[0].status, "working");
+            assert_eq!(completions[0].observed_status.as_deref(), Some("working"));
+            assert_eq!(completions[0].source.as_deref(), Some("agent"));
+        }
     }
 
     #[test]
@@ -17143,51 +17730,45 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
 
     #[test]
     fn complete_recommendation_keeps_accepted_state_when_completion_event_fails() {
-        let root = tempfile::tempdir().unwrap();
-        let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
-        let session_id = "complete-event-failure-session";
-        write_alive_session(&state, root.path(), session_id);
-
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let store = &workspace.as_ref().unwrap().recommendation_store;
-            store
-                .begin_execution(
-                    &recommendation_id,
-                    session_id.into(),
-                    "2026-09-07T10:00:00Z".into(),
+        for with_packet in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let state = crate::test_support::test_app_state_with_workspace(root.path());
+            let recommendation_id = proposed_recommendation_id(&state, "complete-event-failure");
+            let session_id = "complete-event-failure-session";
+            write_alive_session(&state, root.path(), session_id);
+            let mutation = accept_completion_test_recommendation(
+                &state,
+                &recommendation_id,
+                session_id,
+                with_packet,
+            );
+            let (events_dir, accepted) = {
+                let workspace = state.workspace.lock().unwrap();
+                let workspace = workspace.as_ref().unwrap();
+                (
+                    workspace.metadata.events_dir(),
+                    workspace
+                        .recommendation_store
+                        .get(&recommendation_id)
+                        .unwrap()
+                        .unwrap(),
                 )
-                .unwrap();
-            store
-                .complete_execution(&recommendation_id, "2026-09-07T10:00:01Z".into())
-                .unwrap();
-        }
-
-        let events_dir = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .metadata
-            .events_dir();
-        std::fs::write(events_dir, "not a directory").unwrap();
-
-        let result = SessionApplication::new(state.clone()).complete_recommendation_with_packet(
-            &recommendation_id,
-            session_id,
-            Some("The event cannot be persisted.".into()),
-            None,
-        );
-        assert!(matches!(
-            result,
-            Err(RecommendationCompleteError::Store(
-                crate::taskmaster::store::StoreError::Io(_)
-            ))
-        ));
-        assert_eq!(
-            state
+            };
+            std::fs::write(events_dir, "not a directory").unwrap();
+            let result = SessionApplication::new(state.clone())
+                .complete_recommendation_with_packet(
+                    &recommendation_id,
+                    session_id,
+                    Some("The event cannot be persisted.".into()),
+                    mutation,
+                );
+            assert!(matches!(
+                result,
+                Err(RecommendationCompleteError::Store(
+                    crate::taskmaster::store::StoreError::Io(_)
+                ))
+            ));
+            let saved = state
                 .workspace
                 .lock()
                 .unwrap()
@@ -17196,10 +17777,9 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .recommendation_store
                 .get(&recommendation_id)
                 .unwrap()
-                .unwrap()
-                .status,
-            RecommendationStatus::Accepted
-        );
+                .unwrap();
+            assert_eq!(saved, accepted);
+        }
     }
 
     #[tokio::test]
@@ -17714,16 +18294,16 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn active_claude_copilot_prompt_tuple_survives_peon_attention_inference() {
-        for harness in ["claude-code", "copilot"] {
+    fn authoritative_hook_attention_survives_peon_inference() {
+        for (harness, source, origin) in [
+            ("claude-code", "claude_hook", "legacy_unknown"),
+            ("copilot", "copilot_hook", "legacy_unknown"),
+            ("codex", "agent", "harness_hook"),
+            ("opencode", "agent", "harness_hook"),
+        ] {
             let root = tempfile::tempdir().unwrap();
             let state = crate::test_support::test_app_state_with_workspace(root.path());
             let id = format!("peon-prompt-authority-{harness}");
-            let source = if harness == "claude-code" {
-                "claude_hook"
-            } else {
-                "copilot_hook"
-            };
             let mut metadata = crate::test_support::test_session_metadata(
                 &id,
                 "Prompt authority",
@@ -17740,6 +18320,13 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             metadata.metadata_source = source.into();
             metadata.metadata_confidence = 0.98;
             metadata.needs_user_input = None;
+            metadata.provenance.attention_source = Some(source.into());
+            metadata.provenance.attention_origin = Some(origin.into());
+            metadata.provenance.attention_confidence = Some(0.98);
+            metadata.provenance.attention_updated_at =
+                Some((chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339());
+            metadata.provenance.work_metadata_updated_at =
+                metadata.provenance.attention_updated_at.clone();
             state
                 .workspace
                 .lock()
@@ -17758,22 +18345,33 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             handle.info.attention = Some("needs_you".into());
             handle.info.metadata_source = Some(source.into());
             handle.info.metadata_confidence = Some(0.98);
+            handle.info.provenance = metadata.provenance.clone();
+            if matches!(harness, "codex" | "opencode") {
+                let mut tracker =
+                    crate::runtime::codex_approval_application::NativeApprovalState::new(
+                        handle.runtime.run_generation(),
+                    );
+                tracker.record_validated_permission(&handle.runtime.attention_owner);
+                handle.runtime.native_approval = Some(tracker);
+            }
             state.sessions.lock().unwrap().insert(id.clone(), handle);
 
             let authority = crate::runtime::prompt_authority::registry();
-            authority.issue(&id, harness, "generation-peon");
-            assert_eq!(
-                authority.register_native_id(
-                    &id,
-                    harness,
-                    "generation-peon",
-                    "native-peon",
-                    false,
-                    None,
-                ),
-                crate::runtime::prompt_authority::BindResult::Bound
-            );
-            assert!(authority.activate(&id, harness, "generation-peon", "native-peon"));
+            if matches!(harness, "claude-code" | "copilot") {
+                authority.issue(&id, harness, "generation-peon");
+                assert_eq!(
+                    authority.register_native_id(
+                        &id,
+                        harness,
+                        "generation-peon",
+                        "native-peon",
+                        false,
+                        None,
+                    ),
+                    crate::runtime::prompt_authority::BindResult::Bound
+                );
+                assert!(authority.activate(&id, harness, "generation-peon", "native-peon"));
+            }
 
             let inference = crate::peon::PeonInference {
                 observed_status: Some("blocked".into()),
@@ -17813,6 +18411,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             assert_eq!(stored.observed_status.as_deref(), Some("waiting_for_input"));
             assert_eq!(stored.attention.as_deref(), Some("needs_you"));
             assert_eq!(stored.attention_source(), source);
+            assert_eq!(stored.attention_confidence(), 0.98);
+            assert_eq!(stored.attention_origin(), origin);
             assert_eq!(stored.metadata_source, "peon");
             assert_eq!(
                 stored.summary.as_deref(),
@@ -18035,7 +18635,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn peon_nonprompt_preserves_opencode_hook_attention_past_overwrite_window() {
+    fn peon_preserves_opencode_hook_attention_past_overwrite_window() {
         for (status, attention) in [
             ("waiting_for_input", "needs_you"),
             ("working", "working"),
@@ -18059,6 +18659,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             metadata.attention = Some(attention.into());
             metadata.metadata_source = "agent".into();
             metadata.metadata_confidence = 0.97;
+            metadata.provenance.attention_source = Some("agent".into());
+            metadata.provenance.attention_origin = Some("direct_agent".into());
+            metadata.provenance.attention_confidence = Some(0.97);
+            metadata.provenance.attention_updated_at = Some("2026-09-26T12:00:00Z".into());
             let path = {
                 let workspace = state.workspace.lock().unwrap();
                 let store = &workspace.as_ref().unwrap().metadata;
@@ -18087,10 +18691,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             state.sessions.lock().unwrap().insert(id.into(), handle);
             let inference = crate::peon::PeonInference {
                 observed_status: Some(
-                    if status == "idle" {
-                        "working"
-                    } else {
-                        "waiting_for_input"
+                    match status {
+                        "idle" => "working",
+                        "working" => "done",
+                        _ => "stale",
                     }
                     .into(),
                 ),
@@ -18132,9 +18736,14 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .unwrap();
             assert_eq!(stored.observed_status.as_deref(), Some(status));
             assert_eq!(stored.attention.as_deref(), Some(attention));
-            assert_eq!(stored.attention_source(), "peon");
+            assert_eq!(stored.attention_source(), "agent");
+            assert_eq!(stored.attention_origin(), "direct_agent");
+            assert_eq!(
+                stored.provenance.attention_updated_at.as_deref(),
+                Some("2026-09-26T12:00:00Z")
+            );
             assert_eq!(stored.metadata_source, "peon");
-            assert_eq!(stored.attention_confidence(), 0.8);
+            assert_eq!(stored.attention_confidence(), 0.97);
             assert_eq!(stored.summary.as_deref(), Some("New summary"));
             assert_eq!(
                 stored.blocker_description.as_deref(),

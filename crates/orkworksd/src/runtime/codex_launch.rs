@@ -9,9 +9,24 @@ const MAX_HELP_BYTES: u64 = 64 * 1024;
 const PROBE_ERROR: &str =
     "Could not check Codex session isolation support. Check the configured executable and retry.";
 
+/// Successful help classification only; not native eligibility or launch authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IsolationAdvertisement {
+    Advertised,
+    NotAdvertised,
+}
+
 /// Probe before PTY spawn so launch and exact resume use the same isolation.
 /// Older CLIs without the option retain their existing arguments.
 pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), StartupError> {
+    let advertisement = probe_isolation_advertisement(command).await?;
+    command.args = render_isolated_arguments(&command.args, advertisement);
+    Ok(())
+}
+
+pub(crate) async fn probe_isolation_advertisement(
+    command: &CommandSpec,
+) -> Result<IsolationAdvertisement, StartupError> {
     let tool = crate::harness::detect::probe_installed_tool(&command.program).ok_or_else(|| {
         tracing::warn!(
             reason = "executable not found",
@@ -54,24 +69,114 @@ pub(crate) async fn isolate_session(command: &mut CommandSpec) -> Result<(), Sta
         tracing::warn!(stage=?error, "Codex session-isolation probe failed");
         StartupError::classified(code, PROBE_ERROR)
     })?;
+    Ok(isolation_advertisement(&output.stdout, &output.stderr))
+}
+
+pub(crate) fn isolation_advertisement(stdout: &[u8], stderr: &[u8]) -> IsolationAdvertisement {
     let help = format!(
         "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        String::from_utf8_lossy(stdout),
+        String::from_utf8_lossy(stderr)
     );
     let help = crate::peon::strip_ansi(&help);
     if help
         .lines()
         .any(|line| line.split_whitespace().next() == Some("--no-daemon"))
-        && !command
-            .args
+    {
+        IsolationAdvertisement::Advertised
+    } else {
+        IsolationAdvertisement::NotAdvertised
+    }
+}
+
+pub(crate) fn render_isolated_arguments(
+    args: &[String],
+    advertisement: IsolationAdvertisement,
+) -> Vec<String> {
+    let mut rendered = args.to_vec();
+    if advertisement == IsolationAdvertisement::Advertised
+        && !args
             .iter()
             .take_while(|arg| arg.as_str() != "--")
             .any(|arg| arg == "--no-daemon")
     {
-        command.args.insert(0, "--no-daemon".into());
+        rendered.insert(0, "--no-daemon".into());
     }
-    Ok(())
+    rendered
+}
+
+#[cfg(test)]
+mod pure_tests {
+    use super::*;
+
+    // Losing the stream separator or broadening option matching changes the command.
+    #[test]
+    fn only_an_exact_first_token_advertises_isolation() {
+        use IsolationAdvertisement::{Advertised, NotAdvertised};
+        let cases: &[(&[u8], &[u8], IsolationAdvertisement)] = &[
+            (b"", b"", NotAdvertised),
+            (b"--no-daemon", b"", Advertised),
+            (b"warning", b"  --no-daemon  independent\n", Advertised),
+            (
+                b"  \x1b[1;32m--no-daemon\x1b[0m  independent\n",
+                b"",
+                Advertised,
+            ),
+            (b"\xff\n --no-daemon\n", b"", Advertised),
+            (b"--no-\xffdaemon", b"", NotAdvertised),
+            (b"usage: codex --no-daemon", b"", NotAdvertised),
+            (b"--no-daemon-extra", b"", NotAdvertised),
+            (b"prefix--no-daemon", b"", NotAdvertised),
+        ];
+        for &(stdout, stderr, expected) in cases {
+            assert_eq!(isolation_advertisement(stdout, stderr), expected);
+        }
+    }
+
+    // A flag after `--` is prompt text; existing duplicates/empty entries stay exact.
+    #[test]
+    fn rendering_preserves_arguments_and_only_inserts_a_missing_option() {
+        use IsolationAdvertisement::{Advertised, NotAdvertised};
+        let cases: &[(&[&str], IsolationAdvertisement, &[&str])] = &[
+            (&[], Advertised, &["--no-daemon"]),
+            (&[""], Advertised, &["--no-daemon", ""]),
+            (
+                &["resume", "saved-id"],
+                Advertised,
+                &["--no-daemon", "resume", "saved-id"],
+            ),
+            (
+                &["--no-daemon", "--no-daemon", "resume"],
+                Advertised,
+                &["--no-daemon", "--no-daemon", "resume"],
+            ),
+            (
+                &["--", "--no-daemon"],
+                Advertised,
+                &["--no-daemon", "--", "--no-daemon"],
+            ),
+            (
+                &["--no-daemon-extra"],
+                Advertised,
+                &["--no-daemon", "--no-daemon-extra"],
+            ),
+            (&[], NotAdvertised, &[]),
+            (
+                &["resume", "", "saved-id"],
+                NotAdvertised,
+                &["resume", "", "saved-id"],
+            ),
+            (
+                &["--", "--no-daemon"],
+                NotAdvertised,
+                &["--", "--no-daemon"],
+            ),
+        ];
+        for &(args, advertisement, expected) in cases {
+            let args: Vec<String> = args.iter().map(|arg| (*arg).into()).collect();
+            assert_eq!(render_isolated_arguments(&args, advertisement), expected);
+        }
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -163,13 +268,13 @@ mod tests {
 
     #[tokio::test]
     async fn older_codex_and_similar_option_names_preserve_arguments() {
-        let args = prepare(
+        let (_dir, mut command) = help_fixture(
             "printf 'Options:\n  --no-daemon-extra  unrelated\n'",
-            &["resume", "saved-id"],
-        )
-        .await
-        .unwrap();
-        assert_eq!(args, ["resume", "saved-id"]);
+            &["resume", "", "saved-id"],
+        );
+        let before = command.clone();
+        isolate_session(&mut command).await.unwrap();
+        assert_eq!(command, before);
     }
 
     #[tokio::test]
@@ -196,9 +301,13 @@ mod tests {
 
     #[tokio::test]
     async fn failed_help_cannot_authorize_a_shared_launch() {
-        let error = prepare("printf '\\033[31msecret-token\\n'; exit 1", &[])
-            .await
-            .unwrap_err();
+        let (_dir, mut command) = help_fixture(
+            "printf '\\033[31msecret-token\\n'; exit 1",
+            &["resume", "", "saved-id"],
+        );
+        let before = command.clone();
+        let error = isolate_session(&mut command).await.unwrap_err();
+        assert_eq!(command, before);
         assert_eq!(error.code, Some(Code::CodexHelpFailed));
         assert!(!error.to_string().contains("secret-token"));
     }
@@ -228,19 +337,24 @@ mod tests {
             assert!(output.stdout.is_empty() && output.stderr.is_empty());
             std::fs::write(&command.program, format!("#!/bin/sh\n{script}\n")).unwrap();
         }
+        let before = command.clone();
         assert_eq!(
             isolate_session(&mut command).await.unwrap_err().code,
             Some(Code::CodexHelpOversized)
         );
+        assert_eq!(command, before);
     }
 
     #[tokio::test]
     async fn a_hung_help_probe_is_bounded() {
+        let (_dir, mut command) = help_fixture("exec sleep 30", &["resume", "saved-id"]);
+        let before = command.clone();
         let start = std::time::Instant::now();
         assert_eq!(
-            prepare("exec sleep 30", &[]).await.unwrap_err().code,
+            isolate_session(&mut command).await.unwrap_err().code,
             Some(Code::CodexHelpTimeout)
         );
+        assert_eq!(command, before);
         assert!(start.elapsed() < Duration::from_secs(5));
     }
 }

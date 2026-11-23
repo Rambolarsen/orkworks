@@ -1,0 +1,1412 @@
+{
+  "prefixSha256": "32c476ae68f228b33dc207301b99577dc8492d9859a43eff4d8aea2cf6b3a392",
+  "continuationSha256": "7d1fed01c7c267d44a066ecd9dcd25bc4323873910e64e7c88ea2207b08a30a6",
+  "completionSha256": "074458b1188d1c004da4c225ea78efc3cbf8142ed3d0eb3159ed69fb2c34f0fd",
+  "executionSha256": "b500ce62613fa789608fa12fcdf3d7795e53e06f1220264f3db0bf6a0757e331",
+  "assumptions": [
+    "separate decoded examples, not a store or legal event history",
+    "reviewer/execution child authority, turn-authentication, launch chain and current Main shown context supplied, never authenticated here",
+    "grants are volatile server-held facts represented as label assertions only, never persisted or serialized",
+    "capability/profile qualification, complete memberships, original H/C/proofs, ledgers and actual effects unqualified"
+  ],
+  "prestate": {
+    "labeledAgainst": "research-execution-proposal contract accepted choices",
+    "executionPlan": {
+      "workspaceId": "workspace-1",
+      "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+      "planId": "execution-plan",
+      "planRevision": 1,
+      "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+    },
+    "executionTaskControl": {
+      "table": "research_task_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "taskVersion": 7,
+          "status": "running",
+          "reservation": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ea76b371790669947dfeb6dfb40086f2e056c10ac57cea92f7e639634f9e38de"
+        }
+      }
+    },
+    "sessionState": {
+      "table": "research_session_states",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "attachmentId": "terminal-attachment",
+          "session": {
+            "kind": "child",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "execution-child",
+            "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "producerRevision": "3",
+          "state": "running",
+          "runtime": {
+            "kind": "child",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "execution-child",
+            "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ea76b371790669947dfeb6dfb40086f2e056c10ac57cea92f7e639634f9e38de"
+        }
+      }
+    },
+    "grantLabels": {
+      "grantExisted": "supplied",
+      "grantRevokedAtCompletion": "supplied",
+      "expected": "label-assertions-only/never-serialized/never-restored"
+    },
+    "postLaunchState": "awaiting_execution_approval",
+    "postLaunchStateLabel": "supplied-launch-chain-state-writer-remains-separately-gated"
+  },
+  "turn": {
+    "row": {
+      "table": "research_turn_completions",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "taskId": "execution-task"
+            },
+            "reservationId": "terminal-reservation",
+            "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+          },
+          "childSessionId": "execution-child",
+          "expectedTaskVersion": 7,
+          "acceptedTaskVersion": 8,
+          "evidence": {
+            "kind": "child_terminal_without_receipt",
+            "session": {
+              "table": "research_session_states",
+              "key": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "planId": "execution-plan",
+                "planRevision": 1,
+                "taskId": "execution-task"
+              },
+              "value": {
+                "schemaVersion": 1,
+                "body": {
+                  "schemaVersion": 1,
+                  "task": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "planId": "execution-plan",
+                    "planRevision": 1,
+                    "taskId": "execution-task"
+                  },
+                  "attachmentId": "terminal-attachment",
+                  "session": {
+                    "kind": "child",
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "sessionId": "execution-child",
+                    "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  },
+                  "producerRevision": "3",
+                  "state": "terminal",
+                  "runtime": {
+                    "kind": "child",
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "sessionId": "execution-child",
+                    "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }
+                },
+                "lastCommit": {
+                  "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "commitSequence": "2",
+                  "changeDigest": "ea76b371790669947dfeb6dfb40086f2e056c10ac57cea92f7e639634f9e38de"
+                }
+              }
+            }
+          }
+        },
+        "digest": "e44fa90c0c6ac359ece308c38c4ed28a4ed1dbd0437b5805a0ff9b1c7e17518d",
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "c35df9f05a7ffba6c7f24d4ee71a23df33f51e0eda08869abc9f7a47bba72501"
+        }
+      }
+    },
+    "body": {
+      "schemaVersion": 1,
+      "task": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "reservation": {
+        "task": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "taskId": "execution-task"
+        },
+        "reservationId": "terminal-reservation",
+        "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+      },
+      "childSessionId": "execution-child",
+      "expectedTaskVersion": 7,
+      "acceptedTaskVersion": 8,
+      "evidence": {
+        "kind": "child_terminal_without_receipt",
+        "session": {
+          "table": "research_session_states",
+          "key": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "value": {
+            "schemaVersion": 1,
+            "body": {
+              "schemaVersion": 1,
+              "task": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "planId": "execution-plan",
+                "planRevision": 1,
+                "taskId": "execution-task"
+              },
+              "attachmentId": "terminal-attachment",
+              "session": {
+                "kind": "child",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "sessionId": "execution-child",
+                "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "producerRevision": "3",
+              "state": "terminal",
+              "runtime": {
+                "kind": "child",
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "sessionId": "execution-child",
+                "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            "lastCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "ea76b371790669947dfeb6dfb40086f2e056c10ac57cea92f7e639634f9e38de"
+            }
+          }
+        }
+      }
+    },
+    "variant": "child_terminal_without_receipt/synthetic-runtime/supplied-handler-labeling"
+  },
+  "coordination": {
+    "row": {
+      "table": "research_coordination_receipts",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "request": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "taskId": "execution-task"
+            },
+            "reservationId": "terminal-reservation",
+            "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+          },
+          "childSessionId": "execution-child",
+          "expectedTaskVersion": 8,
+          "outcome": "completed",
+          "summary": "The execution task completed under its accepted result contract."
+        },
+        "requestDigest": "640b874f627e13450936e527f63cd168a68ebab87fb5abc45ac4dc815fa86917",
+        "receipt": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "taskId": "execution-task"
+            },
+            "reservationId": "terminal-reservation",
+            "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+          },
+          "childSessionId": "execution-child",
+          "acceptedTaskVersion": 9,
+          "commit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "3",
+            "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
+        }
+      }
+    },
+    "request": {
+      "schemaVersion": 1,
+      "task": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "reservation": {
+        "task": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "taskId": "execution-task"
+        },
+        "reservationId": "terminal-reservation",
+        "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+      },
+      "childSessionId": "execution-child",
+      "expectedTaskVersion": 8,
+      "outcome": "completed",
+      "summary": "The execution task completed under its accepted result contract."
+    },
+    "receipt": {
+      "schemaVersion": 1,
+      "task": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "reservation": {
+        "task": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "taskId": "execution-task"
+        },
+        "reservationId": "terminal-reservation",
+        "reservationDigest": "8875542c12e34c1580c5d5edb86e6378908e1ffc02a89edf3da46d77ec4c196e"
+      },
+      "childSessionId": "execution-child",
+      "acceptedTaskVersion": 9,
+      "commit": {
+        "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "commitSequence": "3",
+        "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
+      }
+    }
+  },
+  "completion": {
+    "trigger": {
+      "kind": "coordination",
+      "task": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "acceptedTaskVersion": 9,
+      "requestDigest": "640b874f627e13450936e527f63cd168a68ebab87fb5abc45ac4dc815fa86917"
+    },
+    "request": {
+      "schemaVersion": 1,
+      "kind": "plan-completion",
+      "run": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "expectedRunVersion": 52,
+      "input": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 3,
+        "inputRevision": 3,
+        "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+      },
+      "plan": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+      },
+      "expectedPlanVersion": 1,
+      "trigger": {
+        "kind": "coordination",
+        "task": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "taskId": "execution-task"
+        },
+        "acceptedTaskVersion": 9,
+        "requestDigest": "640b874f627e13450936e527f63cd168a68ebab87fb5abc45ac4dc815fa86917"
+      }
+    },
+    "row": {
+      "table": "research_lifecycle_records",
+      "key": {
+        "kind": "plan-completion",
+        "plan": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+        }
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "key": {
+            "kind": "plan-completion",
+            "plan": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+            }
+          },
+          "request": {
+            "schemaVersion": 1,
+            "kind": "plan-completion",
+            "run": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+            },
+            "expectedRunVersion": 52,
+            "input": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "preparationRevision": 3,
+              "inputRevision": 3,
+              "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+            },
+            "plan": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+            },
+            "expectedPlanVersion": 1,
+            "trigger": {
+              "kind": "coordination",
+              "task": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "planId": "execution-plan",
+                "planRevision": 1,
+                "taskId": "execution-task"
+              },
+              "acceptedTaskVersion": 9,
+              "requestDigest": "640b874f627e13450936e527f63cd168a68ebab87fb5abc45ac4dc815fa86917"
+            }
+          },
+          "readSet": {
+            "expectedCommit": {
+              "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              "commitSequence": "2",
+              "changeDigest": "46848255341d975005d782e26fa32e1c7299d9d9c992dc62e2992f3a0c78937d"
+            },
+            "run": {
+              "table": "research_run_controls",
+              "key": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+              },
+              "value": {
+                "schemaVersion": 1,
+                "body": {
+                  "schemaVersion": 1,
+                  "profile": "single-task-retained-file-research-execution-v1",
+                  "workspaceId": "workspace-1",
+                  "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                  "parentSessionId": "parent-1",
+                  "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+                  "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+                  "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+                  "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+                  "runVersion": 52,
+                  "state": "awaiting_execution_approval",
+                  "currentInput": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "preparationRevision": 3,
+                    "inputRevision": 3,
+                    "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+                  },
+                  "planReferences": [
+                    {
+                      "workspaceId": "workspace-1",
+                      "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                      "planId": "prefix-plan",
+                      "planRevision": 1,
+                      "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+                    },
+                    {
+                      "workspaceId": "workspace-1",
+                      "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                      "planId": "execution-plan",
+                      "planRevision": 1,
+                      "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+                    }
+                  ],
+                  "currentPlan": null,
+                  "pendingPlan": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "planId": "execution-plan",
+                    "planRevision": 1,
+                    "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+                  },
+                  "parentRuntime": {
+                    "kind": "parent",
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "sessionId": "parent-1",
+                    "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+                  },
+                  "blockers": [],
+                  "stageContinueRequired": false,
+                  "pendingClarification": null,
+                  "pauseReason": null,
+                  "resumeTarget": null
+                },
+                "lastCommit": {
+                  "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "commitSequence": "2",
+                  "changeDigest": "fa15410f7bcfd97d84e4845597d4164f75f628671b2a3bb727896401231ba819"
+                }
+              }
+            },
+            "lifecycle": {
+              "table": "research_lifecycle_state",
+              "key": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+              },
+              "value": {
+                "schemaVersion": 1,
+                "body": {
+                  "schemaVersion": 1,
+                  "run": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+                  },
+                  "summaryVersion": 2,
+                  "completedResearchPlan": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "planId": "prefix-plan",
+                    "planRevision": 1,
+                    "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+                  },
+                  "currentSummary": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "summaryVersion": 2,
+                    "summaryDigest": "a187c614a1e5cb3aca8ee259753d3fc5873f8b42a1563fb7ee28571e4ec4e709"
+                  },
+                  "pendingStageContinue": null,
+                  "finishDisposition": null
+                },
+                "lastCommit": {
+                  "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "commitSequence": "2",
+                  "changeDigest": "ffcec15448928a489109f94d15534bad3d7f56151bd95bbcd405892559f1dd59"
+                }
+              }
+            },
+            "currentPlan": null,
+            "pendingPlan": {
+              "table": "research_plan_controls",
+              "key": {
+                "workspaceId": "workspace-1",
+                "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                "planId": "execution-plan",
+                "planRevision": 1,
+                "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+              },
+              "value": {
+                "schemaVersion": 1,
+                "body": {
+                  "schemaVersion": 1,
+                  "plan": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "planId": "execution-plan",
+                    "planRevision": 1,
+                    "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+                  },
+                  "planVersion": 1,
+                  "status": "active",
+                  "latestApproval": null,
+                  "task": {
+                    "workspaceId": "workspace-1",
+                    "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+                    "planId": "execution-plan",
+                    "planRevision": 1,
+                    "taskId": "execution-task"
+                  },
+                  "replaces": null
+                },
+                "lastCommit": {
+                  "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "commitSequence": "2",
+                  "changeDigest": "5e471356c419767c5373a8870298776a43809149efd08123994798eecc43165f"
+                }
+              }
+            }
+          }
+        },
+        "digest": "8c568966518858a1d4dc00df077f2e6a787c0ed8723ef436efd2cc8ead6f1a84",
+        "receipt": {
+          "schemaVersion": 1,
+          "key": {
+            "kind": "plan-completion",
+            "plan": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+            }
+          },
+          "decisionDigest": "8c568966518858a1d4dc00df077f2e6a787c0ed8723ef436efd2cc8ead6f1a84",
+          "runVersion": 53,
+          "planVersion": 2,
+          "commit": {
+            "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "commitSequence": "3",
+            "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "3",
+          "changeDigest": "00235c6d37f3eb97f547ae129c484578c913bc7ae612113eea821063bd60ae22"
+        }
+      }
+    },
+    "preconditions": {
+      "stageContinueRequired": false,
+      "pendingClarification": null,
+      "pendingProposal": null,
+      "scopeRevision": "none",
+      "allocation": "settled"
+    },
+    "exactRetry": {
+      "expected": "original-outcome-returned/no-second-completion"
+    },
+    "parentRetryDenied": {
+      "afterTerminal": true,
+      "expected": "parent-level-post-completion-retry-denied/source-level-idempotence-retained"
+    }
+  },
+  "terminal": {
+    "runBefore": {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "profile": "single-task-retained-file-research-execution-v1",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "parentSessionId": "parent-1",
+          "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+          "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+          "runVersion": 52,
+          "state": "awaiting_execution_approval",
+          "currentInput": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "preparationRevision": 3,
+            "inputRevision": 3,
+            "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+          },
+          "planReferences": [
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+            },
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+            }
+          ],
+          "currentPlan": null,
+          "pendingPlan": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+          },
+          "parentRuntime": {
+            "kind": "parent",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "parent-1",
+            "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+          },
+          "blockers": [],
+          "stageContinueRequired": false,
+          "pendingClarification": null,
+          "pauseReason": null,
+          "resumeTarget": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "fa15410f7bcfd97d84e4845597d4164f75f628671b2a3bb727896401231ba819"
+        }
+      }
+    },
+    "runAfter": {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "profile": "single-task-retained-file-research-execution-v1",
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "parentSessionId": "parent-1",
+          "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+          "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+          "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+          "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+          "runVersion": 53,
+          "state": "complete",
+          "currentInput": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "preparationRevision": 3,
+            "inputRevision": 3,
+            "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+          },
+          "planReferences": [
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+            },
+            {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "execution-plan",
+              "planRevision": 1,
+              "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+            }
+          ],
+          "currentPlan": null,
+          "pendingPlan": null,
+          "parentRuntime": null,
+          "blockers": [],
+          "stageContinueRequired": false,
+          "pendingClarification": null,
+          "pauseReason": null,
+          "resumeTarget": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "e4bb6a9b7663b5cb04651b3565f4c975fbc90defb5e7f582bbb7a573006cfc08"
+        }
+      }
+    },
+    "selectorBefore": {
+      "table": "research_lifecycle_state",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "summaryVersion": 2,
+          "completedResearchPlan": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+          },
+          "currentSummary": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "summaryVersion": 2,
+            "summaryDigest": "a187c614a1e5cb3aca8ee259753d3fc5873f8b42a1563fb7ee28571e4ec4e709"
+          },
+          "pendingStageContinue": null,
+          "finishDisposition": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "ffcec15448928a489109f94d15534bad3d7f56151bd95bbcd405892559f1dd59"
+        }
+      }
+    },
+    "selectorAfter": {
+      "table": "research_lifecycle_state",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "run": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "summaryVersion": 2,
+          "completedResearchPlan": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+          },
+          "currentSummary": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "summaryVersion": 2,
+            "summaryDigest": "a187c614a1e5cb3aca8ee259753d3fc5873f8b42a1563fb7ee28571e4ec4e709"
+          },
+          "pendingStageContinue": null,
+          "finishDisposition": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "e4bb6a9b7663b5cb04651b3565f4c975fbc90defb5e7f582bbb7a573006cfc08"
+        }
+      }
+    },
+    "planAfter": {
+      "table": "research_plan_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "plan": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+          },
+          "planVersion": 2,
+          "status": "complete",
+          "latestApproval": null,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "replaces": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "e4bb6a9b7663b5cb04651b3565f4c975fbc90defb5e7f582bbb7a573006cfc08"
+        }
+      }
+    },
+    "pauseFieldsNull": true,
+    "rawGatesPreserved": true,
+    "grantRevocation": {
+      "labels": {
+        "grantExisted": "supplied",
+        "grantRevokedAtCompletion": "supplied",
+        "expected": "label-assertions-only/never-serialized/never-restored"
+      },
+      "retainedApprovalFacts": {
+        "approvalId": "supplied",
+        "approvalDigest": "supplied",
+        "planDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace",
+        "commitRef": "supplied"
+      },
+      "expected": "historical-binding-facts/never-live-authority"
+    },
+    "waits": {
+      "runClosed": true,
+      "expected": "effect-label-not-a-record/no-reconnect"
+    },
+    "noTerminalReportRunV1": {
+      "runStatesRewritten": false,
+      "secondCounter": false,
+      "expected": "terminal-state-only-in-research_run_controls/display-label-not-qualification"
+    }
+  },
+  "retirement": {
+    "collection": {
+      "table": "research_collections",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "collectionVersion": 3,
+          "active": false,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "prefix-task"
+          },
+          "reviewTask": null
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "06d551b928e2a52feb801c6e51b5db2361574817117c4aa755f9a7bb86560d12"
+        }
+      }
+    },
+    "expectation": {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "prefix-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "prefix-plan",
+            "planRevision": 1,
+            "taskId": "prefix-task"
+          },
+          "collection": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+          },
+          "collecting": false,
+          "configuration": {
+            "configurationId": "prefix-configuration",
+            "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86"
+          },
+          "scope": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "scopeDigest": "5718869943dc91718ef879492ffbb23f9333c229907e93bf23fd87e6d46b7925"
+          },
+          "reservation": {
+            "task": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task"
+            },
+            "reservationId": "prefix-reservation",
+            "reservationDigest": "c40695ba89dfa2dbcb4954dc0218ca16df74bcd76bd56bf78acb19324dc246c9"
+          },
+          "selectedReport": {
+            "schemaVersion": 1,
+            "sourceKind": "research-report",
+            "reportIdentity": {
+              "workspaceId": "workspace-1",
+              "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+              "planId": "prefix-plan",
+              "planRevision": 1,
+              "taskId": "prefix-task",
+              "reservationId": "prefix-reservation",
+              "childSessionId": "prefix-child",
+              "configurationDigest": "70eb3e0a18cc8d005b49c6895220df68f57c8d4cb71c7c87e7f3739d3b0b5c86",
+              "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "launchGeneration": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "reportId": "prefix-report",
+              "reportVersion": 1
+            },
+            "sizeBytes": 886,
+            "contentDigest": "e9c6ccc58cb5f306b9b7c09ef0cf253c5cfa0e44ff1ac8e91212febfa43972ec"
+          },
+          "expectationVersion": 3
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "06d551b928e2a52feb801c6e51b5db2361574817117c4aa755f9a7bb86560d12"
+        }
+      }
+    },
+    "expected": "accepted-finish-pattern/selected-reports-retained/no-ledger-fabrication"
+  },
+  "liveChild": {
+    "sessionState": {
+      "table": "research_session_states",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "value": {
+        "schemaVersion": 1,
+        "body": {
+          "schemaVersion": 1,
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "attachmentId": "terminal-attachment",
+          "session": {
+            "kind": "child",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "execution-child",
+            "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "producerRevision": "3",
+          "state": "running",
+          "runtime": {
+            "kind": "child",
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "sessionId": "execution-child",
+            "sidecarGeneration": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "lastCommit": {
+          "storageEpoch": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "commitSequence": "2",
+          "changeDigest": "7378b2e6440df35136de78d7cddc320997533846297af8fe3d2831ed8a4fd69c"
+        }
+      }
+    },
+    "label": "live-child-capacity-held/derived-from-session-launch-controls",
+    "expected": "no-capacity-release-for-nonterminal-children"
+  },
+  "failedExecution": {
+    "trigger": {
+      "kind": "coordination",
+      "task": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "acceptedTaskVersion": 8,
+      "requestDigest": "7763b93427d7770ca360b3326999c9734ea6d2e00646dded72ef4997e675385b"
+    },
+    "runAfter": {
+      "schemaVersion": 1,
+      "profile": "single-task-retained-file-research-execution-v1",
+      "workspaceId": "workspace-1",
+      "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+      "parentSessionId": "parent-1",
+      "runDefinitionDigest": "dcd834cf0cd1ad11906b3547a97ffc74b16c039f7f6c59f72a3f3c636f2f5081",
+      "bootstrapConfigurationDigest": "8a8002146717dcb41d6066a29fcfb9c67d243bd58e24a0e47ee2b1fa53ed9be8",
+      "repositoryBindingDigest": "9031986d5ccb5052a9cc5c654980fd20c5d1f1cf0b5d03a34143705f04f21e74",
+      "sourceWorktreeBindingDigest": "685096bbf591573f97d26eb3a1cddb697252f91f3e5ef310165a3b18848d1a28",
+      "runVersion": 53,
+      "state": "blocked",
+      "currentInput": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "preparationRevision": 3,
+        "inputRevision": 3,
+        "inputDigest": "e10f1c2ba87dfcd66234c27af51e2ca92ba82bcf068bfb468dd654888e638049"
+      },
+      "planReferences": [
+        {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "prefix-plan",
+          "planRevision": 1,
+          "planDefinitionDigest": "fd6475a8ce6f362845b0d58eb922d1139b5210b170b6ac64c4608b86e30ebe73"
+        },
+        {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+        }
+      ],
+      "currentPlan": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+      },
+      "pendingPlan": null,
+      "parentRuntime": {
+        "kind": "parent",
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "sessionId": "parent-1",
+        "sidecarGeneration": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "launchGeneration": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "attachmentDigest": "d1980242624ac61639d598416c8219931d0c31ab38f0c8659d7764dcdd4cd314"
+      },
+      "blockers": [
+        {
+          "id": "failed-execution",
+          "kind": "launch-interrupted",
+          "task": {
+            "workspaceId": "workspace-1",
+            "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+            "planId": "execution-plan",
+            "planRevision": 1,
+            "taskId": "execution-task"
+          },
+          "detail": "Supplied failed execution outcome; recovery revision remains unclosed."
+        }
+      ],
+      "stageContinueRequired": false,
+      "pendingClarification": null,
+      "pauseReason": null,
+      "resumeTarget": null
+    },
+    "expected": "failed-execution-never-completes/recovery-revision-unclosed"
+  },
+  "accounting": {
+    "terminalRecordPool": "child-control-retained-bytes/8MiB-run-64MiB-workspace",
+    "planSourcePool": "child-source-retained-bytes/charged-at-creation/unchanged-here",
+    "expected": "actual-changed-row-deltas-only/no-refund-no-new-allowance"
+  },
+  "catalog": {
+    "candidate": 63,
+    "expected": "no-new-families-or-kinds/new-rows-not-names"
+  },
+  "effects": [
+    {
+      "id": "turn-gate",
+      "expected": "accepted-variants/synthetic-runtime-supplied-origin"
+    },
+    {
+      "id": "coordination",
+      "expected": "accepted-result-contract/no-research-report-check"
+    },
+    {
+      "id": "plan-completion",
+      "expected": "baseline-predicate/typed-trigger/same-C"
+    },
+    {
+      "id": "terminal-transition",
+      "expected": "absorbing-complete/authority-revoked/waits-closed/collections-retired"
+    },
+    {
+      "id": "selector",
+      "expected": "completedResearchPlan-unchanged/execution-plan-via-own-record"
+    },
+    {
+      "id": "terminal-mapping",
+      "expected": "research_run_controls-only/no-TerminalReportRunV1-cast"
+    },
+    {
+      "id": "live-child",
+      "expected": "capacity-held/no-release"
+    },
+    {
+      "id": "failed-execution",
+      "expected": "never-completes/recovery-unclosed"
+    }
+  ],
+  "measurements": [
+    {
+      "table": "research_turn_completions",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "chargeBytes": 2373,
+      "wrapperBytes": 2573
+    },
+    {
+      "table": "research_coordination_receipts",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "chargeBytes": 1587,
+      "wrapperBytes": 1983
+    },
+    {
+      "table": "research_lifecycle_records",
+      "key": {
+        "kind": "plan-completion",
+        "plan": {
+          "workspaceId": "workspace-1",
+          "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+          "planId": "execution-plan",
+          "planRevision": 1,
+          "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+        }
+      },
+      "chargeBytes": 7098,
+      "wrapperBytes": 7494
+    },
+    {
+      "table": "research_run_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 1686,
+      "wrapperBytes": 1886
+    },
+    {
+      "table": "research_lifecycle_state",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 841,
+      "wrapperBytes": 1041
+    },
+    {
+      "table": "research_plan_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "planDefinitionDigest": "f90fda63cfc7b45765e7abf5c46dd36f058026c1c967ba89acfc0c5e01e50ace"
+      },
+      "chargeBytes": 806,
+      "wrapperBytes": 1006
+    },
+    {
+      "table": "research_collections",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1"
+      },
+      "chargeBytes": 506,
+      "wrapperBytes": 706
+    },
+    {
+      "table": "research_expectations",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "prefix-plan",
+        "planRevision": 1,
+        "taskId": "prefix-task"
+      },
+      "chargeBytes": 2034,
+      "wrapperBytes": 2234
+    },
+    {
+      "table": "research_task_controls",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "chargeBytes": 475,
+      "wrapperBytes": 675
+    },
+    {
+      "table": "research_session_states",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "chargeBytes": 1169,
+      "wrapperBytes": 1369
+    },
+    {
+      "table": "research_session_states",
+      "key": {
+        "workspaceId": "workspace-1",
+        "runId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-1",
+        "planId": "execution-plan",
+        "planRevision": 1,
+        "taskId": "execution-task"
+      },
+      "chargeBytes": 1169,
+      "wrapperBytes": 1369
+    }
+  ]
+}

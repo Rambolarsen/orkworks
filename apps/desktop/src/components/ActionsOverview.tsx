@@ -12,6 +12,13 @@ interface Props {
   onOpenRecommendation: (id: string) => void;
 }
 
+const EMPTY_STATES = {
+  ready: { title: "No current actions", detail: "There are no session items or workspace recommendations to inspect." },
+  loading: { title: "Loading actions", detail: "Waiting for the remaining source information." },
+  partial: { title: "No actions in available data", detail: "Only part of the source information is available." },
+  unavailable: { title: "Actions unavailable", detail: "Some source information could not be loaded." },
+};
+
 export default function ActionsOverview({
   model, focusRequest, inspected, onInspectAction, onFocusHandled, onOpenSession, onOpenRecommendation,
 }: Props) {
@@ -20,6 +27,9 @@ export default function ActionsOverview({
     ? model.rows.find(row => row.key === inspected.key && row.revision === inspected.revision && !row.unavailable)
     : undefined;
   const lastFocusRequest = useRef(0);
+  const statuses = [model.sessionsStatus, model.recommendationsStatus];
+  const emptyState = EMPTY_STATES[statuses.includes("unavailable") ? "unavailable"
+    : statuses.includes("loading") ? "loading" : statuses.includes("partial") ? "partial" : "ready"];
 
   useLayoutEffect(() => {
     if (!focusRequest || lastFocusRequest.current === focusRequest) return;
@@ -45,33 +55,40 @@ export default function ActionsOverview({
   }, [inspected, current, focusRequest, onInspectAction]);
 
   return <div className="actions-overview" ref={root} tabIndex={-1}>
-    <p>Session attention and workspace recommendations.</p>
-    <p>{model.sessionCountLabel} · {model.recommendationCountLabel}</p>
-    {!model.rows.length && <p role="status">
-      {model.sessionCount === null || model.recommendationCount === null
-        ? "Actions unavailable or still loading. See source status above."
-        : "No current actions."}
-    </p>}
+    <dl className="actions-source-summary" aria-label="Action sources">
+      <div><dt>Session attention</dt><dd>{model.sessionCountValue}</dd></div>
+      <div><dt>Recommendations</dt><dd>{model.recommendationCountValue}</dd></div>
+    </dl>
+    {!model.rows.length && <div className="actions-empty" role="status">
+      <h3>{emptyState.title}</h3>
+      <p>{emptyState.detail}</p>
+    </div>}
     {[...new Set(model.rows.map(row => row.group))].map(group => <section key={group} aria-label={group}>
       <h3>{group}</h3>
-      {model.rows.filter(row => row.group === group).map(row => <div key={row.key} className="actions-row">
-        {row.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
-        <button type="button" data-action-key={row.key} aria-pressed={current?.key === row.key}
-          onClick={() => onInspectAction(row)}>{row.title}</button>
-        <span>{row.source === "session" ? "Session" : "Recommendation"}
-          {row.unavailable ? " · Unavailable — refresh pending" : ""}</span>
-      </div>)}
+      {model.rows.filter(row => row.group === group).map(row => {
+        const sourceLabel = (row.source === "session" ? "Session" : "Recommendation")
+          + (row.unavailable ? " · Unavailable — refresh pending" : "");
+        return <div key={row.key} className="actions-row">
+          {row.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
+          <button type="button" data-action-key={row.key} aria-pressed={current?.key === row.key}
+            aria-label={row.title} aria-description={sourceLabel} onClick={() => onInspectAction(row)}>
+            <span className="actions-row-title">{row.title}</span>
+            <span className="actions-row-source" aria-hidden="true">{sourceLabel}</span>
+          </button>
+          {current?.key === row.key && <section className="actions-inspection" data-actions-detail aria-label="Inspected action">
+            {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
+            <p className="actions-detail-source">{current.source === "session" ? `Session · ${current.group}` : "Recommendation"}</p>
+            <h3>{current.title}</h3>
+            <p className="actions-detail-summary">{current.summary || "No additional details reported."}</p>
+            {current.source === "session"
+              ? <button type="button" onClick={() => onOpenSession(current.id)}>Open terminal/history</button>
+              : <button type="button" onClick={() => onOpenRecommendation(current.id)}>Open recommendation</button>}
+          </section>}
+        </div>;
+      })}
     </section>)}
-    {inspected && !current && <div className="actions-row" role="status">
-      <span>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</span>
+    {inspected && !current && <div className="actions-inspection" role="status">
+      <p>{inspected.unverifiedAdvice ? 'Inspected recommendation' : inspected.title} · Inspected action unavailable or changed. Inspect a current row for updated details.</p>
     </div>}
-    {current && <section data-actions-detail aria-label="Inspected action">
-      {current.unverifiedAdvice && <p className="advice-warning" role="note">{unverifiedAdviceWarning}</p>}
-      <h3>{current.title}</h3>
-      <p>{current.summary || "No additional details reported."}</p>
-      {current.source === "session"
-        ? <button type="button" onClick={() => onOpenSession(current.id)}>Open terminal/history</button>
-        : <button type="button" onClick={() => onOpenRecommendation(current.id)}>Open recommendation</button>}
-    </section>}
   </div>;
 }

@@ -258,6 +258,7 @@ jobs:
             "harness::integrations::tests::report_harness_event_ps1_native_scalar_success_fallback_and_secret_exclusion",
             "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it",
             "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts",
+            "runtime::session_runtime::windows_cwd::tests::npm_cmd_shim_starts_in_selected_workspace",
             "workspace_updates::tests::real_socket_publishes_changed_row_then_removal_without_full_retransmission",
             "workspace_updates::tests::established_directory_disappearance_is_unavailable_then_recreation_resynchronizes",
             "metadata::atomic_write::tests::durable_publication_windows_creates_and_replaces_a_record",
@@ -293,6 +294,8 @@ jobs:
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::context
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --manifest-path crates/orkworksd/Cargo.toml taskmaster::runtime::selection_tests
+      - name: Test PTY working directory for Windows command shims
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd runtime::session_runtime::windows_cwd::tests
       - name: Test native workspace identity on Windows
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml workspace_runtime
       - name: Test PowerShell hook lifecycle source validation

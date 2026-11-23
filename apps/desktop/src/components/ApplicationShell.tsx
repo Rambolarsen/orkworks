@@ -382,7 +382,7 @@ export default function ApplicationShell(props: Props) {
       onOpenSettings={() => props.onOpenSettings("recommendations")}
       focusedRecommendationId={props.focusedRecommendationId} />;
   };
-  const utilityHeader = (temporary: boolean) => <header className="shell-region-header">
+  const utilityHeader = (temporary: boolean) => <header className={"shell-region-header" + (temporary ? " shell-utility-header" : "")}>
     <h2 data-shell-page-heading tabIndex={-1}>{props.inspector ? TITLES[props.inspector] : "Details"}</h2>
     {(props.inspector === "recommendations" || props.inspector === "actions") &&
       <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}</span>}
