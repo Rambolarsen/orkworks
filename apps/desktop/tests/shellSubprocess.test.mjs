@@ -10,6 +10,39 @@ const run = (source, options = {}) => spawnSync(process.execPath, ['-e', source]
   encoding: 'utf8', ...options,
 });
 
+const isAlivePosix = pid => {
+  try { process.kill(pid, 0); }
+  catch (err) { return err.code !== 'ESRCH'; }
+  if (process.platform === 'linux') {
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+      if (/^State:\s*[ZX]\b/m.test(status)) return false;
+    } catch (err) {
+      if (err.code === 'ENOENT') return false;
+    }
+  }
+  return true;
+};
+
+const waitForDescendantExit = async (pidFile, label) => {
+  if (process.platform === 'win32') return;
+  const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
+  assert.ok(Number.isInteger(descendantPid) && descendantPid > 0, `invalid descendant pid: ${descendantPid}`);
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (!isAlivePosix(descendantPid)) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail(`${label} (pid ${descendantPid})`);
+};
+
+const cleanupDescendant = pidFile => {
+  try {
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+  } catch { /* already exited */ }
+};
+
 test('shell timeout retains child progress, both streams and process outcome', () => {
   const result = run(`
     require('node:fs').writeSync(1, 'output before stall');
@@ -65,23 +98,9 @@ test('runShellSubprocess returns on clean child exit even when a descendant inhe
     assert.match(result.stderr, /\[shell-fixture\] process exit: 0/);
     assert.ok(elapsedMs < 1500, `expected prompt exit before 2000ms timeout, took ${Math.round(elapsedMs)}ms`);
     assert.doesNotThrow(() => assertShellSubprocess(result));
-    if (process.platform !== 'win32') {
-      const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
-      assert.ok(Number.isInteger(descendantPid) && descendantPid > 0, `invalid descendant pid: ${descendantPid}`);
-      const deadline = Date.now() + 1000;
-      let alive = true;
-      while (Date.now() < deadline) {
-        try { process.kill(descendantPid, 0); }
-        catch (err) { if (err.code === 'ESRCH') { alive = false; break; } }
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      assert.equal(alive, false, `lingering descendant ${descendantPid} survived clean child exit`);
-    }
+    await waitForDescendantExit(pidFile, 'lingering descendant survived clean child exit');
   } finally {
-    try {
-      const pid = Number(readFileSync(pidFile, 'utf8').trim());
-      if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
-    } catch { /* already exited */ }
+    cleanupDescendant(pidFile);
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
@@ -107,23 +126,9 @@ test('runShellSubprocess times out stalled child, terminates descendants, and re
       assert.equal(error.cause, result.error);
       return true;
     });
-    if (process.platform !== 'win32') {
-      const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
-      assert.ok(Number.isInteger(descendantPid) && descendantPid > 0, `invalid descendant pid: ${descendantPid}`);
-      const deadline = Date.now() + 1000;
-      let alive = true;
-      while (Date.now() < deadline) {
-        try { process.kill(descendantPid, 0); }
-        catch (err) { if (err.code === 'ESRCH') { alive = false; break; } }
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      assert.equal(alive, false, `stalled descendant ${descendantPid} survived timeout cleanup`);
-    }
+    await waitForDescendantExit(pidFile, 'stalled descendant survived timeout cleanup');
   } finally {
-    try {
-      const pid = Number(readFileSync(pidFile, 'utf8').trim());
-      if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
-    } catch { /* already exited */ }
+    cleanupDescendant(pidFile);
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
