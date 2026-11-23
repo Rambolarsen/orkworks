@@ -148,6 +148,7 @@ assigns discovery-side ownership of each invalidation edge:
 | Summary publication | Control owner → execution researchBinding currentness, tracked-run detail snapshots |
 | Review outcome published | Review owner → nothing auto-invalidated (immutable; currency resolved through the reviewed report binding) |
 | Terminal completion | Terminal owner → every recognized pending proposal, collections/expectations retirement, run-closed waits, and the complete authority revocation (run bearer, parent planning authority, every launch grant, liveness-bound child-report capabilities) per the terminal contract's Authority row |
+| Execution proposal publication/replacement | Execution source owner → every recognized earlier pending proposal (invalidated under the source-owned membership contract, since publication leaves the input revision unchanged), with the new proposal bound to the then-current context |
 
 Invalidation never rewrites immutable history; it advances source-owned
 currentness/pointers and fences dependent work. A transition whose affected
