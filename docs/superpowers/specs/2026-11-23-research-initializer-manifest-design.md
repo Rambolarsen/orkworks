@@ -69,12 +69,14 @@ families; and per-family opportunistic initialization.
 
 ## The complete creation manifest
 
-The initializer's original outcome creates, atomically, exactly the following
-rows — no more, no fewer, no rows deferred to later commands. Every row is
-created with its accepted exact key/value/wrapper shape and its original
-`lastCommit` proof bound to the initializer's new header advance.
+The initializer's manifest splits across the accepted creation boundaries —
+**three distinct original outcomes**, each with its own header advance and
+new complete proof, exactly as the accepted initialization and child-source
+contracts separate them. No outcome defers required rows to later commands;
+every created row carries its accepted exact key/value/wrapper shape and its
+original `lastCommit` proof bound to its own outcome's header advance.
 
-### Workspace scope (created once per workspace profile admission)
+### Outcome 1 — workspace initialize-store (created once per workspace profile admission)
 
 | Created row | Owner contract | Mandatory empty at creation |
 | --- | --- | --- |
@@ -83,7 +85,7 @@ created with its accepted exact key/value/wrapper shape and its original
 | workspace report-retained pools | report publication profile | Zero |
 | (all 24 metadata families + report registry rows exist per-run; none is created at workspace scope — the families are run-keyed or task-keyed; the workspace scope carries only resources and the profile registration) | catalog enumeration | — |
 
-### Run scope (created at fresh root admission, one RunKey)
+### Outcome 2 — root admission (created at fresh root admission, one RunKey)
 
 | Created row | Owner contract | Initial value |
 | --- | --- | --- |
@@ -99,25 +101,44 @@ created with its accepted exact key/value/wrapper shape and its original
 | `research_lifecycle_records` / lifecycle keys | completion | Empty family |
 | `research_reviews` / TaskKey keys | review tasks | Empty family |
 | `research_execution_plan_approvals` / {plan,approvalId} keys | execution proposal | Empty family |
-| run `research_preparation_authorizations` rows | preparation authorization | Created with the original authorization — NOT at admission |
-| run resource ledgers (nine names) | initialization/catalog recipe | All at zero, reserved zero, original proof |
+
+| run resource ledgers (nine names) | initialization/catalog recipe | Per the accepted recipe: the preparation ledger is **replaced with its charged value** (the root preparation is not free), the control ledger is **nonzero** covering the initial run owner and lifecycle selector charges, and the remaining ledgers are created at zero, reserved zero, each with original proof |
 | run `child-source-retained-bytes` / `child-control-retained-bytes` pools | child source contract | Zero |
 | run report-retained pools | report publication profile | Zero |
 | `run_states` historical seed | ordinary storage | Accepted historical seed, unchanged |
 
-**Empty-family representation.** Families whose rows are keyed by
-task/plan/answer identities (`research_expectations`, `research_turn_completions`,
-`research_coordination_receipts`, `research_recovery_decisions`,
-`research_summaries`, `research_lifecycle_records`, `research_reviews`,
-both clarification families, `research_execution_plan_approvals`) exist as
-recognized empty families at admission: the profile registers them, and their
-first row appears only through its owning command. A reader that cannot
-address an empty family reports unavailable. (This is the whole-catalog
-reader obligation applied to the initializer: the manifest creates the
-resources, owner rows and selector; identity-keyed families register as
-empty because their rows cannot exist before their owning events.)
+**Complete family registration.** The manifest registers **every** name in
+the accepted enumeration, split by creation timing:
 
-### Assignment scope (created at the unique attachment, per ChildAssignmentIdentity)
+- **Created rows (with values):** `research_run_controls` (run owner),
+  `research_lifecycle_state` (selector), the nine run resource ledgers and
+  the control/source pools, the workspace resource ledgers and pools,
+  `report_heads`/`report_receipts` as registered empty families.
+- **Registered empty families (identity-keyed; rows appear only through
+  owning commands):** all 24 metadata families not created with values —
+  `research_plan_approvals`, `research_reservations`, `research_allocations`,
+  `research_attachments`, `research_control_inputs`,
+  `research_runtime_attachments`, `research_plan_controls`,
+  `research_task_controls`, `research_launch_controls`,
+  `research_session_states`, `research_collections`,
+  `research_expectations`, `research_turn_completions`,
+  `research_coordination_receipts`, `research_recovery_decisions`,
+  `research_summaries`, `research_lifecycle_records`, `research_reviews`,
+  `research_clarification_requests`, `research_clarification_answers`,
+  `research_execution_plan_approvals`,
+  `research_preparation_authorizations` — and all 8 object kinds
+  (`research-source-capture`, `research-source-scope`,
+  `research-source-configuration`, `research-source-plan`,
+  `research-source-evidence`, `research-assignment-source`,
+  `research-review-input`, `research-execution-plan`), which gain rows only
+  through their owning commands. `run_states` is the accepted historical
+  seed, not a registered research family.
+
+A reader that cannot address a registered empty family reports unavailable;
+absence of rows is never absence of the family. A manifest omitting any
+enumerated name — family or object kind — is incomplete and denies.
+
+### Outcome 3 — attachment preparation (created at the unique attachment, per ChildAssignmentIdentity)
 
 | Created row | Owner contract | Initial value |
 | --- | --- | --- |
@@ -125,12 +146,17 @@ empty because their rows cannot exist before their owning events.)
 | initial `summary_state` (subjectRevision 1, Unassessed row/checkpoint or never-initialized marker) | child source contract | Accepted branches |
 | `research-assignment-source` object + provenance membership | research source codecs | Full retained bytes |
 
-### Profile registration
+### Profile registration and coexistence
 
 The initializer binds the workspace to profile `retained-file-research-v1`
-under the accepted owner-selection rule (per RunKey at admission, per
-AssignmentIdentity at attachment). A workspace holding another profile gains
-no research rows by this initializer; mixing row families is unavailable.
+**additively**: a workspace already holding an ordinary/direct-execution or
+child-source profile keeps those profiles' admitted catalogs byte-identical
+(peers preserved), and the research catalog is admitted alongside them under
+the accepted owner-selection rule (per RunKey at admission, per
+AssignmentIdentity at attachment). Coexistence is explicitly permitted;
+mixing **row families** across profiles is unavailable — no research row is
+created inside another profile's family or vice versa. The registration
+never rewires, re-initializes or retokenizes another profile's rows.
 
 ## Manifest completeness and proof rules
 
