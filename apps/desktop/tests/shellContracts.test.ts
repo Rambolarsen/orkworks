@@ -162,7 +162,7 @@ test("timeout recovery opens the provider settings section", () => {
   const settings = readFileSync(new URL("../src/components/SettingsModal.tsx", import.meta.url), "utf8");
 
   const shell = readFileSync(new URL("../src/components/ApplicationShell.tsx", import.meta.url), "utf8");
-  assert.match(app, /onOpenSettings=\{section => openSettings\(section \?\? "tools"\)\}/);
+  assert.match(app, /onOpenSettings:\s*section => openSettings\(section \?\? "tools"\)/);
   assert.match(shell, /onOpenSettings\("providers"\)/);
   assert.match(settings, /initialSection\?: SettingsSection/);
   assert.match(settings, /useState<SettingsSection>\(initialSection\)/);
@@ -561,7 +561,7 @@ test("CenterPanel routes backend attach failures to the shared recovery callback
   assert.match(center, /attachTerminalAfterBackendReady/);
   assert.match(center, /onBackendUnavailable/);
   assert.match(terminal, /onBackendUnavailable=\{onBackendUnavailable\}/);
-  assert.match(shell, /onBackendUnavailable=\{props\.onBackendUnavailable\}/);
+  assert.match(shell, /onBackendUnavailable=\{workspace\.onBackendUnavailable\}/);
 });
 
 test("CenterPanel disables stdin and shows a loading overlay while starting, instead of an interactable blank terminal", () => {

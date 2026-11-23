@@ -642,7 +642,7 @@ test("App runs accepted Fix with AI feedback only after the handoff generation g
   const selection = app.slice(selectionStart, selectionEnd);
   assert.match(selection, /workspaceSessionController\.selectSession\(id\)/);
   assert.match(selection, /acknowledgeSession\(clearUnread\(prev, id\), id\)/);
-  assert.match(selection, /type: "session-selected"/);
+  assert.match(selection, /shellNavigationController\.selectSession\(id\)/);
 });
 
 test("a resurfaced recommendation is visibly marked instead of reading as a first-time finding", () => {
@@ -1026,7 +1026,7 @@ test("Recommendations panel links affected sessions through the shared selection
   );
 
   assert.match(panel, /onSelectSession\?\./);
-  assert.match(shell, /onSelectSession=\{props\.onSelectSession\}/);
+  assert.match(shell, /onSelectSession=\{sessions\.onSelect\}/);
 });
 
 test("SessionDetailPanel gates Peon diagnostics behind debug metadata", () => {
@@ -1070,7 +1070,7 @@ test("Recommendations panel does not poll the sidecar before a workspace is load
 
   assert.match(panel, /hasWorkspace: boolean/);
   assert.match(panel, /if \(!hasWorkspace\) \{/);
-  assert.match(shell, /hasWorkspace=\{!!props\.workspace && !props\.isSwitchingWorkspace\}/);
+  assert.match(shell, /hasWorkspace=\{!!workspace\.info && !isSwitchingWorkspace\}/);
 });
 
 test("Recommendations polling also pauses across a workspace switch, not just initial startup", () => {
@@ -1089,7 +1089,7 @@ test("Recommendations polling also pauses across a workspace switch, not just in
 
   assert.match(app, /setIsSwitchingWorkspace\(true\)/);
   assert.match(app, /setIsSwitchingWorkspace\(false\)/);
-  assert.match(shell, /isSwitchingWorkspace: boolean/);
+  assert.match(shell, /isSwitching: isSwitchingWorkspace/);
 });
 
 test("Recommendations panel drops the previous workspace's data instead of leaving it displayed mid-switch", () => {

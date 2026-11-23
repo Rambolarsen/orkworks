@@ -1,8 +1,15 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
-import type { CentralSurface } from "../shellNavigation";
-import type { SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
+import type {
+  CentralSurface,
+  FocusTarget,
+  ShellCommand,
+  ShellCommandHandler,
+  ShellDestination,
+  ShellNavigationController,
+} from "../shellNavigation";
+import type { PlanDocumentKind, ResumeStrategy, SessionAction, SessionAttention, SessionInfo, WorkflowRecommendation, WorkspaceInfo } from "../api";
 import type { HarnessConfig } from "../harnessTypes";
 import type { DebugSettings } from "../appSettingsTypes";
 import type { ShellPreferences } from "../orkworksWindow";
@@ -24,73 +31,105 @@ import { disposeAllTerminals } from "../terminalStore";
 import { useCompactPopover } from "../useCompactPopover";
 import { useSessionAttentionAlerts } from "../useSessionAttentionAlerts";
 
-export type ShellDestination = "changes" | "details" | "recommendations" | "skills" | "actions";
-export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
-export interface ShellCommandRequest { command: ShellCommand; sequence: number; reveal?: boolean }
+export type { ShellCommand, ShellDestination };
 
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
   const harnessId = session?.harnessId?.trim() || session?.harness?.trim();
   return Boolean(harnessId) && harnessId !== "generic-shell";
 }
 
-interface Props {
-  centralSurface?: CentralSurface;
-  reviewContent?: ReactNode;
-  reviewLoading?: boolean;
-  reviewError?: boolean;
-  onOpenReview?: (kind?: import("../api").PlanDocumentKind) => void;
-  onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
-  onRequestPlanReview?: (sessionId: string) => Promise<void>;
-  onNavigate?: () => void;
-  onCloseReview?: () => void;
+export interface ShellWorkspaceProps {
+  info: WorkspaceInfo | null;
+  control: ReactNode;
+  generation: number;
+  isSwitching: boolean;
   backendStatus: string;
-  workspace: WorkspaceInfo | null;
-  workspaceControl: ReactNode;
-  workspaceGeneration: number;
-  isSwitchingWorkspace: boolean;
-  debugSettings: DebugSettings;
-  sessions: SessionInfo[];
-  sessionsSourceStatus?: ActionsSourceStatus;
-  desktopSessionNotifications?: boolean;
+  onOpen: () => void;
+  onBackendUnavailable: () => void;
+  onRetryBackend: () => void;
+}
+
+export interface ShellSessionsProps {
+  items: SessionInfo[];
+  sourceStatus?: ActionsSourceStatus;
   alertNavigationBlocked?: boolean;
-  activeSessionId: string | null;
-  visibleSubjectId: string | null;
-  canFixWithAi: boolean;
-  taskmasterReady: boolean;
-  focusedRecommendationId: string | null;
+  activeId: string | null;
   unreadIds: ReadonlySet<string>;
   acknowledgedIds: ReadonlySet<string>;
   harnesses: HarnessConfig[];
   resumeTick: number;
-  resumingSessionIds?: ReadonlySet<string>;
-  preferences: ShellPreferences;
-  onPreferencesChange: (preferences: ShellPreferences) => void;
-  onResetPreferences: () => Promise<boolean>;
-  inspector: ShellDestination | null;
-  onInspect: (destination: ShellDestination | null) => void;
-  commandRequest?: ShellCommandRequest | null;
-  onSelectSession: (id: string) => void;
-  onOpenRecommendation: (id: string) => void;
-  onFixWithAi: (recommendation: WorkflowRecommendation) => void;
-  onRunCleanup: (recommendation: WorkflowRecommendation) => void;
-  newSessionContent?: ReactNode;
-  onCancelNewSession?: () => void;
-  onCreateSession: () => void;
-  onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
-  onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
-  onRowResumeSession?: (id: string) => void;
+  resumingIds?: ReadonlySet<string>;
+  onSelect: (id: string) => void;
+  onAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
+  onResume: (id: string, strategy?: ResumeStrategy) => void;
+  onRowResume?: (id: string) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onTitleUpdated?: () => void;
   onFocusTerminal: () => void;
+}
+
+export interface ShellNavigationProps {
+  controller?: ShellNavigationController;
+  centralSurface?: CentralSurface;
+  inspector: ShellDestination | null;
+  visibleSubjectId: string | null;
+  focusTarget?: FocusTarget;
+  onInspect: (destination: ShellDestination | null) => void;
+  onRegisterCommand?: (handler: ShellCommandHandler) => () => void;
+}
+
+export interface ShellReviewProps {
+  content?: ReactNode;
+  loading?: boolean;
+  error?: boolean;
+  onOpen?: (kind?: PlanDocumentKind) => void;
+  onSelectPlan?: (sessionId: string, path: string) => Promise<void>;
+  onRequestPlanReview?: (sessionId: string) => Promise<void>;
+  onClose?: () => void;
+}
+
+export interface ShellComposerProps {
+  content?: ReactNode;
+  onCreate: () => void;
+  onCancel?: () => void;
+}
+
+export interface ShellRecommendationsProps {
+  canFixWithAi: boolean;
+  taskmasterReady: boolean;
+  focusedId: string | null;
+  onOpen: (id: string) => void;
+  onFixWithAi: (recommendation: WorkflowRecommendation) => void;
+  onRunCleanup: (recommendation: WorkflowRecommendation) => void;
+}
+
+export interface ShellPreferencesProps {
+  value: ShellPreferences;
+  debugSettings: DebugSettings;
+  desktopSessionNotifications?: boolean;
+  onChange: (preferences: ShellPreferences) => void;
+  onReset: () => Promise<boolean>;
   onOpenSettings: (section?: "tools" | "providers" | "recommendations") => void;
-  onOpenWorkspace: () => void;
-  onBackendUnavailable: () => void;
-  onRetryBackend: () => void;
+}
+
+interface Props {
+  workspace: ShellWorkspaceProps;
+  sessions: ShellSessionsProps;
+  navigation: ShellNavigationProps;
+  review: ShellReviewProps;
+  composer: ShellComposerProps;
+  recommendations: ShellRecommendationsProps;
+  preferences: ShellPreferencesProps;
 }
 
 const TITLES = { changes: "Changes", actions: "Actions", details: "Details", recommendations: "Recommendations", skills: "Skills" };
 
 export default function ApplicationShell(props: Props) {
+  const { workspace, sessions, navigation, review, composer, recommendations, preferences } = props;
+  const { backendStatus, generation: workspaceGeneration, isSwitching: isSwitchingWorkspace } = workspace;
+  const { inspector, centralSurface, focusTarget } = navigation;
+  const controller = navigation.controller;
+
   const rootRef = useRef<HTMLDivElement>(null);
   const navigationMenuRef = useRef<HTMLDetailsElement>(null);
   const navigationPopoverRef = useRef<HTMLDivElement>(null);
@@ -98,15 +137,15 @@ export default function ApplicationShell(props: Props) {
   const invokerRef = useRef<HTMLElement | null>(null);
   const invokerSelectorRef = useRef<string | null>(null);
   const reviewInvoker = useRef<{ element: HTMLElement | null; selector: string | null } | null>(null);
-  const navigationIntent = useRef(0);
+  const fallbackIntent = useRef(0);
   const creationReturn = useRef<{ inspector: ShellDestination | null; sessionsPage: boolean } | null>(null);
   const selectSession = useCallback((id: string) => {
     creationReturn.current = null;
-    props.onSelectSession(id);
-  }, [props.onSelectSession]);
-  const workspaceGenerationRef = useRef(props.workspaceGeneration);
-  workspaceGenerationRef.current = props.workspaceGeneration;
-  const focusIntent = useRef<"composer" | "page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
+    sessions.onSelect(id);
+  }, [sessions.onSelect]);
+  const workspaceGenerationRef = useRef(workspaceGeneration);
+  workspaceGenerationRef.current = workspaceGeneration;
+  const focusIntent = useRef<"composer" | "page" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [toolbarResumeWarningOpen, setToolbarResumeWarningOpen] = useState(false);
@@ -114,32 +153,32 @@ export default function ApplicationShell(props: Props) {
   const [focusTick, setFocusTick] = useState(0);
   const [actionFocusRequest, setActionFocusRequest] = useState<{ scope: string; sequence: number }>({ scope: "", sequence: 0 });
   const [actionInspection, setActionInspection] = useState<{ scope: string; row: ActionRow | null }>({ scope: "", row: null });
-  const actionsScope = `${props.workspace?.workspaceIdentity || props.workspace?.path || ""}:${props.workspaceGeneration}`;
-  const sourcesReady = !!props.workspace && !props.isSwitchingWorkspace && props.backendStatus === "connected";
-  const recommendations = useActionsRecommendations(actionsScope, sourcesReady && props.taskmasterReady, props.workspace?.path ?? "");
-  const actionsModel = buildActionsOverview(sourcesReady ? props.sessions : [], sourcesReady ? props.sessionsSourceStatus ?? "loading" : "unavailable",
-    recommendations.items, recommendations.status);
-  const recommendationsPage = props.inspector === "recommendations";
-  const skillsPage = props.inspector === "skills";
-  const changesPage = props.inspector === "changes";
+  const actionsScope = `${workspace.info?.workspaceIdentity || workspace.info?.path || ""}:${workspaceGeneration}`;
+  const sourcesReady = !!workspace.info && !isSwitchingWorkspace && backendStatus === "connected";
+  const recommendationSource = useActionsRecommendations(actionsScope, sourcesReady && recommendations.taskmasterReady, workspace.info?.path ?? "");
+  const actionsModel = buildActionsOverview(sourcesReady ? sessions.items : [], sourcesReady ? sessions.sourceStatus ?? "loading" : "unavailable",
+    recommendationSource.items, recommendationSource.status);
+  const recommendationsPage = inspector === "recommendations";
+  const skillsPage = inspector === "skills";
+  const changesPage = inspector === "changes";
   const centralUtility = recommendationsPage || skillsPage || changesPage;
-  const layout = computeShellLayout(width, props.preferences, props.inspector !== null && !centralUtility);
+  const layout = computeShellLayout(width, preferences.value, inspector !== null && !centralUtility);
   const compact = layout.mode === "compact";
   const showSessionsPage = compact && sessionsPage;
-  const temporaryUtility = !showSessionsPage && props.inspector !== null && (layout.inspectorPage || centralUtility);
-  const showComposer = !!props.newSessionContent && !showSessionsPage && !temporaryUtility;
-  const reviewing = (props.centralSurface?.kind === "review" && props.centralSurface.sessionId === props.activeSessionId)
-    || (!!props.reviewError && !!props.activeSessionId);
+  const temporaryUtility = !showSessionsPage && inspector !== null && (layout.inspectorPage || centralUtility);
+  const showComposer = !!composer.content && !showSessionsPage && !temporaryUtility;
+  const reviewing = (centralSurface?.kind === "review" && centralSurface.sessionId === sessions.activeId)
+    || (!!review.error && !!sessions.activeId);
   const showReview = reviewing && !showSessionsPage && !temporaryUtility && !showComposer;
   const showTerminal = !showSessionsPage && !temporaryUtility && !showComposer && !reviewing;
   const showSessions = showSessionsPage || layout.sessionsVisible;
   useCompactPopover(compact && !showSessions && navigationMenuOpen, navigationMenuRef, navigationPopoverRef, "start");
-  useEffect(() => setNavigationMenuOpen(false), [props.workspaceGeneration, showSessions]);
-  const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && props.inspector !== null;
-  const session = props.sessions.find(s => s.id === props.activeSessionId) ?? null;
-  const isResuming = !!session && !!props.resumingSessionIds?.has(session.id);
+  useEffect(() => setNavigationMenuOpen(false), [workspaceGeneration, showSessions]);
+  const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && inspector !== null;
+  const session = sessions.items.find(s => s.id === sessions.activeId) ?? null;
+  const isResuming = !!session && !!sessions.resumingIds?.has(session.id);
   const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
-    && props.backendStatus === "connected" && !props.isSwitchingWorkspace
+    && backendStatus === "connected" && !isSwitchingWorkspace
     && resumeChoices(session).some(option => !option.unavailable);
 
   useLayoutEffect(() => {
@@ -151,6 +190,11 @@ export default function ApplicationShell(props: Props) {
     observer.observe(root);
     return () => observer.disconnect();
   }, []);
+
+  const beginNavigation = () => controller ? controller.beginNavigationIntent() : ++fallbackIntent.current;
+  const isNavigationCurrent = (intent: number, generation: number) => controller
+    ? controller.isNavigationIntentCurrent(intent, generation)
+    : fallbackIntent.current === intent && workspaceGenerationRef.current === generation;
 
   const requestFocus = (intent: NonNullable<typeof focusIntent.current>) => {
     focusIntent.current = intent;
@@ -166,117 +210,118 @@ export default function ApplicationShell(props: Props) {
       : invokerRef.current?.dataset.shellCommand ? `[data-shell-command="${invokerRef.current.dataset.shellCommand}"]` : null;
   };
   const closePage = () => {
-    ++navigationIntent.current;
+    beginNavigation();
     setSessionsPage(false);
-    props.onInspect(null);
-    if (changesPage) props.onCloseReview?.();
+    navigation.onInspect(null);
+    if (changesPage) review.onClose?.();
     requestFocus(changesPage ? "terminal" : "return");
   };
   const closeReviewPage = () => {
     invokerRef.current = reviewInvoker.current?.element ?? null;
     invokerSelectorRef.current = reviewInvoker.current?.selector ?? null;
     reviewInvoker.current = null;
-    props.onCloseReview?.();
+    review.onClose?.();
     requestFocus("review-return");
   };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
-    props.onNavigate?.();
-    const intent = ++navigationIntent.current;
+    const intent = beginNavigation();
     if (command === "next-action") {
-      if (!props.inspector && !sessionsPage) captureInvoker(command);
+      if (!inspector && !sessionsPage) captureInvoker(command);
       setSessionsPage(false);
-      props.onInspect("actions");
+      navigation.onInspect("actions");
       setActionFocusRequest(old => ({ scope: actionsScope, sequence: old.sequence + 1 }));
       return;
     }
     if (command === "reset-layout") {
-      const generation = props.workspaceGeneration;
-      void props.onResetPreferences().then(completed => {
-        if (!completed || navigationIntent.current !== intent || workspaceGenerationRef.current !== generation) return;
+      const generation = workspaceGeneration;
+      void preferences.onReset().then(completed => {
+        if (!completed || !isNavigationCurrent(intent, generation)) return;
         setSessionsPage(false);
-        props.onInspect(null);
+        navigation.onInspect(null);
         requestFocus("terminal");
       });
     } else if (command === "review") {
-      if (!session?.hasOpenablePlan || !props.onOpenReview || props.backendStatus !== "connected" || props.isSwitchingWorkspace) return;
+      if (!session?.hasOpenablePlan || !review.onOpen || backendStatus !== "connected" || isSwitchingWorkspace) return;
       if (!reviewing) {
         captureInvoker(command);
         reviewInvoker.current = { element: invokerRef.current, selector: invokerSelectorRef.current };
       }
       creationReturn.current = null;
       setSessionsPage(false);
-      props.onCancelNewSession?.();
-      props.onInspect(null);
+      composer.onCancel?.();
+      navigation.onInspect(null);
       if (reviewing) requestFocus("page");
-      else props.onOpenReview();
+      else review.onOpen();
     } else if (command === "new-session") {
       if (!creationReturn.current) {
-        creationReturn.current = { inspector: props.inspector, sessionsPage };
+        creationReturn.current = { inspector, sessionsPage };
         invokerRef.current = rootRef.current?.querySelector<HTMLElement>("[data-shell-create]") ?? null;
         invokerSelectorRef.current = "[data-shell-create]";
       }
       setSessionsPage(false);
-      props.onInspect(null);
+      navigation.onInspect(null);
       requestFocus("composer");
     } else if (command === "cancel-new-session") {
       const target = creationReturn.current;
       creationReturn.current = null;
-      props.onCancelNewSession?.();
+      composer.onCancel?.();
       setSessionsPage(target?.sessionsPage ?? false);
-      props.onInspect(target?.inspector ?? null);
+      navigation.onInspect(target?.inspector ?? null);
       requestFocus(target?.sessionsPage ? "sessions" : "return");
     } else if (command === "terminal") {
-      props.onCloseReview?.();
+      review.onClose?.();
       creationReturn.current = null;
-      props.onCancelNewSession?.();
+      composer.onCancel?.();
       setSessionsPage(false);
-      props.onInspect(null);
+      navigation.onInspect(null);
       requestFocus("terminal");
     } else if (command === "sessions") {
       const list = document.getElementById("sessions-list");
       const focused = list?.contains(document.activeElement) === true;
       if (compact) {
         if (sessionsPage && (focused || toggleSessions)) closePage();
-        else { captureInvoker(command); setSessionsPage(true); props.onInspect(null); requestFocus("sessions"); }
+        else { captureInvoker(command); setSessionsPage(true); navigation.onInspect(null); requestFocus("sessions"); }
       } else if (layout.sessionsVisible && (focused || toggleSessions)) {
-        props.onPreferencesChange({ ...props.preferences, sessionsVisible: false });
+        preferences.onChange({ ...preferences.value, sessionsVisible: false });
         requestFocus(temporaryUtility ? "page" : "terminal");
       } else {
         captureInvoker(command);
-        props.onPreferencesChange({ ...props.preferences, sessionsVisible: true });
+        preferences.onChange({ ...preferences.value, sessionsVisible: true });
         requestFocus("sessions");
       }
     } else {
       if (command === "recommendations" && !reveal && !shouldShowRecommendationsPanel(session)) return;
-      if (props.inspector === command && !reveal) { closePage(); return; }
+      if (inspector === command && !reveal) { closePage(); return; }
       // Preserve the original invoker when changing utilities inside a temporary page.
-      if (!props.inspector && !sessionsPage) captureInvoker(command);
+      if (!inspector && !sessionsPage) captureInvoker(command);
       if (command === "changes") {
-        props.onCloseReview?.();
-        props.onCancelNewSession?.();
+        review.onClose?.();
+        composer.onCancel?.();
         creationReturn.current = null;
       }
       setSessionsPage(false);
-      props.onInspect(command);
+      navigation.onInspect(command);
       requestFocus("page");
     }
   };
   const commandRef = useRef(runCommand);
   commandRef.current = runCommand;
   useSessionAttentionAlerts({
-    scope: sourcesReady && props.sessionsSourceStatus === "ready" ? actionsScope : null,
-    sessions: props.sessions,
-    visibleSessionId: showTerminal ? props.activeSessionId : null,
-    dialogOpen: props.alertNavigationBlocked === true || toolbarResumeWarningOpen || detailsResumeWarningOpen,
-    desktopEnabled: props.desktopSessionNotifications === true,
+    scope: sourcesReady && sessions.sourceStatus === "ready" ? actionsScope : null,
+    sessions: sessions.items,
+    visibleSessionId: showTerminal ? sessions.activeId : null,
+    dialogOpen: sessions.alertNavigationBlocked === true || toolbarResumeWarningOpen || detailsResumeWarningOpen,
+    desktopEnabled: preferences.desktopSessionNotifications === true,
     openSession: (id) => {
       selectSession(id);
       commandRef.current("terminal");
     },
   });
-  useEffect(() => {
-    if (props.commandRequest) commandRef.current(props.commandRequest.command, props.commandRequest.reveal);
-  }, [props.commandRequest]);
+  useLayoutEffect(() => {
+    const dispatch: ShellCommandHandler = (command, reveal = false) => commandRef.current(command, reveal);
+    if (controller) return controller.registerCommandHandler(dispatch);
+    return navigation.onRegisterCommand?.(dispatch);
+  }, [controller, navigation.onRegisterCommand]);
 
   useEffect(() => {
     setSessionsPage(false);
@@ -284,20 +329,20 @@ export default function ApplicationShell(props: Props) {
     invokerRef.current = null;
     invokerSelectorRef.current = null;
     reviewInvoker.current = null;
-  }, [props.workspaceGeneration]);
+  }, [workspaceGeneration]);
 
   useEffect(() => {
-    if (!showInspector || props.preferences.inspectorPinned) return;
+    if (!showInspector || preferences.value.inspectorPinned) return;
     const dismissOutsideInspector = (event: PointerEvent) => {
       const target = event.target;
-      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, [role="dialog"], [data-shell-command="${props.inspector}"]`)) return;
+      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, [role="dialog"], [data-shell-command="${inspector}"]`)) return;
       // Let the clicked surface receive focus and perform its own action.
-      ++navigationIntent.current;
-      props.onInspect(null);
+      beginNavigation();
+      navigation.onInspect(null);
     };
     document.addEventListener("pointerdown", dismissOutsideInspector, true);
     return () => document.removeEventListener("pointerdown", dismissOutsideInspector, true);
-  }, [showInspector, props.inspector, props.preferences.inspectorPinned, props.onInspect]);
+  }, [showInspector, inspector, preferences.value.inspectorPinned, navigation.onInspect, controller]);
 
   useLayoutEffect(() => {
     const intent = focusIntent.current;
@@ -316,10 +361,11 @@ export default function ApplicationShell(props: Props) {
       : invokerSelectorRef.current ? root.querySelector<HTMLElement>(invokerSelectorRef.current) : null;
     const closedDisclosure = returnTarget?.closest("details:not([open])");
     if (closedDisclosure) returnTarget = closedDisclosure.querySelector<HTMLElement>("summary");
+    const focusFallback = () => {
+      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-review-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
+    };
     if (intent === "composer" && showComposer) {
       root.querySelector<HTMLElement>("[data-shell-composer-focus]")?.focus({ preventScroll: true });
-    } else if (intent === "changes-return") {
-      root.querySelector<HTMLElement>("[data-review-changes]")?.focus({ preventScroll: true });
     } else if ((intent === "return" || intent === "review-return") && returnTarget?.getClientRects().length) {
       returnTarget.focus({ preventScroll: true });
       invokerRef.current = null;
@@ -328,11 +374,29 @@ export default function ApplicationShell(props: Props) {
       (document.getElementById("sessions-list") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
     } else if (intent === "terminal" || intent === "review-return") {
       root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
-      props.onFocusTerminal();
+      sessions.onFocusTerminal();
+    } else if (intent === "return" && focusTarget) {
+      if (focusTarget.kind === "terminal") {
+        const terminalFocus = root.querySelector<HTMLElement>("[data-shell-terminal-focus]");
+        if (terminalFocus) {
+          terminalFocus.focus({ preventScroll: true });
+          sessions.onFocusTerminal();
+        } else {
+          focusFallback();
+        }
+      } else {
+        const targeted = focusTarget.kind === "review"
+          ? root.querySelector<HTMLElement>("[data-shell-review-heading]")
+          : focusTarget.kind === "sessions"
+            ? (document.getElementById("sessions-list") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))
+            : root.querySelector<HTMLElement>("[data-shell-page-heading]");
+        if (targeted) targeted.focus({ preventScroll: true });
+        else focusFallback();
+      }
     } else {
-      (root.querySelector<HTMLElement>("[data-shell-page-heading]") ?? root.querySelector<HTMLElement>("[data-shell-review-heading]") ?? root.querySelector<HTMLElement>("[data-shell-terminal-focus]") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
+      focusFallback();
     }
-  }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, props.onFocusTerminal]);
+  }, [focusTick, showTerminal, showSessionsPage, temporaryUtility, showInspector, focusTarget, sessions.onFocusTerminal]);
   useLayoutEffect(() => {
     if (showComposer) rootRef.current?.querySelector<HTMLElement>("[data-shell-composer-focus]")?.focus({ preventScroll: true });
   }, [showComposer]);
@@ -341,77 +405,77 @@ export default function ApplicationShell(props: Props) {
   }, [reviewing]);
   useLayoutEffect(() => {
     // Retry removes its focused button; recover focus without stealing it from an inspector.
-    if (reviewing && !props.reviewError && document.activeElement === document.body)
+    if (reviewing && !review.error && document.activeElement === document.body)
       rootRef.current?.querySelector<HTMLElement>("[data-shell-review-heading]")?.focus({ preventScroll: true });
-  }, [reviewing, props.reviewError]);
+  }, [reviewing, review.error]);
 
   useEffect(() => {
     // Hidden terminal presentation has no CenterPanel effect to observe backend loss.
-    if (props.backendStatus !== "connected") disposeAllTerminals();
-  }, [props.backendStatus]);
+    if (backendStatus !== "connected") disposeAllTerminals();
+  }, [backendStatus]);
 
   useEffect(() => {
     for (const [id, visible] of Object.entries({ sessions: showSessions, terminal: showTerminal,
-      detail: props.inspector === "details" && (showInspector || temporaryUtility),
-      recommendations: props.inspector === "recommendations" && (showInspector || temporaryUtility), review: showReview })) {
+      detail: inspector === "details" && (showInspector || temporaryUtility),
+      recommendations: inspector === "recommendations" && (showInspector || temporaryUtility), review: showReview })) {
       window.orkworks.notifyPanelVisibility(id, visible);
     }
-  }, [showSessions, showTerminal, showInspector, temporaryUtility, props.inspector, showReview]);
+  }, [showSessions, showTerminal, showInspector, temporaryUtility, inspector, showReview]);
 
   const renderUtility = () => {
-    if (skillsPage) return <SkillsSettings currentWorkspacePath={props.isSwitchingWorkspace ? null : props.workspace?.workspaceIdentity ?? props.workspace?.path ?? null} />;
-    if (props.inspector === "changes") return <GitChangesPanel key={`${props.workspaceGeneration}:${props.activeSessionId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
-      session={props.sessions.find(s => s.id === props.activeSessionId) ?? null} />;
-    if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
-      workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
-      visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
+    if (skillsPage) return <SkillsSettings currentWorkspacePath={isSwitchingWorkspace ? null : workspace.info?.workspaceIdentity ?? workspace.info?.path ?? null} />;
+    if (inspector === "changes") return <GitChangesPanel key={`${workspaceGeneration}:${sessions.activeId}:${session?.repoRoot ?? ""}:${session?.worktreeBinding?.root ?? ""}:${session?.worktreeBinding?.commonDir ?? ""}`}
+      session={sessions.items.find(s => s.id === sessions.activeId) ?? null} />;
+    if (inspector === "details") return <SessionDetailPanel key={workspaceGeneration} sessions={sessions.items}
+      workspaceIdentity={isSwitchingWorkspace ? undefined : workspace.info?.workspaceIdentity} onTitleUpdated={sessions.onTitleUpdated}
+      visibleSessionId={navigation.visibleSubjectId} harnesses={sessions.harnesses}
       onResumeWarningOpenChange={setDetailsResumeWarningOpen}
       onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={kind => {
         if (!kind) { runCommand("review"); return; }
-        if (props.backendStatus !== "connected" || props.isSwitchingWorkspace || !props.onOpenReview) return;
+        if (backendStatus !== "connected" || isSwitchingWorkspace || !review.onOpen) return;
         captureInvoker("review");
         reviewInvoker.current = { element: invokerRef.current, selector: invokerSelectorRef.current };
         setSessionsPage(false);
-        props.onCancelNewSession?.();
-        if (layout.inspectorPage) props.onInspect(null);
-        props.onOpenReview(kind);
-      }} onRequestPlanReview={props.onRequestPlanReview}
-      resumingSessionIds={props.resumingSessionIds} onResumeSession={props.onResumeSession} onApplyDebugAttention={props.onApplyDebugAttention}
-      onOpenSettings={() => props.onOpenSettings("providers")} onOpenRecommendation={props.onOpenRecommendation}
-      showDebugMetadata={props.debugSettings.showSessionIds} />;
-    if (props.inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
+        composer.onCancel?.();
+        if (layout.inspectorPage) navigation.onInspect(null);
+        review.onOpen(kind);
+      }} onRequestPlanReview={review.onRequestPlanReview}
+      resumingSessionIds={sessions.resumingIds} onResumeSession={sessions.onResume} onApplyDebugAttention={sessions.onApplyDebugAttention}
+      onOpenSettings={() => preferences.onOpenSettings("providers")} onOpenRecommendation={recommendations.onOpen}
+      showDebugMetadata={preferences.debugSettings.showSessionIds} />;
+    if (inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
       inspected={actionInspection.scope === actionsScope ? actionInspection.row : null}
       onInspectAction={row => setActionInspection({ scope: actionsScope, row })}
       onFocusHandled={() => setActionFocusRequest(old => ({ ...old, scope: "" }))}
       onOpenSession={id => {
-        if (!sourcesReady || (props.sessionsSourceStatus !== "ready" && props.sessionsSourceStatus !== "partial") || !props.sessions.some(s => s.id === id)) return;
-        props.onSelectSession(id);
-        props.onInspect(null);
+        if (!sourcesReady || (sessions.sourceStatus !== "ready" && sessions.sourceStatus !== "partial") || !sessions.items.some(s => s.id === id)) return;
+        sessions.onSelect(id);
+        navigation.onInspect(null);
         setSessionsPage(false);
         requestFocus("terminal");
-      }} onOpenRecommendation={props.onOpenRecommendation} />;
-    return <RecommendationsPanel hasWorkspace={!!props.workspace && !props.isSwitchingWorkspace}
-      workspacePath={props.workspace?.path ?? null}
-      recommendationSource={recommendations}
-      taskmasterReady={props.taskmasterReady} canFixWithAi={props.canFixWithAi && isSessionAlive(session)}
-      onSelectSession={props.onSelectSession} onFixWithAi={props.onFixWithAi} onRunCleanup={props.onRunCleanup}
-      onOpenSettings={() => props.onOpenSettings("recommendations")}
-      focusedRecommendationId={props.focusedRecommendationId} />;
+      }} onOpenRecommendation={recommendations.onOpen} />;
+    return <RecommendationsPanel hasWorkspace={!!workspace.info && !isSwitchingWorkspace}
+      workspacePath={workspace.info?.path ?? null}
+      recommendationSource={recommendationSource}
+      taskmasterReady={recommendations.taskmasterReady} canFixWithAi={recommendations.canFixWithAi && isSessionAlive(session)}
+      onSelectSession={sessions.onSelect} onFixWithAi={recommendations.onFixWithAi} onRunCleanup={recommendations.onRunCleanup}
+      onOpenSettings={() => preferences.onOpenSettings("recommendations")}
+      focusedRecommendationId={recommendations.focusedId} />;
   };
   const utilityHeader = (temporary: boolean) => <header className={"shell-region-header" + (temporary ? " shell-utility-header" : "")}>
-    <h2 data-shell-page-heading tabIndex={-1}>{props.inspector ? TITLES[props.inspector] : "Details"}</h2>
-    {(props.inspector === "recommendations" || props.inspector === "actions") &&
-      <span className="shell-utility-scope">Workspace: {props.workspace?.path ?? "No workspace"}</span>}
-    {!temporary && <button type="button" data-shell-pin aria-pressed={!!props.preferences.inspectorPinned}
-      aria-label={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
-      title={props.preferences.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
-      onClick={() => props.onPreferencesChange({ ...props.preferences, inspectorPinned: !props.preferences.inspectorPinned })}>
-      {props.preferences.inspectorPinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
+    <h2 data-shell-page-heading tabIndex={-1}>{inspector ? TITLES[inspector] : "Details"}</h2>
+    {(inspector === "recommendations" || inspector === "actions") &&
+      <span className="shell-utility-scope">Workspace: {workspace.info?.path ?? "No workspace"}</span>}
+    {!temporary && <button type="button" data-shell-pin aria-pressed={!!preferences.value.inspectorPinned}
+      aria-label={preferences.value.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
+      title={preferences.value.inspectorPinned ? "Unpin inspector" : "Pin inspector"}
+      onClick={() => preferences.onChange({ ...preferences.value, inspectorPinned: !preferences.value.inspectorPinned })}>
+      {preferences.value.inspectorPinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
     </button>}
     <button type="button" data-shell-return onClick={closePage}
       aria-label={temporary ? undefined : "Close inspector"} title={temporary ? undefined : "Close inspector"}>
-      {temporary ? (!props.workspace ? "Back to workspaces" : props.newSessionContent ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : <X size={16} aria-hidden="true" />}
+      {temporary ? (!workspace.info ? "Back to workspaces" : composer.content ? "Back to New session" : (reviewing ? "Back to Review" : "Back to Terminal")) : <X size={16} aria-hidden="true" />}
     </button>
   </header>;
   const showRail = !compact && !layout.sessionsVisible;
@@ -421,13 +485,13 @@ export default function ApplicationShell(props: Props) {
     "minmax(0, 1fr)", ...(showInspector && !layout.inspectorOverlay ? ["6px", `${layout.inspectorWidth}px`] : []),
   ];
   const navigationButtons = (iconOnly = false) => <>
-    {props.workspace && <button type="button" data-shell-create aria-label="New session" title={iconOnly ? "New session" : undefined} onClick={props.onCreateSession}><Plus size={16} aria-hidden="true" />{!iconOnly && "New session"}</button>}
-    {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-label="Recommendations" title={iconOnly ? "Recommendations" : undefined} aria-expanded={props.inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />{!iconOnly && "Recommendations"}</button>}
+    {workspace.info && <button type="button" data-shell-create aria-label="New session" title={iconOnly ? "New session" : undefined} onClick={composer.onCreate}><Plus size={16} aria-hidden="true" />{!iconOnly && "New session"}</button>}
+    {shouldShowRecommendationsPanel(session) && <button type="button" data-shell-command="recommendations" aria-label="Recommendations" title={iconOnly ? "Recommendations" : undefined} aria-expanded={inspector === "recommendations"} onClick={() => runCommand("recommendations")}><Lightbulb size={16} aria-hidden="true" />{!iconOnly && "Recommendations"}</button>}
     <button type="button" data-shell-command="skills" aria-label="Skills" title={iconOnly ? "Skills" : undefined} aria-expanded={skillsPage} onClick={() => runCommand("skills")}><BookOpen size={16} aria-hidden="true" />{!iconOnly && "Skills"}</button>
   </>;
   const workspaceNavigation = <>
     <div className="shell-sidebar-heading">
-      <div className="shell-workspace">{props.workspaceControl}</div>
+      <div className="shell-workspace">{workspace.control}</div>
       {showSessions && !compact && <button type="button" data-shell-command="sessions" data-shell-collapse aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded={true} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={16} aria-hidden="true" /></button>}
     </div>
     <nav className="shell-sidebar-navigation" aria-label="Workspace navigation">
@@ -436,10 +500,10 @@ export default function ApplicationShell(props: Props) {
     </nav>
   </>;
   const settingsAndStatus = <>
-    <button type="button" data-shell-settings onClick={() => props.onOpenSettings()}><Settings size={16} aria-hidden="true" />Settings</button>
-    {props.backendStatus !== "picker" && <span className={`shell-connection ${props.backendStatus === "connected" ? "ok" : "warn"}`}><span aria-hidden="true" />{props.backendStatus}</span>}
+    <button type="button" data-shell-settings onClick={() => preferences.onOpenSettings()}><Settings size={16} aria-hidden="true" />Settings</button>
+    {backendStatus !== "picker" && <span className={`shell-connection ${backendStatus === "connected" ? "ok" : "warn"}`}><span aria-hidden="true" />{backendStatus}</span>}
   </>;
-  return <div ref={rootRef} className="shell-layout" data-mode={layout.mode} data-density={props.preferences.density}
+  return <div ref={rootRef} className="shell-layout" data-mode={layout.mode} data-density={preferences.value.density}
     onKeyDown={event => {
       if (event.defaultPrevented || event.key !== "Escape") return;
       const target = event.target as Element;
@@ -463,8 +527,8 @@ export default function ApplicationShell(props: Props) {
           {navigationButtons(true)}
         </nav>
         <footer className="shell-sidebar-footer">
-          <button type="button" data-shell-settings aria-label="Settings" title="Settings" onClick={() => props.onOpenSettings()}><Settings size={16} aria-hidden="true" /></button>
-          {props.backendStatus !== "picker" && <span className={`shell-connection ${props.backendStatus === "connected" ? "ok" : "warn"}`} role="img" aria-label={`Connection: ${props.backendStatus}`} title={`Connection: ${props.backendStatus}`}><span aria-hidden="true" /></span>}
+          <button type="button" data-shell-settings aria-label="Settings" title="Settings" onClick={() => preferences.onOpenSettings()}><Settings size={16} aria-hidden="true" /></button>
+          {backendStatus !== "picker" && <span className={`shell-connection ${backendStatus === "connected" ? "ok" : "warn"}`} role="img" aria-label={`Connection: ${backendStatus}`} title={`Connection: ${backendStatus}`}><span aria-hidden="true" /></span>}
         </footer>
       </aside>}
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
@@ -472,21 +536,21 @@ export default function ApplicationShell(props: Props) {
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
         </header>
-        <SessionListPanel workspaceGeneration={props.workspaceGeneration} workspace={props.workspace} sessions={props.sessions} activeSessionId={props.activeSessionId}
-          unreadIds={props.unreadIds} acknowledgedIds={props.acknowledgedIds} harnesses={props.harnesses}
+        <SessionListPanel workspaceGeneration={workspaceGeneration} workspace={workspace.info} sessions={sessions.items} activeSessionId={sessions.activeId}
+          unreadIds={sessions.unreadIds} acknowledgedIds={sessions.acknowledgedIds} harnesses={sessions.harnesses}
           onSelectSession={selectSession}
-          resumingSessionIds={props.resumingSessionIds}
-          actionsEnabled={props.backendStatus === "connected" && !props.isSwitchingWorkspace}
-          onSessionAction={props.onSessionAction} onResumeSession={props.onRowResumeSession ?? props.onResumeSession}
-          onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={props.onOpenWorkspace} />
+          resumingSessionIds={sessions.resumingIds}
+          actionsEnabled={backendStatus === "connected" && !isSwitchingWorkspace}
+          onSessionAction={sessions.onAction} onResumeSession={sessions.onRowResume ?? sessions.onResume}
+          onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={workspace.onOpen} />
         <footer className="shell-sidebar-footer">{settingsAndStatus}</footer>
       </section>}
       {layout.sessionsVisible && <RegionSeparator label="Sessions" minimum={200} maximum={layout.sessionsMaximum} value={layout.sessionsWidth}
-        onChange={value => props.onPreferencesChange({ ...props.preferences, sessionsWidth: value })} />}
-      {(!showSessionsPage || !!props.newSessionContent) && <main className="shell-main" hidden={showSessionsPage}>
+        onChange={value => preferences.onChange({ ...preferences.value, sessionsWidth: value })} />}
+      {(!showSessionsPage || !!composer.content) && <main className="shell-main" hidden={showSessionsPage}>
         <nav className="shell-toolbar" aria-label="Content navigation">
           {compact && <button type="button" data-shell-command="sessions" aria-label="Sessions" title="Sessions" aria-expanded={showSessions} onClick={() => runCommand("sessions", false, true)}><PanelLeft size={17} aria-hidden="true" /></button>}
-          {!showSessions && <details ref={navigationMenuRef} key={props.workspaceGeneration} className="shell-navigation-menu"
+          {!showSessions && <details ref={navigationMenuRef} key={workspaceGeneration} className="shell-navigation-menu"
           onToggle={event => setNavigationMenuOpen(event.currentTarget.open)} onClick={event => {
             if ((event.target as Element).closest("[data-shell-command], [data-shell-create], [data-shell-settings], .workspace-history-row-open, .workspace-history-other-folder")) {
               event.currentTarget.open = false;
@@ -503,22 +567,22 @@ export default function ApplicationShell(props: Props) {
           </details>}
           <div className="shell-context"><h1 data-shell-terminal-focus tabIndex={-1}>{showComposer ? "New agent session" : skillsPage ? "Skills" : recommendationsPage ? "Recommendations" : session?.label || "Terminal"}</h1><span className="shell-context-scope">{showComposer ? "Start a session in this workspace" : skillsPage ? "Workspace and personal skills" : recommendationsPage ? "Workspace recommendations" : session?.harness || "No session selected"}</span></div>
           <div className="shell-session-controls" role="group" aria-label="Session controls">
-          {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
-            workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} compact={compact} />}
-          {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header compact={compact}
-            pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => props.onResumeSession(session.id, option.strategy)} />}
-          {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
-            aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
-            onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
+          {!showComposer && session && workspace.info && <SessionAppMenu key={`${workspaceGeneration}:${session.id}:${sourcesReady}`}
+            workspacePath={workspace.info.workspaceIdentity || workspace.info.path} session={session} disabled={!sourcesReady} compact={compact} />}
+          {!showComposer && canResume && session && <ResumeChooser key={`${workspaceGeneration}:${session.id}`} header compact={compact}
+            pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => sessions.onResume(session.id, option.strategy)} />}
+          {session?.hasOpenablePlan && review.onOpen && !showComposer && <button type="button" data-shell-command="review"
+            aria-pressed={reviewing} disabled={review.loading || backendStatus !== "connected" || isSwitchingWorkspace}
+            onClick={() => runCommand("review")}>{review.loading ? "Opening Review…" : "Review"}</button>}
           {!showComposer && session && <button type="button" data-shell-command="changes" aria-expanded={changesPage}
             disabled={!(session.repoRoot || session.branch)} onClick={() => runCommand("changes")}>Changes</button>}
-          {(!showTerminal || props.reviewLoading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
+          {(!showTerminal || review.loading) && <button type="button" data-shell-command="terminal" onClick={() => runCommand("terminal")}>Terminal</button>}
           </div>
           <div className="shell-context-controls">
           <div className="shell-actions-controls" role="group" aria-label="Workspace actions">
             <button type="button" data-shell-command="actions" aria-label="Actions"
               aria-description={`${actionsModel.sessionCountLabel}; ${actionsModel.recommendationCountLabel}`}
-              aria-expanded={props.inspector === "actions"} onClick={() => runCommand("actions")}>
+              aria-expanded={inspector === "actions"} onClick={() => runCommand("actions")}>
               <span>Actions</span>
               <span data-actions-counts aria-hidden="true">
                 <span data-actions-source="sessions">Attention <strong>{actionsModel.sessionCountValue}</strong></span>
@@ -527,28 +591,28 @@ export default function ApplicationShell(props: Props) {
             </button>
             <button type="button" data-shell-command="next-action" aria-label="Show next action" title="Show next action" onClick={() => runCommand("next-action")}><ArrowRight size={17} aria-hidden="true" /></button>
           </div>
-          <button type="button" data-shell-command="details" aria-label="Details" title="Details" aria-expanded={props.inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={17} aria-hidden="true" /></button>
+          <button type="button" data-shell-command="details" aria-label="Details" title="Details" aria-expanded={inspector === "details"} onClick={() => runCommand("details")}><PanelRight size={17} aria-hidden="true" /></button>
           </div>
         </nav>
-        {props.newSessionContent && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{props.newSessionContent}</section>}
+        {composer.content && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{composer.content}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
-          <TerminalPanel key={`${session?.id ?? "none"}-${props.resumeTick}`} backendStatus={props.backendStatus} session={session}
-            onBackendUnavailable={props.onBackendUnavailable} onRetryBackend={props.onRetryBackend} onSelectPlan={props.onSelectPlan} />
+          <TerminalPanel key={`${session?.id ?? "none"}-${sessions.resumeTick}`} backendStatus={backendStatus} session={session}
+            onBackendUnavailable={workspace.onBackendUnavailable} onRetryBackend={workspace.onRetryBackend} onSelectPlan={review.onSelectPlan} />
         </section>}
         {showReview && <section className="shell-region shell-region--central" aria-label="Review" data-shell-region="review">
           <header className="shell-region-header">
             <h2 data-shell-review-heading tabIndex={-1}>Review — {session?.label || "Selected session"}</h2>
             <button type="button" data-review-return onClick={closeReviewPage}>Back to Terminal</button>
           </header>
-          {props.reviewContent}
+          {review.content}
         </section>}
-        {temporaryUtility && <section className="shell-region shell-region--central" aria-label={centralUtility && props.inspector ? TITLES[props.inspector] : "Temporary content page"} data-shell-region="utility">
+        {temporaryUtility && <section className="shell-region shell-region--central" aria-label={centralUtility && inspector ? TITLES[inspector] : "Temporary content page"} data-shell-region="utility">
           {!skillsPage && !changesPage && utilityHeader(true)}{renderUtility()}
         </section>}
       </main>}
       {showInspector && <div className={layout.inspectorOverlay ? "shell-inspector-host shell-inspector-host--overlay" : "shell-inspector-host"}
         style={layout.inspectorOverlay ? { width: layout.inspectorWidth + 6 } : undefined}><RegionSeparator label="Inspector" direction={-1} minimum={280} maximum={layout.inspectorMaximum} value={layout.inspectorWidth}
-        onChange={value => props.onPreferencesChange({ ...props.preferences, inspectorWidth: value })} />
+        onChange={value => preferences.onChange({ ...preferences.value, inspectorWidth: value })} />
         <aside className="shell-region shell-region--inspector" aria-label="Contextual inspector" data-shell-region="inspector" tabIndex={-1}>
           {utilityHeader(false)}{renderUtility()}
         </aside></div>}
