@@ -195,3 +195,68 @@ test('refuses symlinks inside canonical skills/ and exits 2 on unknown flags', (
   const badFlag = runSync(root, ['--unknown']);
   assert.equal(badFlag.status, 2);
 });
+
+test('rewrites relative Markdown links that leave the skill directory while preserving in-skill links and code', (t) => {
+  const root = createFixtureRoot(t);
+  writeFixtureFile(root, 'docs/agents/local-sonarqube.md', '# Runbook\n');
+  writeFixtureFile(root, 'docs/agents/development-workflow.md', '# Workflow\n');
+  writeFixtureFile(
+    root,
+    'skills/alpha/SKILL.md',
+    [
+      'Read [runbook](../../docs/agents/local-sonarqube.md) and',
+      '[tie-off](../../docs/agents/development-workflow.md#taskmaster-recommendation-tie-off).',
+      'Keep [in-skill](references/notes.md), [anchor](#top), and [url](https://example.com).',
+      'Keep inline code `[ignored](../../docs/agents/local-sonarqube.md)` untouched.',
+      '```markdown',
+      '[fenced](../../docs/agents/local-sonarqube.md)',
+      '```',
+      '',
+    ].join('\n'),
+  );
+  writeFixtureFile(
+    root,
+    'skills/alpha/references/notes.md',
+    'See [runbook](../../../docs/agents/local-sonarqube.md) and [parent](../SKILL.md).\n',
+  );
+
+  const syncResult = runSync(root);
+  assert.equal(syncResult.status, 0, syncResult.stderr);
+
+  for (const target of targets) {
+    const skillText = readFileSync(join(root, target, 'alpha/SKILL.md'), 'utf8');
+    assert.match(skillText, /\[runbook\]\(\.\.\/\.\.\/\.\.\/docs\/agents\/local-sonarqube\.md\)/);
+    assert.match(
+      skillText,
+      /\[tie-off\]\(\.\.\/\.\.\/\.\.\/docs\/agents\/development-workflow\.md#taskmaster-recommendation-tie-off\)/,
+    );
+    assert.match(skillText, /\[in-skill\]\(references\/notes\.md\)/);
+    assert.match(skillText, /\[anchor\]\(#top\)/);
+    assert.match(skillText, /\[url\]\(https:\/\/example\.com\)/);
+    assert.match(skillText, /`\[ignored\]\(\.\.\/\.\.\/docs\/agents\/local-sonarqube\.md\)`/);
+    assert.match(skillText, /```markdown\n\[fenced\]\(\.\.\/\.\.\/docs\/agents\/local-sonarqube\.md\)\n```/);
+
+    // Verify rewritten relative link actually resolves to the canonical file.
+    const resolvedRunbook = resolve(
+      join(root, target, 'alpha'),
+      '../../../docs/agents/local-sonarqube.md',
+    );
+    assert.equal(readFileSync(resolvedRunbook, 'utf8'), '# Runbook\n');
+
+    const nestedText = readFileSync(join(root, target, 'alpha/references/notes.md'), 'utf8');
+    assert.match(nestedText, /\[runbook\]\(\.\.\/\.\.\/\.\.\/\.\.\/docs\/agents\/local-sonarqube\.md\)/);
+    assert.match(nestedText, /\[parent\]\(\.\.\/SKILL\.md\)/);
+  }
+
+  assert.equal(runSync(root, ['--check']).status, 0);
+
+  // Overwriting a materialized file with the un-rewritten link must fail --check.
+  writeFixtureFile(
+    root,
+    '.claude/skills/alpha/SKILL.md',
+    readFileSync(join(root, 'skills/alpha/SKILL.md'), 'utf8'),
+  );
+  const checkAfterDrift = runSync(root, ['--check']);
+  assert.equal(checkAfterDrift.status, 1);
+  assert.match(checkAfterDrift.stderr, /drifted/i);
+});

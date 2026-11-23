@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -10,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MANIFEST_NAME = '.orkworks-repo-skills.json';
@@ -138,6 +137,109 @@ function isLegacyCanonicalSymlink(destPath, sourceDir) {
   return resolve(dirname(destPath), linkTarget) === resolve(sourceDir);
 }
 
+function rewriteLinkDestination(rawDest, sourceDir, srcFull, dstFull) {
+  const angleWrapped = rawDest.startsWith('<') && rawDest.endsWith('>');
+  const inner = angleWrapped ? rawDest.slice(1, -1) : rawDest;
+  if (!inner || inner.startsWith('#') || inner.startsWith('/') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(inner)) {
+    return rawDest;
+  }
+
+  const split = /^([^?#]*)(.*)$/.exec(inner);
+  const targetPath = split[1];
+  const suffix = split[2];
+  if (!targetPath) return rawDest;
+
+  const resolvedTarget = resolve(dirname(srcFull), targetPath);
+  const relToSkill = relative(sourceDir, resolvedTarget);
+  if (relToSkill === '' || (!relToSkill.startsWith('..') && !isAbsolute(relToSkill))) {
+    return rawDest;
+  }
+
+  const rewrittenPath = relative(dirname(dstFull), resolvedTarget).split(sep).join('/');
+  const rewritten = `${rewrittenPath}${suffix}`;
+  return angleWrapped ? `<${rewritten}>` : rewritten;
+}
+
+function rewriteInlineLinks(segment, sourceDir, srcFull, dstFull) {
+  return segment.replace(/(!?\[[^\]]*\]\()(<[^>\n]+>|[^\s)\n]+)([^)\n]*\))/g, (_m, open, dest, tail) => {
+    const rewritten = rewriteLinkDestination(dest, sourceDir, srcFull, dstFull);
+    return `${open}${rewritten}${tail}`;
+  });
+}
+
+function rewriteLineOutsideInlineCode(line, sourceDir, srcFull, dstFull) {
+  let out = '';
+  let i = 0;
+  let proseStart = 0;
+
+  while (i < line.length) {
+    if (line[i] !== '`') {
+      i += 1;
+      continue;
+    }
+
+    let ticks = 0;
+    while (i + ticks < line.length && line[i + ticks] === '`') ticks += 1;
+    const fence = '`'.repeat(ticks);
+    const closeIdx = line.indexOf(fence, i + ticks);
+    if (closeIdx === -1) {
+      i += ticks;
+      continue;
+    }
+
+    out += rewriteInlineLinks(line.slice(proseStart, i), sourceDir, srcFull, dstFull);
+    out += line.slice(i, closeIdx + ticks);
+    i = closeIdx + ticks;
+    proseStart = i;
+  }
+
+  out += rewriteInlineLinks(line.slice(proseStart), sourceDir, srcFull, dstFull);
+  return out;
+}
+
+function rewriteMarkdownLinks(content, sourceDir, srcFull, dstFull) {
+  const lines = content.split(/(\r?\n)/);
+  let activeFenceChar = null;
+  let activeFenceLen = 0;
+
+  for (let idx = 0; idx < lines.length; idx += 2) {
+    const line = lines[idx];
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const char = fenceMatch[1][0];
+      const len = fenceMatch[1].length;
+      if (!activeFenceChar) {
+        activeFenceChar = char;
+        activeFenceLen = len;
+      } else if (char === activeFenceChar && len >= activeFenceLen && /^ {0,3}(`{3,}|~{3,})[ \t]*$/.test(line)) {
+        activeFenceChar = null;
+        activeFenceLen = 0;
+      }
+      continue;
+    }
+    if (activeFenceChar) continue;
+
+    const refMatch = /^( {0,3}\[[^\]]+\]:[ \t]*)(<[^>\n]+>|[^\s]+)(.*)$/.exec(line);
+    if (refMatch) {
+      const rewritten = rewriteLinkDestination(refMatch[2], sourceDir, srcFull, dstFull);
+      lines[idx] = `${refMatch[1]}${rewritten}${refMatch[3]}`;
+      continue;
+    }
+
+    lines[idx] = rewriteLineOutsideInlineCode(line, sourceDir, srcFull, dstFull);
+  }
+
+  return lines.join('');
+}
+
+function expectedSkillFileBytes(sourceDir, destDir, relFile, srcFull) {
+  const raw = readFileSync(srcFull);
+  if (!relFile.endsWith('.md')) return raw;
+  const dstFull = join(destDir, relFile);
+  const rewritten = rewriteMarkdownLinks(raw.toString('utf8'), sourceDir, srcFull, dstFull);
+  return Buffer.from(rewritten, 'utf8');
+}
+
 function inspectTarget(root, relativeTarget, sourceSkills) {
   const targetDir = join(root, relativeTarget);
   const exists = existsSync(targetDir);
@@ -220,9 +322,9 @@ function inspectTarget(root, relativeTarget, sourceSkills) {
     }
 
     for (const relFile of sourceKeys) {
-      const srcBuf = readFileSync(source.files.get(relFile));
+      const expectedBuf = expectedSkillFileBytes(source.dir, destPath, relFile, source.files.get(relFile));
       const dstBuf = readFileSync(destFiles.get(relFile));
-      if (!srcBuf.equals(dstBuf)) {
+      if (!expectedBuf.equals(dstBuf)) {
         issues.push(`${relativeTarget}/${name}/${relFile}: content drifted from skills/${name}/${relFile}`);
       }
     }
@@ -236,7 +338,8 @@ function copySkillFiles(source, destDir) {
   for (const [relFile, srcFull] of source.files) {
     const dstFull = join(destDir, relFile);
     mkdirSync(dirname(dstFull), { recursive: true });
-    copyFileSync(srcFull, dstFull);
+    const bytes = expectedSkillFileBytes(source.dir, destDir, relFile, srcFull);
+    writeFileSync(dstFull, bytes);
   }
 }
 
