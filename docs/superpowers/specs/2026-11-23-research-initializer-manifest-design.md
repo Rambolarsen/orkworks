@@ -106,6 +106,7 @@ original `lastCommit` proof bound to its own outcome's header advance.
 | run `child-source-retained-bytes` / `child-control-retained-bytes` pools | child source contract | Zero |
 | run report-retained pools | report publication profile | Zero |
 | `run_states` historical seed | ordinary storage | Accepted historical seed, unchanged |
+| root admission source effects (accepted six core changes) | initialization/catalog + root-preparation contracts | The exact \`root_drafts\` row is **deleted**; \`root_preparations\` and the reserved \`parent_attachments\` row are **inserted** — the accepted core admission transition, not a research-family row but a required manifest effect |
 
 **Complete family registration.** The manifest registers **every** name in
 the accepted enumeration, split by creation timing:
@@ -152,6 +153,8 @@ rows under the child's identity — it can never inherit or reuse the root's.
 | five fresh assignment resource rows (reporting-receipt-bytes, assignment-record-bytes, result-payload-bytes, evaluation-artifact-bytes, evaluation-artifact-read-bytes) | child source contract | All zero, reserved zero |
 | initial `summary_state` (subjectRevision 1, Unassessed row/checkpoint or never-initialized marker) | child source contract | Accepted branches |
 | `research-assignment-source` object + provenance membership | research source codecs | Full retained bytes |
+| \`research_preparation_authorizations\` / full canonical P | preparation authorization | The child's original retained authorization with its original command/proof — created at this outcome, never pre-registered |
+| \`research_attachments\` / childSessionId | research source codecs | The child's original attachment record — created at this outcome per the accepted source-chain order |
 
 ### Profile registration and coexistence
 
