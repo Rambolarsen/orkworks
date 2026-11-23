@@ -92,7 +92,7 @@ export function createWorkspaceSessionController(
   let refreshGeneration = 0;
   let synchronizationEnabled = false;
   let synchronizationEpoch = 0;
-  let workspacePath: string | null = null;
+  let selectedWorkspace: WorkspaceInfo | null = null;
   let stream: ReturnType<typeof startWorkspaceUpdates> | null = null;
   let streamHealthy = false;
   let workspaceGeneration = 0;
@@ -211,22 +211,22 @@ export function createWorkspaceSessionController(
       synchronizationEpoch++; sourceGeneration++;
       streamHealthy = false;
       const old = stream; stream = null; old?.dispose();
-      if (workspacePath) publishWorkspaceUpdateSignal(workspacePath, false);
+      if (selectedWorkspace) publishWorkspaceUpdateSignal(selectedWorkspace.path, false);
       stopFallback();
       return;
     }
     synchronizationEnabled = true;
     startFallback();
-    if (!stream && deps.startUpdates && workspacePath) {
-      const path = workspacePath, epoch = synchronizationEpoch;
-      const current = () => !disposed && synchronizationEnabled && epoch === synchronizationEpoch && workspacePath === path;
+    if (!stream && deps.startUpdates && selectedWorkspace) {
+      const selected = selectedWorkspace, epoch = synchronizationEpoch;
+      const current = () => !disposed && synchronizationEnabled && epoch === synchronizationEpoch && selectedWorkspace === selected;
       stream = deps.startUpdates({
-        workspacePath: path, getBackendUrl: deps.getBackendUrl,
+        workspacePath: selected.workspaceIdentity, getBackendUrl: deps.getBackendUrl,
         onHealthy(healthy) {
           if (!current()) return;
           streamHealthy = healthy;
           if (healthy) { sourceGeneration++; stopFallback(); } else startFallback();
-          publishWorkspaceUpdateSignal(path, healthy);
+          publishWorkspaceUpdateSignal(selected.path, healthy);
         },
         onSessions(list) {
           if (!current() || !streamHealthy) return;
@@ -235,7 +235,7 @@ export function createWorkspaceSessionController(
           sourceGeneration++;
           acceptSessionList(list);
         },
-        onRecommendationsInvalidated() { if (current()) publishWorkspaceUpdateSignal(path); },
+        onRecommendationsInvalidated() { if (current()) publishWorkspaceUpdateSignal(selected.path); },
       });
     }
   }
@@ -257,7 +257,7 @@ export function createWorkspaceSessionController(
     pendingRestoration = null;
     pendingSnapshotActions.clear();
     setPollingEnabled(false);
-    workspacePath = path;
+    selectedWorkspace = null;
     clearResumes();
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
@@ -265,12 +265,14 @@ export function createWorkspaceSessionController(
       const baseUrl = await deps.getBackendUrl();
       const info = await deps.setWorkspace(baseUrl, path);
       if (!isCurrent(token)) return;
+      selectedWorkspace = info;
       pendingRestoration = { id: info.lastActiveSessionId ?? null, foreground: token };
       options.onWorkspace?.(info);
       activeSessionId = null;
       options.onActiveSession?.(null);
       publishSessions([]);
       options.onSessionSourceStatus?.("loading");
+      if (synchronizationEnabled) setPollingEnabled(true);
       await refreshSessions(undefined, true);
     } catch {
       if (isCurrent(token)) publishError("workspace", "Couldn't open workspace.");
@@ -280,7 +282,7 @@ export function createWorkspaceSessionController(
   async function adoptRestoredWorkspace(workspace: WorkspaceInfo | null): Promise<void> {
     pendingSnapshotActions.clear();
     setPollingEnabled(false);
-    workspacePath = workspace?.path ?? null;
+    selectedWorkspace = workspace;
     clearResumes();
     workspaceGeneration += 1;
     const token = ++foregroundGeneration;
