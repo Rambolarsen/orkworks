@@ -8,6 +8,8 @@ import {
 import type { SessionInfo, WorkspaceInfo } from "../src/api.ts";
 import type { CreateSessionOptions } from "../src/harnessTypes.ts";
 import type { PollScheduler } from "../src/sessionPolling.ts";
+import { startWorkspaceUpdates } from "../src/workspaceUpdates.ts";
+import { workspaceUpdateSignal } from "../src/workspaceUpdateSignals.ts";
 import { ResumeSessionError } from "../src/api.ts";
 
 function session(id: string, lifecycle: SessionInfo["lifecycle"] = "alive", status = "running"): SessionInfo {
@@ -965,6 +967,48 @@ for (const replacement of ["admission", "foreground", "workspace", "source", "di
       controller.dispose();
     });
   }
+}
+
+for (const entry of ["restore", "open"] as const) {
+  test("workspace stream uses the Windows canonical identity after " + entry, async (t) => {
+    const path = "C:\\Users\\test\\project";
+    const workspaceIdentity = "\\\\?\\" + path;
+    const info = { ...workspace(path), workspaceIdentity };
+    let socketUrl: string | undefined;
+    const socket = { close() {} } as WebSocket;
+    const polling = scheduler().scheduler;
+    const snapshots: string[][] = [];
+    const controller = createWorkspaceSessionController({
+      scheduler: polling,
+      deps: deps({
+        setWorkspace: async () => info,
+        startUpdates: options => startWorkspaceUpdates({
+          ...options,
+          scheduler: polling,
+          createSocket: url => { socketUrl = url; return socket; },
+        }),
+      }),
+      onSessions: rows => snapshots.push(rows.map(row => row.id)),
+    });
+    t.after(() => controller.dispose());
+
+    if (entry === "restore") await controller.adoptRestoredWorkspace(info);
+    else await controller.openWorkspace(path);
+    controller.setPollingEnabled(true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.ok(socketUrl);
+    assert.equal(new URL(socketUrl).searchParams.get("workspace"), workspaceIdentity);
+    assert.ok(socket.onmessage);
+    socket.onmessage({
+      data: JSON.stringify({
+        type: "snapshot", version: 1, workspace: workspaceIdentity,
+        instance: "sidecar", generation: 1, sequence: 0, sessions: [session("pushed")],
+      }),
+    } as MessageEvent);
+    assert.deepEqual(snapshots.at(-1), ["pushed"]);
+    assert.equal(workspaceUpdateSignal(path).healthy, true);
+  });
 }
 
 test("an old REST failure cannot mark a healthy stream snapshot unavailable", async () => {
