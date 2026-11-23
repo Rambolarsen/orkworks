@@ -143,7 +143,7 @@ function generationRequests(getReadiness: () => Promise<number>) {
   return loadMainSnippet<{
     run(operation: (port: number, token: string, signal: AbortSignal) => Promise<unknown>): Promise<unknown>;
     replace(): void;
-  }>("const STALE_BACKEND_GENERATION_MESSAGE", "\n  function taskmasterRecommendationPath",
+  }>("const STALE_BACKEND_GENERATION_MESSAGE", "\n  function normalizeDebugAttention",
     'let backendGeneration = 1; let latestBackendLifecycle = { state: "ready" }; let openPlanToken = "old-token";',
     '{ run: withReadyBackendGeneration, replace: () => { cancelGenerationBoundRequests(); backendGeneration++; openPlanToken = "new-token"; } }',
     { restoration: { getReadiness } });

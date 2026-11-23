@@ -6,26 +6,11 @@ import type { UpdateStatus } from "./updateService";
 import type { PeonSelectionSaveResult } from "./providerTypes";
 
 import type { ActiveHarnessSaveResult, GroupedIntegrationStatusResult } from "./activeHarnessIntegration";
+import type { TaskmasterAcceptOptions } from "./taskmasterIpc";
+import type { ShellLayoutSnapshot, ShellMemoryDiagnostic, ShellMemoryResult, ShellPreferences } from "./shellLayoutMemory";
+import type { ShellMemoryRebuildResult } from "./shellMemoryRebuild";
+import type { LastCentralSurface } from "./workspaceNavigationMemory";
 
-type TaskmasterAcceptOptions = {
-  sessionId?: string;
-  prompt?: string;
-  packetRevision?: number;
-  evidenceFingerprint?: string;
-  idempotencyKey?: string;
-};
-type TaskmasterAssessmentRequestResponse = {
-  status: "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable";
-  recommendation?: { id: string; status: string };
-  message?: string;
-};
-
-type LastCentralSurface = "terminal" | "review";
-type ShellPreferences = { sessionsWidth: number; inspectorWidth: number; sessionsVisible: boolean; inspectorPinned?: boolean; density: "low" | "high" };
-type ShellMemoryDiagnostic = "corrupt_record" | "unsupported_version" | "lock_timeout" | "write_failed" | "restore_failed" | "stale_revision" | "stale_workspace" | "invalid_input";
-type ShellMemoryResult = { ok: true } | { ok: false; diagnostic: ShellMemoryDiagnostic };
-type ShellMemoryRebuildResult = ShellMemoryResult | { ok: false; diagnostic: "user_cancelled" };
-type ShellLayoutSnapshot = { preferences: ShellPreferences; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 type WorkspaceNavigationView = { lastCentralSurface: LastCentralSurface | null; revision: number; diagnostic: ShellMemoryDiagnostic | null };
 
 const developmentUpdateStatus: UpdateStatus = {
@@ -98,9 +83,7 @@ contextBridge.exposeInMainWorld("orkworks", {
   installSkillAdd: (id: string): Promise<import("./skillTypes").SkillInstallResult> => ipcRenderer.invoke("install-skill-add", id),
   getSettings: (): Promise<unknown> => ipcRenderer.invoke("get-settings"),
   getTaskmasterSettings: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-settings"),
-  getTaskmasterRunStatus: (): Promise<unknown> => ipcRenderer.invoke("get-taskmaster-run-status"),
   refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string): Promise<{ id: string; displayName: string }[]> => ipcRenderer.invoke("refresh-taskmaster-models", provider, ollamaBaseUrl),
-  requestTaskmasterAnalysis: (): Promise<unknown> => ipcRenderer.invoke("analyze-taskmaster"),
   getAdviceReadinessStatus: (workspacePath: string): Promise<Record<string, unknown>> => ipcRenderer.invoke("get-advice-readiness-status", workspacePath),
   getAdviceImprovementStatus: (workspacePath: string): Promise<Record<string, unknown>> => ipcRenderer.invoke("get-advice-improvement-status", workspacePath),
   requestAdviceImprovement: (workspacePath: string): Promise<Record<string, unknown>> => ipcRenderer.invoke("request-advice-improvement", workspacePath),
@@ -115,17 +98,6 @@ contextBridge.exposeInMainWorld("orkworks", {
   runAdviceAudit: (workspacePath: string, expectedBackendUrl: string): Promise<Record<string, unknown>> => ipcRenderer.invoke("run-advice-audit", workspacePath, expectedBackendUrl),
   dismissAdviceRecommendation: (workspacePath: string, id: string, reason?: string): Promise<Record<string, unknown>> => ipcRenderer.invoke("dismiss-advice-recommendation", workspacePath, id, reason),
   acceptAdviceRecommendation: (workspacePath: string, id: string, options: TaskmasterAcceptOptions): Promise<Record<string, unknown>> => ipcRenderer.invoke("accept-advice-recommendation", workspacePath, id, options),
-  getReadinessStatus: (): Promise<Record<string, unknown>> => ipcRenderer.invoke("get-readiness-status"),
-  getImprovementStatus: (): Promise<unknown> => ipcRenderer.invoke("get-improvement-status"),
-  requestImprovement: (): Promise<unknown> => ipcRenderer.invoke("request-improvement"),
-  cancelImprovement: (runId: string): Promise<unknown> => ipcRenderer.invoke("cancel-improvement", runId),
-  requestReadinessSuggestion: (): Promise<{ outcome: "scheduled" | "already_running" | "unavailable"; runId: string | null; reasonCode: string | null }> => ipcRenderer.invoke("assess-and-suggest"),
-  requestReadinessAssessment: (): Promise<{ outcome: "scheduled" | "already_running" | "unavailable"; runId: string | null; reasonCode: string | null }> => ipcRenderer.invoke("assess-repository-readiness"),
-  requestTaskmasterAssessment: (): Promise<TaskmasterAssessmentRequestResponse> => ipcRenderer.invoke("assess-taskmaster-workflow"),
-  dismissTaskmasterRecommendation: (id: string, reason?: string): Promise<void> =>
-    ipcRenderer.invoke("dismiss-taskmaster-recommendation", id, reason),
-  acceptTaskmasterRecommendation: (id: string, options: TaskmasterAcceptOptions): Promise<unknown> =>
-    ipcRenderer.invoke("accept-taskmaster-recommendation", id, options),
   applyDebugAttention: (id: string, attention: string, message?: string): Promise<void> =>
     ipcRenderer.invoke("apply-debug-attention", id, attention, message),
   getInferenceTrust: (): Promise<import("./inferenceTrust").InferenceAdapterView[]> => ipcRenderer.invoke("get-inference-trust"),

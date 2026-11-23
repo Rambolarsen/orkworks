@@ -180,9 +180,7 @@ declare global {
     installSkillAdd: (id: string) => Promise<import("./skillTypes").SkillInstallResult>;
     getSettings: () => Promise<AppSettings>;
       getTaskmasterSettings: () => Promise<import("./taskmasterSettings").TaskmasterSettingsStatus>;
-      getTaskmasterRunStatus: () => Promise<import("./taskmasterSettings").TaskmasterRunStatus>;
       refreshTaskmasterModels: (provider: "codex" | "ollama", ollamaBaseUrl?: string) => Promise<{ id: string; displayName: string }[]>;
-      requestTaskmasterAnalysis: () => Promise<import("./api").ManualTaskmasterAnalysisResponse>;
       getAdviceReadinessStatus: (workspacePath: string) => Promise<Record<string, unknown>>;
       getAdviceImprovementStatus: (workspacePath: string) => Promise<Record<string, unknown>>;
       requestAdviceImprovement: (workspacePath: string) => Promise<Record<string, unknown>>;
@@ -197,15 +195,6 @@ declare global {
       runAdviceAudit: (workspacePath: string, expectedBackendUrl: string) => Promise<Record<string, unknown>>;
       dismissAdviceRecommendation: (workspacePath: string, id: string, reason?: string) => Promise<Record<string, unknown>>;
       acceptAdviceRecommendation: (workspacePath: string, id: string, options: AcceptRecommendationOptions) => Promise<Record<string, unknown>>;
-      getReadinessStatus: () => Promise<unknown>;
-      getImprovementStatus: () => Promise<unknown>;
-      requestImprovement: () => Promise<import("./improvement").ImprovementAdmission>;
-      cancelImprovement: (runId: string) => Promise<import("./improvement").ImprovementCancellation>;
-      requestReadinessSuggestion: () => Promise<import("./readiness").ReadinessAdmission>;
-      requestReadinessAssessment: () => Promise<import("./readiness").ReadinessAdmission>;
-      requestTaskmasterAssessment: () => Promise<import("./api").TaskmasterAssessmentRequestResponse>;
-      dismissTaskmasterRecommendation: (id: string, reason?: string) => Promise<void>;
-      acceptTaskmasterRecommendation: (id: string, options: AcceptRecommendationOptions) => Promise<unknown>;
       applyDebugAttention: (id: string, attention: SessionAttention, message?: string) => Promise<void>;
       getInferenceTrust: () => Promise<import("./inferenceTrust").InferenceAdapterView[]>;
       approveInferenceAdapter: (request: import("./inferenceTrust").InferenceTrustRequest) => Promise<boolean>;

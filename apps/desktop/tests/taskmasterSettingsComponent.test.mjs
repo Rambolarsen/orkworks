@@ -28,7 +28,11 @@ async function fixture(t, { state = "execution_inactive", missing = false, effor
   const previousWindow = globalThis.window;
   globalThis.window = { setInterval: (callback) => { intervalCallbacks.push(callback); return intervalCallbacks.length; }, clearInterval: () => {}, addEventListener: () => {}, removeEventListener: () => {}, orkworks: {
     getTaskmasterSettings: async () => structuredClone(status),
-    getTaskmasterRunStatus: async () => structuredClone(currentRunStatus),
+    getAdviceRunStatus: async (workspace) => {
+      assert.equal(typeof workspace, "string");
+      assert.ok(workspace.length > 0);
+      return { protocolVersion: 3, ...structuredClone(currentRunStatus) };
+    },
     refreshTaskmasterModels: async (...args) => { modelRefresh++; const models = typeof pendingModels === "function" ? await pendingModels(...args) : pendingModels ? await pendingModels : ["live-model"]; return models.map((model) => typeof model === "string" ? { id: model, displayName: model } : model); },
     getProviderModels: async () => { discovery++; return { models: ["discovered"] }; },
     saveTaskmasterSettings: async (value) => { saves.push(structuredClone(value)); return { ...structuredClone(status), settings: value, effectiveSettings: value }; },
