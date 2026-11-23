@@ -371,3 +371,5 @@ Dated design records; these do not establish current product behavior.
 - [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
 
 - [Research complete discovery and invalidation ownership](2026-11-23-research-discovery-invalidation-design.md) — Proposed per-family discovery ownership in both lookup directions, invalidation-ownership table and shared finite bounds over the accepted catalog; no format or runtime qualification.
+
+- [Research profile initializer creation manifest](2026-11-23-research-initializer-manifest-design.md) — Proposed complete fresh-profile initializer manifest over the accepted catalog (workspace/run/assignment scope rows, registered empty families, original proof links); physical format selection remains gated.
