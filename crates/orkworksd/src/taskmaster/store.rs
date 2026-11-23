@@ -1,9 +1,11 @@
-mod cleanup;
+mod deletion_journal;
 #[cfg(test)]
 mod reopen_tests;
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 pub(crate) mod sql_cleanup_test_gate;
-pub(crate) use cleanup::{BoundCleanup, JournalReceipt, SqlCleanup};
+#[cfg(any(test, target_os = "macos", target_os = "linux"))]
+mod sql_codec;
+pub(crate) use deletion_journal::{BoundCleanup, JournalReceipt, SqlCleanup};
 mod operation;
 use super::completion::CompletionMutationRequest;
 use super::rollup::stable_rollup_id;
@@ -1146,7 +1148,7 @@ impl RecommendationStore {
         let mut entries = Vec::new();
         for entry in fs::read_dir(&root).map_err(StoreError::Io)? {
             let entry = entry.map_err(StoreError::Io)?;
-            if entries.len() == cleanup::MAX_DIRECTORY_ENTRIES
+            if entries.len() == deletion_journal::MAX_DIRECTORY_ENTRIES
                 || entry
                     .file_name()
                     .to_string_lossy()

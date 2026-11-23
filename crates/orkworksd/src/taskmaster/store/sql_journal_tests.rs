@@ -1,6 +1,8 @@
+use super::super::{stable_rollup_id, RecommendationStatus, ROLLUP_TRANSACTION_DIR};
 use super::*;
 use crate::session_store::{SessionStore, SqlDeletionIdentity};
 use crate::taskmaster::store::tests::{recommendation, rollup_parent};
+use std::path::Path;
 
 const CREATED: &str = "2026-01-01T00:00:00Z";
 fn selected(root: &Path, id: &str) -> SqlDeletionIdentity {
@@ -238,6 +240,31 @@ fn legacy_refuses_reserved_journals_before_recovery_or_filename_migration() {
     }
 }
 
+#[test]
+fn sql_preparation_encodes_v3_sql_manifests_directly() {
+    let (_root, store, lease, identity) = fixture();
+    let inventory = store
+        .capture_cleanup()
+        .bind(lease)
+        .unwrap()
+        .inspect()
+        .unwrap();
+    let removal = inventory
+        .prepare_removal_for(identity.session_id(), Kind::Sql(&identity))
+        .unwrap();
+    for committed in [false, true] {
+        let decoded = sql_codec::decode(
+            removal.manifest_bytes(committed),
+            &identity,
+            &identity.journal_name(),
+        )
+        .unwrap();
+        assert_eq!(decoded.committed, committed);
+        let ids: Vec<&str> = decoded.entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+    }
+}
+
 thread_local! {
     static AFTER_RECOVERY: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 }
@@ -248,4 +275,5 @@ pub(super) fn after_recovery() {
         }
     });
 }
+#[path = "sql_journal_tests/faults.rs"]
 mod faults;

@@ -1,6 +1,5 @@
 //! Pure SQL-bound v3 deletion encoding. No file effects or recovery authority.
-#![allow(dead_code)] // Captured application routing remains a separately qualified slice.
-use super::*;
+use super::{validate_manifest_entries, RollupTransactionEntry, StoreError};
 use crate::session_store::SqlDeletionIdentity;
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +127,7 @@ pub(super) fn decode(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{recommendation_filename, transaction_backup_path};
     use super::*;
     use crate::session_store::{SessionStore, SqlDeletionIdentity};
     use serde_json::{json, Value};

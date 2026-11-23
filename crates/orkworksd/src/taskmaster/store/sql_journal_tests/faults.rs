@@ -231,9 +231,9 @@ fn sql_bound_recovers_every_publication_boundary_after_fresh_lease() {
         let (root, store, lease, identity) = fixture();
         let keep = fs::read(store.path_for("keep")).unwrap();
         let bound = store.capture_cleanup().bind(lease.clone()).unwrap();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
+        JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
         let receipt = bound.remove_for_sql(&identity).unwrap();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(None));
+        JOURNAL_FAILURE.with(|f| f.set(None));
         let completed = receipt.result().is_ok();
         assert!(matches!(store.list(), Err(StoreError::Busy)));
         drop(receipt);
@@ -286,9 +286,9 @@ fn sql_bound_recovers_interruptions_during_draft_and_committed_recovery() {
             let before = originals(&store);
             let bound = store.capture_cleanup().bind(lease.clone()).unwrap();
             let operation = store.try_operation().unwrap();
-            cleanup::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
+            JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
             let result = protocol::recover_sql(&bound.0, &identity);
-            cleanup::JOURNAL_FAILURE.with(|f| f.set(None));
+            JOURNAL_FAILURE.with(|f| f.set(None));
             let completed = result.is_ok();
             drop(operation);
             drop(bound);
@@ -367,7 +367,7 @@ fn sql_bound_maximum_inventory_uses_bounded_descriptors() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "taskmaster::store::cleanup::removal::journal::sql_tests::faults::sql_bound_fd_limit_child",
+            "taskmaster::store::deletion_journal::sql_tests::faults::sql_bound_fd_limit_child",
             "--nocapture",
             "--test-threads=1",
         ])
