@@ -6656,6 +6656,11 @@ mod tests {
         let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
         let locked_state = state.clone();
         let locker = std::thread::spawn(move || {
+            // Parallel prompt transitions can contend before metadata merging starts.
+            // Hold that fence too so this regression is exercised in isolation.
+            let _transition = crate::runtime::prompt_authority::transition_lock()
+                .lock()
+                .unwrap();
             let _guard = locked_state.workspace.lock().unwrap();
             locked_tx.send(()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(250));
