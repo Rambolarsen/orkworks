@@ -1,11 +1,47 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { assertShellSubprocess } from './fixtures/shellSubprocess.mjs';
+import { assertShellSubprocess, runShellSubprocess } from './fixtures/shellSubprocess.mjs';
 
 const run = (source, options = {}) => spawnSync(process.execPath, ['-e', source], {
   encoding: 'utf8', ...options,
 });
+
+const isAlivePosix = pid => {
+  try { process.kill(pid, 0); }
+  catch (err) { return err.code !== 'ESRCH'; }
+  if (process.platform === 'linux') {
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+      if (/^State:\s*[ZX]\b/m.test(status)) return false;
+    } catch (err) {
+      if (err.code === 'ENOENT') return false;
+    }
+  }
+  return true;
+};
+
+const waitForDescendantExit = async (pidFile, label) => {
+  if (process.platform === 'win32') return;
+  const descendantPid = Number(readFileSync(pidFile, 'utf8').trim());
+  assert.ok(Number.isInteger(descendantPid) && descendantPid > 0, `invalid descendant pid: ${descendantPid}`);
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (!isAlivePosix(descendantPid)) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail(`${label} (pid ${descendantPid})`);
+};
+
+const cleanupDescendant = pidFile => {
+  try {
+    const pid = Number(readFileSync(pidFile, 'utf8').trim());
+    if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL');
+  } catch { /* already exited */ }
+};
 
 test('shell timeout retains child progress, both streams and process outcome', () => {
   const result = run(`
@@ -37,4 +73,87 @@ test('shell nonzero exit retains both streams and exit status', () => {
 
 test('shell successful exit remains successful', () => {
   assert.doesNotThrow(() => assertShellSubprocess(run('console.log("passed");')));
+});
+
+test('runShellSubprocess returns on clean child exit even when a descendant inherits stdio', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'orkworks-shell-subprocess-'));
+  const pidFile = join(dir, 'descendant.pid');
+  try {
+    const started = performance.now();
+    const result = await runShellSubprocess(process.execPath, ['-e', `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { stdio: 'inherit' });
+      writeFileSync(${JSON.stringify(pidFile)}, String(descendant.pid));
+      descendant.unref();
+      writeFileSync(1, 'child stdout before exit');
+      writeFileSync(2, '[shell-fixture] process exit: 0');
+      process.exit(0);
+    `], { timeout: 2000, logDir: dir });
+    const elapsedMs = performance.now() - started;
+    assert.equal(result.error, null);
+    assert.equal(result.status, 0);
+    assert.equal(result.signal, null);
+    assert.match(result.stdout, /child stdout before exit/);
+    assert.match(result.stderr, /\[shell-fixture\] process exit: 0/);
+    assert.ok(elapsedMs < 1500, `expected prompt exit before 2000ms timeout, took ${Math.round(elapsedMs)}ms`);
+    assert.doesNotThrow(() => assertShellSubprocess(result));
+    await waitForDescendantExit(pidFile, 'lingering descendant survived clean child exit');
+  } finally {
+    cleanupDescendant(pidFile);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('runShellSubprocess times out stalled child, terminates descendants, and retains both streams', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'orkworks-shell-subprocess-'));
+  const pidFile = join(dir, 'stalled-descendant.pid');
+  try {
+    const result = await runShellSubprocess(process.execPath, ['-e', `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const descendant = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { stdio: 'inherit' });
+      writeFileSync(${JSON.stringify(pidFile)}, String(descendant.pid));
+      writeFileSync(1, 'stalled stdout');
+      writeFileSync(2, '[shell-fixture] waiting for renderer');
+      setInterval(() => {}, 1000);
+    `], { timeout: 1500, logDir: dir });
+    assert.equal(result.error?.code, 'ETIMEDOUT');
+    assert.throws(() => assertShellSubprocess(result), error => {
+      assert.match(error.message, /stalled stdout/);
+      assert.match(error.message, /\[shell-fixture\] waiting for renderer/);
+      assert.ok(error.message.includes(`"pid":${result.pid}`));
+      assert.equal(error.cause, result.error);
+      return true;
+    });
+    await waitForDescendantExit(pidFile, 'stalled descendant survived timeout cleanup');
+  } finally {
+    cleanupDescendant(pidFile);
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('runShellSubprocess retains streams and exit code on nonzero exit', async () => {
+  const result = await runShellSubprocess(process.execPath, ['-e', `
+    console.log('child out');
+    console.error('child err');
+    process.exit(7);
+  `], { timeout: 2000 });
+  assert.equal(result.error, null);
+  assert.equal(result.status, 7);
+  assert.throws(() => assertShellSubprocess(result), error => {
+    assert.match(error.message, /child out/);
+    assert.match(error.message, /child err/);
+    assert.ok(error.message.includes('"status":7'));
+    return true;
+  });
+});
+
+test('runShellSubprocess surfaces spawn errors without hanging', async () => {
+  const result = await runShellSubprocess('/nonexistent-orkworks-shell-binary', [], { timeout: 2000 });
+  assert.equal(result.error?.code, 'ENOENT');
+  assert.throws(() => assertShellSubprocess(result), error => {
+    assert.equal(error.cause, result.error);
+    return true;
+  });
 });
