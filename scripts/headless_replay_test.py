@@ -548,8 +548,10 @@ class QualificationObserverTests(unittest.TestCase):
         def fake_run(_engine, _root, parent, _budgets):
             run_dir = parent / 'orkworks-replay-fault'
             run_dir.mkdir()
-            (run_dir / 'cid').write_text('../foreign')
             try:
+                tmp = run_dir / 'cid.tmp'
+                tmp.write_text('../foreign')
+                os.replace(tmp, run_dir / 'cid')
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
                     time.sleep(0.01)
@@ -559,6 +561,41 @@ class QualificationObserverTests(unittest.TestCase):
 
         with patch.object(self.qualification.replay, 'run', side_effect=fake_run):
             with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity'):
+                case.run_fault('interrupt')
+
+    def test_run_fault_surfaces_observer_error_even_if_sigterm_cancels_run(self):
+        case = self.qualification.RealQualification('test_04_interrupt_stops_real_renderer')
+        case.output = self.output
+        case.before = {}
+        case.canary = None
+
+        def fake_run(_engine, _root, parent, _budgets):
+            run_dir = parent / 'orkworks-replay-fault-cancel'
+            run_dir.mkdir()
+            tmp = run_dir / 'cid.tmp'
+            tmp.write_text('../foreign')
+            os.replace(tmp, run_dir / 'cid')
+            # Deliberately let replay.Cancelled escape (simulates SIGTERM outside replay.run's catch).
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                time.sleep(0.01)
+            return 1, run_dir
+
+        with patch.object(self.qualification.replay, 'run', side_effect=fake_run):
+            with self.assertRaisesRegex(self.qualification.replay.Failure, 'invalid private identity'):
+                case.run_fault('interrupt')
+
+    def test_run_fault_preserves_cancelled_without_observer_error(self):
+        case = self.qualification.RealQualification('test_04_interrupt_stops_real_renderer')
+        case.output = self.output
+        case.before = {}
+        case.canary = None
+
+        def fake_run(_engine, _root, _parent, _budgets):
+            raise self.qualification.replay.Cancelled('external interrupt')
+
+        with patch.object(self.qualification.replay, 'run', side_effect=fake_run):
+            with self.assertRaisesRegex(self.qualification.replay.Cancelled, 'external interrupt'):
                 case.run_fault('interrupt')
 
 
