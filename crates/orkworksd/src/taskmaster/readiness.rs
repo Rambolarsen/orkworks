@@ -5,7 +5,7 @@ use super::{
     readiness_store::*,
     runtime::{EvaluationSnapshot, TaskmasterRuntime},
 };
-use crate::providers::native_inference::{NativeProfile, NativeResponseShape};
+use crate::providers::native_inference::NativeResponseShape;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -166,33 +166,20 @@ fn capture(state: &Arc<crate::AppState>, runtime: &TaskmasterRuntime) -> Result<
         )
     };
     let (mut evaluation, rubric) = runtime.readiness_evaluation_snapshot(&path)?;
-    let trust = super::inference_trust::InferenceTrustStore::new(runtime.root_path().to_path_buf());
-    let providers = super::provider_catalog::inspect(&state.harness_store, Some(&trust))
-        .map_err(|_| "Taskmaster provider is unavailable")?;
-    let selection = evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("Select a Taskmaster model")?;
-    if super::provider_catalog::evaluation_availability(&providers, selection)
-        != super::provider_catalog::Availability::Ready
-    {
-        return Err("Taskmaster provider is unavailable".into());
-    }
-    let transport = providers
-        .iter()
-        .find(|p| p.id == selection.provider)
-        .map(|p| p.transport.clone())
-        .ok_or("Taskmaster provider is unavailable")?;
-    if !super::evaluator::bind_evaluation_transport(
-        runtime,
-        &state.harness_store,
-        &path,
-        &mut evaluation,
-        transport,
-    ) {
-        return Err("Taskmaster provider changed".into());
-    }
+    runtime
+        .bind_ready_evaluation_provider(&state.harness_store, &path, &mut evaluation)
+        .map_err(|error| match error {
+            super::runtime::ProviderBindError::MissingSelection => {
+                "Select a Taskmaster model".to_string()
+            }
+            super::runtime::ProviderBindError::CatalogUnavailable
+            | super::runtime::ProviderBindError::ProviderUnavailable => {
+                "Taskmaster provider is unavailable".to_string()
+            }
+            super::runtime::ProviderBindError::ProviderChanged => {
+                "Taskmaster provider changed".to_string()
+            }
+        })?;
     let lock = state
         .workspace
         .lock()
@@ -327,62 +314,33 @@ fn invoke(
     prompt: String,
     shape: NativeResponseShape,
 ) -> Result<String, String> {
-    let selection = c
-        .evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("provider_unavailable")?;
-    let mut inputs_changed = false;
-    let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-        let mut result = None;
-        if c.evaluation.custom_inference.is_some() {
-            result = with_current_workspace(state, c, start);
-        } else {
-            let ok = runtime.with_current_evaluation(
-                &state.harness_store,
-                &c.path,
-                &c.evaluation,
-                || {
-                    result = with_current_workspace(state, c, start);
-                },
-            );
-            if ok != Ok(true) {
-                inputs_changed = true;
-                return None;
-            }
-        }
-        inputs_changed |= result.is_none();
-        result
-    };
-    let result = if let Some(custom) = c.evaluation.custom_inference.as_ref() {
-        runtime.invoke_custom_inference_with_dispatch_gate(
+    let mut gate =
+        |start: &mut dyn FnMut() -> std::io::Result<()>| with_current_workspace(state, c, start);
+    let result = runtime
+        .invoke_authorized_inference(
+            &state.providers,
             &state.harness_store,
-            custom,
-            prompt.clone(),
+            &c.path,
+            &c.evaluation,
+            super::runtime::AuthorizedInferenceRequest {
+                prompt: prompt.clone(),
+                codex_response_shape: Some(shape),
+                control: None,
+            },
             &mut gate,
         )
-    } else if let Some(native) = c.evaluation.native_revision.as_ref() {
-        state
-            .providers
-            .invoke_native_taskmaster_prompt_with_response_shape(
-                native.profile,
-                &selection.model,
-                selection.reasoning_effort.as_deref(),
-                selection.ollama_base_url.as_deref(),
-                prompt.clone(),
-                (native.profile == NativeProfile::Codex).then_some(shape),
-                &mut gate,
-            )
-    } else {
-        return Err("provider_unavailable".into());
-    };
-    if inputs_changed {
-        return Err("inputs_changed".into());
-    }
+        .map_err(|error| match error {
+            super::runtime::AuthorizedInferenceError::MissingTransport => {
+                "provider_unavailable".to_owned()
+            }
+            super::runtime::AuthorizedInferenceError::Rejected(_) => "inputs_changed".to_owned(),
+            super::runtime::AuthorizedInferenceError::Provider(error) => {
+                super::assessment_failure::provider_code(&error).to_owned()
+            }
+        });
     #[cfg(test)]
     quality_tests::capture_stage(&prompt, &result);
-    result.map_err(|error| super::assessment_failure::provider_code(&error).to_owned())
+    result
 }
 pub(crate) fn schedule(state: Arc<crate::AppState>, runtime_root: PathBuf) -> Admission {
     if tokio::runtime::Handle::try_current().is_err() {

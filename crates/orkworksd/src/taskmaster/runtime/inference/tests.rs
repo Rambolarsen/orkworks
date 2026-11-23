@@ -576,3 +576,184 @@ fn custom_guard_rejects_a_symlinked_harness_lock_without_touching_target() {
         .is_err());
     assert_eq!(std::fs::read(&target).unwrap(), b"unchanged");
 }
+
+#[test]
+fn bind_ready_evaluation_provider_covers_missing_unavailable_custom_and_native() {
+    let fixture = Fixture::new();
+
+    // Unapproved custom provider reports ProviderUnavailable and leaves no transport bound.
+    let mut snapshot = fixture
+        .runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    assert_eq!(
+        fixture.runtime.bind_ready_evaluation_provider(
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &mut snapshot,
+        ),
+        Err(ProviderBindError::ProviderUnavailable)
+    );
+    assert!(snapshot.custom_inference.is_none());
+    assert!(snapshot.native_revision.is_none());
+
+    // Approved custom provider binds custom_inference without setting native_revision.
+    fixture.approve();
+    assert_eq!(
+        fixture.runtime.bind_ready_evaluation_provider(
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &mut snapshot,
+        ),
+        Ok(())
+    );
+    assert!(snapshot.custom_inference.is_some());
+    assert!(snapshot.native_revision.is_none());
+
+    // Native provider selection binds native_revision and clears custom_inference.
+    let mut settings = fixture.runtime.status(None).settings;
+    settings.selection =
+        Some(serde_json::from_value(json!({"provider":"codex","model":"fixture"})).unwrap());
+    fixture.runtime.replace_settings(settings).unwrap();
+    let mut native_snapshot = fixture
+        .runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    assert_eq!(
+        fixture.runtime.bind_ready_evaluation_provider(
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &mut native_snapshot,
+        ),
+        Ok(())
+    );
+    assert!(native_snapshot.native_revision.is_some());
+    assert!(native_snapshot.custom_inference.is_none());
+
+    // Missing selection fails closed with MissingSelection.
+    native_snapshot.settings.selection = None;
+    assert_eq!(
+        fixture.runtime.bind_ready_evaluation_provider(
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &mut native_snapshot,
+        ),
+        Err(ProviderBindError::MissingSelection)
+    );
+}
+
+#[test]
+fn invoke_authorized_inference_holds_authority_locks_and_rejects_stale_for_both_transports() {
+    for is_custom in [true, false] {
+        let fixture = Fixture::new();
+        if is_custom {
+            fixture.approve();
+        } else {
+            let mut settings = fixture.runtime.status(None).settings;
+            settings.selection = Some(
+                serde_json::from_value(json!({
+                    "provider":"ollama",
+                    "model":"fixture",
+                    "ollamaBaseUrl":"http://127.0.0.1:1"
+                }))
+                .unwrap(),
+            );
+            fixture.runtime.replace_settings(settings).unwrap();
+        }
+        let mut snapshot = fixture
+            .runtime
+            .evaluation_snapshot(fixture.dir.path())
+            .unwrap();
+        fixture
+            .runtime
+            .bind_ready_evaluation_provider(&fixture.harnesses, fixture.dir.path(), &mut snapshot)
+            .unwrap();
+        let providers = crate::providers::ProviderManager::new();
+
+        // While before_spawn runs, both transports must already hold the runtime authority lock.
+        let mut saw_runtime_lock_held = false;
+        let mut reject_gate = |_start: &mut dyn FnMut() -> std::io::Result<()>| {
+            saw_runtime_lock_held = fixture.runtime.data.try_lock().is_err();
+            None
+        };
+        let rejected = fixture.runtime.invoke_authorized_inference(
+            &providers,
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &snapshot,
+            AuthorizedInferenceRequest {
+                prompt: "check authority".into(),
+                codex_response_shape: None,
+                control: None,
+            },
+            &mut reject_gate,
+        );
+        assert!(
+            matches!(rejected, Err(AuthorizedInferenceError::Rejected(_))),
+            "before_spawn rejection must yield Rejected (is_custom={is_custom}): {rejected:?}"
+        );
+        assert!(
+            saw_runtime_lock_held,
+            "before_spawn must run under held Taskmaster authority (is_custom={is_custom})"
+        );
+        assert!(
+            fixture.runtime.data.try_lock().is_ok(),
+            "authority lock must be released after dispatch gate returns (is_custom={is_custom})"
+        );
+
+        // Corrupting the durable knowledge proof rejects before before_spawn even runs.
+        std::fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap();
+        let mut reached_before_spawn = false;
+        let mut fail_if_reached = |_start: &mut dyn FnMut() -> std::io::Result<()>| {
+            reached_before_spawn = true;
+            None
+        };
+        let stale = fixture.runtime.invoke_authorized_inference(
+            &providers,
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &snapshot,
+            AuthorizedInferenceRequest {
+                prompt: "check stale".into(),
+                codex_response_shape: None,
+                control: None,
+            },
+            &mut fail_if_reached,
+        );
+        assert!(
+            matches!(stale, Err(AuthorizedInferenceError::Rejected(_))),
+            "stale authority must reject before dispatch (is_custom={is_custom}): {stale:?}"
+        );
+        assert!(
+            !reached_before_spawn,
+            "stale authority must never invoke before_spawn (is_custom={is_custom})"
+        );
+    }
+
+    // Snapshot with neither bound transport fails closed with MissingTransport.
+    let fixture = Fixture::new();
+    let snapshot = fixture
+        .runtime
+        .evaluation_snapshot(fixture.dir.path())
+        .unwrap();
+    let providers = crate::providers::ProviderManager::new();
+    let mut gate =
+        |_start: &mut dyn FnMut() -> std::io::Result<()>| -> Option<std::io::Result<()>> {
+            panic!("missing transport must not invoke before_spawn")
+        };
+    assert!(matches!(
+        fixture.runtime.invoke_authorized_inference(
+            &providers,
+            &fixture.harnesses,
+            fixture.dir.path(),
+            &snapshot,
+            AuthorizedInferenceRequest {
+                prompt: "unbound".into(),
+                codex_response_shape: None,
+                control: None,
+            },
+            &mut gate,
+        ),
+        Err(AuthorizedInferenceError::MissingTransport)
+    ));
+}

@@ -7,9 +7,11 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-mod access;
 pub(super) mod assessment;
 mod inference;
+pub(crate) use inference::{
+    AuthorizedInferenceError, AuthorizedInferenceRequest, ProviderBindError,
+};
 #[cfg(test)]
 mod knowledge_tests;
 
@@ -1472,9 +1474,54 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     )
 }
 
+impl TaskmasterRuntime {
+    /// Read-only settings guard for consumers when inference transport is unavailable.
+    pub(crate) fn with_workspace_settings<T>(
+        &self,
+        workspace: &Path,
+        apply: impl FnOnce(&TaskmasterSettings) -> T,
+    ) -> Result<T, String> {
+        let key = canonical_workspace_key(workspace).ok_or("Workspace identity is unavailable")?;
+        let _guard = PersistenceGuard::acquire(&self.root)?;
+        let mut data = self
+            .data
+            .lock()
+            .map_err(|_| "Taskmaster policy is unavailable")?;
+        reload_durable(&self.root, &mut data);
+        if !data.ledger_readable {
+            return Err("Taskmaster policy ledger is unavailable".into());
+        }
+        Ok(apply(&effective_settings(&data.settings, &key)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consumer_settings_guard_reloads_durable_policy_and_fails_closed_on_corrupt_ledger() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let runtime = TaskmasterRuntime::open(directory.path().into());
+        let mut settings = TaskmasterSettings::default();
+        settings.context_level = ContextLevel::SessionObservations;
+        TaskmasterRuntime::open(directory.path().into())
+            .replace_settings(settings.clone())
+            .unwrap();
+        assert_eq!(
+            runtime
+                .with_workspace_settings(workspace.path(), |current| current.context_level)
+                .unwrap(),
+            settings.context_level
+        );
+        std::fs::write(directory.path().join("evaluations.json"), "broken").unwrap();
+        assert!(runtime
+            .with_workspace_settings(workspace.path(), |_| panic!(
+                "unreadable policy must not expose assessment data"
+            ))
+            .is_err());
+    }
 
     #[test]
     fn unsigned_knowledge_cannot_be_activated() {

@@ -699,14 +699,12 @@ fn custom_authority_gate_and_cancel_have_one_lock_order_and_no_late_dispatch() {
                 &capture_for_gate.path,
                 &capture_for_gate.evaluation,
                 || {
-                    authorized_dispatch(
+                    dispatch_under_held_authority(
                         &state_for_gate,
-                        &runtime_for_gate,
                         &capture_for_gate,
                         &manifest_for_gate,
                         &entry_for_gate,
                         Instant::now() + Duration::from_secs(5),
-                        true,
                         |_| {
                             entered_tx.send(()).unwrap();
                             release_rx.recv().unwrap();
@@ -750,7 +748,6 @@ fn custom_authority_gate_and_cancel_have_one_lock_order_and_no_late_dispatch() {
         &manifest,
         &entry,
         Instant::now() + Duration::from_secs(5),
-        false,
         |_| {
             dispatched = true;
             Ok(())
