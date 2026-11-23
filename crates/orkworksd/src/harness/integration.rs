@@ -445,6 +445,10 @@ mod tests {
         // produces (with no matching `binding_for_key` arm) makes the
         // grouped routes 404 for that adapter — Settings then reports
         // "integration status unavailable" and can never reconcile it.
+        let builtins = crate::harness::definition::BuiltinDocument::parse(
+            crate::harness::definition::EMBEDDED_BUILTINS,
+        )
+        .unwrap();
         for binding in [
             IntegrationBinding::Claude,
             IntegrationBinding::Codex,
@@ -452,7 +456,15 @@ mod tests {
             IntegrationBinding::Gemini,
             IntegrationBinding::Copilot,
             IntegrationBinding::Aider,
-        ] {
+            IntegrationBinding::Antigravity,
+        ]
+        .into_iter()
+        .chain(
+            builtins
+                .builtins
+                .into_iter()
+                .filter_map(|builtin| builtin.integration),
+        ) {
             // Pin the key spelling to the binding's actual serde `kind`,
             // not just to binding_for_key's own acceptance — the original
             // bug was integration_key and binding_for_key agreeing on a
@@ -552,6 +564,7 @@ pub(crate) fn binding_for_key(key: &IntegrationKey) -> Option<IntegrationBinding
         "gemini" => IntegrationBinding::Gemini,
         "copilot" => IntegrationBinding::Copilot,
         "aider" => IntegrationBinding::Aider,
+        "antigravity" => IntegrationBinding::Antigravity,
         _ => return None,
     })
 }
