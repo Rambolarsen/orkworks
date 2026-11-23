@@ -78,6 +78,9 @@ Classes not enumerated are unavailable.
 | Reservation (research) | source codecs | Reservation row + frozen version pair + task launching/version + expectation binding + run version, before native allocation | One C with the reservation |
 | Allocation (research) | child source contract | Allocating intent persisted, then allocation or interrupted observations; attempt/capacity retained | Separate outcome per the accepted chain |
 | Attachment + fresh preparation | child source contract | Attachment + assignment source + provenance membership + fresh subject/ledger effects | Separate outcome; only then can reporting capability delivery occur |
+| Parent runtime attachment | input/control prefix + session bridge | Attached parent wrapper + immutable research runtime history + current pointer/run version | One C; no replayed authority |
+| Spawn intent/outcome | runtime + bridge + control | Intent persisted first, then actual runtime history/current bridge/running phase + coalesced task/run versions, or interrupted original outcome | Intent is no successful attachment |
+| Ordinary end/resume reconciliation | actual lifecycle + bridge + control | Coherent bridge/current-runtime history + live task/run increments for that event + derived capacity; immutable reservation identity/outcome/terminal run state unchanged | Ordinary input/stop/end never waits on hierarchy SQL/fsync |
 | Exact plan approval (research) | source codecs | Approval source/receipt + grant + active pointer versions | Receipt before live CAS on retry |
 | First report publication | membership contract | Report object + head + receipt + input revision + collection/expectation versions + current-input pointer + run version | Full admission order; exact retry returns original receipt before CAS |
 | Turn gate | continuation | Turn row + task needs_parent_result + task/run versions | One C with the turn row |
