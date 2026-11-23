@@ -369,3 +369,5 @@ Dated design records; these do not establish current product behavior.
 - [Complete Codex capture inventory and custody](2026-11-22-review-codex-capture-design.md) — Proposed complete inventory, retained custody and shared owner prerequisites.
 
 - [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
+
+- [Research complete discovery and invalidation ownership](2026-11-23-research-discovery-invalidation-design.md) — Proposed per-family discovery ownership in both lookup directions, invalidation-ownership table and shared finite bounds over the accepted catalog; no format or runtime qualification.
