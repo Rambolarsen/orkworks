@@ -83,6 +83,7 @@ without one recognized profile; and inventing new ownership identity fields.
 | [Review additions](2026-11-18-research-review-tasks-design.md#review-request-admission-and-family) | One review-input object kind and the research_reviews family |
 | [Clarification additions](2026-11-18-research-clarification-design.md#clarification-decision-and-request-records) | Two clarification families with the closed pending binding |
 | [Execution additions](2026-11-19-research-execution-proposal-design.md#families-accounting-and-membership) | One execution-plan object kind and the execution approval family |
+| [Preparation authorization](2026-11-13-research-preparation-authorization-design.md#one-retained-research-authorization-and-original-command) | research_preparation_authorizations keyed by the full canonical frozen identity P |
 | [Child source catalog](2026-10-31-child-review-source-preparation-design.md#closed-format-4-source-registry-and-commitment) | Child-side families live under their own accepted catalog; whole-catalog reader obligation stated there is preserved, not duplicated here |
 | [Report registry](2026-10-29-report-publication-profile-design.md#report-head-and-receipt-registry) | Compact report_heads/report_receipts keys are part of the recognized profile |
 | [Owner selection](../../validation/research-source-coverage-audit.md#catalog-indexes-initialization-and-proofs-still-required) | Row presence, largest versions and copied child/terminal sources cannot elect an owner |
@@ -104,14 +105,16 @@ native/model probes, adapters, migrations or activation.
 
 ## Enumerated logical catalog
 
-The research profile's logical catalog has **31 research-side logical names**
-plus the shared report registry, reconciling the accepted candidate chain
-(51→54→57→59→61→63 across the packet arithmetic; the two child-side
-object-kind/family additions and the report registry keep the total at the
-accepted 63 for the recognized research profile). Every name below is
-mandatory: it exists in the initialized catalog even when empty.
+The research profile's logical catalog enumerates **every name the research
+contracts added** — 8 object kinds and 24 metadata families below — plus the
+shared report registry. The accepted candidate arithmetic is preserved as the
+per-packet reconciliation (50 → authorization +1 = 51 → continuation +3 = 54
+→ completion +3 = 57 → review +2 = 59 → clarification +2 = 61 → execution
++2 = 63; terminal completion adds rows, not names), and this enumeration is
+its categorical inventory. Every name below is mandatory: it exists in the
+initialized catalog even when empty.
 
-### Object kinds (9)
+### Object kinds (8)
 
 | # | Kind / identity | Owning contract | Notes |
 | --- | --- | --- | --- |
@@ -128,7 +131,7 @@ mandatory: it exists in the initialized catalog even when empty.
 The eight research object kinds are enumerated; the shared objects envelope is
 infrastructure, not a ninth catalog name.
 
-### Metadata families (23)
+### Metadata families (24)
 
 | # | Family / exact key | Owning contract | Mutable? |
 | --- | --- | --- | --- |
@@ -136,7 +139,7 @@ infrastructure, not a ninth catalog name.
 | 2 | research_reservations / TaskKey | source codecs | Immutable |
 | 3 | research_allocations / ReservationRef | source codecs | Immutable |
 | 4 | research_attachments / childSessionId | source codecs | Immutable |
-| 5 | research_control_inputs / PreparedInputRef | input/control prefix | Immutable |
+| 5 | research_control_inputs / PreparedInputRef **without inputDigest** | input/control prefix | Immutable |
 | 6 | research_runtime_attachments / RuntimeKey | input/control prefix | Immutable |
 | 7 | research_run_controls / RunKey | input/control prefix | Mutable (sole runVersion owner) |
 | 8 | research_plan_controls / PlanRef | input/control prefix | Mutable |
@@ -155,6 +158,7 @@ infrastructure, not a ninth catalog name.
 | 21 | research_clarification_requests / {run,questionId,questionVersion} | clarification | Immutable |
 | 22 | research_clarification_answers / {run,questionId,questionVersion,answerId} | clarification | Immutable |
 | 23 | research_execution_plan_approvals / {plan,approvalId} | execution proposal | Immutable |
+| 24 | research_preparation_authorizations / full canonical P | preparation authorization | Immutable |
 
 ### Shared report registry (2)
 
@@ -246,11 +250,13 @@ audit item 5 still selects the physical format.
 
 No source digest, wire field, dependency purpose, version default, cap,
 receipt version or credential serialization changes. All accepted pool
-placements (child-source-retained-bytes for source/plan objects,
-child-control-retained-bytes for control/lifecycle/continuation/review/
-clarification/execution families, report pools for the registry) are
-confirmed unchanged, with the 32 MiB run aggregate and every smaller limit
-binding independently. Old stores are never imported or extended on first
+placements are confirmed unchanged: `child-source-retained-bytes` for the
+source objects, source plans, review inputs, execution plans and their
+approvals (the execution contract charges both execution families to the
+source pools; only run-control binding changes use the control pools);
+`child-control-retained-bytes` for control/lifecycle/continuation/review/
+clarification families; report pools for the registry. The 32 MiB run
+aggregate and every smaller limit bind independently. Old stores are never imported or extended on first
 read; the document can be reverted without store effects.
 
 ## Owner choices and bounded next steps
