@@ -6,7 +6,8 @@ import { SkillInstaller, findApm, inspectApm, apmExecutablePath } from "./skillI
 import { realpath } from "node:fs/promises";
 import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
 import { requestSessionTitle, validateSessionTitleRequest } from "./sessionTitle";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, shell } from "electron";
+import { installSessionNotificationIpc } from "./sessionNotificationIpc";
 import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
 import { inspectSessionApp, openSessionApp, sessionAppInvocation, type SessionAppDependencies } from "./sessionAppOpener";
@@ -61,6 +62,7 @@ import {
 import { getWindowChromeOptions } from "./windowChrome";
 
 app.setName("OrkWorks");
+if (process.platform === "win32" && app.isPackaged) app.setAppUserModelId("ai.orkworks.desktop");
 
 // A dev checkout running with ORKWORKS_DEV_PORT (the documented way to run
 // `pnpm dev` while another checkout holds port 5173) gets userData scoped to
@@ -456,7 +458,7 @@ function getSidecarPath(): string {
   return getDevSidecarPath(__dirname);
 }
 
-function createWindow(): void {
+function createWindow(clearSessionNotifications: () => void): void {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -490,7 +492,9 @@ function createWindow(): void {
   };
 
   mainWindow.webContents.on("did-start-navigation", (_event, url, _isInPlace, isMainFrame) => {
-    if (isMainFrame) recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
+    if (!isMainFrame) return;
+    if (!_isInPlace) clearSessionNotifications();
+    recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
   });
 
   mainWindow.webContents.on("did-finish-load", () => {
@@ -513,6 +517,7 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    clearSessionNotifications();
     console.error("[main] renderer diagnostic", {
       type: "render-process-gone",
       reason: details.reason,
@@ -535,6 +540,7 @@ function createWindow(): void {
   }
 
   mainWindow.on("closed", () => {
+    clearSessionNotifications();
     mainWindow = null;
   });
 }
@@ -591,6 +597,12 @@ app.whenReady().then(async () => {
   const workspaceNavigationMemory = createWorkspaceNavigationMemory(app.getPath("userData"));
 
   let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
+  const clearSessionNotifications = installSessionNotificationIpc(
+    () => mainWindow,
+    () => latestBackendLifecycle.state === "ready"
+      && currentSettings?.desktopSessionNotifications === true,
+    { ipc: ipcMain, isSupported: () => Notification.isSupported(), create: options => new Notification(options) },
+  );
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;
@@ -856,6 +868,7 @@ app.whenReady().then(async () => {
   let activeHarnessRevision = 0;
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
+    clearSessionNotifications();
     latestBackendLifecycle = event;
     mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
   }
@@ -1564,6 +1577,19 @@ app.whenReady().then(async () => {
     historyDiagnostic: currentHistoryDiagnostic,
   }));
 
+  ipcMain.handle("save-desktop-session-notifications", async (event, enabled: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+        || event.senderFrame !== mainWindow.webContents.mainFrame || typeof enabled !== "boolean") {
+      throw new Error("Invalid desktop notifications setting.");
+    }
+    await enqueueSettingsWrite(() => {
+      const base = readSettings(app.getPath("userData"));
+      const nextSettings = { ...base, desktopSessionNotifications: enabled };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      if (!enabled) clearSessionNotifications();
+    });
+  });
   ipcMain.handle("get-settings", async () => {
     currentSettings = readSettings(app.getPath("userData"));
     return rendererSettings(currentSettings);
@@ -2179,12 +2205,12 @@ app.whenReady().then(async () => {
     registerUpdateIpc(updateService);
   }
 
-  createWindow();
+  createWindow(clearSessionNotifications);
   applyMenu(createMenu(currentSettings));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow(clearSessionNotifications);
     }
   });
 });

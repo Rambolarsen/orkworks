@@ -467,6 +467,14 @@ the terminal runtime lifetime remain unchanged.
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
 
+The shell derives Needs You alerts from ready, live session snapshots and resets
+the comparison when the workspace or backend changes. Electron main owns the
+desktop opt-in and accepts notification requests from the main renderer
+while the backend is ready. An opaque request ID links an operating-system click
+to the session in the renderer. The notification shows fixed text. Main clears
+outstanding notifications when the workspace changes or the renderer is
+replaced, and the renderer checks that the wait still exists before navigating.
+
 Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` under its sandboxed preload loader, which only resolves Node/Electron built-ins — a plain per-file `tsc` require of any other local `electron/*.ts` module fails at runtime (`module not found`) even though it type-checks and compiles cleanly. `scripts/build-preload.mjs` (config in `scripts/preloadBuildConfig.mjs`) runs esbuild after `tsc` in the `dev`, `build`, and `dist` npm scripts to bundle `electron/preload.ts` and its local imports into a single self-contained `dist-electron/preload.js`, keeping `electron` external so Electron's own binding still resolves it. The rest of `electron/*.ts` (main-process code, not sandboxed) keeps its plain per-file `tsc` output and may freely `require()` sibling modules.
 
 `electron/layoutMemory.ts` retains the legacy Dockview `layout.json` compatibility API in the Electron user data directory. The fixed-shell renderer neither reads nor writes this record and does not restore the old panel graph.

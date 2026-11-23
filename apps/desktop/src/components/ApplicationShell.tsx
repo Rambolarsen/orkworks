@@ -22,6 +22,7 @@ import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 import { useCompactPopover } from "../useCompactPopover";
+import { useSessionAttentionAlerts } from "../useSessionAttentionAlerts";
 
 export type ShellDestination = "changes" | "details" | "recommendations" | "skills" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
@@ -50,6 +51,8 @@ interface Props {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   sessionsSourceStatus?: ActionsSourceStatus;
+  desktopSessionNotifications?: boolean;
+  alertNavigationBlocked?: boolean;
   activeSessionId: string | null;
   visibleSubjectId: string | null;
   canFixWithAi: boolean;
@@ -106,6 +109,8 @@ export default function ApplicationShell(props: Props) {
   const focusIntent = useRef<"composer" | "page" | "changes-return" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
+  const [toolbarResumeWarningOpen, setToolbarResumeWarningOpen] = useState(false);
+  const [detailsResumeWarningOpen, setDetailsResumeWarningOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const [actionFocusRequest, setActionFocusRequest] = useState<{ scope: string; sequence: number }>({ scope: "", sequence: 0 });
   const [actionInspection, setActionInspection] = useState<{ scope: string; row: ActionRow | null }>({ scope: "", row: null });
@@ -258,6 +263,17 @@ export default function ApplicationShell(props: Props) {
   };
   const commandRef = useRef(runCommand);
   commandRef.current = runCommand;
+  useSessionAttentionAlerts({
+    scope: sourcesReady && props.sessionsSourceStatus === "ready" ? actionsScope : null,
+    sessions: props.sessions,
+    visibleSessionId: showTerminal ? props.activeSessionId : null,
+    dialogOpen: props.alertNavigationBlocked === true || toolbarResumeWarningOpen || detailsResumeWarningOpen,
+    desktopEnabled: props.desktopSessionNotifications === true,
+    openSession: (id) => {
+      selectSession(id);
+      commandRef.current("terminal");
+    },
+  });
   useEffect(() => {
     if (props.commandRequest) commandRef.current(props.commandRequest.command, props.commandRequest.reveal);
   }, [props.commandRequest]);
@@ -349,6 +365,7 @@ export default function ApplicationShell(props: Props) {
     if (props.inspector === "details") return <SessionDetailPanel key={props.workspaceGeneration} sessions={props.sessions}
       workspaceIdentity={props.isSwitchingWorkspace ? undefined : props.workspace?.workspaceIdentity} onTitleUpdated={props.onTitleUpdated}
       visibleSessionId={props.visibleSubjectId} harnesses={props.harnesses}
+      onResumeWarningOpenChange={setDetailsResumeWarningOpen}
       onReviewChanges={() => runCommand("changes", true)}
       onReviewPlan={kind => {
         if (!kind) { runCommand("review"); return; }
@@ -489,7 +506,7 @@ export default function ApplicationShell(props: Props) {
           {!showComposer && session && props.workspace && <SessionAppMenu key={`${props.workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={props.workspace.workspaceIdentity || props.workspace.path} session={session} disabled={!sourcesReady} compact={compact} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${props.workspaceGeneration}:${session.id}`} header compact={compact}
-            pending={isResuming} options={resumeChoices(session)} onSelect={option => props.onResumeSession(session.id, option.strategy)} />}
+            pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => props.onResumeSession(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && props.onOpenReview && !showComposer && <button type="button" data-shell-command="review"
             aria-pressed={reviewing} disabled={props.reviewLoading || props.backendStatus !== "connected" || props.isSwitchingWorkspace}
             onClick={() => runCommand("review")}>{props.reviewLoading ? "Opening Review…" : "Review"}</button>}
