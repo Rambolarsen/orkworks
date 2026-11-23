@@ -118,6 +118,7 @@ cd ../orkworks-<branch-slug>
 Notes:
 
 - Install dependencies only for the surface being changed or validated. Docs-only work needs no desktop install; run `pnpm install --frozen-lockfile` in `docs/` when building docs. Desktop work uses `apps/desktop/`. `node_modules` is per-worktree, not shared.
+- Run `node scripts/sync-repo-skills.mjs` inside the new worktree (fast, offline, no `apm install` required) so Claude Code (`.claude/skills/`), Codex/Antigravity (`.agents/skills/`), and Copilot (`.github/skills/`) auto-discover all committed repo-owned skills from `skills/`. Run `apm install` as well if you need external APM skills in the worktree.
 - Cargo manages its own `target/` per worktree automatically; no extra step.
 - If the branch already exists and its owner has explicitly authorized your work (for example, review fixes), drop `-b <branch-slug>` and use `git worktree add ../orkworks-<branch-slug> <branch-slug>`.
 - Run any agent (Claude Code, Codex, OpenCode, Aider) from inside the worktree directory, not the primary checkout. Treat the worktree as the project root for that task.
@@ -190,8 +191,9 @@ Stranded worktrees follow the 7-day stranded-branch rule. If a worktree has gone
 # list active worktrees
 git worktree list
 
-# create a new worktree on a new branch
+# create a new worktree on a new branch and expose repo-owned skills offline
 git worktree add ../orkworks-my-feature -b my-feature
+node ../orkworks-my-feature/scripts/sync-repo-skills.mjs --root ../orkworks-my-feature
 
 # create a worktree on an existing branch
 git worktree add ../orkworks-my-feature my-feature

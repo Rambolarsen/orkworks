@@ -101,6 +101,8 @@ jobs:
         run: |
           node --test scripts/verify-repo.test.mjs
           bash scripts/verify-repo.test.sh
+      - name: Test repo-skill sync helper
+        run: node --test scripts/sync-repo-skills.test.mjs
       - run: pnpm docs:build
         working-directory: docs
 

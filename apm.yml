@@ -34,8 +34,16 @@ lifecycle:
       description: Remove the incompatible Superpowers SessionStart hook from Codex
       command: bash scripts/repair-codex-session-start-hooks.sh
       timeoutSec: 30
+    - type: command
+      description: Sync committed repo-owned skills to harness discovery directories
+      command: node scripts/sync-repo-skills.mjs
+      timeoutSec: 30
   post-update:
     - type: command
       description: Remove the incompatible Superpowers SessionStart hook from Codex
       command: bash scripts/repair-codex-session-start-hooks.sh
+      timeoutSec: 30
+    - type: command
+      description: Sync committed repo-owned skills to harness discovery directories
+      command: node scripts/sync-repo-skills.mjs
       timeoutSec: 30
