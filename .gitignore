@@ -54,6 +54,7 @@ apm.lock.yaml
 # Harness-local hook configuration and generated adapters
 .github/hooks/
 .github/agents/
+.github/skills/
 .github/copilot/settings.local.json
 .opencode/
 .codex/

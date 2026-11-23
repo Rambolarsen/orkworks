@@ -14,10 +14,11 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 | ---- | -------- |
 | `apm_modules/` | Cloned dependency sources (gitignored) |
 | `apm.lock.yaml` | Resolved lock file (gitignored) |
-| `.agents/skills/` | Skills for all targets |
-| `.claude/` | Claude Code hooks + skills |
+| `.agents/skills/` | Skills for all targets (APM external skills plus synced repo-owned skills) |
+| `.claude/` | Claude Code hooks + skills (APM external skills plus synced repo-owned skills) |
 | `.codex/` | Generated/local Codex hook configuration and adapters (gitignored) |
 | `.github/hooks/` | Copilot hooks |
+| `.github/skills/` | Copilot workspace skills synced from `skills/` (gitignored) |
 | `.opencode/` | OpenCode target |
 | `.mcp.json` | Claude Code MCP server config |
 | `.vscode/mcp.json` | VS Code MCP server config |
@@ -25,7 +26,7 @@ Dependencies are managed by [APM](https://github.com/anthropics/apm) at the repo
 
 The committed `scripts/doc-check.sh` is the harness-neutral doc-diff detector. The committed `scripts/codex-doc-check-stop.sh` adapter wraps that output into valid Stop-hook JSON so Codex can surface the message without rejecting the hook output; the Codex hook configuration and its local adapter entry remain gitignored because OrkWorks installs machine-specific hook entries.
 
-The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStart` registration from generated Codex hooks after installs and updates. Lifecycle commands are trust-gated; on a new checkout, run `apm lifecycle trust` once before `apm install` or `apm update` if you want that repair to run automatically. The repair is also available directly as `bash scripts/repair-codex-session-start-hooks.sh`.
+The APM lifecycle in `apm.yml` removes the incompatible Superpowers `SessionStart` registration from generated Codex hooks and runs `node scripts/sync-repo-skills.mjs` to materialize committed repo-owned skills from `skills/` after installs and updates. Lifecycle commands are trust-gated; on a new checkout, run `apm lifecycle trust` once before `apm install` or `apm update` if you want those post-install steps to run automatically. Both helpers are also available directly as `bash scripts/repair-codex-session-start-hooks.sh` and `node scripts/sync-repo-skills.mjs` (or `node scripts/sync-repo-skills.mjs --check` to verify sync state without writing).
 
 ## Product skill management
 
@@ -158,7 +159,11 @@ MCP servers are declared in `apm.yml` under `dependencies.mcp` and materialized 
 
 ## Repo-level skills
 
-The `skills/` directory contains repo-level agent skills committed with the project. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.
+The `skills/` directory is the canonical committed source for repo-level agent skills. These follow the Agent Skills standard: each skill is a directory with a `SKILL.md` file using YAML frontmatter and a markdown body.
+
+Because `.claude/skills/`, `.agents/skills/`, and `.github/skills/` are gitignored, run `node scripts/sync-repo-skills.mjs` (automatically triggered by `apm.yml` `post-install`/`post-update` when lifecycle commands are trusted, and fast/offline in freshly created sibling worktrees) to copy every repo-owned skill from `skills/` into those three discovery directories as real files (not symlinks, preserving Windows portability and Codex symlink-denial boundaries). Managed entries are tracked per target in `.orkworks-repo-skills.json` so unrelated APM skills stay untouched, removed repo skills are pruned, legacy symlinks pointing directly to `skills/<name>` are migrated to real copies, and unmanaged name collisions fail closed before modifying any target. Use `node scripts/sync-repo-skills.mjs --check` for read-only drift verification.
+
+Skill creation guidance (`writing-skills`) is supplied by the APM-pinned `obra/superpowers` dependency rather than duplicated under `skills/`.
 
 | Skill | Description |
 | ----- | ----------- |
@@ -166,7 +171,6 @@ The `skills/` directory contains repo-level agent skills committed with the proj
 | `cutting-release` | Version bump, tag push, CI monitoring, and release verification workflow |
 | `adding-harness` | Checklist for adding or changing a harness adapter |
 | `working-on-recommendation` | Resolves a Taskmaster recommendation, scopes the work, and reports verified completion |
-| `writing-skills` | TDD-based skill creation following the Agent Skills standard |
 | `reviewing-plans` | Delivery complexity assessment and scope, simplicity, clarity, and verification checks before plan handoff |
 | `troubleshooting-github-connectivity` | Separates stale RTK output, network failures, and GitHub authentication errors |
 | `clean-ddd-hexagonal` | Clean Architecture + DDD + Hexagonal patterns, language-agnostic |
