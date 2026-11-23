@@ -202,3 +202,25 @@ Physical catalog/version selection (audit item 5), the actual initializer
 execution recovery revisions, profile qualification and separately approved
 executable plans remain open. #1689/#1089/#610 stay open; #740 stays closed
 research. Gate 2 remains **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-23
+
+After PR #2006 merged and the hosted review evidence recorded above, the
+owner accepted the three choices above — the complete discovery inventory
+(one owner per family, both lookup directions mandatory, completeness rules
+including zero-reference owners, mandatory empty families, retired/
+tombstoned rows and no current-pointer-only scans), the invalidation-
+ownership table (eleven events; immutable history never rewritten;
+whole-transition denial when any consumer is undiscoverable), and the shared
+finite bounds (4,096 observations/16 MiB cumulative, 100,000-visit ceiling,
+no truncation) — **for written discovery-closure work only**.
+
+This does not select a physical storage format, table/column/layout scheme
+or catalog version (audit item 5 remains separately gated); it authorizes no
+runtime/native/model execution, adapter, migration or activation, and
+completes no component packet (Gate 2 remains Investigate). The next bounded
+written contract under this acceptance is audit item 3 (the actual
+initializer's complete creation manifest with original proof links), which
+consumes both this discovery/invalidation ownership and the accepted catalog
+enumeration. #1689/#1089/#610 stay open; #740 stays closed research.
