@@ -73,21 +73,28 @@ Classes not enumerated are unavailable.
 | Workspace initialize-store | initializer contract | Resource ledgers + pools + profile registration; peers preserved | One header advance, one new C; rows' original lastCommit = C |
 | Root admission | initializer + completion contracts | Run owner + selector + root subject rows + inherited six core source effects + charged ledgers | One header advance, one new C shared by all created rows |
 | Attachment preparation | initializer + child-source contracts | Five child pools + summary_state + assignment source + authorization + attachment + provenance membership | One header advance, one new C |
-| Proposal publication (research) | source codecs + control prefix | Source objects + approval/reservation/allocation/attachment rows + controls + collection/expectation + pending pointer | One C; trigger-adjacent effects coalesced once |
+| Proposal publication (research) | source codecs + control prefix | Source objects + input/plan/task controls + collection/expectation + pending pointer — no allocation, grant or reservation rows (those are separate later outcomes) | One C; trigger-adjacent effects coalesced once |
+| Exact plan approval (research) | source codecs | Approval source/receipt + grant + active pointer versions | Receipt before live CAS on retry |
+| Reservation (research) | source codecs | Reservation row + frozen version pair + task launching/version + expectation binding + run version, before native allocation | One C with the reservation |
+| Allocation (research) | child source contract | Allocating intent persisted, then allocation or interrupted observations; attempt/capacity retained | Separate outcome per the accepted chain |
+| Attachment + fresh preparation | child source contract | Attachment + assignment source + provenance membership + fresh subject/ledger effects | Separate outcome; only then can reporting capability delivery occur |
 | Exact plan approval (research) | source codecs | Approval source/receipt + grant + active pointer versions | Receipt before live CAS on retry |
 | First report publication | membership contract | Report object + head + receipt + input revision + collection/expectation versions + current-input pointer + run version | Full admission order; exact retry returns original receipt before CAS |
 | Turn gate | continuation | Turn row + task needs_parent_result + task/run versions | One C with the turn row |
 | Coordination outcome | continuation | Request/receipt row + task status/result + task/run versions | One C; plan-completion trigger may join the same C |
-| Plan completion (automatic) | completion contract | Completion record + plan complete/version+1 + grant revocation + selector advance + run version | Trigger + completion + effects in same C |
+| Research plan completion (automatic) | completion contract | Completion record + research plan complete/version+1 + grant revocation + selector advance (completedResearchPlan selected) + run version | Trigger + completion + effects in same C |
+| Execution plan completion (automatic terminal) | execution completion contract | Completion record + execution plan complete/version+1 + selector UNCHANGED (completedResearchPlan stays the research plan) + run terminal \`complete\` + full authority revocation + collections/expectations retired + waits closed + pointer clears | Trigger + completion + effects in same C; paused-prestate preserved through rejection-side transitions |
 | Summary publication | completion contract | Summary row + selector advance + run version coalesced; consumer invalidation | Exact-key retry; changed bytes conflict |
 | Lifecycle UI decisions | completion contract | Record + state transitions + effects per kind (finish/cancel-stage/continue/cancel-run) | Receipt before live CAS on authorized identical retry |
 | Scope rejection | scope-rejection contract | Rejection decision + rejected plan cancelled + completion rerun when eligible | Both lifecycle decisions in one outcome |
 | Review outcome | review tasks | Review row + no task version/outcome/grant change | Generation/lease/rate before lookup |
 | Clarification assessment | clarification contract | Manifest + request row + pending binding + state | One outcome; request row same outcome |
 | Clarification answer | clarification contract | Answer row + next input revision (copied decision, user-origin producer) + pending clear + runVersion | Copied decision byte-unchanged; fresh assessment is a separate outcome |
+| Research proposal approval (execution) | execution proposal contract | Proposal object + plan/task controls proposed + planReferences append + pendingPlan + state | Resumed-eligible parent precondition; no launch closed |
 | Execution proposal publication | execution proposal contract | Proposal object + plan/task controls proposed + planReferences append + pendingPlan + state | One outcome; publication input non-retained |
 | Execution approval | execution proposal contract | Approval source/receipt + plan active + currentPlan + grant labels | Resumed eligible parent precondition |
 | Execution rejection | execution proposal contract | Lifecycle decision + cancelled plan + pendingPlan clear + pause-retained state | Receipt planVersion null |
+| Original-attempt recovery | continuation + recovery-completion contracts | Recovery decision row (four kinds, typed snapshots, native observations) + blocker/capacity effects + task/run versions, or observe-terminal settlement + automatic plan completion in one outcome | One C; exact retry returns the original receipt; no second attempt |
 
 ### Captured H and coalescing
 
