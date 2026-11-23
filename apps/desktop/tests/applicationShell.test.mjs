@@ -10,6 +10,7 @@ if (process.versions.electron) {
   }));
   progress('importing Electron');
   const { app, BrowserWindow } = await import('electron');
+  app.on('window-all-closed', () => {});
   app.on('will-quit', () => progress('app will-quit'));
   app.on('quit', (_event, code) => progress(`app quit: ${code}`));
   process.on('exit', code => progress(`process exit: ${code}`));
@@ -67,6 +68,7 @@ if (process.versions.electron) {
         })),
       })`), null, 2));
     };
+    let exitCode = 0;
     try {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
@@ -2680,22 +2682,18 @@ if (process.versions.electron) {
       console.log('Fixed shell responsive destinations, resizing, zoom, and focus checks passed');
 
     } catch (error) {
+      exitCode = 1;
       console.error('Shell scenario failed:', error);
       progress('capturing failure');
       try { await captureReplay('failure'); } catch (captureError) { console.error('Replay capture failed:', captureError); }
-      throw error;
     } finally {
-      progress('destroying window');
-      win.destroy();
-      progress('requesting app quit');
-      app.quit();
+      progress(`exiting app: ${exitCode}`);
+      app.exit(exitCode);
     }
-    app.quit();
   }).catch(error => { console.error(error); app.exit(1); });
 } else {
   const { default: test } = await import('node:test');
-  const { spawnSync } = await import('node:child_process');
-  const { assertShellSubprocess } = await import('./fixtures/shellSubprocess.mjs');
+  const { assertShellSubprocess, runShellSubprocess } = await import('./fixtures/shellSubprocess.mjs');
   const { createRequire } = await import('node:module');
   const { mkdirSync, mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -2971,15 +2969,15 @@ if (process.versions.electron) {
       if (process.platform === 'linux') args.unshift('--no-sandbox');
       const headlessLinux = process.platform === 'linux' && !env.DISPLAY;
       if (headlessLinux) args.unshift('-a', electron);
-      const result = spawnSync(headlessLinux ? 'xvfb-run' : electron, args,
-        { env, encoding: 'utf8', timeout: 30000, windowsHide: true });
+      const result = await runShellSubprocess(headlessLinux ? 'xvfb-run' : electron, args,
+        { env, timeout: 30000, logDir: directory, windowsHide: true });
       if (replayArtifacts) {
         writeFileSync(join(replayArtifacts, 'subprocess.log'), [result.error?.stack, result.stdout, result.stderr].filter(Boolean).join('\n'));
         console.log('Replay artifacts:', replayArtifacts);
       }
       assertShellSubprocess(result);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
   });
 }
