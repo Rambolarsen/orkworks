@@ -557,6 +557,23 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.desktopAlerts.length'), 4, 'new workspace establishes a quiet baseline');
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
+      } else if (scenario === 'app-session-alert-resume-warning') {
+        const row = 'document.querySelector("[data-session-id=other]")';
+        const toast = 'document.querySelector(".toast button:not(.toast-dismiss)")';
+        await waitFor('document.querySelector("[data-session-id=created]")?.dataset.selected === "true"');
+        await evaluate('fixture.sessionList=fixture.sessionList.map(s=>s.id==="created"?{...s,lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]}:s); fixture.setAttention("other", "working")');
+        await waitFor('document.querySelector("[data-shell-resume]")?.textContent.includes("Latest in folder")');
+        await evaluate('document.querySelector("[data-shell-resume]").click()');
+        await waitFor('document.querySelector("[data-resume-warning]")?.open');
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor(`${row}?.textContent.includes("Needs you")`);
+        assert.equal(await evaluate(`!!${toast}`), false, 'the native warning defers the alert');
+        await evaluate('document.querySelector("[data-resume-warning] button").click()');
+        await waitFor(`${toast}?.textContent === "Open session"`);
+        await evaluate(`${toast}.click()`);
+        await waitFor(`${row}?.dataset.selected === "true"`);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'app-startup-composer') {
         await waitFor('!!fixture.releaseSessions');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=new-session]")'), false,
@@ -2787,7 +2804,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2885,7 +2902,7 @@ if (process.versions.electron) {
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${javascriptLiteral(scenario)}.startsWith('app-review')||${javascriptLiteral(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
             if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
-            if (${scenario === 'app-session-attention-alerts'}) {
+            if (${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}) {
               fixture.focused=true;
               Object.defineProperty(document, "visibilityState", {get:()=>"visible"});
               document.hasFocus=()=>fixture.focused;
@@ -2904,7 +2921,7 @@ if (process.versions.electron) {
             if(${javascriptLiteral(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
-              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review') || ${scenario === 'app-session-attention-alerts'}?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review') || ${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               openWorkspace:async()=>new Promise(resolve=>{fixture.cancelWorkspacePicker=resolve}),

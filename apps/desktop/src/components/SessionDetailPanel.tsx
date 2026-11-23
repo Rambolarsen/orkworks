@@ -41,6 +41,7 @@ interface SessionDetailPanelProps {
   harnesses: HarnessConfig[];
   resumingSessionIds?: ReadonlySet<string>;
   onResumeSession: (id: string, strategy?: import("../api").ResumeStrategy) => void;
+  onResumeWarningOpenChange?: (open: boolean) => void;
   onApplyDebugAttention: (id: string, attention: SessionAttention, message?: string) => void;
   onOpenSettings: () => void;
   onReviewPlan?: (kind?: PlanDocumentKind) => void;
@@ -52,7 +53,7 @@ interface SessionDetailPanelProps {
   onTitleUpdated?: () => void;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation, workspaceIdentity, onTitleUpdated }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onResumeWarningOpenChange, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation, workspaceIdentity, onTitleUpdated }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -247,7 +248,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
         onUseLatest={async (kind, selectionId) => { await window.orkworks.useLatestPlanDocument(active.id, kind, selectionId); onTitleUpdated?.(); }} />}
       {!showingActivity && actionZone.kind === "resume" && (
         <div className="detail-actions">
-          <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onSelect={option => onResumeSession(active.id, option.strategy)} />
+          <ResumeChooser key={active.id} pending={resumingSessionIds?.has(active.id)} options={actionZone.options} onWarningOpenChange={onResumeWarningOpenChange} onSelect={option => onResumeSession(active.id, option.strategy)} />
           {actionZone.note && <div className="detail-resume-note">{actionZone.note}</div>}
         </div>
       )}
