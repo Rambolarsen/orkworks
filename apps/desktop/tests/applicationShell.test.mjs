@@ -2851,11 +2851,11 @@ if (process.versions.electron) {
             fixture.hostile='<img data-inert-probe src=x onerror="window.modelScriptRan=true"> MODEL_DATA '+String.fromCharCode(96)+'pnpm test || true'+String.fromCharCode(96);
             fixture.accepted=[];
             fixture.recommendation={workspaceId:'/tmp/test',id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
-            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
-            window.orkworks.getImprovementStatus=async()=>({workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
-            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.requestTaskmasterAnalysis=async()=>({status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
-            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
+            window.orkworks.getAdviceReadinessStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
+            window.orkworks.getAdviceImprovementStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
+            window.orkworks.getAdviceRunStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.requestAdviceAnalysis=async()=>({protocolVersion:3,status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
+            window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>{fixture.accepted.push([id,options]);return {protocolVersion:3,...(fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId})}};
             const fetchBase=window.fetch;
             window.fetch=async(url,options)=>{
               const path=new URL(String(url)).pathname;
@@ -2868,12 +2868,12 @@ if (process.versions.electron) {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
             const snapshot={id:'readiness-one',startedAt:'2026-11-01T10:00:00Z',completedAt:'2026-11-01T10:01:00Z',redacted:false,data:{workspacePath:'/tmp/test',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Saved assessment',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Check evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}};
-            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:{id:'failed-readiness',state:'failed',phase:null,startedAt:'2026-11-02T10:00:00Z',completedAt:'2026-11-02T10:01:00Z',errorCode:'evidence_evidence_limit'},snapshots:[snapshot],freshness:'unknown',retentionLimit:100,reasonCode:null});
-            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.requestReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {outcome:'unavailable'}};
-            window.orkworks.requestReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {outcome:'unavailable'}};
-            window.orkworks.requestTaskmasterAssessment=async()=>{fixture.assessmentCalls.push('workflow');return {status:'unavailable'}};
-            window.orkworks.requestTaskmasterAnalysis=async()=>{fixture.assessmentCalls.push('discovery');return {status:'unavailable'}};
+            window.orkworks.getAdviceReadinessStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:{id:'failed-readiness',state:'failed',phase:null,startedAt:'2026-11-02T10:00:00Z',completedAt:'2026-11-02T10:01:00Z',errorCode:'evidence_evidence_limit'},snapshots:[snapshot],freshness:'unknown',retentionLimit:100,reasonCode:null});
+            window.orkworks.getAdviceRunStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.requestAdviceReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null}};
+            window.orkworks.requestAdviceReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null}};
+            window.orkworks.requestAdviceAssessment=async()=>{fixture.assessmentCalls.push('workflow');return {protocolVersion:3,status:'unavailable'}};
+            window.orkworks.requestAdviceAnalysis=async()=>{fixture.assessmentCalls.push('discovery');return {protocolVersion:3,status:'unavailable'}};
             window.fetch=async(url,init)=>{
               const path=new URL(String(url)).pathname;
               if(path==='/taskmaster/audit/recommendations')fixture.auditCalls++;
@@ -2883,7 +2883,7 @@ if (process.versions.electron) {
           }
           if (${javascriptLiteral(scenario)}==='recommendation-status-error') {
             fixture.statusReads=0;
-            window.orkworks.getTaskmasterRunStatus=async()=>{fixture.statusReads++;return {workspacePath:'/tmp/test',state:'idle'}};
+            window.orkworks.getAdviceRunStatus=async()=>{fixture.statusReads++;return {protocolVersion:3,workspacePath:'/tmp/test',state:'idle'}};
             window.fetch=async()=>({ok:false,status:500,json:async()=>({})});
           }
           if (${javascriptLiteral(scenario)}==='actions-sources') {
@@ -2898,24 +2898,23 @@ if (process.versions.electron) {
           if (${javascriptLiteral(scenario)}==='session-menu') {
             window.fetch=async url=>({ok:true,json:async()=>({entries:[{timestamp:'2026-10-31T10:00:00Z',summary:'Checkpoint '+new URL(url).pathname.split('/')[2],source:'agent_hook'}]})});
           }
-          // Synthetic IPC replies for the modern client. These adapters are fixture-only.
+          // Default synthetic advice IPC replies for scenarios that do not override them.
           const adviceReply=async value=>({...await value,protocolVersion:3});
-          const adviceAdmission=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
           const adviceFetch=async path=>{const response=await window.fetch('http://127.0.0.1:12345'+path);if(!response.ok)throw Error('Fixture request failed '+response.status);return adviceReply(response.json());};
-          window.orkworks.getAdviceRecommendations=async()=>adviceFetch('/taskmaster/recommendations');
-          window.orkworks.getAdviceRecommendation=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
-          window.orkworks.runAdviceAudit=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
-          window.orkworks.getAdviceReadinessStatus=async()=>adviceReply(window.orkworks.getReadinessStatus?.()??{workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
-          window.orkworks.getAdviceImprovementStatus=async()=>adviceReply(window.orkworks.getImprovementStatus?.()??{workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
-          window.orkworks.getAdviceRunStatus=async()=>adviceReply(window.orkworks.getTaskmasterRunStatus?.()??{workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
-          window.orkworks.requestAdviceImprovement=async()=>adviceAdmission(window.orkworks.requestImprovement());
-          window.orkworks.cancelAdviceImprovement=async(_workspace,id)=>adviceAdmission(window.orkworks.cancelImprovement(id));
-          window.orkworks.requestAdviceReadinessAssessment=async()=>adviceAdmission(window.orkworks.requestReadinessAssessment());
-          window.orkworks.requestAdviceReadinessSuggestion=async()=>adviceAdmission(window.orkworks.requestReadinessSuggestion());
-          window.orkworks.requestAdviceAssessment=async()=>adviceReply(window.orkworks.requestTaskmasterAssessment());
-          window.orkworks.requestAdviceAnalysis=async()=>adviceReply(window.orkworks.requestTaskmasterAnalysis());
-          window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>adviceReply(window.orkworks.acceptTaskmasterRecommendation(id,options));
-          window.orkworks.dismissAdviceRecommendation=async(_workspace,id,reason)=>adviceReply(window.orkworks.dismissTaskmasterRecommendation(id,reason));
+          window.orkworks.getAdviceRecommendations??=async()=>adviceFetch('/taskmaster/recommendations');
+          window.orkworks.getAdviceRecommendation??=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
+          window.orkworks.runAdviceAudit??=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
+          window.orkworks.getAdviceReadinessStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
+          window.orkworks.getAdviceImprovementStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
+          window.orkworks.getAdviceRunStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
+          window.orkworks.requestAdviceImprovement??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:'not_qualified'});
+          window.orkworks.cancelAdviceImprovement??=async(_workspace,id)=>({protocolVersion:3,outcome:'not_running',runId:id,reasonCode:null});
+          window.orkworks.requestAdviceReadinessAssessment??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null});
+          window.orkworks.requestAdviceReadinessSuggestion??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null});
+          window.orkworks.requestAdviceAssessment??=async()=>({protocolVersion:3,status:'unavailable'});
+          window.orkworks.requestAdviceAnalysis??=async()=>({protocolVersion:3,status:'unavailable',recoveryAllowed:false});
+          window.orkworks.acceptAdviceRecommendation??=async()=>({protocolVersion:3});
+          window.orkworks.dismissAdviceRecommendation??=async()=>({protocolVersion:3});
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {

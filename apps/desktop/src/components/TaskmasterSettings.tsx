@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import InferenceTrustSettings from "./InferenceTrustSettings";
+import { getAdviceRunStatus } from "../adviceApi";
 import { editTaskmasterScope, formatTaskmasterRunStatus, supportsTaskmasterAnalysis, type AnalysisContext, type TaskmasterModelOption, type TaskmasterRunStatus, type TaskmasterSettings as Settings, type TaskmasterSettingsStatus } from "../taskmasterSettings";
 
 export default function TaskmasterSettings({ currentWorkspacePath }: { currentWorkspacePath: string | null }) {
@@ -33,7 +34,7 @@ export default function TaskmasterSettings({ currentWorkspacePath }: { currentWo
     if (!currentWorkspacePath) return () => { disposed = true; };
     const refreshStatus = () => {
       const request = ++requestGeneration;
-      void window.orkworks.getTaskmasterRunStatus().then((value) => {
+      void getAdviceRunStatus(currentWorkspacePath).then((value) => {
         if (disposed || request !== requestGeneration) return;
         if (value.workspacePath !== currentWorkspacePath) return;
         runStatusWorkspace.current = value.workspacePath;

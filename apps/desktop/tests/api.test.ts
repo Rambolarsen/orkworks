@@ -9,14 +9,14 @@ import {
   deleteHarness,
   dismissTaskmasterRecommendation,
   duplicateHarness,
+  getAdviceRecommendation,
+  getAdviceRecommendations,
   sessionAction,
   resumeSession,
   getSessionWorkflowObservations,
-  getTaskmasterRecommendations,
-  getTaskmasterRecommendation,
   listHarnesses,
   removeHarnessProfile,
-  runTaskmasterAudit,
+  runAdviceAudit,
   saveHarnessConfiguration,
 } from "../src/api.ts";
 
@@ -526,31 +526,29 @@ test("harness contracts keep the renderer, preload, and Electron-main boundaries
   assert.doesNotMatch(rendererApi, /from ["']\.\.\/electron\//);
 });
 
-test("Taskmaster API reads recommendations directly and routes mutations through the bridge", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  let dismissed: { id: string; reason?: string } | undefined;
-  globalThis.fetch = (url: string | URL | Request, _init?: RequestInit) => {
-    requestUrl = String(url);
-    return Promise.resolve(new Response(JSON.stringify({ recommendations: [], diagnostics: [] }), { status: 200 }));
-  };
+test("Taskmaster API routes recommendation reads and mutations through the advice bridge", async () => {
+  let listed: unknown[] | undefined;
+  let dismissed: unknown[] | undefined;
   const origWindow = (globalThis as unknown as { window?: unknown }).window;
   (globalThis as unknown as { window: unknown }).window = {
     orkworks: {
-      dismissTaskmasterRecommendation: (id: string, reason?: string) => {
-        dismissed = { id, reason };
-        return Promise.resolve();
+      getAdviceRecommendations: (...args: unknown[]) => {
+        listed = args;
+        return Promise.resolve({ protocolVersion: 3, recommendations: [], diagnostics: [] });
+      },
+      dismissAdviceRecommendation: (...args: unknown[]) => {
+        dismissed = args;
+        return Promise.resolve({ protocolVersion: 3 });
       },
     },
   };
   try {
-    const response = await getTaskmasterRecommendations("http://localhost:0");
-    assert.deepEqual(response, { recommendations: [], diagnostics: [] });
-    await dismissTaskmasterRecommendation("rec/with spaces");
-    assert.deepEqual(dismissed, { id: "rec/with spaces", reason: undefined });
-    assert.equal(requestUrl, "http://localhost:0/taskmaster/recommendations");
+    const response = await getAdviceRecommendations("http://localhost:0", "/repo");
+    assert.deepEqual(response, { protocolVersion: 3, recommendations: [], diagnostics: [] });
+    await dismissTaskmasterRecommendation("rec/with spaces", undefined, "/repo");
+    assert.deepEqual(dismissed, ["/repo", "rec/with spaces", undefined]);
+    assert.deepEqual(listed, ["/repo", "http://localhost:0"]);
   } finally {
-    globalThis.fetch = origFetch;
     if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
     else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
@@ -566,36 +564,41 @@ test("Taskmaster recommendation types include rollup lifecycle and evidence fiel
   assert.match(source, /rolledUpBy: string \| null/);
 });
 
-test("Taskmaster detail fetch encodes hidden recommendation ids", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  globalThis.fetch = (url: string | URL | Request) => {
-    requestUrl = String(url);
-    return Promise.resolve(new Response(JSON.stringify({ id: "rollup:member" }), { status: 200 }));
+test("Taskmaster detail fetch forwards workspace, backend URL, and id through the advice bridge", async () => {
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let received: unknown[] | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      getAdviceRecommendation: (...args: unknown[]) => {
+        received = args;
+        return Promise.resolve({ protocolVersion: 3, id: "rollup:member/1", workspaceId: "/repo" });
+      },
+    },
   };
   try {
-    const response = await getTaskmasterRecommendation("http://localhost:0", "rollup:member/1");
-    assert.equal(response.id, "rollup:member");
-    assert.match(requestUrl, /rollup%3Amember%2F1$/);
+    const response = await getAdviceRecommendation("http://localhost:0", "rollup:member/1", "/repo");
+    assert.equal(response.id, "rollup:member/1");
+    assert.deepEqual(received, ["/repo", "http://localhost:0", "rollup:member/1"]);
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
 test("Taskmaster dismissal sends an optional reason and accepts a successful response", async () => {
   const origWindow = (globalThis as unknown as { window?: unknown }).window;
-  let dismissed: { id: string; reason?: string } | undefined;
+  let dismissed: unknown[] | undefined;
   (globalThis as unknown as { window: unknown }).window = {
     orkworks: {
-      dismissTaskmasterRecommendation: (id: string, reason?: string) => {
-        dismissed = { id, reason };
-        return Promise.resolve();
+      dismissAdviceRecommendation: (...args: unknown[]) => {
+        dismissed = args;
+        return Promise.resolve({ protocolVersion: 3 });
       },
     },
   };
   try {
-    await dismissTaskmasterRecommendation("rec-1", "Not actionable");
-    assert.deepEqual(dismissed, { id: "rec-1", reason: "Not actionable" });
+    await dismissTaskmasterRecommendation("rec-1", "Not actionable", "/repo");
+    assert.deepEqual(dismissed, ["/repo", "rec-1", "Not actionable"]);
   } finally {
     if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
     else (globalThis as unknown as { window: unknown }).window = origWindow;
@@ -604,12 +607,12 @@ test("Taskmaster dismissal sends an optional reason and accepts a successful res
 
 test("Taskmaster accept sends the session id and prompt and returns the updated recommendation", async () => {
   const origWindow = (globalThis as unknown as { window?: unknown }).window;
-  let accepted: { id: string; options: { sessionId: string; prompt?: string } } | undefined;
+  let accepted: unknown[] | undefined;
   (globalThis as unknown as { window: unknown }).window = {
     orkworks: {
-      acceptTaskmasterRecommendation: (id: string, options: { sessionId: string; prompt?: string }) => {
-        accepted = { id, options };
-        return Promise.resolve({ id: "rec-1", status: "accepted", targetSessionId: "session-active" });
+      acceptAdviceRecommendation: (...args: unknown[]) => {
+        accepted = args;
+        return Promise.resolve({ protocolVersion: 3, id: "rec-1", status: "accepted", targetSessionId: "session-active" });
       },
     },
   };
@@ -617,11 +620,12 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
     const result = await acceptTaskmasterRecommendation("rec/with spaces", {
       sessionId: "session-active",
       prompt: "Implement the fix",
-    });
-    assert.deepEqual(accepted, {
-      id: "rec/with spaces",
-      options: { sessionId: "session-active", prompt: "Implement the fix" },
-    });
+    }, "/repo");
+    assert.deepEqual(accepted, [
+      "/repo",
+      "rec/with spaces",
+      { sessionId: "session-active", prompt: "Implement the fix" },
+    ]);
     assert.equal((result as { targetSessionId: string }).targetSessionId, "session-active");
   } finally {
     if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
@@ -631,12 +635,13 @@ test("Taskmaster accept sends the session id and prompt and returns the updated 
 
 test("Cleanup accept posts through the same bridge without a session id", async () => {
   const origWindow = (globalThis as unknown as { window?: unknown }).window;
-  let accepted: { id: string; options: Record<string, unknown> } | undefined;
+  let accepted: unknown[] | undefined;
   (globalThis as unknown as { window: unknown }).window = {
     orkworks: {
-      acceptTaskmasterRecommendation: (id: string, options: Record<string, unknown>) => {
-        accepted = { id, options };
+      acceptAdviceRecommendation: (...args: unknown[]) => {
+        accepted = args;
         return Promise.resolve({
+          protocolVersion: 3,
           recommendation: { id: "cleanup-card", status: "completed" },
           skipped: [],
         });
@@ -644,9 +649,10 @@ test("Cleanup accept posts through the same bridge without a session id", async 
     },
   };
   try {
-    const result = await acceptCleanupRecommendation("cleanup-card");
-    assert.deepEqual(accepted, { id: "cleanup-card", options: {} });
+    const result = await acceptCleanupRecommendation("cleanup-card", "/repo");
+    assert.deepEqual(accepted, ["/repo", "cleanup-card", {}]);
     assert.deepEqual(result, {
+      protocolVersion: 3,
       recommendation: { id: "cleanup-card", status: "completed" },
       skipped: [],
     });
@@ -656,54 +662,67 @@ test("Cleanup accept posts through the same bridge without a session id", async 
   }
 });
 
-test("Taskmaster audit posts to the cleanup audit route and may return no card", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  let requestMethod: string | undefined;
-  globalThis.fetch = (url: string | URL | Request, init?: RequestInit) => {
-    requestUrl = String(url);
-    requestMethod = init?.method;
-    return Promise.resolve(new Response(JSON.stringify({ recommendation: null }), { status: 200 }));
+test("Taskmaster audit posts through the advice bridge and may return no card", async () => {
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let received: unknown[] | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      runAdviceAudit: (...args: unknown[]) => {
+        received = args;
+        return Promise.resolve({ protocolVersion: 3, recommendation: null });
+      },
+    },
   };
   try {
-    const response = await runTaskmasterAudit("http://localhost:0");
+    const response = await runAdviceAudit("http://localhost:0", "/repo");
     assert.equal(response.recommendation, null);
-    assert.equal(requestUrl, "http://localhost:0/taskmaster/audit/recommendations");
-    assert.equal(requestMethod, "POST");
+    assert.deepEqual(received, ["/repo", "http://localhost:0"]);
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
 test("Taskmaster audit returns the proposed cleanup card", async () => {
-  const origFetch = globalThis.fetch;
-  let requestUrl = "";
-  globalThis.fetch = (url: string | URL | Request) => {
-    requestUrl = String(url);
-    return Promise.resolve(new Response(JSON.stringify({
-      recommendation: { id: "cleanup-card", type: "cleanup", status: "proposed" },
-    }), { status: 200 }));
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  let received: unknown[] | undefined;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      runAdviceAudit: (...args: unknown[]) => {
+        received = args;
+        return Promise.resolve({
+          protocolVersion: 3,
+          recommendation: { id: "cleanup-card", type: "cleanup", status: "proposed", workspaceId: "/repo" },
+        });
+      },
+    },
   };
   try {
-    const response = await runTaskmasterAudit("http://localhost:0");
+    const response = await runAdviceAudit("http://localhost:0", "/repo");
     assert.equal(response.recommendation?.id, "cleanup-card");
     assert.equal(response.recommendation?.type, "cleanup");
-    assert.equal(requestUrl, "http://localhost:0/taskmaster/audit/recommendations");
+    assert.deepEqual(received, ["/repo", "http://localhost:0"]);
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
 test("Taskmaster audit failures surface as API errors with the status", async () => {
-  const origFetch = globalThis.fetch;
-  globalThis.fetch = () => Promise.resolve(new Response("{}", { status: 503 }));
+  const origWindow = (globalThis as unknown as { window?: unknown }).window;
+  (globalThis as unknown as { window: unknown }).window = {
+    orkworks: {
+      runAdviceAudit: () => Promise.resolve({ protocolVersion: 3, requestError: { status: 503 } }),
+    },
+  };
   try {
     await assert.rejects(
-      runTaskmasterAudit("http://localhost:0"),
+      runAdviceAudit("http://localhost:0", "/repo"),
       (cause: unknown) => cause instanceof Error && /503/.test(cause.message),
     );
   } finally {
-    globalThis.fetch = origFetch;
+    if (origWindow === undefined) delete (globalThis as unknown as { window?: unknown }).window;
+    else (globalThis as unknown as { window: unknown }).window = origWindow;
   }
 });
 
