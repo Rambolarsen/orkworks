@@ -17,6 +17,7 @@ export interface AppSettings {
   [key: string]: unknown;
   version: 1;
   apmExecutablePath?: string | null;
+  desktopSessionNotifications?: boolean;
   hotkeys: HotkeySettings;
   retention: RetentionSettings;
   debug: DebugSettings;
@@ -233,9 +234,10 @@ function normalizeSettingsWithDefinitions(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return defaultSettings();
   }
-  const parsed = value as Record<string, unknown>;
+  const { desktopSessionNotifications, ...parsed } = value as Record<string, unknown>;
   return {
     ...parsed,
+    ...(desktopSessionNotifications === true ? { desktopSessionNotifications: true } : {}),
     version: 1,
     apmExecutablePath: typeof parsed.apmExecutablePath === "string" && parsed.apmExecutablePath.length <= 4096 && !/[\x00-\x1f]/.test(parsed.apmExecutablePath) && isAbsolute(parsed.apmExecutablePath) ? parsed.apmExecutablePath : null,
     hotkeys: normalizeHotkeys(parsed.hotkeys),

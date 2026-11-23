@@ -22,6 +22,7 @@ import { useActionsRecommendations } from "../useActionsRecommendations";
 import RegionSeparator from "./RegionSeparator";
 import { disposeAllTerminals } from "../terminalStore";
 import { useCompactPopover } from "../useCompactPopover";
+import { useSessionAttentionAlerts } from "../useSessionAttentionAlerts";
 
 export type ShellDestination = "changes" | "details" | "recommendations" | "skills" | "actions";
 export type ShellCommand = "sessions" | "terminal" | "new-session" | "cancel-new-session" | "reset-layout" | "review" | "next-action" | ShellDestination;
@@ -50,6 +51,8 @@ interface Props {
   debugSettings: DebugSettings;
   sessions: SessionInfo[];
   sessionsSourceStatus?: ActionsSourceStatus;
+  desktopSessionNotifications?: boolean;
+  alertNavigationBlocked?: boolean;
   activeSessionId: string | null;
   visibleSubjectId: string | null;
   canFixWithAi: boolean;
@@ -258,6 +261,17 @@ export default function ApplicationShell(props: Props) {
   };
   const commandRef = useRef(runCommand);
   commandRef.current = runCommand;
+  useSessionAttentionAlerts({
+    scope: sourcesReady && props.sessionsSourceStatus === "ready" ? actionsScope : null,
+    sessions: props.sessions,
+    visibleSessionId: showTerminal ? props.activeSessionId : null,
+    dialogOpen: props.alertNavigationBlocked === true,
+    desktopEnabled: props.desktopSessionNotifications === true,
+    openSession: (id) => {
+      selectSession(id);
+      commandRef.current("terminal");
+    },
+  });
   useEffect(() => {
     if (props.commandRequest) commandRef.current(props.commandRequest.command, props.commandRequest.reveal);
   }, [props.commandRequest]);

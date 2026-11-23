@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { dismissToast, subscribeToasts, type Toast } from "../feedback";
+import Button from "./Button";
 
 export default function ToastRack() {
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
@@ -13,6 +14,10 @@ export default function ToastRack() {
       {toasts.map((t) => (
         <div key={t.id} className="toast" data-tone={t.tone}>
           <span className="toast-message">{t.message}</span>
+          {t.action && <Button variant="ghost" size="sm" onClick={() => {
+            dismissToast(t.id);
+            t.action?.run();
+          }}>{t.action.label}</Button>}
           <button
             type="button"
             className="toast-dismiss"

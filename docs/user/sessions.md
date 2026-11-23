@@ -183,6 +183,18 @@ existing recommendation controls. Close Actions to return to the previous
 central view. Changed or missing items require a new inspection before their
 details become current. Published installers may not include this overview yet.
 
+## Get alerted when a session needs you
+
+In current source builds, a new **Needs You** wait shows an **Open session**
+toast when you are elsewhere in OrkWorks. In **Settings → Notifications**, turn
+on **Desktop session alerts** to get an operating-system notification while
+OrkWorks is in the background. Select the notification to return to the session.
+Desktop alerts use a generic message.
+
+Alerts wait until an open dialog closes. Check **Actions** for waits that were
+already present when you opened the workspace or that are still pending after
+an alert disappears.
+
 ## Saved shell layout
 
 Current source builds use a fixed arrangement of Sessions, Terminal and an

@@ -91,6 +91,10 @@ function App() {
   const [isSwitchingWorkspace, setIsSwitchingWorkspace] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const saveDesktopSessionNotifications = useCallback(async (enabled: boolean) => {
+    await window.orkworks.saveDesktopSessionNotifications(enabled);
+    setSettings(current => current && { ...current, desktopSessionNotifications: enabled });
+  }, []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("tools");
   const [updateState, setUpdateState] = useState<{
     status: UpdateStatus | null;
@@ -611,7 +615,12 @@ function App() {
     }
   }, [workspaceSessionController, requestShellCommand, cancelNewSession, saveNavigation]);
 
-  const [fixRecommendation, setFixRecommendation] = useState<WorkflowRecommendation | null>(null);
+  const [fixRequest, setFixRequest] = useState<{
+    recommendation: WorkflowRecommendation;
+    sessionId: string;
+    generation: number;
+  } | null>(null);
+  const fixRecommendation = fixRequest?.recommendation ?? null;
 
   const handleSelectSession = useCallback((id: string) => {
     ++navigationIntent.current;
@@ -635,7 +644,7 @@ function App() {
       pushToast("error", "This recommendation uses an unsupported handoff.");
       return;
     }
-    setFixRecommendation(recommendation);
+    setFixRequest({ recommendation, sessionId: activeSession.id, generation: workspaceLifecycleRef.current.generation });
   }, [activeSessionId, sessions, workspaceSessionController]);
 
   const handleRunCleanup = useCallback(async (recommendation: WorkflowRecommendation) => {
@@ -657,15 +666,14 @@ function App() {
   }, []);
 
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
-    const recommendation = fixRecommendation;
-    setFixRecommendation(null);
-    const activeSession = activeSessionId
-      ? sessions.find((session) => session.id === activeSessionId)
-      : undefined;
-    if (!recommendation || !activeSessionId) {
-      pushToast("error", "Couldn't send the fix — no session is active.");
+    setFixRequest(null);
+    if (!fixRequest || fixRequest.sessionId !== activeSessionId
+        || fixRequest.generation !== workspaceLifecycleRef.current.generation) {
+      pushToast("error", "The session for this fix changed. Reopen the fix to continue.");
       return;
     }
+    const { recommendation, sessionId } = fixRequest;
+    const activeSession = sessions.find((session) => session.id === sessionId);
     if (!isSessionAlive(activeSession) || !workspaceSessionController.isAdmissionEnabled()) {
       pushToast("error", "Couldn't send the fix — no session is active.");
       return;
@@ -675,10 +683,10 @@ function App() {
     const isCurrentHandoff = () => workspaceSessionController.isAdmissionCurrent(admissionToken ?? -1)
       && workspaceLifecycleRef.current.generation === lifecycleGeneration;
     try {
-      if (!await workspaceSessionController.submitActiveSession(activeSessionId, admissionToken)) return;
+      if (!await workspaceSessionController.submitActiveSession(sessionId, admissionToken)) return;
       if (!isCurrentHandoff()) return;
       const acceptedRecommendation = await acceptTaskmasterRecommendation(recommendation.id,
-        buildRecommendationAcceptOptions(recommendation, activeSessionId, prompt), recommendation.workspaceId);
+        buildRecommendationAcceptOptions(recommendation, sessionId, prompt), recommendation.workspaceId);
       if (!isCurrentHandoff()) return;
       handleAcceptedFixWithAi(
         acceptedRecommendation,
@@ -689,7 +697,7 @@ function App() {
     } catch {
       pushToast("error", "Couldn't send the fix to the session.");
     }
-  }, [fixRecommendation, activeSessionId, sessions, workspaceSessionController, handleSelectSession]);
+  }, [fixRequest, activeSessionId, sessions, workspaceSessionController, handleSelectSession]);
 
   // Unread ("changed since you looked") is derived by diffing attention
   // status between session snapshots; selecting a session marks it read.
@@ -936,6 +944,8 @@ function App() {
         debugSettings={settings?.debug ?? { showSessionIds: false, rendererHealthLogMs: 0 }}
         sessions={sessions}
         sessionsSourceStatus={sessionsSourceStatus}
+        desktopSessionNotifications={settings?.desktopSessionNotifications}
+        alertNavigationBlocked={settingsOpen || fixRequest !== null || noProvidersPrompt}
         activeSessionId={activeSessionId}
         preferences={shellPreferences}
         onPreferencesChange={changeShellPreferences}
@@ -1019,7 +1029,7 @@ function App() {
           confirmLabel={fixRecommendation.assessment?.improvementReference?.intent === "investigation" ? "Start investigation" : "Send to session"}
           unverifiedAdvice={isUnverifiedAdvice(fixRecommendation)}
           onConfirm={handleConfirmFixWithAi}
-          onCancel={() => setFixRecommendation(null)}
+          onCancel={() => setFixRequest(null)}
         />
       )}
       {settingsOpen && settings && (
@@ -1039,8 +1049,9 @@ function App() {
           providerRuntime={providerRuntime}
           onSectionChange={setSettingsSection}
           onClose={() => setSettingsOpen(false)}
-          onSaved={(nextSettings) => setSettings(nextSettings)}
+          onSaved={(nextSettings) => setSettings(current => ({ ...nextSettings, desktopSessionNotifications: current?.desktopSessionNotifications }))}
           onSaveActiveHarnesses={handleSaveActiveHarnesses}
+          onSaveDesktopSessionNotifications={saveDesktopSessionNotifications}
         />
       )}
       {noProvidersPrompt && (
