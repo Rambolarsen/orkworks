@@ -114,6 +114,7 @@ ownership, not new recipes.
 | research_clarification_requests / {run,questionId,questionVersion} | research clarification owner | F: request → run/bootstrap, containing manifest, byte-equal question, producer. R: from answers, pending bindings, input manifests |
 | research_clarification_answers / {run,questionId,questionVersion,answerId} | research clarification owner | F: answer → request, shown context, origin binding, new input revision. R: from clarification-answer input records, requests |
 | research_execution_plan_approvals / {plan,approvalId} | execution source validation | F: approval → proposal, shown context, grant-binding facts, receipt. R: from approvals family, plan controls |
+| research_preparation_authorizations / full canonical P | preparation authorization owner | F: authorization → the full canonical frozen identity P, original preparation provenance and body/proof joins. R: from the identity's ordinary member resolution; unique permit identity across both child and research authorization families |
 | report_heads / exact Stream | report publication owner | F: head → report ObjectRef through the stream, history/receipt prefix. R: from expectations, evidence sources |
 | report_receipts / {stream,reportVersion} | report publication owner | F: receipt → report, normalized request/closed response binding. R: from heads, history |
 
@@ -139,7 +140,7 @@ assigns discovery-side ownership of each invalidation edge:
 | --- | --- |
 | Research report accepted/corrected (new head) | Report publication owner → expectation selection, new prepared-input revision, current-input pointer, stale summaries (source-run detail snapshots), stale pending proposals, stale reviews (currency through the corrected selection) |
 | Clarification answer accepted | Clarification owner → new input revision (copied decision), cleared pending binding, recognized pending proposals, current summary |
-| Fresh parent assessment published | Input/control owner → stale copied assessments (never promoted), proposals bound to superseded inputs |
+| Fresh parent assessment published | Input/control owner → stale copied assessments (never promoted), proposals bound to superseded inputs, and the current summary whose exact input binding the new revision supersedes (cleared under the selector's existing owner, immutable bytes retained) |
 | Plan completion | Control owner → launch grant revocation, obsolete current summary clear, pending-proposal invalidation |
 | Stage cancellation | Control owner → grant revocation, pending-proposal invalidation, retained gates (clarification/proposal mutations fenced) |
 | Finish/cancel-run | Control owner → all run/child-report/grant authority, recognized pending proposals, collection/expectation retirement |
