@@ -138,6 +138,13 @@ A reader that cannot address a registered empty family reports unavailable;
 absence of rows is never absence of the family. A manifest omitting any
 enumerated name — family or object kind — is incomplete and denies.
 
+**Root subject rows at admission.** The accepted fresh-owner resource recipe
+makes the root itself an assignment owner: root admission therefore also
+creates the root's five assignment resource rows (all zero, reserved zero,
+original proof) and the root's initial `summary_state` (subjectRevision 1,
+accepted branches). A later child attachment creates **its own** assignment
+rows under the child's identity — it can never inherit or reuse the root's.
+
 ### Outcome 3 — attachment preparation (created at the unique attachment, per ChildAssignmentIdentity)
 
 | Created row | Owner contract | Initial value |
