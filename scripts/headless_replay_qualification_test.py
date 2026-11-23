@@ -251,6 +251,7 @@ class RealQualification(unittest.TestCase):
                 on_error=interrupt_process if kind == 'interrupt' else None,
             ))
         watcher = None
+        cancelled = None
         previous = signal.getsignal(signal.SIGTERM)
         def interrupted(_signal, _frame):
             raise replay.Cancelled('interrupted')
@@ -263,6 +264,8 @@ class RealQualification(unittest.TestCase):
             budgets['run'] = 8 if kind == 'timeout' else 90
             with patch.object(replay, 'prepare_context', context):
                 code, directory = replay.run(ENGINE, ROOT, self.output, budgets)
+        except replay.Cancelled as error:
+            cancelled = error
         finally:
             done.set()
             if watcher:
@@ -276,6 +279,8 @@ class RealQualification(unittest.TestCase):
             )
         if observer_state.get('error') is not None:
             raise observer_state['error']
+        if cancelled is not None:
+            raise cancelled
         self.assertNotEqual(code, 0)
         receipt = self.assert_removed(directory)
         if kind == 'assertion':
