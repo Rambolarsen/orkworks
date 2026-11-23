@@ -667,7 +667,11 @@ function App() {
 
   const handleConfirmFixWithAi = useCallback(async (prompt: string) => {
     setFixRequest(null);
-    if (!fixRequest || fixRequest.sessionId !== activeSessionId
+    if (!fixRequest || !activeSessionId) {
+      pushToast("error", "Couldn't send the fix — no session is active.");
+      return;
+    }
+    if (fixRequest.sessionId !== activeSessionId
         || fixRequest.generation !== workspaceLifecycleRef.current.generation) {
       pushToast("error", "The session for this fix changed. Reopen the fix to continue.");
       return;

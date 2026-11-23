@@ -535,11 +535,11 @@ test("packet-backed Fix with AI binds acceptance to revision and fingerprint wit
 test("Fix with AI surfaces an error instead of silently closing when no session is active", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
   const handlerIndex = app.indexOf("const handleConfirmFixWithAi");
-  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRecommendation", handlerIndex));
+  const handlerBlock = app.slice(handlerIndex, app.indexOf("}, [fixRequest", handlerIndex));
 
-  assert.match(handlerBlock, /if \(!recommendation \|\| !activeSessionId\) \{/);
-  const guardBlock = handlerBlock.slice(handlerBlock.indexOf("if (!recommendation"));
-  assert.match(guardBlock.slice(0, guardBlock.indexOf("return;") + "return;".length), /pushToast\("error"/);
+  assert.match(handlerBlock, /if \(!fixRequest \|\| !activeSessionId\) \{/);
+  const guardBlock = handlerBlock.slice(handlerBlock.indexOf("if (!fixRequest"));
+  assert.match(guardBlock.slice(0, guardBlock.indexOf("return;") + "return;".length), /pushToast\("error", "Couldn't send the fix — no session is active\."\)/);
 });
 
 test("Fix with AI is gated on the active session actually being alive, not merely selected", () => {
