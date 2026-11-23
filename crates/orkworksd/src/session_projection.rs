@@ -154,6 +154,7 @@ pub(crate) struct StreamProjection {
 
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
+    live_ids: HashSet<String>,
     plans: HashMap<String, Option<metadata::PlanReference>>,
 }
 
@@ -217,7 +218,15 @@ impl LocationInputs {
     // Caller holds the projection fence; this captures state and durable
     // metadata without resolving Git, process CWD or filesystem paths.
     pub(crate) fn capture(state: &AppState, id: &str) -> Option<Self> {
-        let info = crate::session_location::subject_info(state, id).ok()?;
+        Self::capture_with_remembered(state, id, None)
+    }
+
+    fn capture_with_remembered(
+        state: &AppState,
+        id: &str,
+        remembered: Option<&SessionInfo>,
+    ) -> Option<Self> {
+        let info = crate::session_location::subject_info(state, id, remembered).ok()?;
         let runtime = state
             .sessions
             .lock()
@@ -481,7 +490,11 @@ impl SessionProjection {
             ));
         }
 
-        Ok(ProjectionSnapshot { infos, plans })
+        Ok(ProjectionSnapshot {
+            infos,
+            live_ids,
+            plans,
+        })
     }
 
     pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
@@ -546,9 +559,12 @@ impl SessionProjection {
         }
         // Capture metadata only under the input fence. Even legacy plan
         // availability can inspect Git and belongs outside that fence.
-        let snapshot = self.snapshot_with_plan_resolver(&mut |_, _| Err("not inspected".into()))?;
-        let plans = snapshot.plans.clone();
-        let mut infos = self.project_capacity(snapshot, &prepared)?;
+        let ProjectionSnapshot {
+            infos,
+            live_ids,
+            plans,
+        } = self.snapshot_with_plan_resolver(&mut |_, _| Err("not inspected".into()))?;
+        let mut infos = self.project_capacity(infos, &prepared)?;
         self.project_organization(&mut infos);
         let documents = self
             .state
@@ -560,9 +576,12 @@ impl SessionProjection {
         let captured: HashMap<_, _> = infos
             .iter()
             .map(|info| {
+                // Remembered rows already carry the location from the metadata
+                // snapshot. Fresh reads still validate it before publication.
+                let remembered = (!live_ids.contains(&info.id)).then_some(info);
                 (
                     info.id.clone(),
-                    LocationInputs::capture(&self.state, &info.id),
+                    LocationInputs::capture_with_remembered(&self.state, &info.id, remembered),
                 )
             })
             .collect();
@@ -947,7 +966,7 @@ impl SessionProjection {
 
     fn project_capacity(
         &self,
-        snapshot: ProjectionSnapshot,
+        projected_infos: Vec<SessionInfo>,
         prepared: &HashMap<String, PreparedCapacity>,
     ) -> io::Result<Vec<SessionInfo>> {
         let registry = self
@@ -956,7 +975,6 @@ impl SessionProjection {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let projected_infos = snapshot.infos;
         // Only immutable references were retained for compute. No text is
         // normalized or copied here, and the input gate is never awaited.
         let mut sessions = self.state.sessions.lock().unwrap();
@@ -1473,6 +1491,50 @@ mod tests {
             },
         );
         (dir, state, receiver)
+    }
+
+    #[tokio::test]
+    async fn status_projection_reuses_remembered_location_without_rereading() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "remembered-location";
+        let mut metadata = test_session_metadata(
+            id,
+            "Remembered",
+            dir.path().to_str().unwrap(),
+            "ended",
+            "2026-11-19T10:00:00Z",
+            "2026-11-19T10:00:00Z",
+        );
+        git2::Repository::init(dir.path()).unwrap();
+        metadata.cwd = dir.path().to_str().unwrap().into();
+        metadata.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(&metadata.cwd, &metadata.cwd)
+                .unwrap(),
+        );
+        let path = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            store.sessions_dir().join(format!("{id}.json"))
+        };
+        let mut reread = crate::metadata::session_reader::testing::hold_nth_read(&path, 1);
+        let projection_state = state.clone();
+        let mut projection = tokio::task::spawn_blocking(move || {
+            SessionProjection::new(projection_state).stream_projection(false)
+        });
+        let result = tokio::select! {
+            _ = reread.entered() => None,
+            result = &mut projection => Some(result.unwrap().unwrap()),
+        };
+        drop(reread);
+        let Some(result) = result else {
+            projection.await.unwrap().unwrap();
+            panic!("status refresh reread the remembered session for its location");
+        };
+        let fresh = super::LocationInputs::capture(&state, id);
+        assert!(fresh.is_some());
+        assert_eq!(result.locations.get(id), Some(&fresh));
     }
 
     #[test]

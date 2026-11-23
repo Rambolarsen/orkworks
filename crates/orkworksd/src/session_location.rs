@@ -81,16 +81,17 @@ pub(crate) fn subject(
     state: &crate::AppState,
     id: &str,
 ) -> Result<(PathBuf, crate::session_location::GitLocationSource), String> {
-    let info = subject_info(state, id)?;
+    let info = subject_info(state, id, None)?;
     let (cwd, source) = effective_directory(state, &info)?;
     git_changes_root(&cwd).map(|root| (root, source))
 }
 
 /// Capture current session location inputs without opening its repository.
-/// Projection callers can coalesce Git inspection after releasing these locks.
+/// The initial projection may supply its remembered row for this session ID.
 pub(crate) fn subject_info(
     state: &crate::AppState,
     id: &str,
+    remembered: Option<&crate::session_types::SessionInfo>,
 ) -> Result<crate::session_types::SessionInfo, String> {
     if id.is_empty()
         || id.len() > 256
@@ -106,6 +107,7 @@ pub(crate) fn subject_info(
         let live = state.sessions.lock().unwrap();
         live.get(id)
             .map(|h| h.info.clone())
+            .or_else(|| remembered.cloned())
             .or_else(|| {
                 ws.metadata
                     .read_session(id)
