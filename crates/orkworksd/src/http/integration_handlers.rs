@@ -599,4 +599,74 @@ mod tests {
             })
         );
     }
+
+    #[tokio::test]
+    async fn antigravity_grouped_routes_list_inspect_and_install_hooks() {
+        let dir = tempfile::tempdir().unwrap();
+        init_git_workspace(dir.path(), ".agents/\n");
+        let home = tempfile::tempdir().unwrap();
+        let _fake_home = FakeHome::set(home.path());
+        let state = test_app_state_with_workspace(dir.path());
+        SessionApplication::new(state.clone())
+            .set_active_harnesses(vec!["antigravity".into()])
+            .unwrap();
+        let snapshot = state.harness_store.snapshot().unwrap();
+        let active_revision = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|workspace| workspace.metadata.read_workspace_memory())
+            .unwrap()
+            .active_harness_revision;
+        let request = Bytes::from(
+            serde_json::json!({
+                "expectedDocumentRevision": snapshot.document_revision,
+                "expectedActiveHarnessRevision": active_revision,
+            })
+            .to_string(),
+        );
+
+        let listed = get_workspace_integrations(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(listed.status(), StatusCode::OK);
+        let listed_body = body(listed).await;
+        let groups = listed_body.as_array().unwrap();
+        assert!(
+            groups.iter().any(|group| {
+                group["key"]["adapterId"] == "antigravity"
+                    && group["key"]["targetId"] == "workspace"
+                    && group["status"]["registration"] == "absent"
+            }),
+            "expected antigravity/workspace group in {listed_body}"
+        );
+
+        let status = get_grouped_integration_status(
+            State(state.clone()),
+            Path(("antigravity".into(), "workspace".into())),
+        )
+        .await
+        .into_response();
+        assert_eq!(status.status(), StatusCode::OK);
+        let status_body = body(status).await;
+        assert_eq!(status_body["status"]["registration"], "absent");
+
+        let installed = install_grouped_integration(
+            State(state),
+            Path(("antigravity".into(), "workspace".into())),
+            request,
+        )
+        .await
+        .into_response();
+        assert_eq!(installed.status(), StatusCode::OK);
+        let installed_body = body(installed).await;
+        assert_eq!(installed_body["status"]["registration"], "installed");
+        let hooks: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join(".agents/hooks.json")).unwrap())
+                .unwrap();
+        assert!(hooks["orkworks-harness-integration"]["SessionStart"].is_array());
+        assert!(hooks["orkworks-harness-integration"]["PreInvocation"].is_array());
+        assert!(hooks["orkworks-harness-integration"]["Stop"].is_array());
+    }
 }
