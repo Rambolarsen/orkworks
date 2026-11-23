@@ -367,3 +367,5 @@ Dated design records; these do not establish current product behavior.
 - [Project the exact owned Codex hook fragment](2026-11-22-review-codex-fragment-design.md) — Accepted strict pure projection and shared actual command template without retaining shared user configuration.
 
 - [Complete Codex capture inventory and custody](2026-11-22-review-codex-capture-design.md) — Proposed complete inventory, retained custody and shared owner prerequisites.
+
+- [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
