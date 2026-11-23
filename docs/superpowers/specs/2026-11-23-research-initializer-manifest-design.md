@@ -236,3 +236,26 @@ Physical catalog/version selection (audit item 5), command/proof closure
 qualification and separately approved executable plans remain open.
 #1689/#1089/#610 stay open; #740 stays closed research. Gate 2 remains
 **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-23
+
+After PR #2019 merged and the hosted review evidence recorded above, the
+owner accepted the five choices above — the complete creation manifest
+spanning three distinct original outcomes (workspace initialize-store; root
+admission including the root subject's five assignment rows, initial
+\`summary_state\` and the inherited six core source effects; attachment
+preparation including the child's original authorization and attachment
+rows), complete family registration (all 24 metadata families and 8 object
+kinds with creation timing), original proof links per outcome with peers
+preserved and the sole-creator rule, and additive profile registration with
+explicit coexistence — **for written initializer-closure work only**.
+
+This does not select a physical storage format, table/column/layout scheme,
+manifest encoding or catalog version (audit item 5 remains separately
+gated); it authorizes no runtime/native/model execution, adapter, migration
+or activation, and completes no component packet (Gate 2 remains
+Investigate). The next bounded written contract under this acceptance is
+audit item 4 (command/proof closure — the full source/consumer/resource/
+index/header effect union, captured H, coalesced versions and original
+proofs per command). #1689/#1089/#610 stay open; #740 stays closed research.
