@@ -469,6 +469,22 @@ if (process.versions.electron) {
         assert.equal(await evaluate('!!document.querySelector(".workspace-picker-screen .workspace-history-other-folder")'), true);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
+      } else if (scenario === 'app-workspace-hook-notice') {
+        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Codex: OrkWorks hook update available.")');
+        await evaluate('document.querySelector(".workspace-hook-notice button").click()');
+        await waitFor('document.querySelector(".settings-content h3")?.textContent === "Active coding tools"');
+        await evaluate('fixture.hookState = "trust"; document.querySelector("[aria-label=\\"Close settings\\"]").click()');
+        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Run /hooks in Codex")');
+        await evaluate('fixture.hookState = "active"; window.dispatchEvent(new Event("focus"))');
+        await waitFor('!document.querySelector(".workspace-hook-notice")');
+        await evaluate('fixture.deferHookStatus = true; window.dispatchEvent(new Event("focus"))');
+        await waitFor('!!fixture.releaseHookStatus');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:null,activeHarnessIds:["codex"]},historyDiagnostic:null})');
+        await waitFor('fixture.hookReads >= 5 && document.querySelector(".shell-workspace .titlebar-text")?.textContent === "other"');
+        await evaluate('fixture.releaseHookStatus(); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('!!document.querySelector(".workspace-hook-notice")'), false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'app-startup-composer') {
         await waitFor('!!fixture.releaseSessions');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=new-session]")'), false,
@@ -2699,7 +2715,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2822,6 +2838,15 @@ if (process.versions.electron) {
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
             });
+            if (${scenario === 'app-workspace-hook-notice'}) {
+              window.orkworks.getSettings=async()=>({
+                hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},
+                debug:{showSessionIds:false,rendererHealthLogMs:0},
+                providers:{version:2,revision:0,peonModel:null,ollamaBaseUrl:"http://localhost:11434",providers:[]}
+              });
+              window.orkworks.verifyPeonProvider=async()=>({ok:false});
+              window.orkworks.getAppliedPeonProvider=async()=>({provider:null});
+            }
             window.fetch=async (url,options={})=>{
               const path=new URL(url).pathname;
               const response=value=>({ok:true,status:200,json:async()=>value});
@@ -2838,6 +2863,21 @@ if (process.versions.electron) {
               }
               if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${javascriptLiteral(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
+              if(path==='/workspace/integrations' && ${scenario === 'app-workspace-hook-notice'}) {
+                const state=fixture.hookState??"drifted";
+                fixture.hookReads=(fixture.hookReads??0)+1;
+                const group=state=>({
+                  key:{adapterId:"codex",targetId:"workspace"},consumers:[{harnessId:"codex",harnessName:"Codex"}],
+                  status:{harnessId:"codex",enabled:true,toolDetected:true,registration:state==="drifted"?"drifted":"installed",
+                    ownership:"ork_works",activation:state==="trust"?"needs_trust":"active",coverage:"limited",confirmation:null,
+                    diagnostics:state==="drifted"?[{code:"owned_fragment_drifted",message:"Outdated"}]:[]}
+                });
+                if(fixture.deferHookStatus){
+                  fixture.deferHookStatus=false;
+                  return new Promise(resolve=>{fixture.releaseHookStatus=()=>resolve(response([group("drifted")]));});
+                }
+                return response([group(state)]);
+              }
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
               if(path==='/workspace/active-session'){fixture.activeWrites++;return response({})}
