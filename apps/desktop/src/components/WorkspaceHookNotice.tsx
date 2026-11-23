@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { backendFetch } from "../backendAccess.ts";
+import WorkspaceAlerts from "./WorkspaceAlerts";
 import { workspaceHookNotices, type GroupedIntegrationStatus } from "../harnessIntegrationPresentation";
 
 interface Props {
@@ -51,11 +52,9 @@ export default function WorkspaceHookNotice({ activeHarnessIds, settingsOpen, on
     };
   }, [activeHarnessIds, settingsOpen]);
 
-  if (notices.length === 0 || activeHarnessIds.length === 0) return null;
-  return <div className="shell-preferences-notice workspace-hook-notice">
-    <div role="status">
-      {notices.map(({ key, text }) => <div key={key}>{text}</div>)}
-    </div>
-    <button type="button" onClick={onOpenSettings}>Coding tools</button>
-  </div>;
+  if (activeHarnessIds.length === 0) return null;
+  return <WorkspaceAlerts alerts={notices.map(notice => ({
+    ...notice,
+    action: { label: "Review hook", onClick: onOpenSettings },
+  }))} />;
 }

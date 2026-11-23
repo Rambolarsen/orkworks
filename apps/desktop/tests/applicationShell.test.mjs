@@ -470,19 +470,20 @@ if (process.versions.electron) {
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
       } else if (scenario === 'app-workspace-hook-notice') {
-        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Codex: OrkWorks hook update available.")');
-        await evaluate('document.querySelector(".workspace-hook-notice button").click()');
+        await waitFor('document.querySelector(".workspace-alert")?.textContent.includes("The OrkWorks hook for Codex is outdated. OrkWorks may miss session attention updates.")');
+        assert.equal(await evaluate('document.querySelector(".workspace-alert button").textContent'), 'Review hook');
+        await evaluate('document.querySelector(".workspace-alert button").click()');
         await waitFor('document.querySelector(".settings-content h3")?.textContent === "Active coding tools"');
         await evaluate('fixture.hookState = "trust"; document.querySelector("[aria-label=\\"Close settings\\"]").click()');
-        await waitFor('document.querySelector(".workspace-hook-notice")?.textContent.includes("Run /hooks in Codex")');
+        await waitFor('document.querySelector(".workspace-alert")?.textContent.includes("Run /hooks in Codex")');
         await evaluate('fixture.hookState = "active"; window.dispatchEvent(new Event("focus"))');
-        await waitFor('!document.querySelector(".workspace-hook-notice")');
+        await waitFor('!document.querySelector(".workspace-alert")');
         await evaluate('fixture.deferHookStatus = true; window.dispatchEvent(new Event("focus"))');
         await waitFor('!!fixture.releaseHookStatus');
         await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:null,activeHarnessIds:["codex"]},historyDiagnostic:null})');
         await waitFor('fixture.hookReads >= 5 && document.querySelector(".shell-workspace .titlebar-text")?.textContent === "other"');
         await evaluate('fixture.releaseHookStatus(); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-        assert.equal(await evaluate('!!document.querySelector(".workspace-hook-notice")'), false);
+        assert.equal(await evaluate('!!document.querySelector(".workspace-alert")'), false);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
       } else if (scenario === 'app-startup-composer') {
