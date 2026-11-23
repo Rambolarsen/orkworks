@@ -301,3 +301,26 @@ recovery revisions, profile qualification under #741/#740's closed-research
 standard and separately approved executable plans remain open.
 #1689/#1089/#610 stay open; #740 stays closed research. Gate 2 remains
 **Investigate**.
+
+
+## Scoped owner acceptance — 2026-11-23
+
+After PR #1997 merged and the hosted/local review evidence recorded above,
+the owner answered "Accept" to the explicit five-choice question covering
+this contract. This accepts the five choices above — the enumerated closed
+catalog under the recognized \`retained-file-research-v1\` profile (8 object
+kinds, 24 metadata families, shared report registry, per-packet candidate
+arithmetic preserved), mandatory empty families with the whole-catalog
+reader obligation, admission-time original source ownership per RunKey and
+per ChildAssignmentIdentity, shared registry ownership per exact Stream,
+and no new resource names with no format/table selection — **for written
+catalog work only**.
+
+It does not select a physical storage format, table/column/layout scheme,
+manifest encoding or catalog version (audit item 5 remains separately
+gated); it authorizes no runtime/native/model execution, adapter,
+migration, or activation, and completes no component packet (Gate 2 remains
+Investigate). The next bounded written contracts under this acceptance are
+audit item 2 (complete discovery and invalidation ownership) and item 3
+(the actual initializer's complete creation manifest), each with its own
+review; #1689/#1089/#610 stay open and #740 stays closed research.
