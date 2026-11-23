@@ -1312,3 +1312,12 @@ and recommendation invalidation. Reconnect resynchronizes authoritatively; REST
 polling remains the compatibility/disconnection fallback. Thirty-second server
 reconciliation permits bounded delay for Git/cwd, clock and external changes.
 Session attention, organization and recommendation action authority are unchanged.
+
+## Peon workflow evidence grounding proposal — pending review
+
+The [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+proposes dual-view ESC-payload grounding and a fourteen-day window for new
+exact-family creation and ordinary Brain observation input, with existing-ID
+updates and history explicitly grandfathered. It is **not accepted or implemented**.
+Existing recording, eligibility, lifecycle and authority rules above remain
+binding until scoped owner acceptance; merging the proposal is not that acceptance.
