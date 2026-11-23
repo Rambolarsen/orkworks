@@ -365,7 +365,10 @@ test("workspace hook notice names the enabled consumers of an outdated hook", ()
   });
   group.consumers.push({ harnessId: "codex-local", harnessName: "Local Codex" });
   assert.deepEqual(workspaceHookNotices([group]), [
-    { key: "codex/workspace", text: "Codex, Local Codex: OrkWorks hook update available." },
+    {
+      key: "hook:codex/workspace",
+      text: "The OrkWorks hook for Codex, Local Codex is outdated. OrkWorks may miss session attention updates.",
+    },
   ]);
 });
 
@@ -382,7 +385,7 @@ test("workspace hook notice explains Codex trust and missing hooks", () => {
         relativePaths: [".codex/hooks.json"], executableCodeWarning: true,
       },
     }),
-  ])[0].text, /Codex.*hook.*install/i);
+  ])[0].text, /hook for Codex.*missing/i);
 });
 
 test("workspace hook notice omits healthy, disabled, unsupported and unrelated errors", () => {

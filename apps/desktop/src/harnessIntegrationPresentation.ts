@@ -66,20 +66,22 @@ export function workspaceHookNotices(groups: readonly GroupedIntegrationStatus[]
   return groups.flatMap(({ key, consumers, status }) => {
     if (!status.enabled || !status.toolDetected || consumers.length === 0
       || !shouldShowInstalledConfirmation(status.diagnostics)) return [];
-    let action: string;
+    const names = consumers.map(({ harnessName }) => harnessName).join(", ");
+    const hook = `The OrkWorks hook for ${names}`;
+    let text: string;
     if (hasOutdatedHook(status)) {
-      action = "OrkWorks hook update available.";
+      text = `${hook} is outdated. OrkWorks may miss session attention updates.`;
     } else if (status.registration === "absent" && status.confirmation?.relativePaths.length) {
-      action = "OrkWorks hook needs installation.";
+      text = `${hook} is missing.`;
     } else if (status.registration === "installed" && status.activation === "needs_trust") {
-      action = key.adapterId === "codex"
-        ? "Run /hooks in Codex to trust the OrkWorks hook."
-        : "Approve the OrkWorks hook inside the coding tool.";
+      const guidance = key.adapterId === "codex"
+        ? "Run /hooks in Codex to trust it."
+        : "Approve it inside the coding tool.";
+      text = `${hook} needs approval. ${guidance}`;
     } else {
       return [];
     }
-    const names = consumers.map(({ harnessName }) => harnessName).join(", ");
-    return [{ key: key.adapterId + "/" + key.targetId, text: names + ": " + action }];
+    return [{ key: `hook:${key.adapterId}/${key.targetId}`, text }];
   });
 }
 
