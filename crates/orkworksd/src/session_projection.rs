@@ -152,6 +152,46 @@ pub(crate) struct StreamProjection {
     pub(crate) plans: HashMap<String, Option<metadata::PlanReference>>,
 }
 
+#[derive(Debug)]
+pub(crate) enum ProjectionError {
+    WorkspaceChanged(&'static str),
+    SessionLocationChanged,
+    Io(io::Error),
+}
+
+impl ProjectionError {
+    pub(crate) fn is_transient_location_change(&self) -> bool {
+        matches!(self, Self::SessionLocationChanged)
+    }
+}
+
+impl std::fmt::Display for ProjectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WorkspaceChanged(message) => f.write_str(message),
+            Self::SessionLocationChanged => {
+                f.write_str("session location changed during document inspection")
+            }
+            Self::Io(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ProjectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::WorkspaceChanged(_) | Self::SessionLocationChanged => None,
+        }
+    }
+}
+
+impl From<io::Error> for ProjectionError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
     plans: HashMap<String, Option<metadata::PlanReference>>,
@@ -484,11 +524,14 @@ impl SessionProjection {
         Ok(ProjectionSnapshot { infos, plans })
     }
 
-    pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
+    pub(crate) fn list(&self) -> Result<Vec<SessionInfo>, ProjectionError> {
         self.list_with_capacity_analysis(|cache, inputs| cache.analyze(inputs))
     }
 
-    pub(crate) fn stream_projection(&self, enrich: bool) -> io::Result<StreamProjection> {
+    pub(crate) fn stream_projection(
+        &self,
+        enrich: bool,
+    ) -> Result<StreamProjection, ProjectionError> {
         self.prepare_projection(|cache, inputs| cache.analyze(inputs), enrich)
     }
 
@@ -499,7 +542,7 @@ impl SessionProjection {
             &mut CapacityAnalysisCache,
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
-    ) -> io::Result<Vec<SessionInfo>> {
+    ) -> Result<Vec<SessionInfo>, ProjectionError> {
         self.prepare_projection(analyze, true)
             .map(|prepared| prepared.infos)
     }
@@ -511,7 +554,7 @@ impl SessionProjection {
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
         enrich: bool,
-    ) -> io::Result<StreamProjection> {
+    ) -> Result<StreamProjection, ProjectionError> {
         let analysis = self
             .state
             .session_directory_state
@@ -539,7 +582,7 @@ impl SessionProjection {
                 _ => false,
             };
             if !matches {
-                return Err(io::Error::other(
+                return Err(ProjectionError::WorkspaceChanged(
                     "workspace changed during capacity analysis",
                 ));
             }
@@ -615,15 +658,17 @@ impl SessionProjection {
                 _ => false,
             }
         };
-        if !matches
-            || !context_matches
+        if !matches {
+            return Err(ProjectionError::WorkspaceChanged(
+                "workspace changed during document inspection",
+            ));
+        }
+        if !context_matches
             || captured
                 .iter()
                 .any(|(id, inputs)| LocationInputs::capture(&self.state, id) != *inputs)
         {
-            return Err(io::Error::other(
-                "workspace or session location changed during document inspection",
-            ));
+            return Err(ProjectionError::SessionLocationChanged);
         }
         Ok(StreamProjection {
             infos,

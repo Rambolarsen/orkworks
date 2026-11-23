@@ -1146,9 +1146,29 @@ fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
     project_peon_diagnostics(info, snapshot, observation_count);
 }
 
-pub(crate) fn query_sessions(state: &Arc<AppState>) -> std::io::Result<Vec<SessionInfo>> {
+const MAX_TRANSIENT_LOCATION_RETRIES: usize = 2;
+
+pub(crate) fn query_sessions(
+    state: &Arc<AppState>,
+) -> Result<Vec<SessionInfo>, crate::session_projection::ProjectionError> {
     let projection = SessionProjection::new(state.clone());
-    let mut infos = projection.list()?;
+    let mut retries = 0;
+    let mut infos = loop {
+        match projection.list() {
+            Ok(infos) => break infos,
+            Err(error)
+                if error.is_transient_location_change()
+                    && retries < MAX_TRANSIENT_LOCATION_RETRIES =>
+            {
+                retries += 1;
+                tracing::debug!(
+                    attempt = retries + 1,
+                    "retrying session projection after transient session location change"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    };
     for info in &mut infos {
         project_live_peon_diagnostics(state, info);
     }
@@ -1158,7 +1178,8 @@ pub(crate) fn query_sessions(state: &Arc<AppState>) -> std::io::Result<Vec<Sessi
 pub(crate) fn query_stream_sessions(
     state: &Arc<AppState>,
     enrich: bool,
-) -> std::io::Result<crate::session_projection::StreamProjection> {
+) -> Result<crate::session_projection::StreamProjection, crate::session_projection::ProjectionError>
+{
     let mut prepared = SessionProjection::new(state.clone()).stream_projection(enrich)?;
     for info in &mut prepared.infos {
         project_live_peon_diagnostics(state, info);
@@ -1695,6 +1716,157 @@ mod tests {
             .await
             .unwrap();
         assert!(body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_sessions_retries_transient_startup_pid_registration_during_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "creating-session";
+        let mut handle = attention_test_handle(id, dir.path());
+        handle.info.status = "creating".into();
+        handle.info.lifecycle_phase = "creating".into();
+        handle.info.lifecycle = "creating".into();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mutate_state = state.clone();
+        let hook_store = store.clone();
+        let hook_scans = scans.clone();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            hook_scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            mutate_state
+                .session_pids
+                .lock()
+                .unwrap()
+                .insert(id.into(), u32::MAX);
+            let second_scans = hook_scans.clone();
+            *hook_store.before_scan.lock().unwrap() = Some(Box::new(move || {
+                second_scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }));
+        }));
+
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::OK,
+            "transient startup PID registration during inspection must retry outside the fence instead of returning 500"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["id"], id);
+        assert_eq!(
+            scans.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "first pass must be rejected and retried once"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_sessions_does_not_retry_workspace_replacement_during_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        state.sessions.lock().unwrap().insert(
+            "live-session".into(),
+            attention_test_handle("live-session", dir.path()),
+        );
+
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mutate_state = state.clone();
+        let root = dir.path().to_path_buf();
+        let hook_scans = scans.clone();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            hook_scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let replacement = test_app_state_with_workspace(&root);
+            *mutate_state.workspace.lock().unwrap() = replacement.workspace.lock().unwrap().take();
+        }));
+
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "workspace replacement must fail closed without retrying"
+        );
+        assert_eq!(scans.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_bounds_retries_when_session_location_keeps_changing() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let id = "churning-session";
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .insert(id.into(), attention_test_handle(id, dir.path()));
+
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        fn install_churn(
+            store: Arc<crate::branch_documents_store::Store>,
+            state: Arc<AppState>,
+            scans: Arc<std::sync::atomic::AtomicUsize>,
+            id: &'static str,
+        ) {
+            let next_store = store.clone();
+            *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+                let attempt = scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                state
+                    .session_pids
+                    .lock()
+                    .unwrap()
+                    .insert(id.into(), u32::MAX - attempt as u32);
+                if attempt < 10 {
+                    install_churn(next_store, state, scans, id);
+                }
+            }));
+        }
+        install_churn(store, state.clone(), scans.clone(), id);
+
+        let response = list_sessions(State(state)).await.into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "relentless location churn must stop after bounded retries"
+        );
+        assert_eq!(
+            scans.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "expected initial attempt plus two bounded retries"
+        );
     }
     fn orphan_test_metadata(id: &str, workspace: &std::path::Path) -> metadata::SessionMetadata {
         let workspace = workspace.display().to_string();
