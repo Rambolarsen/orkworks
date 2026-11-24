@@ -170,3 +170,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Pair resource assurance](0118-pair-resource-assurance.md) — Accepted owned file-length/fixed-arena capacities with uncapped native host costs; qualification and execution remain gated.
 
 - [Pair build and startup custody](0119-pair-build-startup-custody.md) — Accepted shared candidate flag and early bootstrap/failure recipe; actual build/startup and execution remain gated.
+
+- [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Accepted native-only attention design; retained live qualification gates activation.

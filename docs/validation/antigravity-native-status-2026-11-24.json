@@ -1,0 +1,39 @@
+{
+  "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+  "deadline_seconds": 180,
+  "events": [
+    {
+      "seconds": 0.209,
+      "state": "blocked",
+      "app": "antigravity",
+      "kind": "auth",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 1.442,
+      "state": "blocked",
+      "app": "antigravity",
+      "kind": "permission",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 36.125,
+      "state": "idle",
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    }
+  ],
+  "child_exit_confirmed": true,
+  "platform": "macos-arm64",
+  "native_version": "1.5.15",
+  "qualification": "partial-startup-only",
+  "fixture_question_reached": false,
+  "ordinary_tool_permission_qualified": false,
+  "question_resolution_qualified": false
+}

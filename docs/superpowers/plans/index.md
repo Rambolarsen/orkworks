@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Antigravity native terminal attention](2026-11-24-antigravity-native-attention.md) — Approved design delivery with retained native qualification before activation.
+
 - [Private pair bootstrap state tests](2026-11-24-pair-bootstrap-state-tests.md) — Bounded fake-API state-owner plan; source closure and execution remain gated.
 
 - [Pair file-length and fixed-arena qualification](2026-11-24-pair-resource-assurance-qualification.md) — Ready for source-only controlled-route closure; offline/native execution and production admission remain gated.

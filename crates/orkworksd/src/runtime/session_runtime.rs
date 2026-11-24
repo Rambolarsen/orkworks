@@ -801,7 +801,11 @@ pub(crate) struct SessionRuntime {
     native_observer_pause: Option<tokio::sync::watch::Sender<bool>>,
     #[cfg(test)]
     diagnostic_cleanup: Option<tokio::sync::watch::Receiver<bool>>,
-    pub(crate) codex_terminal_status_active: bool,
+    pub(crate) terminal_status_active: bool,
+    pub(crate) terminal_status_profile: Option<super::terminal_status::Profile>,
+    pub(crate) terminal_status_request: Option<super::terminal_status_launch::LaunchRequest>,
+    #[cfg(test)]
+    pub(crate) terminal_status_fixture: bool,
     pub(crate) attention_owner: super::observed_status::AttentionOwner,
     pub(crate) control_tx: mpsc::Sender<RuntimeCommand>,
     // One active input owner and one bounded waiter across attachments and
@@ -860,7 +864,11 @@ impl SessionRuntime {
                 instruction_fixture: None,
                 worktree_instruction_request: None,
                 attention_owner: super::observed_status::AttentionOwner::default(),
-                codex_terminal_status_active: false,
+                terminal_status_active: false,
+                terminal_status_profile: None,
+                terminal_status_request: None,
+                #[cfg(test)]
+                terminal_status_fixture: false,
                 native_approval: None,
                 #[cfg(test)]
                 native_diagnostic: None,
@@ -920,7 +928,11 @@ impl SessionRuntime {
             instruction_fixture: None,
             worktree_instruction_request: None,
             attention_owner: super::observed_status::AttentionOwner::default(),
-            codex_terminal_status_active: false,
+            terminal_status_active: false,
+            terminal_status_profile: None,
+            terminal_status_request: None,
+            #[cfg(test)]
+            terminal_status_fixture: false,
             native_approval: None,
             #[cfg(test)]
             native_diagnostic: None,
@@ -2370,12 +2382,12 @@ fn complete_initial_editor_prompt(
         handle.runtime.run_generation() == generation
             && handle.info.lifecycle == "alive"
             && !handle.active_work_hook
-            && !handle.runtime.codex_terminal_status_active
+            && !handle.runtime.terminal_status_active
     }) {
         if should_infer_working(
             &handle.info.lifecycle,
             initial.qualifying_work_output,
-            handle.active_work_hook || handle.runtime.codex_terminal_status_active,
+            handle.active_work_hook || handle.runtime.terminal_status_active,
             startup_grace_ends_at,
         ) {
             handle.pending_work_signal = None;
@@ -2430,6 +2442,9 @@ struct RuntimeStartup {
     #[cfg(all(test, unix))]
     instruction_fixture: Option<Arc<super::worktree_instructions::testing::RuntimeFixture>>,
     worktree_instruction_request: Option<super::worktree_instructions::LaunchRequest>,
+    terminal_status_request: Option<super::terminal_status_launch::LaunchRequest>,
+    #[cfg(test)]
+    terminal_status_fixture: bool,
     run_generation: RuntimeGeneration,
     is_codex_session: bool,
     has_initial_editor: bool,
@@ -2465,6 +2480,9 @@ fn start_session_runtime_inner(
             #[cfg(all(test, unix))]
             instruction_fixture: handle.runtime.instruction_fixture.clone(),
             worktree_instruction_request: handle.runtime.worktree_instruction_request.clone(),
+            terminal_status_request: handle.runtime.terminal_status_request.clone(),
+            #[cfg(test)]
+            terminal_status_fixture: handle.runtime.terminal_status_fixture,
             run_generation: handle.runtime.run_generation(),
             is_codex_session: handle.info.harness.as_deref() == Some("codex")
                 || handle.info.harness_id.as_deref() == Some("codex"),
@@ -2513,6 +2531,9 @@ async fn run_session_runtime(
         #[cfg(all(test, unix))]
         instruction_fixture,
         worktree_instruction_request,
+        terminal_status_request,
+        #[cfg(test)]
+        terminal_status_fixture,
         run_generation,
         is_codex_session,
         has_initial_editor,
@@ -2524,6 +2545,17 @@ async fn run_session_runtime(
             "session runtime was deleted during startup",
         ));
     }
+    let terminal_status_profile = if is_codex_session {
+        Some(super::terminal_status::Profile::Codex)
+    } else {
+        super::terminal_status_launch::prepare(terminal_status_request, &mut command).await
+    };
+    #[cfg(test)]
+    let terminal_status_profile = if terminal_status_fixture {
+        super::terminal_status_launch::prepare_fixture(&mut command).await
+    } else {
+        terminal_status_profile
+    };
     let instruction_scope = super::worktree_instructions::prepare(worktree_instruction_request)
         .await
         .map_err(|error| StartupError::classified(Code::InstructionSetupFailed, error))?;
@@ -2590,6 +2622,18 @@ async fn run_session_runtime(
             "session runtime was deleted during startup",
         ));
     }
+    {
+        let mut sessions = state.sessions.lock().unwrap();
+        let handle = sessions
+            .get_mut(&id)
+            .ok_or_else(|| StartupError::cancelled("session runtime was deleted during startup"))?;
+        if handle.runtime.run_generation() != run_generation {
+            return Err(StartupError::cancelled(
+                "session runtime was replaced during startup",
+            ));
+        }
+        handle.runtime.terminal_status_profile = terminal_status_profile;
+    }
     let pty_sys = make_pty_system();
     let pair = pty_sys.openpty(initial_size);
     #[cfg(test)]
@@ -2633,6 +2677,15 @@ async fn run_session_runtime(
     for (key, value) in terminal_env_overrides() {
         cmd.env(&key, &value);
         execution_env.push((key, value));
+    }
+    if terminal_status_profile == Some(super::terminal_status::Profile::Antigravity) {
+        for (key, value) in [
+            ("AGY_CLI_OSC7501", "on"),
+            ("AGY_CLI_OSC7501_MESSAGES", "brief"),
+        ] {
+            cmd.env(key, value);
+            execution_env.push((key.into(), value.into()));
+        }
     }
     #[cfg(test)]
     execution_env.extend(fixture_env);
@@ -3032,8 +3085,8 @@ async fn run_session_runtime(
         let mut pending_commands = VecDeque::from(pending_commands);
         let mut persist_buffer: Vec<u8> = Vec::new();
         let mut pending_utf8: Vec<u8> = Vec::new();
-        let mut codex_status_reader =
-            is_codex_session.then(super::codex_terminal_status::Reader::default);
+        let mut terminal_status_reader =
+            terminal_status_profile.map(super::terminal_status::Reader::new);
         let mut pending_persist_batches: VecDeque<Vec<crate::metadata::TerminalOutputRecord>> =
             VecDeque::new();
         let mut kill_requested = false;
@@ -3323,10 +3376,10 @@ async fn run_session_runtime(
                 ) => {
                     match event {
                         DriverEvent::Output(data) => {
-                            if let Some(reader) = &mut codex_status_reader {
+                            if let Some(reader) = &mut terminal_status_reader {
                                 for status in reader.feed(&data) {
                                     crate::session_application::SessionApplication::new(driver_state.clone())
-                                        .apply_codex_terminal_status(&driver_id, run_generation, status);
+                                        .apply_terminal_status(&driver_id, run_generation, status);
                                 }
                             }
                             if let Some(initial) = &mut initial_editor {
@@ -3396,7 +3449,7 @@ async fn run_session_runtime(
                                     if should_infer_working(
                                         &handle.info.lifecycle,
                                         has_qualifying_work_signal,
-                                        handle.active_work_hook || handle.runtime.codex_terminal_status_active,
+                                        handle.active_work_hook || handle.runtime.terminal_status_active,
                                         startup_grace_ends_at,
                                     ) {
                                         promoted_working = true;

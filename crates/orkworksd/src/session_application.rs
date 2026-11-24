@@ -1831,7 +1831,24 @@ impl SessionApplication {
         }
 
         let attention_policy = match sessions_guard.get(session_id) {
-            Some(handle) if handle.runtime.codex_terminal_status_active => {
+            Some(handle) if handle.runtime.terminal_status_active => {
+                metadata::PeonAttentionPolicy::PreserveAttention
+            }
+            Some(handle)
+                if handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref())
+                    == Some("antigravity") =>
+            {
+                metadata::PeonAttentionPolicy::PreserveAttention
+            }
+            None if workspace
+                .metadata
+                .read_session(session_id)
+                .is_some_and(|meta| meta.harness == "antigravity") =>
+            {
                 metadata::PeonAttentionPolicy::PreserveAttention
             }
 
@@ -2704,7 +2721,13 @@ impl SessionApplication {
                 || handle.info.lifecycle != "alive"
                 || handle.info.lifecycle_phase != "active"
                 || handle.active_work_hook
-                || handle.runtime.codex_terminal_status_active
+                || handle.runtime.terminal_status_active
+                || handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref())
+                    == Some("antigravity")
                 || !matches!(
                     handle.info.observed_status.as_deref(),
                     None | Some("working")
@@ -2718,7 +2741,8 @@ impl SessionApplication {
         let result = ws
             .metadata
             .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-                if meta.status != "running"
+                if meta.harness == "antigravity"
+                    || meta.status != "running"
                     || meta.lifecycle != "alive"
                     || meta.lifecycle_phase != "active"
                     || !matches!(meta.observed_status.as_deref(), None | Some("working"))
@@ -4117,6 +4141,18 @@ impl SessionApplication {
         if let Some(stop) = require_alive_session(workspace, handle, &signal) {
             return Err(stop);
         }
+        if signal
+            .opencode_authority
+            .as_ref()
+            .is_some_and(|authority| authority.harness == "antigravity")
+            && handle.is_some_and(|handle| {
+                handle.runtime.terminal_status_active
+                    && handle.runtime.terminal_status_profile
+                        == Some(crate::runtime::terminal_status::Profile::Antigravity)
+            })
+        {
+            return Ok(metadata::AttentionMergeResult::Ignored);
+        }
         if let Some(stop) = suppress_active_work_opencode(handle, &signal) {
             return Ok(stop);
         }
@@ -4129,7 +4165,13 @@ impl SessionApplication {
             signal.message.as_deref(),
             &signal.plan_path,
             &signal.timestamp,
-            if signal.opencode_authority.is_some() {
+            if signal
+                .opencode_authority
+                .as_ref()
+                .is_some_and(|authority| authority.harness == "antigravity")
+            {
+                "antigravity_hook"
+            } else if signal.opencode_authority.is_some() {
                 "opencode_hook"
             } else {
                 &signal.source
@@ -4404,21 +4446,24 @@ impl SessionApplication {
         )
     }
 
-    /// Apply best-effort UI status only to this live Codex runtime. Terminal
+    /// Apply best-effort UI status only to this live, admitted runtime. Terminal
     /// evidence can replace its hooks, never separate user/agent attention.
-    pub(crate) fn apply_codex_terminal_status(
+    pub(crate) fn apply_terminal_status(
         &self,
         id: &str,
         generation: u64,
-        status: crate::runtime::codex_terminal_status::Status,
+        status: crate::runtime::terminal_status::Status,
     ) -> bool {
-        use crate::runtime::codex_terminal_status::Status;
+        use crate::runtime::terminal_status::Status;
         let workspace = self.state.workspace.lock().unwrap();
         let Some(workspace) = workspace.as_ref() else {
             return false;
         };
         let mut sessions = self.state.sessions.lock().unwrap();
         let Some(handle) = sessions.get_mut(id) else {
+            return false;
+        };
+        let Some(profile) = handle.runtime.terminal_status_profile else {
             return false;
         };
         if handle.runtime.run_generation() != generation
@@ -4429,18 +4474,18 @@ impl SessionApplication {
                 .harness_id
                 .as_deref()
                 .or(handle.info.harness.as_deref())
-                != Some("codex")
+                != Some(profile.harness())
         {
             return false;
         }
-        if status == Status::Unknown && !handle.runtime.codex_terminal_status_active {
+        if status == Status::Unknown && !handle.runtime.terminal_status_active {
             return false;
         }
-        handle.runtime.codex_terminal_status_active = true;
+        handle.runtime.terminal_status_active = true;
         let can_replace = |source: &str, origin: &str| match (source, origin) {
             ("user", _) => false,
             ("agent", origin) if origin != "harness_hook" => false,
-            (_, "codex_terminal") => true,
+            (_, origin) if origin == profile.origin() => true,
             _ => status != Status::Unknown,
         };
         if !can_replace(
@@ -4479,7 +4524,7 @@ impl SessionApplication {
                         }
                         .into(),
                     );
-                    meta.provenance.attention_origin = Some("codex_terminal".into());
+                    meta.provenance.attention_origin = Some(profile.origin().into());
                     meta.provenance.attention_confidence = Some(0.8);
                     meta.provenance.attention_updated_at = Some(iso_now());
                     Ok(true)
@@ -4488,7 +4533,7 @@ impl SessionApplication {
             Ok(Some(record)) => record.metadata,
             Ok(None) => return false,
             Err(error) => {
-                tracing::warn!(session_id = id, %error, "could not persist Codex terminal status");
+                tracing::warn!(session_id = id, %error, "could not persist native terminal status");
                 return false;
             }
         };
@@ -4519,7 +4564,7 @@ impl SessionApplication {
                 handle.runtime.run_generation() == generation
                     && handle.info.lifecycle == "alive"
                     && !handle.active_work_hook
-                    && !handle.runtime.codex_terminal_status_active
+                    && !handle.runtime.terminal_status_active
                     && handle.info.attention_source() != Some("user")
             })
         }) {
@@ -5985,7 +6030,11 @@ fn suppress_codex_hook_terminal(
     signal: &AttentionMergeSignal,
 ) -> Option<metadata::AttentionMergeResult> {
     if signal.source == "codex_hook"
-        && handle.is_some_and(|handle| handle.runtime.codex_terminal_status_active)
+        && handle.is_some_and(|handle| {
+            handle.runtime.terminal_status_active
+                && handle.runtime.terminal_status_profile
+                    == Some(crate::runtime::terminal_status::Profile::Codex)
+        })
     {
         return Some(metadata::AttentionMergeResult::Ignored);
     }
@@ -6828,6 +6877,14 @@ async fn resume_session_workflow(
         let enabled = harness
             .integration_launch_enabled(Some(&resume_root))
             .unwrap_or(false);
+        runtime.terminal_status_request =
+            crate::runtime::terminal_status_launch::LaunchRequest::new(
+                harness,
+                &command,
+                (!meta.model.is_empty()).then_some(meta.model.as_str()),
+                Some(native_id),
+                None,
+            );
         runtime.worktree_instruction_request =
             crate::runtime::worktree_instructions::LaunchRequest::new(
                 harness,
@@ -7427,6 +7484,14 @@ async fn create_session_workflow(
         .as_deref()
         .and_then(|id| registry.get(id))
     {
+        runtime.terminal_status_request =
+            crate::runtime::terminal_status_launch::LaunchRequest::new(
+                harness,
+                &resolved_launch.command,
+                resolved_launch.model.as_deref(),
+                None,
+                initial_prompt.as_deref(),
+            );
         runtime.worktree_instruction_request =
             crate::runtime::worktree_instructions::LaunchRequest::new(
                 harness,
@@ -10081,7 +10146,7 @@ mod tests {
                 .into();
                 handle.info.observed_status = Some(live_status.into());
                 handle.active_work_hook = hook;
-                handle.runtime.codex_terminal_status_active = codex;
+                handle.runtime.terminal_status_active = codex;
                 state.sessions.lock().unwrap().insert(id.clone(), handle);
             }
             let before = state
@@ -12638,7 +12703,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         authority.remove(id);
     }
 
-    fn codex_terminal_status_fixture(id: &str) -> (tempfile::TempDir, Arc<AppState>, u64) {
+    fn terminal_status_fixture(id: &str) -> (tempfile::TempDir, Arc<AppState>, u64) {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let mut meta = crate::test_support::test_session_metadata(
@@ -12665,16 +12730,214 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         handle.info.harness_id = Some("codex".into());
         handle.info.lifecycle = "alive".into();
         handle.info.lifecycle_phase = "active".into();
+        handle.runtime.terminal_status_profile =
+            Some(crate::runtime::terminal_status::Profile::Codex);
         let generation = handle.runtime.run_generation();
         state.sessions.lock().unwrap().insert(id.into(), handle);
         (root, state, generation)
     }
 
+    fn antigravity_terminal_fixture(id: &str) -> (tempfile::TempDir, Arc<AppState>, u64) {
+        let (root, state, generation) = terminal_status_fixture(id);
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .mutate_session_optional(id, WriteScope::NONE, |meta| {
+                    meta.harness = "antigravity".into();
+                    Ok(true)
+                })
+                .unwrap();
+        }
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.info.harness = Some("antigravity".into());
+            handle.info.harness_id = Some("antigravity".into());
+            handle.runtime.terminal_status_profile =
+                Some(crate::runtime::terminal_status::Profile::Antigravity);
+        }
+        (root, state, generation)
+    }
+
     #[test]
-    fn codex_terminal_status_persists_manual_and_automatic_traces() {
-        use crate::runtime::codex_terminal_status::{Reader, Status};
+    fn antigravity_terminal_status_persists_question_answer_and_completion() {
+        use crate::runtime::terminal_status::Status;
+        let id = "antigravity-native-attention";
+        let (_root, state, generation) = antigravity_terminal_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        for (status, expected) in [
+            (Status::Working, "working"),
+            (Status::Blocked, "needs_you"),
+            (Status::Working, "working"),
+            (Status::Idle, "idle"),
+        ] {
+            assert!(app.apply_terminal_status(id, generation, status));
+            let workspace = state.workspace.lock().unwrap();
+            let saved = workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(saved.attention.as_deref(), Some(expected));
+            assert_eq!(saved.attention_source(), "backend_inference");
+            assert_eq!(saved.attention_origin(), "antigravity_terminal");
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                Some(expected)
+            );
+        }
+        assert!(!app.apply_terminal_status(id, generation + 1, Status::Blocked));
+    }
+
+    #[tokio::test]
+    async fn antigravity_native_activation_suppresses_only_authenticated_late_hooks() {
+        use crate::runtime::terminal_status::Status;
+        let id = "antigravity-late-hook";
+        let (_root, state, generation) = antigravity_terminal_fixture(id);
+        crate::runtime::terminal_runtime::set_workflow_report_token(
+            id,
+            "antigravity-test-token".into(),
+        );
+        let app = SessionApplication::new(state.clone());
+        app.report_attention(id, antigravity_attention_signal("PreInvocation", "working"))
+            .await
+            .unwrap();
+        assert_eq!(
+            stored_observed_status(&state, id).as_deref(),
+            Some("working")
+        );
+        assert!(state.sessions.lock().unwrap()[id].active_work_hook);
+        assert!(app.apply_terminal_status(id, generation, Status::Blocked));
+        let mut late_stop = antigravity_attention_signal("Stop", "idle");
+        late_stop.observed_at = Some("2026-11-20T12:00:01.123456Z".into());
+        app.report_attention(id, late_stop).await.unwrap();
+        assert_eq!(
+            stored_observed_status(&state, id).as_deref(),
+            Some("waiting_for_input")
+        );
+        let mut invalid = antigravity_attention_signal("Stop", "idle");
+        invalid.report_token = Some("wrong-token".into());
+        assert!(app.report_attention(id, invalid).await.is_err());
+        assert!(app.apply_terminal_status(id, generation, Status::Unknown));
+        let mut late_work = antigravity_attention_signal("PreInvocation", "working");
+        late_work.observed_at = Some("2026-11-20T12:00:02.123456Z".into());
+        app.report_attention(id, late_work).await.unwrap();
+        assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
+        assert!(stored_observed_status(&state, id).is_none());
+        crate::runtime::terminal_runtime::clear_workflow_report_token(id);
+    }
+
+    #[test]
+    fn antigravity_fresh_runtime_cannot_reuse_activation_or_old_generation() {
+        use crate::runtime::terminal_status::Status;
+        let id = "antigravity-replacement";
+        let (_root, state, generation) = antigravity_terminal_fixture(id);
+        let app = SessionApplication::new(state.clone());
+        assert!(app.apply_terminal_status(id, generation, Status::Working));
+        let fresh = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        let new_generation = fresh.run_generation();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = fresh;
+        assert!(!app.apply_terminal_status(id, generation, Status::Blocked));
+        assert!(!app.apply_terminal_status(id, new_generation, Status::Blocked));
+        assert_eq!(
+            stored_observed_status(&state, id).as_deref(),
+            Some("working")
+        );
+    }
+
+    #[test]
+    fn antigravity_peon_idle_timeout_preserves_live_and_metadata_only_attention() {
+        for live in [false, true] {
+            let id = "antigravity-idle-timeout";
+            let (_root, state, _) = antigravity_terminal_fixture(id);
+            if !live {
+                state.sessions.lock().unwrap().remove(id);
+            }
+            let snapshot = || {
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .try_read_revisioned_session(id)
+                    .unwrap()
+                    .unwrap()
+            };
+            let before = snapshot();
+            SessionApplication::new(state.clone()).apply_idle_timeout(id, None);
+            let after = snapshot();
+            assert_eq!(after.revision, before.revision, "live={live}");
+            assert_eq!(
+                serde_json::to_value(after.metadata).unwrap(),
+                serde_json::to_value(before.metadata).unwrap()
+            );
+            if live {
+                assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn antigravity_peon_preserves_attention_before_native_activation() {
+        for incoming in ["waiting_for_input", "working", "idle"] {
+            let id = "antigravity-no-peon-prompt";
+            let (_root, state, _) = antigravity_terminal_fixture(id);
+            let app = SessionApplication::new(state.clone());
+            let inference = crate::peon::PeonInference {
+                observed_status: Some(incoming.into()),
+                phase: None,
+                summary: Some("Completed the fixture work".into()),
+                next_action: None,
+                needs_user_input: Some(true),
+                detected_question: Some("Choose?".into()),
+                suggested_options: Some(vec!["Alpha".into()]),
+                blocker_description: None,
+                failed_command: None,
+                failed_test: None,
+                capacity_hints: None,
+                confidence: 0.8,
+                detected_harness: None,
+                detected_model: None,
+                harness_session_id: None,
+                workflow_observations: Vec::new(),
+            };
+            assert!(
+                app.persist_peon_observation_for_test(
+                    id,
+                    Some(&inference),
+                    None,
+                    Some("Completed the fixture work"),
+                    &iso_now()
+                )
+                .inference_persisted
+            );
+            let workspace = state.workspace.lock().unwrap();
+            let saved = workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .read_session(id)
+                .unwrap();
+            assert_eq!(saved.observed_status, None, "{incoming}");
+            assert_eq!(saved.attention, None, "{incoming}");
+            assert_eq!(saved.needs_user_input, None);
+            assert_eq!(saved.detected_question, None);
+            assert_eq!(saved.suggested_options, None);
+            assert_eq!(saved.summary.as_deref(), Some("Completed the fixture work"));
+        }
+    }
+
+    #[test]
+    fn terminal_status_persists_manual_and_automatic_traces() {
+        use crate::runtime::terminal_status::{Reader, Status};
         let id = "terminal-status";
-        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let (_root, state, generation) = terminal_status_fixture(id);
         let app = SessionApplication::new(state.clone());
         let mut reader = Reader::default();
         for (frame, expected) in [
@@ -12688,7 +12951,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             ("state=clear", None),
         ] {
             for status in reader.feed(format!("\x1b]7501;{frame}\x07").as_bytes()) {
-                assert!(app.apply_codex_terminal_status(id, generation, status));
+                assert!(app.apply_terminal_status(id, generation, status));
             }
             assert_eq!(
                 state.sessions.lock().unwrap()[id].info.attention.as_deref(),
@@ -12705,62 +12968,32 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .unwrap();
             assert_eq!(saved.attention.as_deref(), expected);
         }
-        assert!(!app.apply_codex_terminal_status(id, generation + 1, Status::Blocked));
+        assert!(!app.apply_terminal_status(id, generation + 1, Status::Blocked));
         assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
     }
 
     #[test]
-    fn codex_terminal_status_never_replaces_explicit_attention_in_either_store() {
-        use crate::runtime::codex_terminal_status::Status;
-        for (source, origin) in [
-            ("agent", "direct_agent"),
-            ("agent", "native_codex"),
-            ("agent", "codex_terminal"),
-            ("user", "user"),
-            ("user", "codex_terminal"),
-        ] {
-            for live in [false, true] {
-                let id = "terminal-preserves-explicit";
-                let (_root, state, generation) = codex_terminal_status_fixture(id);
-                let app = SessionApplication::new(state.clone());
-                assert!(app.apply_codex_terminal_status(id, generation, Status::Blocked));
-                if live {
-                    let mut sessions = state.sessions.lock().unwrap();
-                    let info = &mut sessions.get_mut(id).unwrap().info;
-                    info.provenance.attention_source = Some(source.into());
-                    info.provenance.attention_origin = Some(origin.into());
-                } else {
-                    state
-                        .workspace
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap()
-                        .metadata
-                        .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
-                            meta.provenance.attention_source = Some(source.into());
-                            meta.provenance.attention_origin = Some(origin.into());
-                            meta.provenance.attention_updated_at =
-                                Some("2000-01-01T00:00:00Z".into());
-                            Ok(true)
-                        })
-                        .unwrap();
-                }
-                for status in [
-                    Status::Working,
-                    Status::Unknown,
-                    Status::Idle,
-                    Status::Failed,
-                ] {
-                    assert!(
-                        !app.apply_codex_terminal_status(id, generation, status),
-                        "{source}/{origin}, live={live}, status={status:?} must stay protected"
-                    );
-                    assert_eq!(
-                        state.sessions.lock().unwrap()[id].info.attention.as_deref(),
-                        Some("needs_you")
-                    );
-                    assert_eq!(
+    fn terminal_status_never_replaces_explicit_attention_in_either_store() {
+        for fixture in [terminal_status_fixture, antigravity_terminal_fixture] {
+            use crate::runtime::terminal_status::Status;
+            for (source, origin) in [
+                ("agent", "direct_agent"),
+                ("agent", "native_codex"),
+                ("agent", "codex_terminal"),
+                ("user", "user"),
+                ("user", "codex_terminal"),
+            ] {
+                for live in [false, true] {
+                    let id = "terminal-preserves-explicit";
+                    let (_root, state, generation) = fixture(id);
+                    let app = SessionApplication::new(state.clone());
+                    assert!(app.apply_terminal_status(id, generation, Status::Blocked));
+                    if live {
+                        let mut sessions = state.sessions.lock().unwrap();
+                        let info = &mut sessions.get_mut(id).unwrap().info;
+                        info.provenance.attention_source = Some(source.into());
+                        info.provenance.attention_origin = Some(origin.into());
+                    } else {
                         state
                             .workspace
                             .lock()
@@ -12768,24 +13001,56 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                             .as_ref()
                             .unwrap()
                             .metadata
-                            .read_session(id)
-                            .unwrap()
-                            .attention
-                            .as_deref(),
-                        Some("needs_you")
-                    );
+                            .mutate_session_optional(id, WriteScope::ATTENTION, |meta| {
+                                meta.provenance.attention_source = Some(source.into());
+                                meta.provenance.attention_origin = Some(origin.into());
+                                meta.provenance.attention_updated_at =
+                                    Some("2000-01-01T00:00:00Z".into());
+                                Ok(true)
+                            })
+                            .unwrap();
+                    }
+                    for status in [
+                        Status::Working,
+                        Status::Unknown,
+                        Status::Idle,
+                        Status::Failed,
+                    ] {
+                        assert!(
+                            !app.apply_terminal_status(id, generation, status),
+                            "{source}/{origin}, live={live}, status={status:?} must stay protected"
+                        );
+                        assert_eq!(
+                            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                            Some("needs_you")
+                        );
+                        assert_eq!(
+                            state
+                                .workspace
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .metadata
+                                .read_session(id)
+                                .unwrap()
+                                .attention
+                                .as_deref(),
+                            Some("needs_you")
+                        );
+                    }
                 }
             }
         }
     }
 
     #[test]
-    fn codex_terminal_status_clear_respects_explicit_source_with_retained_origin() {
-        use crate::runtime::codex_terminal_status::Status;
+    fn terminal_status_clear_respects_explicit_source_with_retained_origin() {
+        use crate::runtime::terminal_status::Status;
         let id = "terminal-retained-origin";
-        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let (_root, state, generation) = terminal_status_fixture(id);
         let app = SessionApplication::new(state.clone());
-        assert!(app.apply_codex_terminal_status(id, generation, Status::Blocked));
+        assert!(app.apply_terminal_status(id, generation, Status::Blocked));
         for source in ["agent", "user"] {
             // Legacy writers may change only the source and retain the old origin.
             state
@@ -12797,7 +13062,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .info
                 .provenance
                 .attention_source = Some(source.into());
-            assert!(!app.apply_codex_terminal_status(id, generation, Status::Unknown));
+            assert!(!app.apply_terminal_status(id, generation, Status::Unknown));
             assert_eq!(
                 state.sessions.lock().unwrap()[id].info.attention.as_deref(),
                 Some("needs_you")
@@ -12806,10 +13071,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn codex_terminal_status_supersedes_hook_and_ignores_late_permission_reports() {
-        use crate::runtime::codex_terminal_status::Status;
+    fn terminal_status_supersedes_hook_and_ignores_late_permission_reports() {
+        use crate::runtime::terminal_status::Status;
         let id = "terminal-late-hook";
-        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let (_root, state, generation) = terminal_status_fixture(id);
         let app = SessionApplication::new(state.clone());
         let hook = || AttentionMergeSignal {
             session_id: id.into(),
@@ -12837,7 +13102,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             state.sessions.lock().unwrap()[id].info.attention.as_deref(),
             Some("needs_you")
         );
-        assert!(app.apply_codex_terminal_status(id, generation, Status::Working));
+        assert!(app.apply_terminal_status(id, generation, Status::Working));
         assert_eq!(
             app.apply_attention_signal(hook()),
             Ok(metadata::AttentionMergeResult::Ignored)
@@ -12846,7 +13111,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             state.sessions.lock().unwrap()[id].info.attention.as_deref(),
             Some("working")
         );
-        assert!(app.apply_codex_terminal_status(id, generation, Status::Unknown));
+        assert!(app.apply_terminal_status(id, generation, Status::Unknown));
         assert_eq!(
             app.apply_attention_signal(hook()),
             Ok(metadata::AttentionMergeResult::Ignored)
@@ -12855,10 +13120,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn codex_terminal_status_rejects_ended_foreign_and_failed_persistence() {
-        use crate::runtime::codex_terminal_status::Status;
+    fn terminal_status_rejects_ended_foreign_and_failed_persistence() {
+        use crate::runtime::terminal_status::Status;
         let id = "terminal-invalid-runtime";
-        let (_root, state, generation) = codex_terminal_status_fixture(id);
+        let (_root, state, generation) = terminal_status_fixture(id);
         let app = SessionApplication::new(state.clone());
         for (harness, lifecycle) in [("codex", "dead"), ("claude-code", "alive")] {
             let mut sessions = state.sessions.lock().unwrap();
@@ -12866,7 +13131,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             info.harness_id = Some(harness.into());
             info.lifecycle = lifecycle.into();
             drop(sessions);
-            assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
+            assert!(!app.apply_terminal_status(id, generation, Status::Working));
         }
         state
             .sessions
@@ -12886,82 +13151,100 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .join(format!("{id}.json"));
         std::fs::create_dir(path.with_extension("json.write-blocked")).unwrap();
         drop(workspace);
-        assert!(!app.apply_codex_terminal_status(id, generation, Status::Working));
+        assert!(!app.apply_terminal_status(id, generation, Status::Working));
         assert!(state.sessions.lock().unwrap()[id].info.attention.is_none());
     }
 
     #[test]
-    fn codex_terminal_status_preserves_attention_during_peon_and_input_inference() {
-        use crate::runtime::codex_terminal_status::Status;
-        let id = "terminal-inference";
-        let (_root, state, generation) = codex_terminal_status_fixture(id);
-        let app = SessionApplication::new(state.clone());
-        for (status, expected) in [
-            (Status::Blocked, Some("needs_you")),
-            (Status::Working, Some("working")),
-            (Status::Unknown, None),
-            (Status::Failed, Some("failed")),
-        ] {
-            assert!(app.apply_codex_terminal_status(id, generation, status));
-            let inference = crate::peon::PeonInference {
-                observed_status: Some("working".into()),
-                phase: None,
-                summary: Some("Updated summary".into()),
-                next_action: None,
-                needs_user_input: Some(true),
-                detected_question: Some("Question?".into()),
-                suggested_options: None,
-                blocker_description: None,
-                failed_command: None,
-                failed_test: None,
-                capacity_hints: None,
-                confidence: 0.8,
-                detected_harness: None,
-                detected_model: None,
-                harness_session_id: None,
-                workflow_observations: Vec::new(),
-            };
-            let result = app.persist_peon_observation_for_test(
-                id,
-                Some(&inference),
-                None,
-                Some("Updated summary"),
-                &iso_now(),
-            );
-            assert!(result.inference_persisted);
-            assert!(!app.persist_process_transition(
-                id,
-                Some(generation),
-                crate::runtime::observed_status::ProcessTransition::CommittedWorking
-            ));
-            let saved = state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(id)
-                .unwrap();
-            assert_eq!(saved.attention.as_deref(), expected);
-            assert_eq!(saved.summary.as_deref(), Some("Updated summary"));
-            assert!(saved.detected_question.is_none());
-            assert_eq!(
-                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
-                expected
-            );
+    fn terminal_status_preserves_attention_during_peon_and_input_inference() {
+        for fixture in [terminal_status_fixture, antigravity_terminal_fixture] {
+            use crate::runtime::terminal_status::Status;
+            let id = "terminal-inference";
+            let (_root, state, generation) = fixture(id);
+            let app = SessionApplication::new(state.clone());
+            for (status, expected) in [
+                (Status::Blocked, Some("needs_you")),
+                (Status::Working, Some("working")),
+                (Status::Unknown, None),
+                (Status::Failed, Some("failed")),
+            ] {
+                assert!(app.apply_terminal_status(id, generation, status));
+                let inference = crate::peon::PeonInference {
+                    observed_status: Some("working".into()),
+                    phase: None,
+                    summary: Some("Updated summary".into()),
+                    next_action: None,
+                    needs_user_input: Some(true),
+                    detected_question: Some("Question?".into()),
+                    suggested_options: None,
+                    blocker_description: None,
+                    failed_command: None,
+                    failed_test: None,
+                    capacity_hints: None,
+                    confidence: 0.8,
+                    detected_harness: None,
+                    detected_model: None,
+                    harness_session_id: None,
+                    workflow_observations: Vec::new(),
+                };
+                let result = app.persist_peon_observation_for_test(
+                    id,
+                    Some(&inference),
+                    None,
+                    Some("Updated summary"),
+                    &iso_now(),
+                );
+                assert!(result.inference_persisted);
+                assert!(!app.persist_process_transition(
+                    id,
+                    Some(generation),
+                    crate::runtime::observed_status::ProcessTransition::CommittedWorking
+                ));
+                let saved = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap();
+                assert_eq!(saved.attention.as_deref(), expected);
+                assert_eq!(saved.summary.as_deref(), Some("Updated summary"));
+                assert!(saved.detected_question.is_none());
+                assert_eq!(
+                    state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                    expected
+                );
+            }
         }
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn codex_terminal_status_flows_through_real_pty() {
+    async fn terminal_status_flows_through_real_pty() {
+        terminal_status_pty_fixture(false, false).await;
+        terminal_status_pty_fixture(true, true).await;
+        terminal_status_pty_fixture(true, false).await;
+    }
+
+    #[cfg(unix)]
+    async fn terminal_status_pty_fixture(antigravity: bool, qualified: bool) {
         use crate::runtime::session_runtime::{
             start_session_runtime, RuntimeCommand, SessionRuntime,
         };
-        let id = "terminal-real-pty";
-        let (root, state, _) = codex_terminal_status_fixture(id);
-        let (runtime, control_rx) = SessionRuntime::live(24, 80);
+        let id = if antigravity {
+            "antigravity-real-pty"
+        } else {
+            "terminal-real-pty"
+        };
+        let (root, state, _) = if antigravity {
+            antigravity_terminal_fixture(id)
+        } else {
+            terminal_status_fixture(id)
+        };
+        let (mut runtime, control_rx) = SessionRuntime::live(24, 80);
+        runtime.terminal_status_fixture = antigravity && qualified;
         let control = runtime.control_tx.clone();
         let output = runtime.output_tx.clone();
         let mut events = output.subscribe();
@@ -12974,14 +13257,40 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         }
         // Fake emitter only: exercise production ingestion without launching a coding harness.
         let script = "import os, signal, tty\nsignal.alarm(10)\ntty.setraw(0)\nos.write(1, b'\\x1b]7501;state=blocked:app=codex:kind=permission\\x07BLOCKED')\nos.read(0,1)\nos.write(1, b'\\x1b]7501;state=working:app=codex\\x1b\\\\WORKING')\nos.read(0,1)";
-        start_session_runtime(
-            state.clone(),
-            id.into(),
+        let command = if antigravity {
+            use std::os::unix::fs::PermissionsExt;
+            let executable = root.path().join("fake-native-status");
+            let header = "#!/usr/bin/python3\nimport os, sys\nif '--version' in sys.argv:\n print('1.5.15'); sys.exit(0)\n";
+            let env_check = if qualified {
+                "assert os.environ.get('AGY_CLI_OSC7501') == 'on'\nassert os.environ.get('AGY_CLI_OSC7501_MESSAGES') == 'brief'\n"
+            } else {
+                ""
+            };
+            std::fs::write(
+                &executable,
+                format!(
+                    "{header}{env_check}{}",
+                    script.replace(":app=codex", ":app=antigravity")
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            harness::CommandSpec {
+                program: executable.to_str().unwrap().into(),
+                args: vec![],
+                cwd: root.path().display().to_string(),
+            }
+        } else {
             harness::CommandSpec {
                 program: "/usr/bin/python3".into(),
                 args: vec!["-u".into(), "-c".into(), script.into()],
                 cwd: root.path().display().to_string(),
-            },
+            }
+        };
+        start_session_runtime(
+            state.clone(),
+            id.into(),
+            command,
             None,
             control_rx,
             output,
@@ -12996,10 +13305,23 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         .await
         .unwrap();
         wait_for_pty_delivery_output(&mut events, "BLOCKED").await;
-        assert_eq!(
-            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
-            Some("needs_you")
-        );
+        let emitting = !antigravity || qualified;
+        if emitting {
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                Some("needs_you")
+            );
+        } else {
+            assert!(
+                !state.sessions.lock().unwrap()[id]
+                    .runtime
+                    .terminal_status_active
+            );
+            assert_ne!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                Some("needs_you")
+            );
+        }
         control
             .send(RuntimeCommand::Input {
                 data: "y".into(),
@@ -13008,24 +13330,26 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .await
             .unwrap();
         wait_for_pty_delivery_output(&mut events, "WORKING").await;
-        assert_eq!(
-            state.sessions.lock().unwrap()[id].info.attention.as_deref(),
-            Some("working")
-        );
-        assert_eq!(
-            state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .metadata
-                .read_session(id)
-                .unwrap()
-                .attention
-                .as_deref(),
-            Some("working")
-        );
+        if emitting {
+            assert_eq!(
+                state.sessions.lock().unwrap()[id].info.attention.as_deref(),
+                Some("working")
+            );
+            assert_eq!(
+                state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap()
+                    .attention
+                    .as_deref(),
+                Some("working")
+            );
+        }
         kill_tx.send(true).unwrap();
     }
 

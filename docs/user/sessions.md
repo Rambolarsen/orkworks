@@ -252,6 +252,13 @@ A status you set yourself, or one explicitly reported by an agent, remains
 protected. Peon still supplies summaries but does not infer **Needs You** from
 chat text for Codex and OpenCode.
 
+In current source builds, Antigravity hooks report **Working** and **Idle**.
+Peon continues summaries but preserves Antigravity attention, including during
+silence; it does not infer input waits from chat text. Native terminal status
+support is prepared but disabled pending qualification, so this change does not
+yet enable native **Needs You** for Antigravity. Existing waits resolve through
+ordinary session updates. Published installers may retain earlier behavior.
+
 In current source builds, the GitHub Copilot CLI integration recognizes
 permission and clarification prompts. Once it has reported a prompt, submitting
 your next prompt clears **Needs You** and shows working. Background-agent

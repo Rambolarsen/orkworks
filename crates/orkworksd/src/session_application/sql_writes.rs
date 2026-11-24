@@ -183,7 +183,7 @@ impl SessionWrites {
                     || handle.info.metadata_confidence != c.metadata_confidence
                     || handle.runtime.committed_input_sequence != c.committed_input_sequence
                     || handle.active_work_hook != c.active_work_hook
-                    || handle.runtime.codex_terminal_status_active != c.terminal_status_active
+                    || handle.runtime.terminal_status_active != c.terminal_status_active
                     || handle.runtime.active_prompt_kind != c.prompt_kind
                     || protected_permission(handle) != c.protected_permission
                     || !handle.runtime.control_tx.same_channel(&c.control)
@@ -255,7 +255,7 @@ impl SessionWrites {
                             metadata_confidence: h.info.metadata_confidence,
                             committed_input_sequence: h.runtime.committed_input_sequence,
                             active_work_hook: h.active_work_hook,
-                            terminal_status_active: h.runtime.codex_terminal_status_active,
+                            terminal_status_active: h.runtime.terminal_status_active,
                             prompt_kind: h.runtime.active_prompt_kind,
                             protected_permission: protected_permission(h),
                             prompt_authority: authority,
