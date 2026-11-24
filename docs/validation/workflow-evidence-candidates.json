@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 1,
+  "collectedAt": "2026-11-24T14:39:41.617125+00:00",
+  "source": "Authenticated GET /taskmaster/recommendations; read-only fixed-field snapshot",
+  "selection": "Exclude recommendation IDs in the frozen fourteen-case corpus, order newest supplied evidence time descending, take at most 24.",
+  "scope": "Candidate snapshots only. No independently adjudicated incident, raw capture or model output is supplied.",
+  "privacy": "Global packet-local source aliases; owner paths redacted; no native IDs, credentials, full prompts or transcripts.",
+  "cases": [
+    {
+      "id": "candidate-01",
+      "recommendationId": "recommendation-bf99d4de1aa9b2c9",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-2",
+        "source-8"
+      ],
+      "observedAt": [
+        "2026-11-20T05:11:30.963193+00:00",
+        "2026-11-23T21:48:10.178058+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: The worktree check could not access GitHub because the sandbox blocked its domain.",
+      "sampledEvidenceExcerpt": "Network access to \"cafe.github.com\" was blocked: domain is not on the allowlist for the current sandbox mode."
+    },
+    {
+      "id": "candidate-02",
+      "recommendationId": "recommendation-7334a696f267123a",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-9"
+      ],
+      "observedAt": [
+        "2026-11-19T05:06:15.151653+00:00",
+        "2026-11-19T05:12:09.009368+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: terminal input delay",
+      "sampledEvidenceExcerpt": "Fix terminal input delay | orkworks"
+    },
+    {
+      "id": "candidate-03",
+      "recommendationId": "recommendation-100ffb98b0e7c4bb",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-11",
+        "source-12",
+        "source-3",
+        "source-5"
+      ],
+      "observedAt": [
+        "2026-11-17T18:23:47.547264+00:00",
+        "2026-11-17T22:19:29.215140+00:00",
+        "2026-11-18T05:16:54.467514+00:00",
+        "2026-11-19T05:04:45.292011+00:00"
+      ],
+      "retainedEvidenceCount": 4,
+      "reportedImprovement": "Remove or document the obstacle: Fix application check hang",
+      "sampledEvidenceExcerpt": "Fix application check hang | orkworks"
+    },
+    {
+      "id": "candidate-04",
+      "recommendationId": "recommendation-3c52b5cf9644b26d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-1"
+      ],
+      "observedAt": [
+        "2026-11-18T06:37:59.864237+00:00",
+        "2026-11-18T06:37:59.873896+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: capacity",
+      "sampledEvidenceExcerpt": "capacity"
+    },
+    {
+      "id": "candidate-05",
+      "recommendationId": "recommendation-f62dcc65e9481622",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-10"
+      ],
+      "observedAt": [
+        "2026-11-18T06:01:31.789801+00:00",
+        "2026-11-18T06:20:30.866416+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: Mac load",
+      "sampledEvidenceExcerpt": "Mac load | orkworks"
+    },
+    {
+      "id": "candidate-06",
+      "recommendationId": "recommendation-1aad6cd873ec63f8",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-17T18:42:54.312935+00:00",
+        "2026-11-18T05:50:57.228514+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Replace the workaround with a supported path: issue #957 investigation",
+      "sampledEvidenceExcerpt": "Continue issue #957 investigation | orkworks"
+    },
+    {
+      "id": "candidate-07",
+      "recommendationId": "recommendation-88ad6d26ec467b2d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-18T05:48:30.094949+00:00",
+        "2026-11-18T05:48:30.117303+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Automate or remove repeated work: issue tracking",
+      "sampledEvidenceExcerpt": "Continue issue #957 investigation | orkworks"
+    },
+    {
+      "id": "candidate-08",
+      "recommendationId": "recommendation-ca55705d5af7022d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-1",
+        "source-4"
+      ],
+      "observedAt": [
+        "2026-09-14T10:01:41.466616+00:00",
+        "2026-11-18T05:32:07.860044+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: Duplicate source links found",
+      "sampledEvidenceExcerpt": "Consolidate duplicate source links"
+    },
+    {
+      "id": "candidate-09",
+      "recommendationId": "recommendation-cace6166ecdc1524",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-18T05:28:48.346464+00:00",
+        "2026-11-18T05:28:48.360084+00:00",
+        "2026-11-18T05:28:48.371134+00:00",
+        "2026-11-18T05:28:48.388112+00:00",
+        "2026-11-18T05:28:48.393383+00:00"
+      ],
+      "retainedEvidenceCount": 5,
+      "reportedImprovement": "Automate or remove repeated work: PR #1892",
+      "sampledEvidenceExcerpt": "PR #1892"
+    },
+    {
+      "id": "candidate-10",
+      "recommendationId": "recommendation-1af39b6e0a553460",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-7"
+      ],
+      "observedAt": [
+        "2026-11-17T18:25:25.792825+00:00",
+        "2026-11-17T19:45:31.095515+00:00",
+        "2026-11-17T20:12:34.238574+00:00",
+        "2026-11-17T20:36:40.890085+00:00",
+        "2026-11-17T22:44:17.428008+00:00"
+      ],
+      "retainedEvidenceCount": 5,
+      "reportedImprovement": "Prevent this recurring correction: Fix security findings",
+      "sampledEvidenceExcerpt": "Address GitHub security findings | orkworks"
+    },
+    {
+      "id": "candidate-11",
+      "recommendationId": "recommendation-e526c63cb2f6a302",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-7"
+      ],
+      "observedAt": [
+        "2026-11-17T20:13:05.931163+00:00",
+        "2026-11-17T22:43:26.109729+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Replace the workaround with a supported path: Address GitHub security findings",
+      "sampledEvidenceExcerpt": "Address GitHub security findings | orkworks"
+    },
+    {
+      "id": "candidate-12",
+      "recommendationId": "recommendation-270bfd72bb86d46d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-7"
+      ],
+      "observedAt": [
+        "2026-11-17T20:00:52.300129+00:00",
+        "2026-11-17T22:33:46.619634+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: GitHub security findings",
+      "sampledEvidenceExcerpt": "Address GitHub security findings | orkworks"
+    },
+    {
+      "id": "candidate-13",
+      "recommendationId": "recommendation-3ca45e8752377014",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-11"
+      ],
+      "observedAt": [
+        "2026-11-17T20:07:23.045113+00:00",
+        "2026-11-17T22:22:06.315250+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: orkworks",
+      "sampledEvidenceExcerpt": "Clean up | orkworks"
+    },
+    {
+      "id": "candidate-14",
+      "recommendationId": "recommendation-9976da9244e5e123",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-17T21:12:59.153823+00:00",
+        "2026-11-17T22:20:13.329717+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Automate or remove repeated work: Continue issue #957 investigation",
+      "sampledEvidenceExcerpt": "Continue issue #957 investigation | orkworks"
+    },
+    {
+      "id": "candidate-15",
+      "recommendationId": "recommendation-afb5149d9cde0cae",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3",
+        "source-8"
+      ],
+      "observedAt": [
+        "2026-11-17T21:52:44.154503+00:00",
+        "2026-11-17T22:19:29.223412+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Prevent this recurring correction: PR #1876",
+      "sampledEvidenceExcerpt": "PR #1876 is merged into main; cleaned branch toolbar-summary-hit-area and worktree [owner-path]"
+    },
+    {
+      "id": "candidate-16",
+      "recommendationId": "recommendation-ceed4eb6fc53bd4d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-17T18:24:35.174118+00:00",
+        "2026-11-17T18:24:35.182625+00:00",
+        "2026-11-17T18:24:35.189782+00:00",
+        "2026-11-17T18:24:35.195306+00:00",
+        "2026-11-17T18:24:35.203094+00:00",
+        "2026-11-17T18:33:11.068026+00:00",
+        "2026-11-17T18:33:11.077556+00:00",
+        "2026-11-17T19:24:40.812093+00:00",
+        "2026-11-17T19:46:19.459105+00:00",
+        "2026-11-17T20:26:57.813283+00:00",
+        "2026-11-17T20:29:36.047597+00:00",
+        "2026-11-17T21:04:01.925754+00:00"
+      ],
+      "retainedEvidenceCount": 12,
+      "reportedImprovement": "Remove or document the obstacle: investigation | orkworks",
+      "sampledEvidenceExcerpt": "Continue issue #957 investigation | orkworks"
+    },
+    {
+      "id": "candidate-17",
+      "recommendationId": "recommendation-ecab74707cbd72a1",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-17T20:52:38.262974+00:00",
+        "2026-11-17T20:52:38.275763+00:00",
+        "2026-11-17T20:52:38.284686+00:00",
+        "2026-11-17T20:52:38.291963+00:00",
+        "2026-11-17T20:52:38.298338+00:00"
+      ],
+      "retainedEvidenceCount": 5,
+      "reportedImprovement": "Prevent this recurring correction: no limit",
+      "sampledEvidenceExcerpt": "..."
+    },
+    {
+      "id": "candidate-18",
+      "recommendationId": "recommendation-57bb208818023ef9",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-3"
+      ],
+      "observedAt": [
+        "2026-11-17T20:18:50.886227+00:00",
+        "2026-11-17T20:18:50.895645+00:00",
+        "2026-11-17T20:18:50.902627+00:00",
+        "2026-11-17T20:18:50.909920+00:00",
+        "2026-11-17T20:18:50.919610+00:00"
+      ],
+      "retainedEvidenceCount": 5,
+      "reportedImprovement": "Remove or document the obstacle: owned branch removed",
+      "sampledEvidenceExcerpt": "8d564b4"
+    },
+    {
+      "id": "candidate-19",
+      "recommendationId": "recommendation-b77d6dbaaf359fb1",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-7"
+      ],
+      "observedAt": [
+        "2026-11-17T20:13:05.939049+00:00",
+        "2026-11-17T20:13:05.946413+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Automate or remove repeated work: Address GitHub security findings",
+      "sampledEvidenceExcerpt": "Address GitHub security findings | orkworks"
+    },
+    {
+      "id": "candidate-20",
+      "recommendationId": "recommendation-a69d757ac3fc5752",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-8"
+      ],
+      "observedAt": [
+        "2026-11-17T18:33:49.305866+00:00",
+        "2026-11-17T20:09:18.496354+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Replace the workaround with a supported path: application look",
+      "sampledEvidenceExcerpt": "Redesign application look | orkworks"
+    },
+    {
+      "id": "candidate-21",
+      "recommendationId": "recommendation-e337711bd8e48130",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-6"
+      ],
+      "observedAt": [
+        "2026-11-17T18:37:55.108131+00:00",
+        "2026-11-17T20:05:45.781744+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Replace the workaround with a supported path: Work on Finc suggestions",
+      "sampledEvidenceExcerpt": "Fix Finc suggestions | orkworks"
+    },
+    {
+      "id": "candidate-22",
+      "recommendationId": "recommendation-c9b71405a22ed869",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-6"
+      ],
+      "observedAt": [
+        "2026-11-17T19:31:00.249660+00:00",
+        "2026-11-17T19:31:00.260294+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: Rate limit exceeded",
+      "sampledEvidenceExcerpt": "Finc suggestions | orkworks"
+    },
+    {
+      "id": "candidate-23",
+      "recommendationId": "recommendation-2a2bc0f1a721b3e0",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-5"
+      ],
+      "observedAt": [
+        "2026-11-17T19:24:27.804505+00:00",
+        "2026-11-17T19:26:53.613832+00:00"
+      ],
+      "retainedEvidenceCount": 2,
+      "reportedImprovement": "Remove or document the obstacle: application check hang",
+      "sampledEvidenceExcerpt": "Fix application check hang | orkworks"
+    },
+    {
+      "id": "candidate-24",
+      "recommendationId": "recommendation-d55bdfbd3deb378d",
+      "recordKind": "recommendation-snapshot",
+      "statusAtRead": "proposed",
+      "sourceGroups": [
+        "source-5"
+      ],
+      "observedAt": [
+        "2026-11-17T18:55:15.435431+00:00",
+        "2026-11-17T18:56:06.658396+00:00",
+        "2026-11-17T19:02:57.474399+00:00",
+        "2026-11-17T19:25:08.626243+00:00"
+      ],
+      "retainedEvidenceCount": 4,
+      "reportedImprovement": "Remove or document the obstacle: application check hang",
+      "sampledEvidenceExcerpt": "Fix application check hang"
+    }
+  ]
+}
