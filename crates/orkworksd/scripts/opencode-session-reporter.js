@@ -140,10 +140,9 @@ export default {
     };
 
     const postAttention = async (event) => {
-      if (!identityDelivered) return;
+      if (!identityDelivered || controller.signal.aborted) return;
       const current = effectiveAttention();
       if (lastReported?.status === current.status && lastReported?.message === current.message) return;
-      lastReported = current;
       const port = process.env.ORKWORKS_PORT;
       const orkworksSessionId = process.env.ORKWORKS_SESSION_ID;
       const token = process.env.ORKWORKS_REPORT_TOKEN;
@@ -157,11 +156,31 @@ export default {
       const observedAt = new Date(Math.floor(micros / 1000))
         .toISOString().replace(/\.\d{3}Z$/, `.${fraction}Z`);
       const payload = { ...current, observedAt, source: 'opencode_hook', event };
-      await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/attention`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
+      // A failed response can follow a committed update; the earlier state is
+      // no longer safe to deduplicate until the current state is acknowledged.
+      lastReported = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (controller.signal.aborted) return;
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/sessions/${orkworksSessionId}/attention`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)]),
+            redirect: 'error',
+          });
+          await response.body?.cancel();
+          if (response.ok) {
+            lastReported = current;
+            return;
+          }
+          if (response.status !== 429 && response.status < 500) return;
+        } catch {
+          // Keep failed delivery eligible even when the effective state is unchanged.
+        }
+        if (controller.signal.aborted) return;
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 100));
+      }
     };
 
     const resetCaptureState = (harnessSessionId) => {

@@ -803,7 +803,10 @@ child exit still cancel pending delivery. Failed initial-prompt writes stop the 
 never sends the automatic Enter. Queued output is processed before a quiet-time
 deadline can dispatch input. Both readiness and quiet waiting have a hard
 10-second bound; overrides that never enable paste mode then use plain
-prompt-plus-Enter. Other harnesses retain plain input delivery.
+prompt-plus-Enter. New sessions using the default Antigravity launch pass
+nonblank text as one `--prompt-interactive` argument, so Antigravity owns the
+first submission and the PTY input queue skips it. Other harnesses retain plain
+input delivery.
 
 `electron/workspaceMemory.ts` persists the last workspace path and recent workspace directories to the Electron user data directory, enabling workspace restore on relaunch. The sidecar persists workspace-scoped state to `~/.orkworks/workspaces/<path-hash>/workspace.json`; Aider's versioned notification-command preference is separately stored at `integrations/aider.json`, so no repository Aider configuration is edited.
 
