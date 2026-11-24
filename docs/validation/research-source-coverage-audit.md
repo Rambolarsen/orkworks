@@ -305,7 +305,7 @@ Gate 2 remains **Investigate**.
 ## Physical-profile boundary acceptance — 2026-11-24
 
 Scoped owner acceptance of the merged physical-profile boundary contract
-recorded canonically in [#2035](https://github.com/Rambolarsen/orkworks/pull/2035)
+recorded canonically in [#2039](https://github.com/Rambolarsen/orkworks/pull/2039)
 (merged as the canonical
 [acceptance appendix](../superpowers/specs/2026-11-24-research-physical-profile-design.md#scoped-owner-acceptance--2026-11-24)):
 the owner answered "Accept all" on 2026-11-24, accepting the one-store/one-header
