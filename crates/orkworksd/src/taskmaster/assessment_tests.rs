@@ -344,7 +344,10 @@ print(json.dumps({'type':'turn.completed'}))
         }
     }
 
-    fn timeout_diagnostics(&self, record: Option<&AssessmentRecord>) -> serde_json::Value {
+    pub(crate) fn timeout_diagnostics(
+        &self,
+        record: Option<&AssessmentRecord>,
+    ) -> serde_json::Value {
         // Never wait on the worker's configuration lock while diagnosing a stall.
         let persistence_lock = match crate::taskmaster::runtime::PERSISTENCE_LOCK.try_lock() {
             Ok(_guard) => "available",

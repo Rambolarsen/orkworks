@@ -1127,13 +1127,8 @@ mod integration_tests {
                 schedule_mode(f.state.clone(), runtime.clone(), true).outcome,
                 "scheduled"
             );
-            assert_eq!(
-                combined_terminal(&f.workspace_root())
-                    .await
-                    .reason_code
-                    .as_deref(),
-                Some("no_proposal")
-            );
+            let parent = combined_terminal(&f.workspace_root()).await;
+            assert_combined_reason(&f, &parent, "no_proposal");
             let store = super::super::assessment_store::AssessmentStore::new(&f.workspace_root());
             if missing_source {
                 let mut record = store
@@ -1679,6 +1674,178 @@ mod integration_tests {
         }
         panic!("combined operation did not finish");
     }
+    fn assert_combined_reason(
+        fixture: &AssessmentFixture,
+        parent: &super::super::readiness_suggestions::SuggestionRun,
+        expected: &str,
+    ) {
+        assert_eq!(
+            parent.reason_code.as_deref(),
+            Some(expected),
+            "unexpected combined terminal: {}",
+            combined_terminal_diagnostics(fixture, parent)
+        );
+    }
+
+    fn combined_terminal_diagnostics(
+        fixture: &AssessmentFixture,
+        parent: &super::super::readiness_suggestions::SuggestionRun,
+    ) -> serde_json::Value {
+        let root = fixture.workspace_root();
+        let store = ReadinessStore::new(&root);
+        let readiness = store.run();
+        let assessment = super::super::assessment_store::AssessmentStore::new(&root)
+            .load::<super::super::assessment_report::AssessmentRecord>();
+        let child = readiness.as_ref().ok().and_then(|run| run.as_ref());
+        // Persisted error_code is a string, not an enum. Emit only known fixed
+        // stage/cause categories; never include an unknown value or read error.
+        let error_code = child.and_then(|run| run.error_code.as_deref()).map(|code| {
+            if code == "interrupted" {
+                return code;
+            }
+            let known = code.split_once('_').is_some_and(|(stage, cause)| {
+                matches!(stage, "discovery" | "evidence" | "scoring" | "publication")
+                    && matches!(
+                        cause,
+                        "inputs_changed"
+                            | "metadata_unavailable"
+                            | "prompt_limit"
+                            | "provider_timeout"
+                            | "provider_authentication"
+                            | "provider_model"
+                            | "provider_unsupported"
+                            | "provider_request"
+                            | "provider_unavailable"
+                            | "invalid_prose"
+                            | "invalid_citations"
+                            | "invalid_rating"
+                            | "invalid_response"
+                            | "evidence_unavailable"
+                            | "evidence_limit"
+                    )
+            });
+            if known {
+                code
+            } else {
+                "unrecognized"
+            }
+        });
+        serde_json::json!({
+            "parentState": parent.state,
+            "parentPhase": parent.phase,
+            "hasRecommendation": parent.recommendation_id.is_some(),
+            "readinessReadable": readiness.is_ok(),
+            "readinessState": child.map(|run| &run.state),
+            "readinessPhase": child.and_then(|run| run.phase.as_ref()),
+            "readinessMatchesParent": child.map(|run| Some(&run.id) == parent.readiness_run_id.as_ref()),
+            "readinessErrorCode": error_code,
+            "readinessPublished": store.history().ok().map(|history| history.snapshots.iter()
+                .any(|snapshot| Some(&snapshot.id) == parent.readiness_run_id.as_ref())),
+            "assessmentReadable": assessment.is_ok(),
+            "assessment": fixture.timeout_diagnostics(assessment.as_ref().ok().and_then(|record| record.as_ref())),
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unexpected_combined_terminal_retains_scoring_diagnostics_without_payloads() {
+        let (f, runtime) = production_fixture("no_proposal");
+        std::fs::write(
+            f.dir.path().join("provider-response.readiness-final"),
+            "private response /secret/account token-sentinel",
+        )
+        .unwrap();
+        assert_eq!(
+            schedule_mode(f.state.clone(), runtime, true).outcome,
+            "scheduled"
+        );
+        let parent = combined_terminal(&f.workspace_root()).await;
+        assert_eq!(parent.reason_code.as_deref(), Some("scoring_failed"));
+        let before = std::fs::read(f.workspace_root().join("readiness-run.json")).unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_combined_reason(&f, &parent, "no_proposal");
+        }))
+        .expect_err("the original terminal assertion must still fail");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap();
+        assert!(message.contains("scoring_invalid_response"), "{message}");
+        let snapshot: serde_json::Value = serde_json::from_str(
+            message
+                .split_once("unexpected combined terminal: ")
+                .unwrap()
+                .1
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(snapshot["readinessState"], "failed");
+        assert_eq!(snapshot["readinessMatchesParent"], true);
+        assert_eq!(snapshot["readinessPublished"], false);
+        assert_eq!(snapshot["assessment"]["providerCalls"], 2);
+        assert_eq!(snapshot["assessment"]["analysisLease"], "available");
+        for private in ["private response", "/secret/account", "token-sentinel"] {
+            assert!(!message.contains(private));
+        }
+        assert_eq!(
+            before,
+            std::fs::read(f.workspace_root().join("readiness-run.json")).unwrap()
+        );
+    }
+
+    #[test]
+    fn combined_terminal_diagnostics_exclude_unknown_errors_and_preserve_held_locks() {
+        let f = AssessmentFixture::new();
+        let root = f.workspace_root();
+        let store = ReadinessStore::new(&root);
+        let mut child = Run::queued();
+        child.finish(
+            RunState::Failed,
+            Some("scoring_private response /secret/account token-sentinel"),
+        );
+        store.save_run(&child).unwrap();
+        let mut parent = super::super::readiness_suggestions::SuggestionRun::queued(&child.id);
+        parent.finish(RunState::Failed, "scoring_failed");
+        let before = std::fs::read(root.join("readiness-run.json")).unwrap();
+        let runtime = TaskmasterRuntime::open(f.runtime_root.clone());
+        let lease = runtime.try_analysis_lease().unwrap().unwrap();
+        let persistence = super::super::runtime::PERSISTENCE_LOCK.lock().unwrap();
+        let snapshot = combined_terminal_diagnostics(&f, &parent);
+        drop(persistence);
+        // Diagnose without releasing or replacing the worker's analysis lease.
+        let lease_still_held = runtime.try_analysis_lease().unwrap().is_none();
+        drop(lease);
+        assert!(lease_still_held);
+        assert_eq!(snapshot["readinessErrorCode"], "unrecognized");
+        assert_eq!(snapshot["assessment"]["analysisLease"], "held");
+        assert_eq!(snapshot["assessment"]["persistenceLock"], "held");
+        assert_eq!(
+            before,
+            std::fs::read(root.join("readiness-run.json")).unwrap()
+        );
+        for name in [
+            "readiness-run.json",
+            "readiness-history.json",
+            "assessment.json",
+        ] {
+            std::fs::write(
+                root.join(name),
+                "private response /secret/account token-sentinel",
+            )
+            .unwrap();
+        }
+        let unavailable = combined_terminal_diagnostics(&f, &parent);
+        assert_eq!(unavailable["readinessReadable"], false);
+        assert_eq!(unavailable["assessmentReadable"], false);
+        assert!(unavailable["readinessPublished"].is_null());
+        for private in ["private response", "/secret/account", "token-sentinel"] {
+            assert!(!snapshot.to_string().contains(private));
+            assert!(!unavailable.to_string().contains(private));
+        }
+    }
+
     fn production_fixture(outcome: &str) -> (AssessmentFixture, Arc<TaskmasterRuntime>) {
         let f = AssessmentFixture::new();
         f.prepare_response(outcome);
