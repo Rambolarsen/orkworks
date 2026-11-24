@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 pub(crate) mod advice_protocol;
+pub(crate) mod api_auth;
 pub(crate) mod harness_handlers;
 pub(crate) mod inference_trust_handlers;
 pub(crate) mod integration_handlers;

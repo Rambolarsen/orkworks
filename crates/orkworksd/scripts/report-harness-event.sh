@@ -95,7 +95,9 @@ print(((ti.get("file_path") if isinstance(ti, dict) else None) or "") if isinsta
             # JSON string literal. json.dumps escapes the full set.
             plan_path_payload="$(python3 -c 'import json,sys; print(json.dumps({"planPath": sys.argv[1]}, separators=(",", ":")))' "$file_path" 2>/dev/null)" || true
             if [ -n "$plan_path_payload" ]; then
-              curl -sS --max-time 5 --connect-timeout 2 -X POST \
+              # The token travels on stdin so it never appears in argv.
+              printf '%b' "header = \"Authorization: Bearer ${ORKWORKS_REPORT_TOKEN:-}\"\n" |
+              curl --config - -sS --max-time 5 --connect-timeout 2 -X POST \
                 "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/plan-path" \
                 -H "Content-Type: application/json" \
                 -d "$plan_path_payload" >/dev/null || true
@@ -376,7 +378,8 @@ print(json.dumps(payload))
 ' "$status" "$observed_at" "$reported_cwd" "$session_source" "$event" "$hook_fingerprint")"
   attention_post_kind="posted"
   attention_curl_exit=0
-  attention_http_status=$(reporter_curl -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
+  attention_http_status=$(printf '%b' "header = \"Authorization: Bearer ${ORKWORKS_REPORT_TOKEN:-}\"\n" |
+    reporter_curl --config - -sS --max-time 5 --connect-timeout 2 -X POST "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/attention" \
     -H "Content-Type: application/json" \
     -d "$attention_payload" --output /dev/null --write-out '%{http_code}') || attention_curl_exit=$?
 elif [ "$native_approval_spooled" != "yes" ] && [ "$session_source" = "codex_hook" ] && [ "$codex_attention" = "yes" ]; then

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { backendFetch } from "../backendAccess.ts";
 import WorkspaceAlerts from "./WorkspaceAlerts";
 import { workspaceHookNotices, type GroupedIntegrationStatus } from "../harnessIntegrationPresentation";
 
@@ -28,7 +29,7 @@ export default function WorkspaceHookNotice({ activeHarnessIds, settingsOpen, on
       try {
         const baseUrl = await window.orkworks.getBackendUrl();
         if (controller.signal.aborted) return;
-        const response = await fetch(baseUrl + "/workspace/integrations", { signal: controller.signal });
+        const response = await backendFetch(baseUrl + "/workspace/integrations", { signal: controller.signal });
         if (!response.ok) throw new Error("Workspace integration status unavailable");
         const groups = await response.json() as GroupedIntegrationStatus[];
         if (controller.signal.aborted) return;

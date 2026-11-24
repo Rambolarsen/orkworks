@@ -2850,6 +2850,9 @@ if (process.versions.electron) {
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
               requestPlanReview:async (id,kind,selectionId)=>{fixture.prompts++;fixture.promptSession=id;fixture.promptKind=kind;fixture.promptSelectionId=selectionId;await new Promise((resolve,reject)=>{fixture.finishPrompt=resolve;fixture.rejectPrompt=reject})},
             });
+            if (${scenario === 'app-workspace-hook-notice'}) {
+              window.orkworks.getBackendToken=()=>"hook-notice-test-token";
+            }
             if (${scenario === 'app-session-attention-alerts'}) {
               window.orkworks.saveDesktopSessionNotifications=async enabled=>{fixture.desktopEnabled=enabled};
               window.orkworks.showSessionAttentionNotification=id=>new Promise(complete=>fixture.desktopAlerts.push({id,complete}));
@@ -2881,6 +2884,7 @@ if (process.versions.electron) {
               if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if(${javascriptLiteral(scenario)}==='app-startup-composer'&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/workspace/integrations' && ${scenario === 'app-workspace-hook-notice'}) {
+                if(new Headers(options.headers).get("x-orkworks-renderer-token")!=="hook-notice-test-token")return {ok:false,status:401};
                 const state=fixture.hookState??"drifted";
                 fixture.hookReads=(fixture.hookReads??0)+1;
                 const group=state=>({

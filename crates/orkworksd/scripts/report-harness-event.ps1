@@ -48,6 +48,7 @@ if ($ReportPlanPath) {
                     if ($isMarkdown -and ($inSpecsDir -or $inPlansDir -or $inSuperpowerSpecs)) {
                         $body = @{ planPath = $file } | ConvertTo-Json -Compress
                         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/plan-path" `
+                            -Headers @{ Authorization = "Bearer $($env:ORKWORKS_REPORT_TOKEN)" } `
                             -ContentType "application/json" -Body $body -TimeoutSec 5 | Out-Null
                     }
                 }
@@ -385,6 +386,7 @@ if (-not $nativePermissionSpooled -and -not $codexCaptureOnly -and $sessionId -a
         }
         $attentionBody = $attention | ConvertTo-Json -Compress
         Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/sessions/$sessionId/attention" `
+            -Headers @{ Authorization = "Bearer $($env:ORKWORKS_REPORT_TOKEN)" } `
             -ContentType "application/json" -Body $attentionBody -TimeoutSec 5 | Out-Null
         $attentionPostKind = "posted"
     } catch {

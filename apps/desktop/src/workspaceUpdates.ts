@@ -1,3 +1,4 @@
+import { openBackendSocket } from "./backendAccess.ts";
 import type { SessionInfo } from "./api.ts";
 import type { PollScheduler } from "./sessionPolling.ts";
 
@@ -173,7 +174,7 @@ export function startWorkspaceUpdates(options: Options): { dispose(): void; resy
       const url = new URL("/workspace/updates", base); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       url.searchParams.set("workspace", options.workspacePath);
       url.searchParams.set("capability", capability);
-      const candidate = (options.createSocket ?? (url => new WebSocket(url)))(url.toString());
+      const candidate = (options.createSocket ?? openBackendSocket)(url.toString());
       socket = candidate;
       const state = createStreamState(options.workspacePath);
       const expire = () => {

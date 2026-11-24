@@ -235,6 +235,7 @@ mod tests {
             "ORKWORKS_REPORT_TOKEN",
             "ORKWORKS_PORT",
             "ORKWORKS_OPEN_PLAN_TOKEN",
+            "ORKWORKS_RENDERER_TOKEN",
             "ORKWORKS_CODEX_SESSION_REPORT_DIR",
             "OrKwOrKs_RePoRt_ToKeN",
             "NODE_OPTIONS",

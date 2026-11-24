@@ -318,7 +318,7 @@ fn ensure_recommendation_handoff_contract(
         || !prompt.contains(&completion_route)
     {
         prompt.push_str(&format!(
-            "\n\nTaskmaster handoff requirements: before acting, read the authoritative recommendation from {recommendation_route}. Follow the repository skill `working-on-recommendation` and inspect its source sessions. Work only in the current session. After acting, verify the change, then report completion by {completion_route} with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark the recommendation complete before verification."
+            "\n\nTaskmaster handoff requirements: before acting, read the authoritative recommendation from {recommendation_route} with Authorization: Bearer $ORKWORKS_REPORT_TOKEN. Follow the repository skill `working-on-recommendation` and inspect its source sessions. Work only in the current session. After acting, verify the change, then report completion by {completion_route} with Authorization: Bearer $ORKWORKS_REPORT_TOKEN and an optional JSON summary. Do not mark the recommendation complete before verification."
         ));
     }
     format!("{prompt}\r")

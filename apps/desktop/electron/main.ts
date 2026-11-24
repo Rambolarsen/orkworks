@@ -34,7 +34,7 @@ import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan, useLatestPlanDocument, resetSavedPlanDocuments, validatePlanRecoveryId, validatePlanDocumentKind, validatePlanSelectionId } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
 import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
-import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody } from "./sidecarClient";
+import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody, setSidecarRendererToken, sidecarAccessHeaders } from "./sidecarClient";
 import { channelForVersion, createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
 import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
 import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse, sameWorkspaceIdentity } from "./workspaceRestore";
@@ -91,6 +91,10 @@ let providerModels = new Map<string, { models: string[]; modelOptions?: import("
 const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; observedAt: string }>();
 let hotkeyCaptureActive = false;
 let openPlanToken = "";
+// Lower-privilege credential for the renderer and ordinary main-process calls
+// (ADR 0117). It lives for this app run; openPlanToken stays main-only.
+const rendererToken = randomBytes(32).toString("hex");
+setSidecarRendererToken(rendererToken);
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 const menuPanelIds = ["sessions", "detail", "terminal", "recommendations"];
 
@@ -902,7 +906,11 @@ app.whenReady().then(async () => {
         writeSettings(app.getPath("userData"), nextSettings);
         currentSettings = nextSettings;
       }
-      const abortableFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal });
+      const abortableFetch: typeof fetch = (input, init) => {
+        const headers = new Headers(init?.headers);
+        for (const [name, value] of Object.entries(sidecarAccessHeaders())) headers.set(name, value);
+        return fetch(input, { ...init, headers, signal });
+      };
       const result = await pushProviderSettings(
         sidecarUrl(port),
         normalizedProviders,
@@ -1018,7 +1026,7 @@ app.whenReady().then(async () => {
       const child = spawn(binaryPath, [], {
         cwd,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken },
+        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken, ORKWORKS_RENDERER_TOKEN: rendererToken },
       });
       child.stderr?.on("data", (data: Buffer) => {
         console.error(`[orkworksd:err] ${data.toString().trim()}`);
@@ -1160,6 +1168,11 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("get-backend-lifecycle", () => {
     return latestBackendLifecycle;
+  });
+
+  ipcMain.on("get-backend-token-sync", (event) => {
+    // Only the application window's top-level document may hold the credential.
+    event.returnValue = mainWindow !== null && event.senderFrame === mainWindow.webContents.mainFrame ? rendererToken : "";
   });
 
   ipcMain.handle("get-backend-url", async () => {

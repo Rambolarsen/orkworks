@@ -147,6 +147,8 @@ declare global {
     orkworks: {
       platform: string;
       getBackendUrl: () => Promise<string>;
+      /** Renderer credential for the sidecar API; absent in fixtures. */
+      getBackendToken?: () => string;
       createSessionWithImages: (baseUrl: string, options: import("./harnessTypes").CreateSessionOptions) => Promise<import("./api").SessionInfo>;
       retryBackend: () => Promise<BackendRetryResult>;
       getUpdateStatus: () => Promise<UpdateStatus>;

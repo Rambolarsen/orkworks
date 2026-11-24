@@ -187,3 +187,38 @@ test("an invalid enrichment batch cannot partly update valid rows or advance its
   const result = state.apply({ ...header, type: "session-enrichment-delta", base: 0, sequence: 1, changed: [good] });
   assert.equal(result.sessions?.[0].branch, "new");
 });
+
+test("workspace subscription offers its renderer credential and requests the split stream", async () => {
+  const calls: Array<{ url: URL; protocols: string[] }> = [];
+  const originalSocket = globalThis.WebSocket;
+  globalThis.WebSocket = class {
+    constructor(url: string, protocols: string[]) {
+      calls.push({ url: new URL(url), protocols });
+    }
+    close() {}
+  } as unknown as typeof WebSocket;
+  const globals = globalThis as Record<string, unknown>;
+  const originalWindow = Object.getOwnPropertyDescriptor(globals, "window");
+  Object.defineProperty(globals, "window", {
+    configurable: true,
+    value: Object.assign(new EventTarget(), { orkworks: { getBackendToken: () => "fixture-token" } }),
+  });
+  const stream = startWorkspaceUpdates({
+    workspacePath: "/workspace",
+    getBackendUrl: async () => "http://localhost:1234",
+    onSessions() {},
+    onHealthy() {},
+    onRecommendationsInvalidated() {},
+  });
+  try {
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url.searchParams.get("capability"), "status-enrichment-v1");
+    assert.deepEqual(calls[0].protocols, ["orkworks.v1", "orkworks.token.fixture-token"]);
+  } finally {
+    stream.dispose();
+    globalThis.WebSocket = originalSocket;
+    if (originalWindow) Object.defineProperty(globals, "window", originalWindow);
+    else delete globals.window;
+  }
+});

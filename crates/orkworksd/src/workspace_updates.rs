@@ -104,23 +104,7 @@ pub(crate) async fn invalidate_mutations(
     response
 }
 
-fn origin_allowed(origin: Option<&str>) -> bool {
-    let Some(origin) = origin else {
-        return true;
-    }; // Native clients have no browser Origin.
-    if origin == "null" {
-        return true;
-    } // Packaged file renderer.
-    url::Url::parse(origin).is_ok_and(|url| {
-        url.scheme() == "http"
-            && url.username().is_empty()
-            && url.password().is_none()
-            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-            && url.path() == "/"
-            && url.query().is_none()
-            && url.fragment().is_none()
-    })
-}
+use crate::http::api_auth::{origin_allowed, WEBSOCKET_PROTOCOL};
 
 #[derive(Deserialize)]
 pub(crate) struct Subscription {
@@ -151,7 +135,8 @@ pub(crate) async fn subscribe(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    ws.max_message_size(4096)
+    ws.protocols([WEBSOCKET_PROTOCOL])
+        .max_message_size(4096)
         .on_upgrade(move |socket| async move {
             if query.capability.is_some() {
                 split::run(socket, state, workspace, root).await
@@ -457,10 +442,9 @@ mod tests {
         }
         metadata
     }
-    async fn serve(state: Arc<AppState>) -> (tokio::task::JoinHandle<()>, std::net::SocketAddr) {
+    async fn serve(app: axum::Router) -> (tokio::task::JoinHandle<()>, std::net::SocketAddr) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let app = crate::build_router(state);
         (
             tokio::spawn(async move {
                 axum::serve(listener, app).await.unwrap();
@@ -609,17 +593,28 @@ mod tests {
 
     #[tokio::test]
     async fn negotiated_socket_receives_capability_and_status_only_updates() {
+        use axum::http::header::{ORIGIN, SEC_WEBSOCKET_PROTOCOL};
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
         let directory = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(directory.path());
         let metadata = seed_sessions(&state, directory.path(), 4);
-        let (server, address) = serve(state.clone()).await;
+        let access = crate::http::api_auth::ApiAccess::enforced("fixture-token".into());
+        let (server, address) = serve(crate::build_router_with_access(state.clone(), access)).await;
         let mut url = url::Url::parse(&format!("ws://{address}/workspace/updates")).unwrap();
         url.query_pairs_mut()
             .append_pair("workspace", &directory.path().display().to_string())
             .append_pair("capability", "status-enrichment-v1");
-        let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
-            .await
-            .unwrap();
+        let mut request = url.as_str().into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert(ORIGIN, "file://".parse().unwrap());
+        request.headers_mut().insert(
+            SEC_WEBSOCKET_PROTOCOL,
+            "orkworks.v1, orkworks.token.fixture-token".parse().unwrap(),
+        );
+        let (mut socket, response) = tokio_tungstenite::connect_async(request).await.unwrap();
+        assert_eq!(response.headers()[SEC_WEBSOCKET_PROTOCOL], "orkworks.v1");
         let snapshot = next_json(&mut socket).await;
         assert_eq!(snapshot["capability"], "status-enrichment-v1");
         let mut record = metadata
