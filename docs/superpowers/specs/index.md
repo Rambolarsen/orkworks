@@ -6,7 +6,7 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [Pair build provenance and startup custody](2026-11-24-pair-build-startup-design.md) — Proposed shared SQLite feature undefinition and early process bootstrap; owner decision and qualification pending.
+- [Pair build provenance and startup custody](2026-11-24-pair-build-startup-design.md) — Accepted shared candidate feature undefinition and early bootstrap custody; actual build/startup qualification and execution pending.
 
 - [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Accepted owned file-length and fixed-arena capacities with total host costs excluded; physical qualification and execution pending.
 

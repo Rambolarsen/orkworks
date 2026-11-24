@@ -31,6 +31,18 @@ same-worker/PairCore, rooted identity, deletion, no-spill, ABI/provenance/escape
 startup/unpaired behavior and independent authority/recovery/durability gates
 remain binding. The amendment changes requirements, not implementation status.
 
+## Current candidate build/startup contract — 2026-11-24
+
+The [accepted build/startup refinement](2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24)
+and [ADR 0119](../../adr/0119-pair-build-startup-custody.md) select a future shared
+Windows x64 MSVC candidate with SQLITE_ENABLE_MEMORY_MANAGEMENT undefined and
+one private bootstrap after Git-scan dispatch/before Tokio. The flag changes
+ordinary memory reclamation too; its actual artifact and Codex/OpenCode/ordinary
+compatibility must be qualified. It is not enabled in the current source by this
+decision. The reviewed getter-default-fill/retained-failure recipe governs the
+early router; GETPCACHE2 is omitted. Existing architecture/resource choices stay
+accepted and all implementation/native/source/activation gates remain binding.
+
 ## Proposed decision
 
 The [namespace/resource audit](../../validation/windows-pair-namespace-resource-audit.md)
@@ -384,3 +396,14 @@ separates controlled-operation coverage, offline accounting/arena checks, actual
 native behavior and production authority/activation. Host costs can exceed the
 named capacities. No new native/compiler/model execution allowance, backend
 implementation or runtime activation follows. The candidate remains unqualified.
+
+## Build/startup choice accepted — 2026-11-24
+
+The owner accepted the [exact #2043 shared flag/startup package](2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24)
+for further qualification, recorded in ADR 0119. The canonical recipe closes the
+new design choice around default PGroup recycling; it is not observed enforcement
+or permission to assume a compiled build is qualified. Actual effective macro/
+feature/toolchain/artifact identity, startup configuration custody, allocator/
+cache/lookaside provenance, unpaired behavior and original-owner/native outcomes
+still need their prescribed evidence. No repeat approval of these exact choices,
+source-factory bypass, execution-budget renewal or runtime activation follows.

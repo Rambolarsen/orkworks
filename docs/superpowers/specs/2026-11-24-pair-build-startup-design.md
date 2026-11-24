@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Pair build provenance and process startup allocator custody
-description: Proposed shared SQLite build-flag amendment and early bootstrap recipe closing default page-cache recycling and startup ownership gaps; owner acceptance and execution remain pending.
+description: Owner-accepted shared candidate build-flag and early bootstrap recipe for further qualification; actual artifact, startup behavior and execution remain unqualified.
 tags: [orkworks, hierarchy, sqlite, windows, startup, qualification]
 status: draft
-workflow_status: proposed-owner-decision-pending
+workflow_status: accepted-qualification-pending
 ---
 
 # Pair build provenance and process startup allocator custody
@@ -13,6 +13,11 @@ Tracking: [#1176](https://github.com/Rambolarsen/orkworks/issues/1176). Source b
 `5df223cbcbb23d58b4e4035021e750fe37a19ea0`. This writes a concrete recipe, not an
 instantiated reproducible artifact or an already installed bootstrap. Merge
 publishes the proposal; it does not accept the new global build choice.
+
+Current decision: [scoped acceptance](#scoped-build-and-startup-acceptance--2026-11-24)
+accepts the exact build/startup choices below for further qualification. Earlier
+proposed/pending language records the reviewed design, not a remaining approval
+requirement. No compiler flag or bootstrap is enabled by this record.
 
 ## Proposed decision and scope
 
@@ -248,3 +253,31 @@ non-arena-growth/unknown-provenance rule explicit; it is not a new fallback.
 No second independent review of the author clarification is claimed. Root is sole
 writer; maximum three active agents, one review round. Review/merge does not
 accept the new global feature change. Gate 1 remains Investigate; #1176 stays open.
+
+## Scoped build and startup acceptance — 2026-11-24
+
+After reviewed [#2043](https://github.com/Rambolarsen/orkworks/pull/2043), head
+`ff07e3d64e84236da5d876f10aae865b72d8b0af`, merge
+`67fa53ea45b5a1fafc4bdb2b84b9f34b631117d2`, the owner answered “keep going” to the
+explicit question approving **this shared build-flag change and startup recipe
+for further qualification**. Acceptance covers the candidate input
+`LIBSQLITE3_FLAGS=-USQLITE_ENABLE_MEMORY_MANAGEMENT`, its effective macro-absence
+and ordinary memory-reclamation consequences, pre-Tokio bootstrap placement,
+configuration custody and the reviewed getter-default-fill/retained-failure
+phases. GETPCACHE2 remains omitted. This is not proof of the compiled artifact,
+actual startup behavior, unpaired compatibility or complete allocation coverage.
+
+[ADR 0119](../../adr/0119-pair-build-startup-custody.md) records the scoped build
+selection and startup refinement. The VFS/router/worker/PairCore architecture,
+ADR 0118 capacities and all lower/source/cutoff/newness/catalog/initializer/
+recovery/durability/activation gates remain binding. No repeat acceptance of the
+unchanged choices or this exact flag/recipe is needed. Custom PCACHE2/private
+SQLite-copy alternatives and additional defaults remain unselected.
+
+No flag, SQLite configuration, bootstrap code, metadata retry, compiler/native/
+model/database/SQL probe, renewed budget, migration, source registration or
+runtime activation is authorized or performed by this acceptance record. The
+[qualification plan](../plans/2026-11-24-pair-resource-assurance-qualification.md)
+remains Investigate before execution. A bounded private fake-API implementation
+plan may be prepared; its execution still needs source closure and the applicable
+slice authorization, not another acceptance of unchanged architecture.
