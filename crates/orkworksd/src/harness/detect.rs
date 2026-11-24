@@ -691,6 +691,7 @@ mod tests {
         assert_eq!(parse_version_token("tool 1.2.3+build.5"), None);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn probe_tool_version_returns_combined_stdout_and_stderr() {
         use crate::test_support::make_test_executable;
@@ -769,6 +770,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     fn write_silent_exit_fixture(bin: &Path) {
         std::fs::write(
             bin,
@@ -816,6 +818,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn probe_tool_version_returns_empty_text_for_a_silent_nonzero_exit() {
         let dir = tempfile::tempdir().unwrap();
