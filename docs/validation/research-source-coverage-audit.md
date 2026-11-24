@@ -302,3 +302,21 @@ no component packet, executable codec, migration, probe budget, adapter or
 activation follows. #1689/#1089/#610 stay open; #740 stays closed research.
 Gate 2 remains **Investigate**.
 
+## Physical-profile boundary acceptance — 2026-11-24
+
+Scoped owner acceptance of the merged physical-profile boundary contract
+recorded canonically in [#2035](https://github.com/Rambolarsen/orkworks/pull/2035)
+(merged as the canonical
+[acceptance appendix](../superpowers/specs/2026-11-24-research-physical-profile-design.md#scoped-owner-acceptance--2026-11-24)):
+the owner answered "Accept all" on 2026-11-24, accepting the one-store/one-header
+model with H-preserving additive admission, format 7 with per-manifest
+own-domain validation across schemaVersions 3–7 and a superset reader, the
+physical name/key/index mapping with all costs counted, the proof/recovery
+representation, and the written limit-accounting boundary — **for written
+physical-profile boundary work only**.
+
+The scope boundary stays explicit: no physical qualification, no executable
+codec, no component packet, no migration, probe budget, adapter or activation
+follows; the pair-resource-assurance owner decision remains separate. Gate 2
+remains **Investigate**. #1689/#1089/#610 stay open; #740 stays closed
+research.

@@ -326,3 +326,37 @@ execution launch chain, component packets, writer coverage and separately
 approved implementation plans remain open.
 #1689/#1089/#610 stay open; #740 stays closed research. Gate 2 remains
 **Investigate**.
+
+## Scoped owner acceptance — 2026-11-24
+
+After PR [#2033](https://github.com/Rambolarsen/orkworks/pull/2033) merged as
+`72c0fc4deb4ca650c66c0ebff30c7504f80a68ed` and the review/verification
+evidence above was presented, the owner answered **“Accept all”** to the
+explicit five-choice acceptance question in the owning session. This accepts
+those choices — one hierarchy store per workspace with one
+header/epoch/manifest sequence and H-preserving additive admission; format 7
+as the research profile's store format (fresh-initialized or advanced in
+place) with v7 domains for new manifests, the closed union registry,
+per-manifest own-domain validation across schemaVersions 3–7, a superset
+format-7 reader obligation and never-retokened format-3/4/6 bytes; the
+physical name/key/index mapping with all index and registration costs counted;
+the proof/recovery representation under the owning codecs with unchanged crash
+oracles and the registration's excluded outer link; and the written limit
+accounting with every physical/native/authority term explicitly unresolved —
+**for written physical-profile boundary work only**.
+
+This acceptance applies to this document's five choices and merged #2033. It
+selects no executable command tag/codec, database, migration, runtime/native/
+model execution, adapter, activation or implementation plan; no probe budget
+exists or is renewed, and neither this acceptance nor the underlying evidence
+supplies physical qualification. The [pending pair-resource-assurance
+decision](2026-11-24-pair-resource-assurance-design.md#decision-requested-and-reason)
+remains a separate owner decision this document defers to. Existing technical
+definitions and historical artifact bytes remain unchanged; Gate 2 remains
+**Investigate**.
+
+Verification for this acceptance record: Node 22 docs validation and
+VitePress build/dead links, append-only appendix and audit addition, no
+accepted technical definition changed, no prior artifact bytes touched, and
+diff/doc/worktree close-out checks. #1689/#1089/#610 stay open; #740 stays
+closed research.
