@@ -7006,6 +7006,24 @@ pub(crate) struct ResolvedSessionLaunch {
     pub(crate) provider_label: Option<String>,
 }
 
+impl ResolvedSessionLaunch {
+    fn prepare_initial_prompt(&mut self, prompt: Option<String>) -> Option<String> {
+        if self.session_harness_id.as_deref() == Some("antigravity")
+            && self.command.program == "agy"
+            && self.command.args.is_empty()
+        {
+            if let Some(prompt) = prompt.filter(|text| !text.trim().is_empty()) {
+                // Let Antigravity submit the first turn when its TUI is ready.
+                self.command
+                    .args
+                    .push(format!("--prompt-interactive={prompt}"));
+            }
+            return None;
+        }
+        prompt
+    }
+}
+
 fn prepare_prompt_authority_generation(
     state: &Arc<AppState>,
     session_id: &str,
@@ -7359,22 +7377,20 @@ async fn create_session_workflow(
         )),
         _ => req.initial_prompt.clone(),
     };
-    let command = resolved_launch.command.clone();
-    // Native Codex submits its initial image+text argv as one turn. The PTY
-    // queue must not submit the same prompt again after the TUI becomes ready.
+    // A prompt delivered through argv already has a native submission owner.
     let runtime_initial_prompt =
         if image_route == Some(crate::image_context::ImageDelivery::NativeCodex) {
             None
         } else {
-            initial_prompt.clone()
+            resolved_launch.prepare_initial_prompt(initial_prompt.clone())
         };
+    let command = resolved_launch.command.clone();
     let initial_prompt_label = initial_prompt
         .as_deref()
         .map(|prompt| prompt.chars().take(100).collect::<String>())
         .filter(|label| peon::is_descriptive_input(label));
     // A hookless harness never gets a `report_attention` call, so the initial
-    // prompt (written straight to the PTY in `start_session_runtime`) must arm
-    // the same fallback a typed-and-submitted command would, or the session's
+    // prompt must arm the same fallback a typed-and-submitted command would, or the session's
     // first turn never promotes past creating/idle while Peon is disabled.
     // The banner grace is zero here on purpose: `start_session_runtime`
     // re-bases the deadline onto its post-spawn `startup_grace_ends_at`
@@ -7389,11 +7405,8 @@ async fn create_session_workflow(
                 std::time::Duration::ZERO,
             )
         });
-    // The initial prompt is written straight to the PTY (bypassing the
-    // keystroke-based label seeding in terminal_runtime.rs), so it never gets
-    // a chance at seeding the label there. Seed it here instead: the
-    // synchronous fallback below (so the title is never blank) plus Peon's
-    // topic-inference queue for the real, LLM-phrased topic (ADR 0029).
+    // Startup prompts bypass keystroke-based label seeding. Seed the label
+    // here and let Peon's topic inference refine it (ADR 0029).
     if let Some(label_line) = initial_prompt_label.as_ref() {
         info.label = label_line.clone();
     }
@@ -7709,6 +7722,59 @@ fn clear_claude_capacity_after_working(
 #[cfg(test)]
 mod tests {
     include!("session_application/startup_failure_tests.rs");
+
+    #[test]
+    fn antigravity_initial_prompt_is_delivered_by_the_interactive_launch_only() {
+        let registry = crate::harness::registry::resolve_document(
+            &crate::harness::definition::BuiltinDocument::parse(
+                crate::harness::definition::EMBEDDED_BUILTINS,
+            )
+            .unwrap(),
+            &crate::harness::definition::HarnessUserDocument::default(),
+        )
+        .unwrap();
+        let request = CreateSessionCommand {
+            reasoning_effort: None,
+            initial_images: vec![],
+            expected_workspace_path: None,
+            harness_id: Some("antigravity".into()),
+            model: None,
+            initial_prompt: None,
+        };
+        let prompt = "--Explain why \"quoted text\" works.\nThen show an example.";
+        let mut launch = resolve_session_launch(&registry, &request, "/repo".into());
+
+        assert_eq!(launch.prepare_initial_prompt(Some(prompt.into())), None);
+        assert_eq!(launch.command.program, "agy");
+        assert_eq!(
+            launch.command.args,
+            ["--prompt-interactive=--Explain why \"quoted text\" works.\nThen show an example."]
+        );
+
+        let mut launch = resolve_session_launch(&registry, &request, "/repo".into());
+        assert_eq!(launch.prepare_initial_prompt(None), None);
+        assert_eq!(launch.prepare_initial_prompt(Some("  ".into())), None);
+        assert!(launch.command.args.is_empty());
+
+        launch.command.args.push("--continue".into());
+        assert_eq!(
+            launch
+                .prepare_initial_prompt(Some(prompt.into()))
+                .as_deref(),
+            Some(prompt),
+        );
+        assert_eq!(launch.command.args, ["--continue"]);
+
+        launch.command.args.clear();
+        launch.command.program = "custom-agy-wrapper".into();
+        assert_eq!(
+            launch
+                .prepare_initial_prompt(Some(prompt.into()))
+                .as_deref(),
+            Some(prompt),
+        );
+        assert!(launch.command.args.is_empty());
+    }
 
     #[test]
     fn interactive_effort_validates_catalog_and_builds_native_override() {
