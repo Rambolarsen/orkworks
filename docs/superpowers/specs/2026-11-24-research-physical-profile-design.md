@@ -78,16 +78,24 @@ The workspace has **one hierarchy store** with one header, storage epoch and
 manifest sequence. Every profile admitted to the workspace lives in that store;
 profiles never mix row families, but their outcomes advance the same header.
 This is forced by the accepted initializer: outcome 2's manifest includes the
-six inherited core-admission effects (`root_drafts` deletion,
-`root_preparations` and reserved `parent_attachments` insertions) alongside the
-research run owner, selector and ledgers — one original outcome, one C. Two
+accepted six core admission changes — exact draft deletion, `root_preparations`
+insert, `run_states` insert, reserved `parent_attachments` insert,
+`summary_state` insert and the initial `research_run_controls` insert
+([initialization recipe](2026-11-13-research-initialization-catalog-design.md#logical-initializer-and-admission-effects)) —
+alongside the research run owner, selector and ledgers; one original outcome,
+one C. (The initializer acceptance's loose "inherited six core source effects"
+label covers this same set; the run-controls insert is research-own.) Two
 stores would make that outcome a cross-store transaction, which the accepted
 command/proof contract explicitly leaves unqualified rather than inventing.
 
-Consequences, all inherited from accepted contracts:
+Consequences (inherited except where the format section below marks a
+mechanism as this proposal's explicit new choice):
 
 - Fresh workspace admission under this profile initializes the complete union
-  catalog through the accepted three null-predecessor initializer outcomes.
+  catalog through the accepted three distinct initializer outcomes — the first
+  (initialize-store) alone uses the accepted null predecessor/initial sequence;
+  root admission and attachment preparation advance from the prior header in
+  the same store/epoch, per the accepted command/proof contract.
 - Additive research admission to an existing store (ordinary/direct-execution,
   child-source or preparation-authorization profiles present) is **one
   original outcome whose predecessor is the store's actual current header**.
@@ -99,23 +107,32 @@ Consequences, all inherited from accepted contracts:
 
 ### New-store-only format 7 and the closed union registry
 
-Propose **new-store-only hierarchy format 7** for workspaces initialized or
-admitted under the research profile. Header and manifest schemaVersion are 7;
-change and row domains are `orkworks.hierarchy-storage-change.v7` and
-`orkworks.hierarchy-storage-row.v7`, each followed by LF, following the
-format-6 precedent.
+Propose **format 7 as the research profile's store format, reached two ways**:
+fresh initialization of a new store (null-predecessor outcome), or the one
+original additive-admission outcome above, whose predecessor is the store's
+actual current header and whose commit advances the store's header and manifest
+schemaVersion to 7. No prior contract defines an in-place header/version
+advance across profiles or a superset reader; the version-advance mechanism
+and reader obligation below are therefore **new choices of this proposal**, not
+inherited rules, and are part of what the owner acceptance question decides.
+
+Header and manifest schemaVersion are 7; change and row domains are
+`orkworks.hierarchy-storage-change.v7` and `orkworks.hierarchy-storage-row.v7`,
+each followed by LF, following the format-6 domain precedent.
 
 The closed registry is the **complete union inventory**: the accepted 35-family
 format-6 inventory (the named 33-family mandatory inventory,
 `ordinary_child_lineage` as the 34th, `child_preparation_authorizations` as the
 35th) **plus** the research profile's 24 metadata families, the shared report
-registry (`report_heads`, `report_receipts`), the research objects table and
-the resource-ledger tables the accepted recipes name. Every name is mandatory;
-a format-7 reader that cannot address any registered family — including
-mandatory empty ones — reports unavailable. A reader supporting only a subset
-is not a format-7 reader.
+registry (`report_heads`, `report_receipts`) and the research objects table.
+Resource charges are rows of the inherited `quota_usage` family already inside
+that inventory — the fourteen workspace, nine run and five assignment resource
+**names** are values there, not additional registry entries. Every name is
+mandatory; a format-7 reader that cannot address any registered family —
+including mandatory empty ones — reports unavailable. A reader supporting only
+a subset is not a format-7 reader.
 
-Compatibility, inherited and unchanged:
+Compatibility, stated as this proposal's explicit mechanism:
 
 - Historical rows keep their **own original format's domains, codecs and
   exclusions** forever. Format-3/4/6 bytes are never retokened, re-encoded,
@@ -124,9 +141,16 @@ Compatibility, inherited and unchanged:
   the rows its own outcome changes, under v7 envelopes.
 - Each manifest validates under its own schemaVersion's domain; the header
   sequence joins them. No mixed-codec interpretation, implicit migration,
-  downgrade path or copied proof is created.
-- Readers of formats 3/4/6 reject a format-7 store before interpreting rows;
-  missing research registration is never an older format's subset.
+  downgrade path or copied proof is created. A format-7 store's historical
+  manifests may therefore span schemaVersions 3–7; this multi-version
+  manifest/reader rule is new here and explicitly replaces the
+  one-store-one-version reading for stores that advance by admission.
+- A format-7 reader is a **superset reader**: it validates the complete union
+  catalog and every historical manifest under that manifest's own original
+  domain, so the coexisting profiles' codecs and reader obligations remain
+  unchanged for their rows. Readers of formats 3/4/6 reject a format-7 store
+  before interpreting rows; missing research registration is never an older
+  format's subset.
 
 ### Profile registration
 
@@ -238,10 +262,14 @@ boundary work only**:
 1. One hierarchy store per workspace with one header/epoch/manifest sequence;
    additive research admission preserves the actual H, never resets the epoch
    or creates a second null-predecessor outcome.
-2. New-store-only format 7 with v7 change/row domains and the closed union
-   registry (accepted 35-family inventory + research names + report registry);
-   format-3/4/6 bytes stay authoritative under their own domains, never
-   retokened; whole-catalog reader obligation; monotone version advance.
+2. Format 7 as the research profile's store format — fresh-initialized stores
+   (null-predecessor outcome) and, as an explicit new mechanism of this
+   proposal, existing stores advancing to schemaVersion 7 through the one
+   additive-admission outcome — with v7 change/row domains for new manifests,
+   the closed union registry (accepted 35-family inventory + research names +
+   report registry), per-manifest own-domain validation across schemaVersions
+   3–7, a superset format-7 reader obligation, never-retokened format-3/4/6
+   bytes, and unchanged older-reader rejection.
 3. The physical name/key/index mapping above — canonical BLOB keys, research
    objects table, unique exact-key indexes, derived-key indexes only where
    owning contracts prescribe them, no hidden index, all index/registration
