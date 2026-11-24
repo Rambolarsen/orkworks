@@ -376,4 +376,4 @@ Dated design records; these do not establish current product behavior.
 
 - [Research profile initializer creation manifest](2026-11-23-research-initializer-manifest-design.md) — Proposed complete fresh-profile initializer manifest over the accepted catalog (workspace/run/assignment scope rows, registered empty families, original proof links); physical format selection remains gated.
 
-- [Research command effects and original proof closure](2026-11-23-research-command-proof-design.md) — Proposed command-wide effect, captured-header, coalesced-version, accounting and original-proof obligations, with operation-specific authority/retries and physical/runtime gates retained.
+- [Research command effects and original proof closure](2026-11-23-research-command-proof-design.md) — Accepted for written logical closure: command-wide effects, captured header, coalesced versions, accounting and original proofs; executable/physical/runtime qualification remains gated.
