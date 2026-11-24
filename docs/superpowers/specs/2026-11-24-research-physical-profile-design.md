@@ -124,7 +124,9 @@ The closed registry is the **complete union inventory**: the accepted 35-family
 format-6 inventory (the named 33-family mandatory inventory,
 `ordinary_child_lineage` as the 34th, `child_preparation_authorizations` as the
 35th) **plus** the research profile's 24 metadata families, the shared report
-registry (`report_heads`, `report_receipts`) and the research objects table.
+registry (`report_heads`, `report_receipts`), the research objects table and
+the new **workspace profile registration family** — the registration row is a
+real, exhaustively accountable row, not header metadata outside the registry.
 Resource charges are rows of the inherited `quota_usage` family already inside
 that inventory — the fourteen workspace, nine run and five assignment resource
 **names** are values there, not additional registry entries. Every name is
@@ -180,15 +182,21 @@ bound) apply independently and deny rather than raise.
 
 | Physical group | Contents | Envelope exclusions |
 | --- | --- | --- |
-| `research_objects` / canonical ObjectRef | The 8 research object kinds under the accepted shared objects envelope; full retained bodies with exact source digests | Outer lastCommit only |
+| `research_objects` / each owning contract's exact object identity (the enumeration's "Kind / identity" column), with any digest member that identity includes | The 8 research object kinds under the accepted shared objects envelope; full retained bodies reconstruct their exact physical key through the accepted source joins, and each body's exact source digest is checked against its owning contract | Outer lastCommit only |
 | Immutable source families | `research_plan_approvals`, `research_reservations`, `research_allocations`, `research_attachments`, `research_control_inputs`, `research_runtime_attachments`, `research_turn_completions`, `research_coordination_receipts`, `research_recovery_decisions`, `research_summaries`, `research_lifecycle_records`, `research_reviews`, `research_clarification_requests`, `research_clarification_answers`, `research_execution_plan_approvals`, `research_preparation_authorizations` | Outer lastCommit, plus each owning codec's named exclusions (e.g. receipt.commit on approval rows) |
 | Mutable control families | `research_run_controls`, `research_plan_controls`, `research_task_controls`, `research_launch_controls`, `research_session_states`, `research_collections`, `research_expectations`, `research_lifecycle_state` | Outer lastCommit per the owning codecs; unchanged rows keep original links |
 | Shared report registry | `report_heads`, `report_receipts` | Report publication profile's exclusions, unchanged |
 | Resource ledgers | The fourteen workspace, nine run and five assignment resource names at their accepted scopes | Ledger envelope per the accepted resource recipe |
 
 The research objects table is research-profile-own physical infrastructure; it
-is not a ninth catalog name and never holds another profile's objects. No
-research row is created inside another profile's family or vice versa.
+is not a ninth catalog name and never holds another profile's objects. Where
+the owning identity excludes the content digest (for example an
+`{task,referenceId}`-keyed kind whose body carries the digest), two rows with
+the same physical key but different body digests are an immutable conflict and
+deny — the distinct digest never becomes a second admitted object. Where the
+owning contract's identity includes the digest member (the evidence kind), the
+accepted distinct-identity rule governs instead. No research row is created
+inside another profile's family or vice versa.
 
 ### Index and lookup representation
 
