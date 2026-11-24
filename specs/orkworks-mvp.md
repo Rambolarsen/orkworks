@@ -659,6 +659,15 @@ The first MVP autonomy level for Peon is observer-only.
 
 Later versions may add suggested terminal input, but it must be gated by explicit user approval.
 
+OpenCode form-wait recovery ([#2045](https://github.com/Rambolarsen/orkworks/issues/2045))
+uses the existing reporter's native client when available: a recognized work,
+turn-end or resolution event may clear cached forms only after a bounded,
+exact-session context read positively matches a completed question tool by the
+form’s native assistant-message and tool-call IDs. Unknown forms, unresolved permissions
+and legacy questions, opening/foreign events, unsupported clients and failed or
+malformed reads retain their waits. There is no background polling or terminal
+inference; existing attention priority and event/status gates remain unchanged.
+
 ### Current-summary snapshot
 
 `summary` is a first-class snapshot, not text whose provenance is borrowed from unrelated record-wide metadata fields. The session contract carries `summary`, `summarySource` (`agent` | `peon`), `summaryConfidence`, and `summaryObservedAt` together:

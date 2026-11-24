@@ -243,3 +243,39 @@ observation timestamp together inside the accepted attention transaction. Newer
 descriptive summaries and user attention overrides survive. Missing or invalid
 provenance is preserved. Other harness reports keep no-message summary preservation.
 No new API field, native prompt inference or restart recovery is introduced.
+
+## Native pending-form recovery (#2045)
+
+The 2026-11-24 live follow-up reproduced a completed native question and resumed
+shell tools while the sidecar retained the earlier wait. HTTP retry repair does
+not repair a missing native resolution event; the precise native publication or
+subscription loss point remains unverified.
+
+For SDKs exposing `ctx.session.context`, a later recognized work, turn-end or
+resolution event may read the exact captured session's native messages. This
+read is eligible only while cached forms remain and no unresolved permission
+or legacy question remains. A form with native `metadata.kind = question` and
+`metadata.tool.messageID/id` clears only when the same assistant message
+contains the same `question` tool call with `state.status = completed`.
+Unknown forms, absent or mismatched messages/tools, running calls, malformed
+responses, missing APIs and failed reads preserve the wait. Opening events never
+trigger recovery. Reports retain the triggering event and existing authentication,
+source priority and status matrix. Matching-summary cleanup applies to the
+resulting Working or Idle report.
+
+Use a two-second deadline, cancel on cleanup, and retain at most one outstanding
+read even if an unsupported SDK ignores cancellation. This is event-driven
+recovery, not polling, terminal inference, native-store mutation, permission
+approval or restoration of an unknown prompt after plugin reload.
+
+The official `@opencode/plugin`, `@opencode/client` and `@opencode/schema` 2.4.1
+packages confirm that the plugin adapter exposes `session.context`, returning
+assistant messages with tool call IDs, names and states. The general client
+exposes a pending-form API but the plugin adapter does not; it must not be used
+as a plugin recovery surface. Installed 2.4.1/macOS arm64 source inspection
+confirms that the question tool supplies the form's tool ownership metadata.
+The [native API](https://opencode.ai/docs/api) documents volatile event delivery;
+the [plugin context reference](https://opencode.ai/docs/build/plugins/server)
+documents session context. Earlier legacy-SDK limits remain historical;
+unsupported SDKs retain conservative waiting behavior. Synthetic source tests
+must not be described as installed end-to-end qualification.
