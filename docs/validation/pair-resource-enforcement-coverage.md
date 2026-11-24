@@ -274,3 +274,14 @@ unavailable or adding a new PCACHE2 integration. The recommended global flag is
 owner-pending, affects unpaired memory reclamation, and is not accepted by this
 source evidence or merge. Existing resource/worker/VFS choices remain accepted;
 Gate 1 stays Investigate and no implementation or execution budget is renewed.
+
+## Build/startup recipe accepted — 2026-11-24
+
+The owner [accepted the reviewed #2043 flag/startup package](../superpowers/specs/2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24)
+for further qualification. [ADR 0119](../adr/0119-pair-build-startup-custody.md)
+records the shared candidate macro undefinition, ordinary reclamation cost and
+early bootstrap/getter-default-fill/retained-failure recipe. Earlier owner-pending
+wording is historical only for those choices. No actual flag/configuration/code
+changed and no target/native mechanism was qualified. Existing source facts,
+metadata failure, unknowns and execution budgets stay intact. Gate 1 remains
+Investigate for actual artifact/startup/adapter closure; Gate 2 is not unlocked.

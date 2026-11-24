@@ -158,7 +158,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Original pair native owner](0111-original-pair-native-owner.md) — Accepted retained slot/core lifetime; stock/no-custom-VFS candidate selection partially superseded by ADR 0112; execution remains gated.
 
-- [Pair native enforcement](0112-pair-native-enforcement.md) — VFS/router ownership remains accepted; resource meanings and numeric E/S gate superseded by ADR 0118; execution remains gated.
+- [Pair native enforcement](0112-pair-native-enforcement.md) — VFS/router ownership remains accepted; resource meanings superseded by ADR 0118 and candidate build/startup refined by ADR 0119; execution remains gated.
 
 - [Isolated headless replay fixture](0113-headless-replay-fixture-isolation.md) — Accepted test-only offline container boundary for #95.
 
@@ -168,3 +168,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.
 
 - [Pair resource assurance](0118-pair-resource-assurance.md) — Accepted owned file-length/fixed-arena capacities with uncapped native host costs; qualification and execution remain gated.
+
+- [Pair build and startup custody](0119-pair-build-startup-custody.md) — Accepted shared candidate flag and early bootstrap/failure recipe; actual build/startup and execution remain gated.

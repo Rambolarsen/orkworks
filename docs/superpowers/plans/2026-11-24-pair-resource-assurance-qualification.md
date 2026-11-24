@@ -180,3 +180,22 @@ reclamation consequences remain owner-pending. This does not reopen accepted
 VFS/resource policy or qualify a default build. Gate 1 remains Investigate;
 Gates 2–4 and all spent execution budgets remain unchanged. No dependent native
 or code plan may silently assume the proposal has been accepted.
+
+## Build/startup choice accepted — 2026-11-24
+
+The [scoped #2043 acceptance](../specs/2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24)
+and [ADR 0119](../../adr/0119-pair-build-startup-custody.md) settle the one shared
+candidate macro undefinition and early bootstrap custody/failure recipe for
+further qualification, including its ordinary-consumer consequences. Earlier
+pending language is historical for this exact choice; do not request its approval
+again. The original resource/VFS/worker/source decisions remain unchanged.
+
+Next finite planning deliverable: a private fake-API bootstrap/configuration-state
+implementation slice, explicitly excluding real SQLite calls and main wiring.
+It must preserve stable callback lifetime, getter default fill, sticky failure,
+saved allocator delegation and source/build-identity denial; it supplies no source
+capability or arena implementation. Preparing the plan is not executing it. Actual
+build/metadata/startup/native/compatibility evidence remains unqualified, Gate 1
+Investigate, Gate 2 conditional on source closure and slice authorization, and
+Gates 3–4 gated. No compiler/native/model/database/SQL execution or budget renewal
+is authorized by this acceptance record.

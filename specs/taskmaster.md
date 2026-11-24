@@ -369,6 +369,14 @@ This does not qualify the mechanism, change source/commit authority, select the
 research physical profile or enable runtime work. The [qualification plan](../docs/superpowers/plans/2026-11-24-pair-resource-assurance-qualification.md)
 keeps actual coverage, native recovery/durability and activation separately gated.
 
+The [accepted pair build/startup recipe](../docs/superpowers/specs/2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24)
+and [ADR 0119](../docs/adr/0119-pair-build-startup-custody.md) select, for further
+qualification only, a shared Windows candidate with memory-management macro
+undefinition and one early allocator bootstrap. Unpaired SQLite memory
+reclamation can change and requires compatibility evidence. No compiler flag,
+bootstrap or runtime behavior is enabled by recording this decision; actual
+build/startup/source/native/activation gates and spent execution budgets remain.
+
 ## Inputs
 
 Taskmaster evaluates workspace-level state from the following sources.

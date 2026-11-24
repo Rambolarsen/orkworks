@@ -8,7 +8,7 @@ status: draft
 
 # Original Windows pairs use owned VFS admission and pair-routed SQL allocation
 
-- Status: superseded in part by [ADR 0118](0118-pair-resource-assurance.md) for resource meanings and numeric E/S qualification; other architecture remains accepted
+- Status: superseded in part by [ADR 0118](0118-pair-resource-assurance.md) for resource meanings and [ADR 0119](0119-pair-build-startup-custody.md) for candidate build/startup custody; VFS/router ownership remains accepted
 - Deciders: repository owner, “keep going” on 2026-11-06 to the explicit #1469 package question
 - Date: 2026-11-06
 - Tracking: [#1472](https://github.com/Rambolarsen/orkworks/issues/1472), [#1176](https://github.com/Rambolarsen/orkworks/issues/1176)
@@ -77,3 +77,14 @@ peak resource contract and complete numeric E/S first gate above with the owner'
 The same-worker, VFS/router, original-owner, startup/escape/retirement and all
 independent qualification gates remain accepted. This dated supersession does
 not claim earlier evidence proved the stronger guarantee or authorize execution.
+
+## Candidate build/startup refinement — 2026-11-24
+
+[ADR 0119](0119-pair-build-startup-custody.md) records the owner's
+[accepted #2043 build/startup recipe](../superpowers/specs/2026-11-24-pair-build-startup-design.md#scoped-build-and-startup-acceptance--2026-11-24).
+For the future shared Windows candidate it replaces the unamended bundled-feature
+assumption with explicit memory-management macro undefinition and fixes early
+bootstrap custody/failure behavior. The same VFS/router/worker/PairCore direction
+and ADR 0118 resource meanings remain accepted. Actual artifact, unpaired
+compatibility, startup and native evidence remain unqualified; no execution
+allowance or runtime activation follows. Historical component evidence is intact.
