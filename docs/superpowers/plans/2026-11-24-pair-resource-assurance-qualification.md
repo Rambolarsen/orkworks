@@ -199,3 +199,12 @@ build/metadata/startup/native/compatibility evidence remains unqualified, Gate 1
 Investigate, Gate 2 conditional on source closure and slice authorization, and
 Gates 3–4 gated. No compiler/native/model/database/SQL execution or budget renewal
 is authorized by this acceptance record.
+
+## Bounded bootstrap-state planning handoff — 2026-11-24
+
+The [private bootstrap state test plan](2026-11-24-pair-bootstrap-state-tests.md)
+now specifies the dormant transition owner, fake effect boundary and regression
+oracles. It is ready as a planning handoff, not executable authority. Gate 1
+remains Investigate; Gate 2 still requires source closure and bounded execution
+authorization. Native/compiler/database budgets and production admission remain
+unchanged. The separate EOF/arena/native owners are not implemented by that plan.
