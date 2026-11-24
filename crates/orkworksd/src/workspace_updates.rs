@@ -1,7 +1,7 @@
 //! Read-only workspace synchronization. Dirty revisions are hints; the shared
 //! complete session query remains authoritative. No terminal ownership here.
 mod split;
-use crate::{http::session_handlers::query_sessions, AppState};
+use crate::{session_projection::SessionProjection, AppState};
 use axum::{
     extract::Request,
     extract::{
@@ -342,7 +342,10 @@ async fn run(mut socket: WebSocket, state: Arc<AppState>, workspace: String, roo
             tokio::time::sleep_until(next_projection).await;
             next_projection = tokio::time::Instant::now() + Duration::from_secs(2);
             let query_state = state.clone();
-            let result = tokio::task::spawn_blocking(move || query_sessions(&query_state)).await;
+            let result = tokio::task::spawn_blocking(move || {
+                SessionProjection::new(query_state).list_with_transient_retries()
+            })
+            .await;
             if workspace_identity(&state) != Some((workspace.clone(), root.clone()))
                 || changes.borrow().workspace != generation
             {
@@ -806,7 +809,7 @@ mod tests {
         next_json(&mut socket).await;
         std::fs::rename(root.join("sessions"), root.join("sessions-replacing")).unwrap();
         // Both transports must reject this incomplete directory, not publish an empty list.
-        assert!(query_sessions(&state).is_err());
+        assert!(SessionProjection::new(state.clone()).list().is_err());
         assert_eq!(next_json(&mut socket).await["type"], "unavailable");
         std::fs::rename(root.join("sessions-replacing"), root.join("sessions")).unwrap();
         let (mut recovered, _) = tokio_tungstenite::connect_async(url.as_str())

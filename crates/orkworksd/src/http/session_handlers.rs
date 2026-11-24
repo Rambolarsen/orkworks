@@ -1,4 +1,3 @@
-use crate::runtime::terminal_runtime::verify_workflow_report_token;
 #[cfg(test)]
 use crate::session_application::try_install_claimed_resume_handle;
 #[cfg(test)]
@@ -7,7 +6,8 @@ use crate::session_application::{DebugAttentionSignal, SessionApplication, Sessi
 #[cfg(test)]
 use crate::session_projection::enrich_sessions_with_git_context as project_git_context;
 use crate::session_projection::SessionProjection;
-use crate::session_types::{MemoryState, PeonDiagnostics, SessionInfo};
+#[cfg(test)]
+use crate::session_types::{PeonDiagnostics, SessionInfo};
 use crate::workspace_runtime::WorkspaceIdentity;
 #[cfg(test)]
 use crate::workspace_runtime::{orkworks_global_dir, WorkspaceLease};
@@ -47,23 +47,7 @@ pub(crate) struct ActiveHarnessesRequest {
     pub(crate) expected_active_harness_revision: u64,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct HarnessSessionReportRequest {
-    #[serde(rename = "harnessSessionId")]
-    pub(crate) harness_session_id: String,
-    pub(crate) source: String,
-    pub(crate) confidence: f64,
-    #[serde(rename = "hookFingerprint", default)]
-    pub(crate) hook_fingerprint: Option<String>,
-    #[serde(rename = "sessionStartSource", default)]
-    pub(crate) session_start_source: Option<String>,
-    #[serde(rename = "sessionStartEvent", default)]
-    pub(crate) session_start_event: Option<String>,
-    #[serde(rename = "promptHookGeneration", default)]
-    pub(crate) prompt_hook_generation: Option<String>,
-    #[serde(rename = "sessionStartObservedAt", default)]
-    pub(crate) session_start_observed_at: Option<String>,
-}
+pub(crate) use crate::session_application::harness_reporting::HarnessSessionReportRequest;
 
 #[derive(Deserialize)]
 pub(crate) struct HarnessSessionReportEnvelope {
@@ -401,7 +385,10 @@ pub(crate) async fn create_session(
         })
         .await
         .map(|mut info| {
-            project_live_peon_diagnostics(&projection_state, &mut info);
+            crate::session_projection::project_live_peon_diagnostics_one(
+                &projection_state,
+                &mut info,
+            );
             Json(info).into_response()
         })
         .unwrap_or_else(application_error_response)
@@ -441,7 +428,10 @@ pub(crate) async fn resume_session(
         .resume_session(&id, requested_strategy)
         .await
         .map(|mut info| {
-            project_live_peon_diagnostics(&projection_state, &mut info);
+            crate::session_projection::project_live_peon_diagnostics_one(
+                &projection_state,
+                &mut info,
+            );
             Json(info).into_response()
         })
         .unwrap_or_else(application_error_response)
@@ -623,7 +613,7 @@ pub(crate) async fn report_harness_session(
     Path(id): Path<String>,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, HeaderMap::new(), req, None, None).await
+    report_harness_session_http(state, id, HeaderMap::new(), req, None).await
 }
 
 pub(crate) async fn report_harness_session_envelope_with_headers(
@@ -632,7 +622,7 @@ pub(crate) async fn report_harness_session_envelope_with_headers(
     headers: HeaderMap,
     Json(envelope): Json<HarnessSessionReportEnvelope>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, headers, envelope.report, envelope.cwd, None).await
+    report_harness_session_http(state, id, headers, envelope.report, envelope.cwd).await
 }
 
 #[cfg(test)]
@@ -642,389 +632,48 @@ pub(crate) async fn report_harness_session_with_headers(
     headers: HeaderMap,
     Json(req): Json<HarnessSessionReportRequest>,
 ) -> impl IntoResponse {
-    report_harness_session_inner(state, id, headers, req, None, None).await
+    report_harness_session_http(state, id, headers, req, None).await
 }
 
-async fn report_harness_session_inner(
+async fn report_harness_session_http(
     state: Arc<AppState>,
     id: String,
     headers: HeaderMap,
     req: HarnessSessionReportRequest,
     reported_cwd: Option<String>,
-    observation_stamp: Option<crate::session_application::hook_observation::Receipt>,
 ) -> axum::response::Response {
-    let observation_state = state.clone();
-    let is_codex_hook = req.source == "codex_hook";
-    let observation_requested = is_codex_hook
-        && req
-            .hook_fingerprint
-            .as_deref()
-            .is_some_and(metadata::valid_hook_fingerprint);
-    // Preserve the request's original authentication class across the legacy
-    // metadata lookup. A trusted relay receipt is already capability-bound.
-    let relay_receipt = observation_stamp.is_some();
-    let original_observation_token = observation_requested
-        .then(|| {
-            bearer_token(&headers)
-                .filter(|token| relay_receipt || verify_workflow_report_token(&id, token))
-                .map(str::to_owned)
-        })
-        .flatten();
-    let (target_harness, mut observation_capture) =
-        match crate::session_application::hook_observation::capture_target(
-            &state,
-            &id,
-            observation_requested,
-            observation_stamp,
-        )
-        .await
-        {
-            Ok(target) => target,
-            Err(crate::session_application::hook_observation::TargetReadError::Conflict) => {
-                return axum::http::StatusCode::CONFLICT.into_response()
-            }
-            Err(crate::session_application::hook_observation::TargetReadError::Busy) => {
-                return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response()
-            }
-            Err(crate::session_application::hook_observation::TargetReadError::Unavailable) => {
-                return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }
-        };
-    if let Some(capture) = observation_capture.as_mut() {
-        if let (Ok(capture), Some(token)) =
-            (capture.as_mut(), original_observation_token.as_deref())
-        {
-            capture.authenticate(token);
-        } else if relay_receipt && original_observation_token.is_none() {
-            *capture = Err(crate::session_application::SessionError::Conflict);
-        }
-    }
-    let prompt_harness = match target_harness.as_deref() {
-        Some("claude-code") => Some("claude-code"),
-        Some("copilot") => Some("copilot"),
-        _ => None,
+    use crate::session_application::harness_reporting::{
+        report_harness_session, HarnessReportOutcome, HarnessSessionReportCommand,
     };
-    if matches!(req.source.as_str(), "claude_hook" | "copilot_hook") && prompt_harness.is_none() {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-    if let Some(expected_source) = prompt_harness.map(|harness| match harness {
-        "claude-code" => "claude_hook",
-        _ => "copilot_hook",
-    }) {
-        if req.source != expected_source {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
+    let outcome = report_harness_session(
+        state,
+        HarnessSessionReportCommand {
+            id,
+            auth_token: bearer_token(&headers).map(str::to_owned),
+            req,
+            reported_cwd,
+            observation_stamp: None,
+        },
+    )
+    .await;
+    match outcome {
+        HarnessReportOutcome::Ok => axum::http::StatusCode::OK.into_response(),
+        HarnessReportOutcome::Accepted => axum::http::StatusCode::ACCEPTED.into_response(),
+        HarnessReportOutcome::BadRequest => axum::http::StatusCode::BAD_REQUEST.into_response(),
+        HarnessReportOutcome::Unauthorized => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+        HarnessReportOutcome::NotFound => axum::http::StatusCode::NOT_FOUND.into_response(),
+        HarnessReportOutcome::Conflict => axum::http::StatusCode::CONFLICT.into_response(),
+        HarnessReportOutcome::ServiceUnavailable => {
+            axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
-    }
-    let native_session_id = req.harness_session_id.clone();
-    let report = metadata::HarnessSessionReport {
-        harness_session_id: req.harness_session_id.clone(),
-        source: req.source.clone(),
-        confidence: req.confidence,
-    };
-    if !metadata::valid_harness_session_report(&report) {
-        return axum::http::StatusCode::BAD_REQUEST.into_response();
-    }
-    if let Some(harness_id) = prompt_harness {
-        let lifecycle_valid = match (
-            harness_id,
-            req.session_start_event.as_deref(),
-            req.session_start_source.as_deref(),
-        ) {
-            (_, None, None) => true,
-            ("claude-code", Some("SessionStart"), Some("clear")) => true,
-            ("copilot", Some("sessionStart"), Some("new")) => req
-                .session_start_observed_at
-                .as_deref()
-                .and_then(|raw| crate::workspace_runtime::parse_hook_observed_at(raw).ok())
-                .is_some(),
-            _ => false,
-        };
-        if !lifecycle_valid {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
-        }
-    }
-    let lifecycle_observed_at = req
-        .session_start_observed_at
-        .as_deref()
-        .and_then(|raw| crate::workspace_runtime::parse_hook_observed_at(raw).ok());
-    let _prompt_transition = prompt_harness.map(|_| {
-        crate::runtime::prompt_authority::transition_lock()
-            .lock()
-            .unwrap()
-    });
-    let private_lookup_authorized = is_codex_hook
-        && bearer_token(&headers).is_some_and(|token| verify_workflow_report_token(&id, token));
-    if private_lookup_authorized {
-        if let Some(Ok(capture)) = observation_capture.as_mut() {
-            capture.authenticate(bearer_token(&headers).expect("authorized report has a token"));
-        }
-    }
-    let prompt_registration_authorized = if let Some(expected_harness) = prompt_harness {
-        let token = bearer_token(&headers);
-        let generation = req.prompt_hook_generation.as_deref();
-        let matching_harness = state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|workspace| workspace.metadata.read_session(&id))
-            .is_some_and(|session| session.harness == expected_harness);
-        let capability_matches = matching_harness
-            && token.is_some_and(|token| verify_workflow_report_token(&id, token))
-            && generation.is_some_and(|generation| {
-                crate::runtime::prompt_authority::registry().generation_matches(
-                    &id,
-                    expected_harness,
-                    generation,
-                )
-            });
-        if !capability_matches {
-            return axum::http::StatusCode::BAD_REQUEST.into_response();
-        }
-        let live_phase = state
-            .sessions
-            .lock()
-            .unwrap()
-            .get(&id)
-            .filter(|handle| {
-                handle.info.harness_id.as_deref() == Some(expected_harness)
-                    || handle.info.harness.as_deref() == Some(expected_harness)
-            })
-            .map(|handle| {
-                (
-                    handle.info.lifecycle.clone(),
-                    handle.info.lifecycle_phase.clone(),
-                )
-            });
-        match live_phase
-            .as_ref()
-            .map(|(lifecycle, phase)| (lifecycle.as_str(), phase.as_str()))
-        {
-            Some(("alive", "active")) => {}
-            // No identity or attention mutation before runtime activation.
-            // The same authenticated launch may retry once startup completes.
-            Some(("creating", "creating")) if expected_harness == "claude-code" => {
-                return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            _ => return axum::http::StatusCode::BAD_REQUEST.into_response(),
-        }
-        match crate::runtime::prompt_authority::registry().register_native_id(
-            &id,
-            expected_harness,
-            generation.expect("authorized generation exists"),
-            &native_session_id,
-            req.session_start_event.is_some(),
-            lifecycle_observed_at,
-        ) {
-            crate::runtime::prompt_authority::BindResult::Bound
-            | crate::runtime::prompt_authority::BindResult::Unchanged => {
-                store_authenticated_reported_cwd(&state, &id, reported_cwd.as_deref());
-                true
-            }
-            crate::runtime::prompt_authority::BindResult::Held => {
-                store_authenticated_reported_cwd(&state, &id, reported_cwd.as_deref());
-                if crate::runtime::prompt_authority::registry().acknowledged_candidate_matches(
-                    &id,
-                    expected_harness,
-                    generation.expect("authorized generation exists"),
-                    &native_session_id,
-                ) {
-                    SessionApplication::new(state.clone())
-                        .commit_prompt_identity_reset_under_transition(&id);
-                }
-                return axum::http::StatusCode::ACCEPTED.into_response();
-            }
-            crate::runtime::prompt_authority::BindResult::Rejected => {
-                return axum::http::StatusCode::BAD_REQUEST.into_response();
-            }
-        }
-    } else {
-        false
-    };
-    let completion = match SessionApplication::new(state.clone())
-        .report_harness_session_with_completion(
-            &id,
-            report,
-            req.session_start_source.as_deref(),
-            req.session_start_event.as_deref(),
-            private_lookup_authorized || prompt_registration_authorized,
-            bearer_token(&headers),
-        ) {
-        Ok(result) => result,
-        Err(crate::session_application::SessionError::Conflict) => {
-            return axum::http::StatusCode::CONFLICT.into_response();
-        }
-        Err(_) => return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
-
-    let result = completion.result;
-
-    // Prompt registration and identity merge are complete; non-Codex routes
-    // have no asynchronous work below this cutoff.
-    drop(_prompt_transition);
-
-    // Schedule the independently owned label follow-up before the new file
-    // await. An observation stall must not adopt a replacement runtime later.
-    if private_lookup_authorized
-        && matches!(
-            result,
-            metadata::HarnessSessionMergeResult::Accepted
-                | metadata::HarnessSessionMergeResult::IgnoredUnchanged
-        )
-    {
-        let reservation = completion.reserve_codex_label_refresh(&id, &native_session_id);
-        if let Some((runtime_identity, refresh_epoch)) = reservation {
-            schedule_codex_label_refresh(
-                state,
-                id.clone(),
-                native_session_id,
-                runtime_identity,
-                refresh_epoch,
-            );
-        }
-    }
-
-    if let Some(fingerprint) = req.hook_fingerprint {
-        if is_codex_hook
-            && metadata::valid_hook_fingerprint(&fingerprint)
-            && matches!(
-                result,
-                metadata::HarnessSessionMergeResult::Accepted
-                    | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
-                    | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
-                    | metadata::HarnessSessionMergeResult::IgnoredUnchanged
-            )
-        {
-            if let Err(error) = SessionApplication::new(observation_state)
-                .record_codex_hook_observation(
-                    &id,
-                    &fingerprint,
-                    observation_capture
-                        .take()
-                        .unwrap_or(Err(crate::session_application::SessionError::Conflict)),
-                )
-                .await
-            {
-                if !matches!(
-                    &error,
-                    crate::session_application::hook_observation::Error::Io(_)
-                ) {
-                    tracing::warn!(session_id = %id, error = %error, "failed to record Codex hook observation");
-                }
-            }
-        }
-    }
-
-    match result {
-        metadata::HarnessSessionMergeResult::Accepted
-        | metadata::HarnessSessionMergeResult::IgnoredLowerConfidence
-        | metadata::HarnessSessionMergeResult::IgnoredIdentityChange
-        | metadata::HarnessSessionMergeResult::IgnoredUnchanged => {
-            axum::http::StatusCode::OK.into_response()
-        }
-        metadata::HarnessSessionMergeResult::NotFound => {
-            axum::http::StatusCode::NOT_FOUND.into_response()
-        }
-        metadata::HarnessSessionMergeResult::Invalid => {
-            axum::http::StatusCode::BAD_REQUEST.into_response()
-        }
-        metadata::HarnessSessionMergeResult::PersistFailed => {
+        HarnessReportOutcome::InternalError => {
             axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
 }
 
-fn store_authenticated_reported_cwd(state: &AppState, id: &str, cwd: Option<&str>) {
-    if let Some(cwd) = cwd.filter(|cwd| !cwd.trim().is_empty()) {
-        state
-            .peon
-            .reported_cwd
-            .write()
-            .unwrap()
-            .insert(id.to_string(), cwd.to_string());
-    }
-}
-
-pub(crate) async fn report_harness_session_from_local_relay(
-    state: Arc<AppState>,
-    id: String,
-    mut report: HarnessSessionReportRequest,
-    report_token: &str,
-    observation: Option<crate::session_application::hook_observation::Receipt>,
-) -> axum::http::StatusCode {
-    use axum::http::header::AUTHORIZATION;
-    use axum::http::HeaderValue;
-
-    // The relay may have awaited filesystem I/O since its initial token check.
-    // The shared handler also accepts unauthenticated reports, so reject a
-    // revoked capability before dispatching this queued report.
-    if !verify_workflow_report_token(&id, report_token) {
-        return axum::http::StatusCode::UNAUTHORIZED;
-    }
-    let Ok(value) = HeaderValue::from_str(&format!("Bearer {report_token}")) else {
-        return axum::http::StatusCode::UNAUTHORIZED;
-    };
-    let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, value);
-    // A relay without retained receipt authority may still deliver identity,
-    // but must not adopt a fresh observation epoch after its mailbox read.
-    if observation.is_none() {
-        report.hook_fingerprint = None;
-    }
-    report_harness_session_inner(state, id, headers, report, None, observation)
-        .await
-        .status()
-}
-
 #[cfg(test)]
 use crate::session_application::identity_completion::should_schedule_codex_label_refresh;
-
-fn schedule_codex_label_refresh(
-    state: Arc<AppState>,
-    session_id: String,
-    native_session_id: String,
-    runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
-    refresh_epoch: u64,
-) {
-    tokio::spawn(async move {
-        for delay in [
-            std::time::Duration::ZERO,
-            std::time::Duration::from_millis(100),
-            std::time::Duration::from_millis(500),
-        ] {
-            if !delay.is_zero() {
-                tokio::time::sleep(delay).await;
-            }
-            let lookup_id = native_session_id.clone();
-            let candidate = tokio::task::spawn_blocking(move || {
-                crate::codex_session_store::lookup_label_candidate(&lookup_id)
-                    .ok()
-                    .flatten()
-            })
-            .await
-            .ok()
-            .flatten();
-            let Some(candidate) = candidate else {
-                continue;
-            };
-            if crate::codex_session_store::native_label_refresh_is_blocked(
-                &session_id,
-                &native_session_id,
-            ) {
-                return;
-            }
-            if SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
-                &session_id,
-                &native_session_id,
-                candidate.text,
-                &runtime_identity,
-                refresh_epoch,
-            ) {
-                return;
-            }
-        }
-    });
-}
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     let value = headers
@@ -1110,85 +759,11 @@ fn enrich_sessions_with_git_context<F>(
     project_git_context(infos, effective_cwds, detect_git);
 }
 
-fn project_peon_diagnostics(
-    info: &mut SessionInfo,
-    snapshot: Option<PeonDiagnostics>,
-    observation_count: Option<usize>,
-) {
-    info.peon_diagnostics = None;
-    if info.memory_state != MemoryState::Live {
-        return;
-    }
-    let Some(mut snapshot) = snapshot else {
-        return;
-    };
-
-    snapshot.observation_count = observation_count;
-    info.peon_diagnostics = Some(snapshot);
-}
-
-fn project_live_peon_diagnostics(state: &AppState, info: &mut SessionInfo) {
-    let snapshot = state.peon.diagnostics.read().ok().and_then(|diagnostics| {
-        diagnostics
-            .get(&info.id)
-            .map(|entry| entry.snapshot.clone())
-    });
-    let observation_count = snapshot.as_ref().and_then(|_| {
-        state.workspace.lock().ok().and_then(|workspace| {
-            workspace.as_ref().and_then(|workspace| {
-                workspace
-                    .workflow_observations
-                    .session_observation_count(&info.id)
-                    .ok()
-            })
-        })
-    });
-    project_peon_diagnostics(info, snapshot, observation_count);
-}
-
-const MAX_TRANSIENT_LOCATION_RETRIES: usize = 2;
-
-pub(crate) fn query_sessions(
-    state: &Arc<AppState>,
-) -> Result<Vec<SessionInfo>, crate::session_projection::ProjectionError> {
-    let projection = SessionProjection::new(state.clone());
-    let mut retries = 0;
-    let mut infos = loop {
-        match projection.list() {
-            Ok(infos) => break infos,
-            Err(error)
-                if error.is_transient_location_change()
-                    && retries < MAX_TRANSIENT_LOCATION_RETRIES =>
-            {
-                retries += 1;
-                tracing::debug!(
-                    attempt = retries + 1,
-                    "retrying session projection after transient session location change"
-                );
-            }
-            Err(error) => return Err(error),
-        }
-    };
-    for info in &mut infos {
-        project_live_peon_diagnostics(state, info);
-    }
-    Ok(infos)
-}
-
-pub(crate) fn query_stream_sessions(
-    state: &Arc<AppState>,
-    enrich: bool,
-) -> Result<crate::session_projection::StreamProjection, crate::session_projection::ProjectionError>
-{
-    let mut prepared = SessionProjection::new(state.clone()).stream_projection(enrich)?;
-    for info in &mut prepared.infos {
-        project_live_peon_diagnostics(state, info);
-    }
-    Ok(prepared)
-}
-
 pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let result = tokio::task::spawn_blocking(move || query_sessions(&state)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        SessionProjection::new(state).list_with_transient_retries()
+    })
+    .await;
 
     match result {
         Ok(Ok(infos)) => Json(infos).into_response(),
@@ -3100,26 +2675,27 @@ mod tests {
         let token = "mailbox-capability";
         crate::runtime::terminal_runtime::set_workflow_report_token(id, token.into());
         crate::runtime::terminal_runtime::clear_workflow_report_token(id);
-        let revoked_token_status = report_harness_session_from_local_relay(
-            state.clone(),
-            id.to_string(),
-            HarnessSessionReportRequest {
-                harness_session_id: "revoked-native-id".into(),
-                source: "codex_hook".into(),
-                confidence: 0.98,
-                hook_fingerprint: Some("a".repeat(64)),
-                session_start_source: None,
-                session_start_event: None,
-                prompt_hook_generation: None,
-                session_start_observed_at: None,
-            },
-            token,
-            None,
-        )
-        .await;
+        let revoked_token_outcome =
+            crate::session_application::harness_reporting::report_harness_session_from_local_relay(
+                state.clone(),
+                id.to_string(),
+                HarnessSessionReportRequest {
+                    harness_session_id: "revoked-native-id".into(),
+                    source: "codex_hook".into(),
+                    confidence: 0.98,
+                    hook_fingerprint: Some("a".repeat(64)),
+                    session_start_source: None,
+                    session_start_event: None,
+                    prompt_hook_generation: None,
+                    session_start_observed_at: None,
+                },
+                token,
+                None,
+            )
+            .await;
         assert_eq!(
-            revoked_token_status,
-            axum::http::StatusCode::UNAUTHORIZED,
+            revoked_token_outcome,
+            crate::session_application::harness_reporting::HarnessReportOutcome::Unauthorized,
             "the local relay must reject a capability revoked during mailbox scanning"
         );
         assert!(state
@@ -8282,7 +7858,7 @@ mod tests {
         );
         let mut info = test_session_info("live", "Live", "/tmp", "running", "now");
 
-        project_live_peon_diagnostics(&state, &mut info);
+        crate::session_projection::project_live_peon_diagnostics_one(&state, &mut info);
 
         let body = serde_json::to_value(info).unwrap();
         assert_eq!(body["peonDiagnostics"]["schedulerState"], "completed");
@@ -8293,7 +7869,11 @@ mod tests {
     async fn absent_observation_count_serializes_as_null() {
         let session_id = "count-read-failed";
         let mut info = test_session_info(session_id, "Live", "/tmp", "running", "now");
-        project_peon_diagnostics(&mut info, Some(test_peon_diagnostics()), None);
+        crate::session_projection::project_peon_diagnostics(
+            &mut info,
+            Some(test_peon_diagnostics()),
+            None,
+        );
         let response = Json(info).into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);

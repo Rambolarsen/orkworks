@@ -4,16 +4,15 @@
 pub(super) mod completion;
 
 use super::codex_approval_application::{self, HookReportOutcome, NativeHookReport};
-use crate::http::session_handlers::{
-    report_harness_session_from_local_relay, HarnessSessionReportRequest,
-};
 use crate::runtime::terminal_runtime::verify_workflow_report_token;
+use crate::session_application::harness_reporting::{
+    report_harness_session_from_local_relay, HarnessReportOutcome, HarnessSessionReportRequest,
+};
 use crate::session_application::sql_writes::{
     NativeIdentityReport, SessionWrites, SqlHookOutcome, SqlIdentityOutcome,
 };
 use crate::session_store::StoreError;
 use crate::AppState;
-use axum::http::StatusCode;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
@@ -424,7 +423,7 @@ impl CodexHookReportRelay {
                                         generation: runtime_generation,
                                     }
                                 });
-                                let status = report_harness_session_from_local_relay(
+                                let report_outcome = report_harness_session_from_local_relay(
                                     state.clone(),
                                     session_id.to_string(),
                                     envelope.report,
@@ -432,9 +431,10 @@ impl CodexHookReportRelay {
                                     observation,
                                 )
                                 .await;
-                                if status == StatusCode::OK {
+                                if report_outcome == HarnessReportOutcome::Ok {
                                     outcome.reports_accepted += 1;
-                                } else if status == StatusCode::SERVICE_UNAVAILABLE {
+                                } else if report_outcome == HarnessReportOutcome::ServiceUnavailable
+                                {
                                     // Bounded target-read admission did not apply identity.
                                     // Retry with the retained receipt/overflow floor;
                                     // never acquire a fresh clear epoch.
