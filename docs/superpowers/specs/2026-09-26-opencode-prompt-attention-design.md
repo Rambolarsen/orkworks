@@ -154,10 +154,15 @@ no attention for a duplicate `session.created`.
 
 OpenCode prompt authority depends on delivery of the matching reply/reject
 report. If that report is lost while its process remains alive, Needs You can
-remain stale; Peon cannot resolve a request ID reliably. The reporter sends
-the latest effective state on a later recognized event only if its status or
-message changes; a failed report is not retried solely because another event
-arrives. Accepted terminal input can advance attention, and session death
+remain stale; Peon cannot resolve a request ID reliably. Under the owner-authorized #2029 delivery repair, the reporter remembers only
+successfully delivered status/message pairs. Each attention POST has a two-second
+deadline and at most three attempts for transport failures, HTTP 429 or server
+errors; permanent HTTP rejection has no immediate retry. Retries keep the same
+observation timestamp and payload, so delayed delivery cannot claim a fresh
+observation after newer accepted input. Exhausted delivery stays eligible on a
+later recognized attention event, even when the effective state is unchanged.
+Cleanup cancels requests and stops retrying. This does not recover a native
+event that never reached the plugin. Accepted terminal input can advance attention, and session death
 clears live attention through the existing lifecycle. A plugin reload while a
 request remains open cannot
 reconstruct the request from `session.created` alone. The supported plugin
@@ -182,7 +187,7 @@ increment also preserves the `observedAt <= last_hook_attention_at` guard for
 rapid event sequences. If asynchronous HTTP requests arrive out of order, the
 later event's timestamp wins. Failed POSTs retain their place in the logical
 sequence; later reports still have newer timestamps. Report failures remain
-best effort, as in the existing reporter. Cross-process clock comparison can
+best effort after the bounded retry budget. Cross-process clock comparison can
 still be affected by a system clock step; this design does not claim that the
 timestamp alone proves causality across processes.
 
@@ -226,3 +231,15 @@ Code, Copilot CLI, Aider, and hookless tools keep their current Peon policy;
 their event coverage must be reviewed separately in
 [#643](https://github.com/Rambolarsen/orkworks/issues/643) before applying
 this rule.
+
+## Resolved prompt summary recovery (#2029)
+
+The owner authorized delivery recovery and matching-summary cleanup on 2026-11-24.
+A validated OpenCode working/idle report without a message clears a snapshot only
+when its source is agent, its text equals one of the reporter’s three generic
+prompt messages, and its valid observation timestamp is no newer than the
+previous valid attention-update timestamp. Clear the text, source, confidence and
+observation timestamp together inside the accepted attention transaction. Newer
+descriptive summaries and user attention overrides survive. Missing or invalid
+provenance is preserved. Other harness reports keep no-message summary preservation.
+No new API field, native prompt inference or restart recovery is introduced.

@@ -69,7 +69,7 @@ function makeSubscription() {
   };
 }
 
-async function withReporter(run, identityStatuses = []) {
+async function withReporter(run, identityStatuses = [], attentionStatuses = []) {
   const posts = [];
   const server = createServer(async (request, response) => {
     const chunks = [];
@@ -79,7 +79,8 @@ async function withReporter(run, identityStatuses = []) {
       authorization: request.headers.authorization,
       body: JSON.parse(Buffer.concat(chunks).toString()),
     });
-    const status = request.url.endsWith('/harness-session') ? (identityStatuses.shift() ?? 204) : 204;
+    const status = request.url.endsWith('/harness-session') ? (identityStatuses.shift() ?? 204) : (attentionStatuses.shift() ?? 204);
+    if (typeof status === 'function') return status(request, response);
     response.writeHead(status).end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -615,4 +616,69 @@ test('context hook registration failure preserves reporter setup and cleanup', a
   await withContext(async x => {
     const e=x.event(); await x.context(e); assert.deepEqual(e.system,[]); x.cleanup();
   },{}, {rejectHook:true});
+});
+
+for (const status of [429, 503]) {
+  test(`attention delivery retries ${status} and deduplicates only after success`, async () => {
+    await withReporter(async ({ push, posts }) => {
+      await push(created());
+      await push(sessionEvent('question.asked', { id: 'q1' }));
+      await push(sessionEvent('question.replied', { requestID: 'q1' }));
+      const reports = attention(posts);
+      assert.deepEqual(reports.map(r => r.status), ['idle', 'waiting_for_input', 'idle', 'idle']);
+      assert.deepEqual(reports[2], reports[3], 'retry retains the original observation time');
+      await push(sessionEvent('session.execution.succeeded'));
+      assert.equal(attention(posts).length, 4);
+    }, [], [204, 204, status, 204]);
+  });
+}
+
+test('exhausted attention delivery recovers unchanged state on a later recognized event', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(created());
+    assert.equal(attention(posts).length, 3);
+    await push(sessionEvent('session.execution.succeeded'));
+    assert.equal(attention(posts).length, 4);
+    await push(sessionEvent('session.execution.succeeded'));
+    assert.equal(attention(posts).length, 4);
+  }, [], [503, 503, 503, 204]);
+});
+
+test('permanent attention rejection has no immediate retry and remains eligible later', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(created());
+    assert.equal(attention(posts).length, 1);
+    await push(sessionEvent('session.execution.succeeded'));
+    assert.equal(attention(posts).length, 2);
+  }, [], [403, 204]);
+});
+
+test('a stalled attention request times out and later events still run', { timeout: 6000 }, async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(created());
+    await push(sessionEvent('session.step.started'));
+    assert.deepEqual(attention(posts).map(r => r.status), ['idle', 'idle', 'working']);
+  }, [], [() => {}, 204]);
+});
+
+test('an unacknowledged transition invalidates the old delivered state', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(created());
+    await push(sessionEvent('question.asked', { id: 'q1' }));
+    await push(sessionEvent('question.replied', { requestID: 'q1' }));
+    assert.deepEqual(attention(posts).map(r => r.status),
+      ['idle', 'waiting_for_input', 'waiting_for_input', 'waiting_for_input', 'idle']);
+  }, [], [204, 503, 503, 503, 204]);
+});
+
+test('cleanup cancels an in-flight attention request without retrying', { timeout: 1500 }, async () => {
+  let started;
+  const requestStarted = new Promise(resolve => { started = resolve; });
+  await withReporter(async ({ push, posts, cleanup }) => {
+    const processing = push(created());
+    await requestStarted;
+    cleanup();
+    await processing;
+    assert.equal(attention(posts).length, 1);
+  }, [], [() => started()]);
 });
