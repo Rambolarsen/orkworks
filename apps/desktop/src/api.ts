@@ -1,4 +1,3 @@
-import { ApiError } from './requestError.ts';
 export { ApiError } from './requestError.ts';
 import { acceptAdviceRecommendation, dismissAdviceRecommendation } from './adviceApi.ts';
 export { getAdviceRecommendations, getAdviceRecommendation, runAdviceAudit } from './adviceApi.ts';
@@ -885,48 +884,16 @@ export interface TaskmasterAssessmentRequestResponse {
 }
 
 
-async function taskmasterRequest(baseUrl: string, path: string, init?: RequestInit): Promise<Response> {
-  const response = await backendFetch(`${baseUrl}${path}`, init);
-  if (!response.ok) throw new ApiError(`Taskmaster request failed: ${response.status}`, response.status);
-  return response;
-}
-
-export async function getTaskmasterRecommendations(baseUrl: string): Promise<RecommendationListResponse> {
-  const response = await taskmasterRequest(baseUrl, "/taskmaster/recommendations");
-  return response.json();
-}
-
-export async function getTaskmasterRecommendation(
-  baseUrl: string,
-  id: string,
-): Promise<WorkflowRecommendation> {
-  const response = await taskmasterRequest(
-    baseUrl,
-    `/taskmaster/recommendations/${encodeURIComponent(id)}`,
-  );
-  return response.json();
-}
-
 export interface TaskmasterAuditResponse {
   recommendation: WorkflowRecommendation | null;
 }
 
-export async function runTaskmasterAudit(baseUrl: string): Promise<TaskmasterAuditResponse> {
-  const response = await taskmasterRequest(
-    baseUrl,
-    "/taskmaster/audit/recommendations",
-    { method: "POST" },
-  );
-  return response.json();
-}
-
 export async function dismissTaskmasterRecommendation(
   id: string,
-  reason?: string,
-  expectedWorkspacePath?: string,
+  reason: string | undefined,
+  expectedWorkspacePath: string,
 ): Promise<void> {
-  if (expectedWorkspacePath !== undefined) return dismissAdviceRecommendation(expectedWorkspacePath, id, reason);
-  await window.orkworks.dismissTaskmasterRecommendation(id, reason);
+  return dismissAdviceRecommendation(expectedWorkspacePath, id, reason);
 }
 
 export interface AcceptRecommendationOptions {
@@ -942,10 +909,9 @@ export type RecommendationActionResult = Pick<WorkflowRecommendation, "id" | "st
 export async function acceptTaskmasterRecommendation(
   id: string,
   opts: AcceptRecommendationOptions,
-  expectedWorkspacePath?: string,
+  expectedWorkspacePath: string,
 ): Promise<RecommendationActionResult> {
-  if (expectedWorkspacePath !== undefined) return await acceptAdviceRecommendation(expectedWorkspacePath, id, opts) as unknown as WorkflowRecommendation;
-  return (await window.orkworks.acceptTaskmasterRecommendation(id, opts)) as WorkflowRecommendation;
+  return await acceptAdviceRecommendation(expectedWorkspacePath, id, opts) as unknown as WorkflowRecommendation;
 }
 
 export interface CleanupAcceptResult {
@@ -955,8 +921,7 @@ export interface CleanupAcceptResult {
 
 export async function acceptCleanupRecommendation(
   id: string,
-  expectedWorkspacePath?: string,
+  expectedWorkspacePath: string,
 ): Promise<CleanupAcceptResult> {
-  if (expectedWorkspacePath !== undefined) return await acceptAdviceRecommendation(expectedWorkspacePath, id, {}) as unknown as CleanupAcceptResult;
-  return (await window.orkworks.acceptTaskmasterRecommendation(id, {})) as CleanupAcceptResult;
+  return await acceptAdviceRecommendation(expectedWorkspacePath, id, {}) as unknown as CleanupAcceptResult;
 }

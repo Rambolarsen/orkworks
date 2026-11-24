@@ -24,7 +24,8 @@ const ENRICHMENT_INTERVAL: Duration = Duration::from_secs(5);
 const IDLE_ENRICHMENT_INTERVAL: Duration = Duration::from_secs(30);
 const OUTPUT_ACTIVITY_WINDOW: Duration = Duration::from_secs(10);
 const STATUS_INTERVAL: Duration = Duration::from_secs(2);
-type Job = JoinHandle<std::io::Result<StreamProjection>>;
+const MAX_CONSECUTIVE_STALE_INSPECTIONS: usize = 3;
+type Job = JoinHandle<Result<StreamProjection, crate::session_projection::ProjectionError>>;
 
 // A periodic deadline is anchored to the last start, never to each output
 // event. Quiet workspaces retain reconciliation without five-second scans.
@@ -200,7 +201,7 @@ fn launch(state: &Arc<AppState>, enrich: bool) -> Job {
     }
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
-        crate::http::session_handlers::query_stream_sessions(&state, enrich)
+        crate::session_projection::SessionProjection::new(state).stream_projection(enrich)
     })
 }
 fn now_millis() -> u64 {
@@ -274,6 +275,7 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
     let mut status_dirty = false;
     let mut inspection_dirty = false;
     let mut publish_dirty = false;
+    let mut consecutive_stale_inspections: usize = 0;
     loop {
         if !owner.current(&state) {
             break;
@@ -363,6 +365,7 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
                 match result {
                     Ok(Ok(prepared)) if publication_epoch == inspection_epoch
                         && prepared.locations.iter().all(|(id, value)| LocationInputs::capture(&state, id) == *value) => {
+                        consecutive_stale_inspections = 0;
                         if !initialized {
                             display.status(&prepared, inspection_epoch);
                             initialized = true; status_dirty = true;
@@ -370,7 +373,22 @@ async fn publish(state: Arc<AppState>, owner: Owner, sender: watch::Sender<Optio
                         display.inspect(&prepared, inspection_epoch, inspection_started);
                         publish_dirty = true;
                     }
-                    Ok(Ok(_)) => { inspection_dirty = true; status_dirty = true; },
+                    Ok(Ok(_)) => {
+                        inspection_dirty = true;
+                        status_dirty = true;
+                    }
+                    Ok(Err(error))
+                        if error.is_transient_location_change()
+                            && consecutive_stale_inspections < MAX_CONSECUTIVE_STALE_INSPECTIONS =>
+                    {
+                        consecutive_stale_inspections += 1;
+                        tracing::debug!(
+                            attempt = consecutive_stale_inspections,
+                            "retrying workspace stream inspection after transient session location change"
+                        );
+                        inspection_dirty = true;
+                        status_dirty = true;
+                    }
                     _ => break,
                 }
             },
@@ -535,8 +553,9 @@ mod tests {
     #[test]
     fn only_new_output_on_existing_rows_selects_the_active_cadence() {
         let (_dir, state, _) = fixture();
-        let mut prepared =
-            crate::http::session_handlers::query_stream_sessions(&state, false).unwrap();
+        let mut prepared = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
         prepared.infos[0].last_output_at = Some("2026-11-19T10:00:00Z".into());
         let mut display = Display::default();
         display.status(&prepared, 0);
@@ -744,6 +763,152 @@ mod tests {
         assert!(input_available);
         assert_eq!(result.status.len(), 32);
     }
+
+    #[tokio::test]
+    async fn transient_pid_registration_during_inspection_retries_without_closing_stream() {
+        let (dir, state, metadata) = fixture();
+        let id = "creating-stream-session";
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut info = crate::test_support::test_session_info(
+            id,
+            "Creating",
+            dir.path().display().to_string(),
+            "creating",
+            "now",
+        );
+        info.lifecycle_phase = "creating".into();
+        info.lifecycle = "creating".into();
+        let handle = crate::SessionHandle {
+            info,
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: crate::peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            resume_in_progress: false,
+            capacity: crate::capacity_state::CapacityState::default(),
+        };
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let mutate_state = state.clone();
+        *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+            mutate_state
+                .session_pids
+                .lock()
+                .unwrap()
+                .insert(id.into(), u32::MAX);
+        }));
+
+        let (_, required, mut rx) = subscribe_shared(
+            state.clone(),
+            dir.path().display().to_string(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        let published = display_where(&mut rx, |d| {
+            d.validated_epoch.is_some_and(|epoch| epoch >= required)
+        })
+        .await;
+        assert!(published.status.iter().any(|row| row["id"] == id));
+        assert_eq!(published.enrichment[id]["state"], "ready");
+        assert!(
+            state.updates.inspections.load(Ordering::SeqCst) >= 2,
+            "publisher must retry inspection after transient startup PID registration"
+        );
+    }
+
+    #[tokio::test]
+    async fn relentless_location_churn_closes_stream_after_bounded_retries() {
+        let (dir, state, metadata) = fixture();
+        let id = "churning-stream-session";
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let handle = crate::SessionHandle {
+            info: crate::test_support::test_session_info(
+                id,
+                "Churning",
+                dir.path().display().to_string(),
+                "running",
+                "now",
+            ),
+            active_work_hook: false,
+            kill_tx,
+            output_buffer: crate::peon::RingBuffer::new(200),
+            scan_buf: String::new(),
+            pending_work_signal: None,
+            runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+            ),
+            terminal_attached: false,
+            resume_in_progress: false,
+            capacity: crate::capacity_state::CapacityState::default(),
+        };
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        let store = state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .branch_documents
+            .clone();
+        let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        fn install_churn(
+            store: Arc<crate::branch_documents_store::Store>,
+            state: Arc<AppState>,
+            scans: Arc<std::sync::atomic::AtomicUsize>,
+            id: &'static str,
+        ) {
+            let next_store = store.clone();
+            *store.before_scan.lock().unwrap() = Some(Box::new(move || {
+                let attempt = scans.fetch_add(1, Ordering::SeqCst) + 1;
+                state
+                    .session_pids
+                    .lock()
+                    .unwrap()
+                    .insert(id.into(), u32::MAX - attempt as u32);
+                if attempt < 10 {
+                    install_churn(next_store, state, scans, id);
+                }
+            }));
+        }
+        install_churn(store, state.clone(), scans.clone(), id);
+
+        let (_, _, mut rx) = subscribe_shared(
+            state.clone(),
+            dir.path().display().to_string(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        let closed = tokio::time::timeout(Duration::from_secs(10), async {
+            while rx.changed().await.is_ok() {}
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "publisher must stop instead of looping forever under continuous location churn"
+        );
+        assert_eq!(
+            state.updates.inspections.load(Ordering::SeqCst),
+            MAX_CONSECUTIVE_STALE_INSPECTIONS + 1
+        );
+    }
     #[tokio::test]
     #[ignore = "manual 35-second socket workload; use an external process CPU timer"]
     async fn benchmark_stream_workload() {
@@ -841,13 +1006,16 @@ mod tests {
             Err(_) => vec![true, false],
             _ => panic!("benchmark mode must be status or full"),
         };
-        crate::http::session_handlers::query_stream_sessions(&state, true).unwrap();
+        crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(true)
+            .unwrap();
         for round in 0..5 {
             for &enrich in &modes {
                 let start = Instant::now();
                 for _ in 0..20 {
                     assert_eq!(
-                        crate::http::session_handlers::query_stream_sessions(&state, enrich)
+                        crate::session_projection::SessionProjection::new(state.clone())
+                            .stream_projection(enrich)
                             .unwrap()
                             .infos
                             .len(),
@@ -862,12 +1030,15 @@ mod tests {
     #[test]
     fn late_inspection_cannot_resurrect_deleted_rows_or_overwrite_status() {
         let (_dir, state, _) = fixture();
-        let prepared = crate::http::session_handlers::query_stream_sessions(&state, true).unwrap();
+        let prepared = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(true)
+            .unwrap();
         let mut display = Display::default();
         display.status(&prepared, 0);
         display.inspect(&prepared, 0, 100);
-        let mut status =
-            crate::http::session_handlers::query_stream_sessions(&state, false).unwrap();
+        let mut status = crate::session_projection::SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
         status.infos.remove(0);
         status.infos[0].label = "Newer".into();
         display.status(&status, 1);

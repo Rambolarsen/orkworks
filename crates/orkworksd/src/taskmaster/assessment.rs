@@ -269,33 +269,22 @@ fn capture_current_snapshot_for(
     let mut evaluation = runtime
         .assessment_evaluation_snapshot(&workspace_path)
         .map_err(str::to_string)?;
-    let trust = super::inference_trust::InferenceTrustStore::new(runtime_root.to_path_buf());
-    let providers = super::provider_catalog::inspect(&state.harness_store, Some(&trust))
-        .map_err(|_| "Taskmaster provider availability is unavailable")?;
-    let selection = evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("Taskmaster provider selection is unavailable")?;
-    if super::provider_catalog::evaluation_availability(&providers, selection)
-        != super::provider_catalog::Availability::Ready
-    {
-        return Err("The selected Taskmaster provider is unavailable".into());
-    }
-    let transport = providers
-        .iter()
-        .find(|provider| provider.id == selection.provider)
-        .map(|provider| provider.transport.clone())
-        .ok_or("The selected Taskmaster provider is unavailable")?;
-    if !super::evaluator::bind_evaluation_transport(
-        &runtime,
-        &state.harness_store,
-        &workspace_path,
-        &mut evaluation,
-        transport,
-    ) {
-        return Err("The selected Taskmaster provider changed".into());
-    }
+    runtime
+        .bind_ready_evaluation_provider(&state.harness_store, &workspace_path, &mut evaluation)
+        .map_err(|error| match error {
+            super::runtime::ProviderBindError::CatalogUnavailable => {
+                "Taskmaster provider availability is unavailable".to_string()
+            }
+            super::runtime::ProviderBindError::MissingSelection => {
+                "Taskmaster provider selection is unavailable".to_string()
+            }
+            super::runtime::ProviderBindError::ProviderUnavailable => {
+                "The selected Taskmaster provider is unavailable".to_string()
+            }
+            super::runtime::ProviderBindError::ProviderChanged => {
+                "The selected Taskmaster provider changed".to_string()
+            }
+        })?;
     let (input, current_instance) = {
         let workspace = state
             .workspace
@@ -1011,100 +1000,63 @@ fn invoke_assessment_stage(
     if prompt.len() > MAX_ASSESSMENT_PROMPT_BYTES {
         return Err("Assessment context exceeds its size limit".into());
     }
-    let selection = snapshot
-        .evaluation
-        .settings
-        .selection
-        .as_ref()
-        .ok_or("Taskmaster provider selection is unavailable")?;
-    let mut inputs_changed = false;
+    if snapshot.evaluation.settings.selection.is_none() {
+        return Err("Taskmaster provider selection is unavailable".into());
+    }
     let mut dispatch_gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-        let mut dispatched = None;
-        let mut check_workspace = || {
-            let workspace = state.workspace.lock().expect("workspace lock poisoned");
-            let Some(workspace) = workspace.as_ref().filter(|workspace| {
-                workspace.path == snapshot.workspace_path
-                    && workspace.workflow_observations.instance_id() == snapshot.workspace_instance
-            }) else {
-                return;
-            };
-            let Ok(input) = capture_workspace_input(workspace, &snapshot.evaluation, None) else {
-                return;
-            };
-            if input.fingerprint != snapshot.fingerprint
-                || super::active_workflow_recommendation(&input.recommendations).is_some()
-            {
-                return;
-            }
-            dispatched = Some(start());
-        };
-        let result = if snapshot.evaluation.custom_inference.is_some() {
-            // The custom transport already holds the harness, persistence, and
-            // runtime-data guards while invoking this gate. Re-entering
-            // with_current_evaluation here would deadlock on those same locks.
-            // Its outer guard revalidates the captured custom authority; this
-            // closure adds the workspace/input/active-recommendation checks.
-            check_workspace();
-            dispatched
-        } else {
-            let current = runtime.with_current_evaluation(
-                &state.harness_store,
-                &snapshot.workspace_path,
-                &snapshot.evaluation,
-                check_workspace,
-            );
-            current
-                .ok()
-                .filter(|is_current| *is_current)
-                .and(dispatched)
-        };
-        inputs_changed |= result.is_none();
-        result
+        let workspace = state.workspace.lock().expect("workspace lock poisoned");
+        let workspace = workspace.as_ref().filter(|workspace| {
+            workspace.path == snapshot.workspace_path
+                && workspace.workflow_observations.instance_id() == snapshot.workspace_instance
+        })?;
+        let input = capture_workspace_input(workspace, &snapshot.evaluation, None).ok()?;
+        if input.fingerprint != snapshot.fingerprint
+            || super::active_workflow_recommendation(&input.recommendations).is_some()
+        {
+            return None;
+        }
+        Some(start())
     };
-    let output = if let Some(captured) = snapshot.evaluation.custom_inference.as_ref() {
-        runtime.invoke_custom_inference_with_dispatch_gate(
+    let output = runtime
+        .invoke_authorized_inference(
+            &state.providers,
             &state.harness_store,
-            captured,
-            prompt.clone(),
+            &snapshot.workspace_path,
+            &snapshot.evaluation,
+            super::runtime::AuthorizedInferenceRequest {
+                prompt: prompt.clone(),
+                codex_response_shape: Some(response_shape),
+                control: None,
+            },
             &mut dispatch_gate,
         )
-    } else if let Some(native) = snapshot.evaluation.native_revision.as_ref() {
-        state
-            .providers
-            .invoke_native_taskmaster_prompt_with_response_shape(
-                native.profile,
-                &selection.model,
-                selection.reasoning_effort.as_deref(),
-                selection.ollama_base_url.as_deref(),
-                prompt.clone(),
-                (native.profile == crate::providers::native_inference::NativeProfile::Codex)
-                    .then_some(response_shape),
-                &mut dispatch_gate,
-            )
-    } else {
-        return Err("Taskmaster provider transport is unavailable".into());
-    };
-    if inputs_changed {
-        return Err(DISPATCH_INPUTS_CHANGED.into());
-    }
+        .map_err(|error| match error {
+            super::runtime::AuthorizedInferenceError::MissingTransport => {
+                "Taskmaster provider transport is unavailable".to_string()
+            }
+            super::runtime::AuthorizedInferenceError::Rejected(_) => {
+                DISPATCH_INPUTS_CHANGED.to_string()
+            }
+            super::runtime::AuthorizedInferenceError::Provider(error) => {
+                let cause = super::assessment_failure::provider_code(&error);
+                if cause == "inputs_changed" {
+                    return DISPATCH_INPUTS_CHANGED.into();
+                }
+                let stage = match response_shape {
+                    crate::providers::native_inference::NativeResponseShape::DiscoveryV1
+                    | crate::providers::native_inference::NativeResponseShape::ReadinessInvestigationV1 => {
+                        "discovery"
+                    }
+                    _ => "assessment",
+                };
+                format!("Taskmaster {stage} provider request failed ({})", cause)
+            }
+        });
     #[cfg(test)]
     if let Ok(output) = &output {
         quality_tests::capture_stage_output(&prompt, output);
     }
-    output.map_err(|error| {
-        let cause = super::assessment_failure::provider_code(&error);
-        if cause == "inputs_changed" {
-            return DISPATCH_INPUTS_CHANGED.into();
-        }
-        let stage = match response_shape {
-            crate::providers::native_inference::NativeResponseShape::DiscoveryV1
-            | crate::providers::native_inference::NativeResponseShape::ReadinessInvestigationV1 => {
-                "discovery"
-            }
-            _ => "assessment",
-        };
-        format!("Taskmaster {stage} provider request failed ({})", cause)
-    })
+    output
 }
 
 /// Validated evidence selection shared by the orchestration only. Readiness

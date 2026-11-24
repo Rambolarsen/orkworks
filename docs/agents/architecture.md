@@ -292,7 +292,7 @@ global retention and cleanup outside this increment. The workspace run record
 is the sole displayed source for analysis outcomes; the legacy installation-wide
 `lastError` remains readable for old ledger files but is no longer written or
 displayed as an analysis error. Both UI surfaces call the narrow
-`getTaskmasterRunStatus()` preload method, backed by Electron-authenticated
+`getAdviceRunStatus(workspacePath)` preload method, backed by Electron-authenticated
 `GET /taskmaster/run-status`; Settings polls every five seconds and on window
 focus, and Recommendations polls alongside its recommendation list. The status
 does not enumerate or coordinate other OrkWorks instances.
@@ -304,7 +304,7 @@ does not replace that disposition. Legacy count-less outcomes remain generic.
 Manual workflow assessment uses separate `taskmaster/assessment.rs` scheduling,
 `assessment_model.rs` strict decoding, `assessment_report.rs` publication, and
 `assessment_store.rs` capped atomic workspace storage. The narrow
-`requestTaskmasterAssessment()` preload call reaches authenticated empty-body
+`requestAdviceAssessment(workspacePath)` preload call reaches authenticated empty-body
 `POST /taskmaster/assess-workflow`. It shares the installation analysis lease and
 selected provider/context, requires signed assessment capability, and bypasses
 background quota/cooldown. Its separate run-status projection exposes only a
@@ -466,6 +466,14 @@ It reuses transient destination state; persisted Terminal/Review navigation and
 the terminal runtime lifetime remain unchanged.
 
 Electron runs with `nodeIntegration: false` and `contextIsolation: true` (ADR 0009). The renderer cannot call Node APIs directly. All privileged operations go through `electron/preload.ts`, which exposes `window.orkworks` with backend discovery, workspace memory, layout memory, menu-command, panel-visibility, and app-settings methods. Adding new capabilities requires extending the preload, not relaxing context isolation. `titleBarStyle: 'hiddenInset'` is set on macOS so the web content extends into the title bar area; the renderer reads `window.orkworks.platform` (exposed synchronously by the preload) to apply a `data-platform` attribute on `<html>`, which CSS uses to add traffic-light clearance (`padding-left: 80px`) on darwin only.
+
+The shell derives Needs You alerts from ready, live session snapshots and resets
+the comparison when the workspace or backend changes. Electron main owns the
+desktop opt-in and accepts notification requests from the main renderer
+while the backend is ready. An opaque request ID links an operating-system click
+to the session in the renderer. The notification shows fixed text. Main clears
+outstanding notifications when the workspace changes or the renderer is
+replaced, and the renderer checks that the wait still exists before navigating.
 
 Leaving `sandbox` unset on `webPreferences` means Electron runs `preload.ts` under its sandboxed preload loader, which only resolves Node/Electron built-ins — a plain per-file `tsc` require of any other local `electron/*.ts` module fails at runtime (`module not found`) even though it type-checks and compiles cleanly. `scripts/build-preload.mjs` (config in `scripts/preloadBuildConfig.mjs`) runs esbuild after `tsc` in the `dev`, `build`, and `dist` npm scripts to bundle `electron/preload.ts` and its local imports into a single self-contained `dist-electron/preload.js`, keeping `electron` external so Electron's own binding still resolves it. The rest of `electron/*.ts` (main-process code, not sandboxed) keeps its plain per-file `tsc` output and may freely `require()` sibling modules.
 
@@ -2392,8 +2400,8 @@ History retains `improvementVersion: 3` even after privacy redaction clears data
 Protocol-3 consumers receive fixed warnings before generated prose; absent
 `X-OrkWorks-Advice-Protocol: 3` omits new records from lists/history and refuses
 their detail/actions. The header declares presentation support, never policy.
-New narrow Electron IPC owns this header and retains workspace/generation fences;
-new clients fail closed against old main/server versions. Legacy enrichment,
+`electron/taskmasterIpc.ts` owns this header and all Taskmaster IPC channels,
+retaining workspace/generation fences; new clients fail closed against old main/server versions. Legacy enrichment,
 rollup and audit cannot forward new prose, while active/dedupe accounting retains
 the records. Mutation replies contain only lifecycle receipts for producer 3.
 

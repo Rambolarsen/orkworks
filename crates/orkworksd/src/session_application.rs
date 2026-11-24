@@ -1,7 +1,9 @@
 pub(crate) mod ending_completion;
+pub(crate) mod harness_reporting;
 pub(crate) mod hook_observation;
 pub(crate) mod identity_completion;
 mod input_submission_scope;
+pub(crate) mod metadata_access;
 mod recommendation_delivery;
 
 #[cfg(test)]
@@ -4720,14 +4722,26 @@ impl SessionApplication {
         id: &str,
         signal: AttentionSignal,
     ) -> Result<(), SessionError> {
-        let (protected_prompt_harness, hook_receipt_sequence) =
-            match prompt_protected_receipt(self, id, &signal)? {
-                PromptReceipt::Completed(result) => return result,
-                PromptReceipt::Continue {
-                    protected,
-                    hook_receipt_sequence,
-                } => (protected, hook_receipt_sequence),
-            };
+        // Receipt bookkeeping shares a contended synchronous authority fence.
+        // Wait for it off the Tokio worker just like the metadata merge below.
+        let receipt_app = Self::new(self.state.clone());
+        let receipt_id = id.to_string();
+        let (receipt, signal) = tokio::task::spawn_blocking(move || {
+            let receipt = prompt_protected_receipt(&receipt_app, &receipt_id, &signal)?;
+            Ok::<_, SessionError>((receipt, signal))
+        })
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "attention receipt task failed");
+            SessionError::Internal("application operation failed")
+        })??;
+        let (protected_prompt_harness, hook_receipt_sequence) = match receipt {
+            PromptReceipt::Completed(result) => return result,
+            PromptReceipt::Continue {
+                protected,
+                hook_receipt_sequence,
+            } => (protected, hook_receipt_sequence),
+        };
         if protected_prompt_harness {
             return Err(SessionError::EmptyBadRequest);
         }

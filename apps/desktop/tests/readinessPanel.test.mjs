@@ -13,18 +13,17 @@ function nodes(tree){if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree|
 async function fixture(t,initial,props={}){
  const queue=[Promise.resolve(initial)];let tick;
  let improvementStatus={workspacePath:'/repo',available:false,reasonCode:'not_qualified',run:null};
- const prior=globalThis.window;globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{getReadinessStatus:()=>queue.shift(),getImprovementStatus:async()=>improvementStatus,requestImprovement:async()=>({outcome:'unavailable',runId:null,reasonCode:'not_qualified'}),cancelImprovement:async()=>({outcome:'cancel_requested',runId:'improvement',reasonCode:null}),requestReadinessAssessment:async()=>({outcome:'unavailable',runId:null,reasonCode:null})}};t.after(()=>globalThis.window=prior);
- // Synthetic privileged bridge: preserve each test's backend operation counters.
+ const prior=globalThis.window;
  const protocol=async value=>({protocolVersion:3,...await value});
  const admitted=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
- Object.assign(window.orkworks,{
-  getAdviceReadinessStatus:()=>protocol(window.orkworks.getReadinessStatus()),
-  getAdviceImprovementStatus:()=>protocol(window.orkworks.getImprovementStatus()),
-  requestAdviceImprovement:()=>admitted(window.orkworks.requestImprovement()),
-  cancelAdviceImprovement:(_workspace,id)=>admitted(window.orkworks.cancelImprovement(id)),
-  requestAdviceReadinessAssessment:()=>admitted(window.orkworks.requestReadinessAssessment()),
-  requestAdviceReadinessSuggestion:()=>admitted(window.orkworks.requestReadinessSuggestion()),
- });
+ globalThis.window={setInterval:f=>{tick=f;return 1},clearInterval:()=>{},orkworks:{
+  getAdviceReadinessStatus:()=>protocol(queue.shift()),
+  getAdviceImprovementStatus:()=>protocol(improvementStatus),
+  requestAdviceImprovement:()=>admitted({outcome:'unavailable',runId:null,reasonCode:'not_qualified'}),
+  cancelAdviceImprovement:(_workspace,id)=>admitted({outcome:'cancel_requested',runId:id,reasonCode:null}),
+  requestAdviceReadinessAssessment:()=>admitted({outcome:'unavailable',runId:null,reasonCode:null}),
+  requestAdviceReadinessSuggestion:()=>admitted({outcome:'unavailable',runId:null,reasonCode:null}),
+ }};t.after(()=>globalThis.window=prior);
  let stateIndex=0,effectIndex=0;const values=[],deps=[],effects=[];
  const hooks={...React,useRef:initial=>hooks.useState({current:initial})[0],useState(initial){const i=stateIndex++;if(!(i in values))values[i]=initial;return[values[i],next=>values[i]=typeof next==='function'?next(values[i]):next];},useEffect(callback,next){const i=effectIndex++;if(!deps[i]||next.some((x,j)=>x!==deps[i][j]))effects.push(callback);deps[i]=next;}};
  const module={exports:{}};new Function('require','module','exports',compiled.outputFiles[0].text)(id=>id==='react'?hooks:require(id),module,module.exports);
@@ -73,7 +72,7 @@ test('qualified improvement alone becomes the primary action and discloses six c
  view.tick();await view.settle();
  const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Find next improvement');
  assert.match(button.props.title,/six model calls/i);
- let starts=0;window.orkworks.requestImprovement=async()=>{starts++;return{outcome:'scheduled',runId:'run-1',reasonCode:null};};
+ let starts=0;window.orkworks.requestAdviceImprovement=async()=>{starts++;return{protocolVersion:3,outcome:'scheduled',runId:'run-1',reasonCode:null};};
  button.props.onClick();await view.settle();assert.equal(starts,1);
 });
 
@@ -81,7 +80,7 @@ test('an active improvement can be cancelled without calling the legacy assessme
  const view=await fixture(t,status());
  view.setImprovementStatus({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'improvement',state:'running',phase:'assessing',startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});
  view.tick();await view.settle();
- let cancelled=0;window.orkworks.cancelImprovement=async id=>{cancelled++;assert.equal(id,'improvement');return{outcome:'cancel_requested',runId:id,reasonCode:null};};
+ let cancelled=0;window.orkworks.cancelAdviceImprovement=async(_workspace,id)=>{cancelled++;assert.equal(id,'improvement');return{protocolVersion:3,outcome:'cancel_requested',runId:id,reasonCode:null};};
  const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Cancel investigation');
  assert.ok(button);button.props.onClick();await view.settle();assert.equal(cancelled,1);
 });
@@ -89,8 +88,8 @@ test('an active improvement can be cancelled without calling the legacy assessme
 
 test('combined action invokes only its privileged method and reports the scheduled run',async t=>{
  const view=await fixture(t,status());let combined=0,score=0;
- window.orkworks.requestReadinessSuggestion=async()=>{combined++;return{outcome:'scheduled',runId:'combined',reasonCode:null};};
- window.orkworks.requestReadinessAssessment=async()=>{score++;return{outcome:'scheduled',runId:'score',reasonCode:null};};
+ window.orkworks.requestAdviceReadinessSuggestion=async()=>{combined++;return{protocolVersion:3,outcome:'scheduled',runId:'combined',reasonCode:null};};
+ window.orkworks.requestAdviceReadinessAssessment=async()=>{score++;return{protocolVersion:3,outcome:'scheduled',runId:'score',reasonCode:null};};
  view.queue.push(Promise.resolve(status()));
  const button=nodes(view.render()).find(node=>node.type==='button'&&node.props.children==='Find next improvement');
  button.props.onClick();await view.settle();
@@ -134,8 +133,8 @@ test('history selectors preserve zero scores, redaction labels and baseline rese
 test('standalone assessment remains separate from the combined request', async t => {
  const view = await fixture(t, status());
  let score = 0;
- window.orkworks.requestReadinessAssessment = async () => { score++; return { outcome: 'scheduled' }; };
- window.orkworks.requestReadinessSuggestion = async () => { assert.fail('Combined action must not be invoked'); };
+ window.orkworks.requestAdviceReadinessAssessment = async () => { score++; return { protocolVersion: 3, outcome: 'scheduled', runId: null, reasonCode: null }; };
+ window.orkworks.requestAdviceReadinessSuggestion = async () => { assert.fail('Combined action must not be invoked'); };
  view.queue.push(Promise.resolve(status()));
  nodes(view.render()).find(node => node.type === 'button' && node.props.children === 'Check agent readiness').props.onClick();
  await view.settle();
@@ -183,8 +182,8 @@ test('each source click reopens its saved assessment without polling overriding 
 test('the compact overview opens its saved report and comparison history without a new assessment', async t => {
  const recent = snapshot(), older = snapshot(); older.id = 'older';
  const view = await fixture(t, status([recent, older]));
- window.orkworks.requestReadinessAssessment = async () => assert.fail('Viewing a report must not assess');
- window.orkworks.requestReadinessSuggestion = async () => assert.fail('Viewing history must not seek a suggestion');
+ window.orkworks.requestAdviceReadinessAssessment = async () => assert.fail('Viewing a report must not assess');
+ window.orkworks.requestAdviceReadinessSuggestion = async () => assert.fail('Viewing history must not seek a suggestion');
  const report = () => nodes(view.render()).find(node => node.props?.id === 'readiness-report');
  const history = () => nodes(view.render()).find(node => node.props?.className === 'readiness-history-controls');
  assert.equal(report()?.props.hidden, true);
@@ -209,8 +208,8 @@ test('the owner can place readiness actions in its toolbar without changing thei
  const toolbar = nodes(view.render()).find(node => node.props?.['aria-label'] === 'Assessments');
  assert.ok(toolbar, 'The toolbar must receive the actual readiness controls');
  let combined = 0, score = 0;
- window.orkworks.requestReadinessSuggestion = async () => { combined++; return { outcome: 'scheduled' }; };
- window.orkworks.requestReadinessAssessment = async () => { score++; return { outcome: 'scheduled' }; };
+ window.orkworks.requestAdviceReadinessSuggestion = async () => { combined++; return { protocolVersion: 3, outcome: 'scheduled', runId: null, reasonCode: null }; };
+ window.orkworks.requestAdviceReadinessAssessment = async () => { score++; return { protocolVersion: 3, outcome: 'scheduled', runId: null, reasonCode: null }; };
  view.queue.push(Promise.resolve(status()));
  nodes(toolbar).find(node => node.type === 'button' && node.props.children === 'Find next improvement').props.onClick();
  await view.settle();
@@ -222,14 +221,14 @@ test('disabling readiness during a pending request does not leave controls stuck
  const props = { enabled: true };
  const view = await fixture(t, status(), props);
  const pending = deferred();
- window.orkworks.requestReadinessSuggestion = () => pending.promise;
+ window.orkworks.requestAdviceReadinessSuggestion = () => pending.promise;
  const primary = () => nodes(view.render()).find(node => node.type === 'button' && node.props.className === 'recommendation-primary');
  primary().props.onClick();
  assert.equal(primary().props.disabled, true);
  props.enabled = false; view.render(); await view.settle();
  props.enabled = true; view.queue.push(Promise.resolve(status())); view.render(); await view.settle();
  assert.equal(primary().props.disabled, false, 'Cancelling workspace selection must reenable readiness');
- pending.resolve({ outcome: 'scheduled', runId: 'old-workspace-attempt' }); await view.settle();
+ pending.resolve({ protocolVersion: 3, outcome: 'scheduled', runId: 'old-workspace-attempt', reasonCode: null }); await view.settle();
  assert.doesNotMatch(displayedText(view.render()), /Assessment and suggestion requested/);
  assert.equal(primary().props.disabled, false);
 });
@@ -237,7 +236,7 @@ test('disabling readiness during a pending request does not leave controls stuck
 
 test('an already-running response does not remain after a successful idle refresh', async t => {
  const view = await fixture(t, status([snapshot()]));
- window.orkworks.requestReadinessSuggestion = async () => ({ outcome: 'already_running' });
+ window.orkworks.requestAdviceReadinessSuggestion = async () => ({ protocolVersion: 3, outcome: 'already_running', runId: null, reasonCode: null });
  view.queue.push(Promise.resolve(status([snapshot()])));
  nodes(view.render()).find(n => n.type === 'button' && n.props.children === 'Find next improvement').props.onClick();
  await view.settle(); view.render(); await view.settle();
@@ -265,7 +264,7 @@ test('live external activity is separate from a timestamped previous failure and
 
 test('a request confirmation clears when polling observes its run', async t => {
  const view = await fixture(t, status());
- window.orkworks.requestReadinessAssessment = async () => ({ outcome: 'scheduled' });
+ window.orkworks.requestAdviceReadinessAssessment = async () => ({ protocolVersion: 3, outcome: 'scheduled', runId: null, reasonCode: null });
  view.queue.push(Promise.resolve(status()));
  nodes(view.render()).find(n => n.type === 'button' && n.props.children === 'Check agent readiness').props.onClick();
  await view.settle(); view.render(); await view.settle();
@@ -354,9 +353,9 @@ test('a completed improvement surfaces its linked recommendation once',async t=>
 
 test('older improvement reads cannot restore evidence after a newer redaction',async t=>{
  const view=await fixture(t,status());const older=deferred(),newer=deferred();let calls=0;
- window.orkworks.getImprovementStatus=()=>++calls===1?older.promise:newer.promise;
- view.tick();view.tick();newer.resolve({workspacePath:'/repo',available:false,reasonCode:'access_denied',run:null});await view.settle();
- older.resolve({workspacePath:'/repo',available:true,reasonCode:null,run:{id:'stale',state:'running',phase:'assessing',startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});await view.settle();
+ window.orkworks.getAdviceImprovementStatus=()=>++calls===1?older.promise:newer.promise;
+ view.tick();view.tick();newer.resolve({protocolVersion:3,workspacePath:'/repo',available:false,reasonCode:'access_denied',run:null});await view.settle();
+ older.resolve({protocolVersion:3,workspacePath:'/repo',available:true,reasonCode:null,run:{id:'stale',state:'running',phase:'assessing',startedAt:'2026-11-12T10:00:00Z',completedAt:null,errorCode:null,report:null}});await view.settle();
  assert.doesNotMatch(displayedText(view.render()),/Assessing opportunities/);
 });
 

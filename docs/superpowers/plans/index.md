@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Workflow evidence policy implementation](2026-11-23-workflow-evidence-policy.md) — Gated deterministic implementation and verification handoff for #1077.
+
 - [Session status and enrichment delivery](2026-11-19-session-status-enrichment.md) — Approved #1895 implementation, compatibility and performance checks.
 
 - [Keep terminal input responsive during output timestamp writes](2026-11-19-terminal-output-recency-contention.md) — Approved lock-scope repair and regression for #1222.

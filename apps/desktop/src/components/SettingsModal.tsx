@@ -32,7 +32,7 @@ type ToolSaveRequest =
   | { kind: "modal"; ids: string[]; key?: undefined }
   | { kind: "tool"; ids: string[]; harnessId: string; key: IntegrationKey };
 
-export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "updates" | "debug";
+export type SettingsSection = "tools" | "providers" | "recommendations" | "hotkeys" | "retention" | "notifications" | "updates" | "debug";
 
 const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "tools", label: "Coding tools" },
@@ -40,6 +40,7 @@ const NAV_ITEMS: Array<{ key: SettingsSection; label: string }> = [
   { key: "recommendations", label: "Recommendations" },
   { key: "hotkeys", label: "Hotkeys" },
   { key: "retention", label: "Session retention" },
+  { key: "notifications", label: "Notifications" },
   { key: "updates", label: "Updates" },
   { key: "debug", label: "Debug" },
 ];
@@ -62,6 +63,7 @@ interface SettingsModalProps {
   onSectionChange: (section: SettingsSection) => void;
   onClose: () => void;
   onSaved: (settings: AppSettings) => void;
+  onSaveDesktopSessionNotifications: (enabled: boolean) => Promise<void>;
   onSaveActiveHarnesses: (ids: string[], scope?: IntegrationKey) => Promise<ActiveHarnessSaveResult>;
 }
 
@@ -105,7 +107,7 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
   return stripDerivedHarnessFields(harness);
 }
 
-export default function SettingsModal({ initialSection = "tools", initialSettings, currentWorkspacePath, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses }: SettingsModalProps) {
+export default function SettingsModal({ initialSection = "tools", initialSettings, currentWorkspacePath, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses, onSaveDesktopSessionNotifications }: SettingsModalProps) {
   const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
@@ -139,6 +141,8 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  const [notificationSaveError, setNotificationSaveError] = useState(false);
   const [providerDraft, setProviderDraft] = useState<ProviderSettings>(initialSettings.providers);
   const [providerSaveStatus, setProviderSaveStatus] = useState<string | null>(null);
   const initialPeonSelection = peonSelectionFromProviders(initialSettings.providers);
@@ -450,6 +454,20 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
       if (request.isCurrent()) setRetentionSaveStatus(result.retentionApplyStatus?.lastApplyError ? "Saved locally; sidecar pending" : "Saved");
     } catch {
       if (request.isCurrent()) setRetentionSaveStatus("Session retention could not be saved.");
+    }
+  }
+
+  async function saveDesktopSessionNotifications() {
+    const enabled = initialSettings.desktopSessionNotifications !== true;
+    setSavingNotifications(true);
+    setNotificationSaveError(false);
+    try {
+      await onSaveDesktopSessionNotifications(enabled);
+      savedSettingsRef.current.desktopSessionNotifications = enabled;
+    } catch {
+      setNotificationSaveError(true);
+    } finally {
+      setSavingNotifications(false);
     }
   }
 
@@ -1011,6 +1029,20 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
 
 
             {activeSection === "recommendations" && <TaskmasterSettings currentWorkspacePath={currentWorkspacePath} />}
+
+            {activeSection === "notifications" && (
+              <div className="settings-section">
+                <h3>Notifications</h3>
+                <p className="settings-section-copy">Get a desktop alert when a session needs you while OrkWorks is in the background.</p>
+                <Toggle
+                  checked={initialSettings.desktopSessionNotifications === true}
+                  onChange={() => void saveDesktopSessionNotifications()}
+                  disabled={savingNotifications}
+                  label="Desktop session alerts"
+                />
+                {notificationSaveError && <p role="alert">Desktop notification settings could not be saved.</p>}
+              </div>
+            )}
 
             {activeSection === "updates" && (
               <UpdatesSection

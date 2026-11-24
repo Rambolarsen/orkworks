@@ -152,6 +152,46 @@ pub(crate) struct StreamProjection {
     pub(crate) plans: HashMap<String, Option<metadata::PlanReference>>,
 }
 
+#[derive(Debug)]
+pub(crate) enum ProjectionError {
+    WorkspaceChanged(&'static str),
+    SessionLocationChanged,
+    Io(io::Error),
+}
+
+impl ProjectionError {
+    pub(crate) fn is_transient_location_change(&self) -> bool {
+        matches!(self, Self::SessionLocationChanged)
+    }
+}
+
+impl std::fmt::Display for ProjectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WorkspaceChanged(message) => f.write_str(message),
+            Self::SessionLocationChanged => {
+                f.write_str("session location changed during document inspection")
+            }
+            Self::Io(error) => error.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ProjectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::WorkspaceChanged(_) | Self::SessionLocationChanged => None,
+        }
+    }
+}
+
+impl From<io::Error> for ProjectionError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
 struct ProjectionSnapshot {
     infos: Vec<SessionInfo>,
     live_ids: HashSet<String>,
@@ -339,6 +379,79 @@ fn capacity_fingerprint(
     })
 }
 
+pub(crate) fn project_peon_diagnostics(
+    info: &mut SessionInfo,
+    snapshot: Option<crate::session_types::PeonDiagnostics>,
+    observation_count: Option<usize>,
+) {
+    info.peon_diagnostics = None;
+    if info.memory_state != crate::session_types::MemoryState::Live {
+        return;
+    }
+    let Some(mut snapshot) = snapshot else {
+        return;
+    };
+
+    snapshot.observation_count = observation_count;
+    info.peon_diagnostics = Some(snapshot);
+}
+
+pub(crate) fn project_live_peon_diagnostics_one(state: &AppState, info: &mut SessionInfo) {
+    project_live_peon_diagnostics_batch(state, std::slice::from_mut(info));
+}
+
+pub(crate) fn project_live_peon_diagnostics_batch(state: &AppState, infos: &mut [SessionInfo]) {
+    if infos.is_empty() {
+        return;
+    }
+    let snapshots: Vec<Option<crate::session_types::PeonDiagnostics>> =
+        match state.peon.diagnostics.read() {
+            Ok(diagnostics) => infos
+                .iter()
+                .map(|info| {
+                    (info.memory_state == crate::session_types::MemoryState::Live)
+                        .then(|| {
+                            diagnostics
+                                .get(&info.id)
+                                .map(|entry| entry.snapshot.clone())
+                        })
+                        .flatten()
+                })
+                .collect(),
+            Err(_) => vec![None; infos.len()],
+        };
+    let has_any_snapshot = snapshots.iter().any(Option::is_some);
+    let counts: Vec<Option<usize>> = if has_any_snapshot {
+        match state.workspace.lock() {
+            Ok(workspace) => match workspace.as_ref() {
+                Some(workspace) => infos
+                    .iter()
+                    .zip(snapshots.iter())
+                    .map(|(info, snapshot)| {
+                        snapshot.as_ref().and_then(|_| {
+                            workspace
+                                .workflow_observations
+                                .session_observation_count(&info.id)
+                                .ok()
+                        })
+                    })
+                    .collect(),
+                None => vec![None; infos.len()],
+            },
+            Err(_) => vec![None; infos.len()],
+        }
+    } else {
+        vec![None; infos.len()]
+    };
+    for ((info, snapshot), observation_count) in infos
+        .iter_mut()
+        .zip(snapshots.into_iter())
+        .zip(counts.into_iter())
+    {
+        project_peon_diagnostics(info, snapshot, observation_count);
+    }
+}
+
 impl SessionProjection {
     pub(crate) fn new(state: Arc<AppState>) -> Self {
         Self { state }
@@ -497,11 +610,35 @@ impl SessionProjection {
         })
     }
 
-    pub(crate) fn list(&self) -> io::Result<Vec<SessionInfo>> {
+    pub(crate) fn list(&self) -> Result<Vec<SessionInfo>, ProjectionError> {
         self.list_with_capacity_analysis(|cache, inputs| cache.analyze(inputs))
     }
 
-    pub(crate) fn stream_projection(&self, enrich: bool) -> io::Result<StreamProjection> {
+    pub(crate) fn list_with_transient_retries(&self) -> Result<Vec<SessionInfo>, ProjectionError> {
+        const MAX_TRANSIENT_LOCATION_RETRIES: usize = 2;
+        let mut retries = 0;
+        loop {
+            match self.list() {
+                Ok(infos) => return Ok(infos),
+                Err(error)
+                    if error.is_transient_location_change()
+                        && retries < MAX_TRANSIENT_LOCATION_RETRIES =>
+                {
+                    retries += 1;
+                    tracing::debug!(
+                        attempt = retries + 1,
+                        "retrying session projection after transient session location change"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    pub(crate) fn stream_projection(
+        &self,
+        enrich: bool,
+    ) -> Result<StreamProjection, ProjectionError> {
         self.prepare_projection(|cache, inputs| cache.analyze(inputs), enrich)
     }
 
@@ -512,7 +649,7 @@ impl SessionProjection {
             &mut CapacityAnalysisCache,
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
-    ) -> io::Result<Vec<SessionInfo>> {
+    ) -> Result<Vec<SessionInfo>, ProjectionError> {
         self.prepare_projection(analyze, true)
             .map(|prepared| prepared.infos)
     }
@@ -524,7 +661,7 @@ impl SessionProjection {
             Vec<CapacityInput>,
         ) -> HashMap<String, PreparedCapacity>,
         enrich: bool,
-    ) -> io::Result<StreamProjection> {
+    ) -> Result<StreamProjection, ProjectionError> {
         let analysis = self
             .state
             .session_directory_state
@@ -552,7 +689,7 @@ impl SessionProjection {
                 _ => false,
             };
             if !matches {
-                return Err(io::Error::other(
+                return Err(ProjectionError::WorkspaceChanged(
                     "workspace changed during capacity analysis",
                 ));
             }
@@ -586,6 +723,8 @@ impl SessionProjection {
             })
             .collect();
         if !enrich {
+            drop(_fence);
+            project_live_peon_diagnostics_batch(&self.state, &mut infos);
             return Ok(StreamProjection {
                 infos,
                 locations: captured,
@@ -634,16 +773,21 @@ impl SessionProjection {
                 _ => false,
             }
         };
-        if !matches
-            || !context_matches
+        if !matches {
+            return Err(ProjectionError::WorkspaceChanged(
+                "workspace changed during document inspection",
+            ));
+        }
+        if !context_matches
             || captured
                 .iter()
                 .any(|(id, inputs)| LocationInputs::capture(&self.state, id) != *inputs)
         {
-            return Err(io::Error::other(
-                "workspace or session location changed during document inspection",
-            ));
+            return Err(ProjectionError::SessionLocationChanged);
         }
+        drop(_fence);
+        let mut infos = infos;
+        project_live_peon_diagnostics_batch(&self.state, &mut infos);
         Ok(StreamProjection {
             infos,
             locations: captured,

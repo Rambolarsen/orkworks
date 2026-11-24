@@ -10,9 +10,10 @@ interface ResumeChooserProps {
   header?: boolean;
   pending?: boolean;
   compact?: boolean;
+  onWarningOpenChange?: (open: boolean) => void;
 }
 
-export default function ResumeChooser({ options, onSelect, header = false, pending: resuming = false, compact = false }: ResumeChooserProps) {
+export default function ResumeChooser({ options, onSelect, header = false, pending: resuming = false, compact = false, onWarningOpenChange }: ResumeChooserProps) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<ResumeChoice | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -41,12 +42,16 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
     window.addEventListener("resize", resize);
     return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", resize); };
   }, [open]);
-  useEffect(() => {
-    if (!pending) return;
+  useLayoutEffect(() => {
     const dialog = warning.current;
-    dialog?.showModal();
-    return () => { if (dialog?.open) dialog.close(); };
-  }, [pending]);
+    if (!pending || !dialog) return;
+    dialog.showModal();
+    onWarningOpenChange?.(true);
+    return () => {
+      if (dialog.open) dialog.close();
+      onWarningOpenChange?.(false);
+    };
+  }, [pending, onWarningOpenChange]);
   const optionsSignature = JSON.stringify(options);
   useEffect(() => {
     setOpen(false);

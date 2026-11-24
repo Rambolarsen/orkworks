@@ -1,8 +1,6 @@
 //! Authenticated versioned metadata HTTP adapter.
 
-use crate::metadata::agent_patch::{AgentPatchEnvelope, AgentPatchError};
-use crate::runtime::terminal_runtime::verify_workflow_report_token;
-use crate::session_types::MemoryState;
+use crate::session_application::metadata_access::{self, MetadataAccessError, MetadataOperation};
 use crate::AppState;
 use axum::{
     body::Bytes,
@@ -12,8 +10,8 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use std::{path::Path as FilePath, sync::Arc};
+use serde::Deserialize;
+use std::sync::Arc;
 
 const MAX_PATCH_BODY_BYTES: usize = 8 * 1024;
 
@@ -33,13 +31,6 @@ struct PatchQuery {
     validate_only: bool,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ValidatedResponse {
-    validated: bool,
-    metadata_revision: crate::metadata::session_transactions::MetadataRevision,
-}
-
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
     let header = headers.get(AUTHORIZATION)?.to_str().ok()?;
     let token = header.strip_prefix("Bearer ")?;
@@ -49,161 +40,12 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
     Some(token.to_owned())
 }
 
-enum MetadataOperation {
-    Read,
-    Patch { body: Bytes, validate_only: bool },
-}
-
-fn perform(
-    state: &AppState,
-    id: &str,
-    token: &str,
-    operation: MetadataOperation,
-) -> Result<serde_json::Value, StatusCode> {
-    // Keep workspace and session identity stable through the store transaction.
-    // The order matches existing application code: workspace, then sessions.
-    let workspace_guard = state
-        .workspace
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let workspace = workspace_guard.as_ref().ok_or(StatusCode::UNAUTHORIZED)?;
-    let mut sessions_guard = state
-        .sessions
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let live = sessions_guard.get(id).is_some_and(|handle| {
-        handle.info.id == id
-            && handle.info.memory_state == MemoryState::Live
-            && handle.info.lifecycle == "alive"
-            && handle.info.lifecycle_phase == "active"
-    });
-    if !live || !verify_workflow_report_token(id, token) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    let operation = match operation {
-        MetadataOperation::Patch {
-            body,
-            validate_only,
-        } => {
-            let envelope = serde_json::from_slice::<AgentPatchEnvelope>(&body)
-                .map_err(|_| StatusCode::BAD_REQUEST)?;
-            ParsedOperation::Patch {
-                envelope,
-                validate_only,
-            }
-        }
-        MetadataOperation::Read => ParsedOperation::Read,
-    };
-    let record = workspace
-        .metadata
-        .try_read_revisioned_session(id)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    if FilePath::new(&record.metadata.workspace) != workspace.path {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    if record.metadata.lifecycle != "alive"
-        || record.metadata.lifecycle_phase != "active"
-        || record.metadata.status != "running"
-    {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    match operation {
-        ParsedOperation::Read => {
-            serde_json::to_value(record).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-        }
-        ParsedOperation::Patch {
-            envelope,
-            validate_only,
-        } => {
-            if validate_only {
-                let revision = workspace
-                    .metadata
-                    .validate_agent_patch(id, &envelope.metadata_revision, &envelope.patch)
-                    .map_err(status_for_patch_error)?;
-                serde_json::to_value(ValidatedResponse {
-                    validated: true,
-                    metadata_revision: revision,
-                })
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-            } else {
-                let scope = envelope.patch.scope();
-                let updates_summary = envelope.patch.updates_summary();
-                let updated = workspace
-                    .metadata
-                    .apply_agent_patch(id, &envelope.metadata_revision, &envelope.patch)
-                    .map_err(status_for_patch_error)?;
-                let value = serde_json::to_value(&updated)
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                let handle = sessions_guard
-                    .get_mut(id)
-                    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-                handle.info.last_activity_at = Some(updated.metadata.last_activity.clone());
-                handle.info.worktree_binding = updated.metadata.worktree_binding.clone();
-                if scope.attention {
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.observed_status = updated.metadata.observed_status.clone();
-                    handle.info.attention = updated.metadata.attention.clone();
-                    handle.info.needs_user_input = updated.metadata.needs_user_input;
-                    handle.info.detected_question = updated.metadata.detected_question.clone();
-                    handle.info.suggested_options = updated.metadata.suggested_options.clone();
-                    handle.info.provenance.attention_source =
-                        updated.metadata.provenance.attention_source.clone();
-                    handle.info.provenance.attention_confidence =
-                        updated.metadata.provenance.attention_confidence;
-                    handle.info.provenance.attention_origin =
-                        updated.metadata.provenance.attention_origin.clone();
-                    handle.info.provenance.attention_updated_at =
-                        updated.metadata.provenance.attention_updated_at.clone();
-                    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
-                        tracker.invalidate();
-                    }
-                    handle.pending_work_signal = None;
-                    handle.runtime.active_prompt_kind = None;
-                }
-                if scope.work {
-                    handle.info.work_phase = updated.metadata.work_phase.clone();
-                    handle.info.next_action = updated.metadata.next_action.clone();
-                    handle.info.blocker_description = updated.metadata.blocker_description.clone();
-                    handle.info.failed_command = updated.metadata.failed_command.clone();
-                    handle.info.failed_test = updated.metadata.failed_test.clone();
-                    handle.info.metadata_source = Some(updated.metadata.metadata_source.clone());
-                    handle.info.metadata_confidence = Some(updated.metadata.metadata_confidence);
-                    handle.info.provenance.work_metadata_updated_at =
-                        updated.metadata.provenance.work_metadata_updated_at.clone();
-                }
-                if updates_summary {
-                    handle.info.summary = updated.metadata.summary.clone();
-                    handle.info.provenance.summary_source =
-                        updated.metadata.provenance.summary_source.clone();
-                    handle.info.provenance.summary_confidence =
-                        updated.metadata.provenance.summary_confidence;
-                    handle.info.provenance.summary_observed_at =
-                        updated.metadata.provenance.summary_observed_at.clone();
-                }
-                Ok(value)
-            }
-        }
-    }
-}
-
-enum ParsedOperation {
-    Read,
-    Patch {
-        envelope: AgentPatchEnvelope,
-        validate_only: bool,
-    },
-}
-
-fn status_for_patch_error(error: AgentPatchError) -> StatusCode {
+fn status_for_access_error(error: MetadataAccessError) -> StatusCode {
     match error {
-        AgentPatchError::Conflict => StatusCode::CONFLICT,
-        AgentPatchError::BadRequest => StatusCode::BAD_REQUEST,
-        AgentPatchError::Unauthorized => StatusCode::UNAUTHORIZED,
-        AgentPatchError::Io(error) => {
-            tracing::error!(error = %error, "session metadata transaction failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
+        MetadataAccessError::Unauthorized => StatusCode::UNAUTHORIZED,
+        MetadataAccessError::BadRequest => StatusCode::BAD_REQUEST,
+        MetadataAccessError::Conflict => StatusCode::CONFLICT,
+        MetadataAccessError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -215,11 +57,13 @@ async fn get_metadata(
     let Some(token) = bearer_token(&headers) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    match tokio::task::spawn_blocking(move || perform(&state, &id, &token, MetadataOperation::Read))
-        .await
+    match tokio::task::spawn_blocking(move || {
+        metadata_access::perform(&state, &id, &token, MetadataOperation::Read)
+    })
+    .await
     {
         Ok(Ok(value)) => Json(value).into_response(),
-        Ok(Err(status)) => status.into_response(),
+        Ok(Err(error)) => status_for_access_error(error).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -235,12 +79,16 @@ async fn patch_metadata(
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let operation = MetadataOperation::Patch {
-        body,
+        body: body.to_vec(),
         validate_only: query.validate_only,
     };
-    match tokio::task::spawn_blocking(move || perform(&state, &id, &token, operation)).await {
+    match tokio::task::spawn_blocking(move || {
+        metadata_access::perform(&state, &id, &token, operation)
+    })
+    .await
+    {
         Ok(Ok(value)) => Json(value).into_response(),
-        Ok(Err(status)) => status.into_response(),
+        Ok(Err(error)) => status_for_access_error(error).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -252,11 +100,14 @@ mod tests {
     use crate::runtime::terminal_runtime::{
         clear_workflow_report_token, set_workflow_report_token,
     };
+    use crate::session_types::MemoryState;
     use crate::test_support::{
         test_app_state_with_workspace, test_session_info, test_session_metadata,
     };
     use axum::http::StatusCode;
     use serde_json::{json, Value};
+    #[cfg(unix)]
+    use std::path::Path as FilePath;
 
     async fn fixture() -> (Arc<AppState>, String, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

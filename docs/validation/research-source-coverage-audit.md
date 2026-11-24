@@ -264,3 +264,17 @@ membership; current report input must not clear the independent continue gate
 or rewrite the original cancellation. No positive fixture, source-valid history,
 complete catalog/initializer/physical profile or runtime/native activation follows.
 Earlier technical audit statements remain historical and unchanged.
+
+
+## Command and original proof proposal — 2026-11-23
+
+The [written command/proof proposal](../superpowers/specs/2026-11-23-research-command-proof-design.md)
+addresses catalog-closure item 4 over the accepted enumeration, discovery and
+three initializer outcomes. It maps typed operation families to complete
+source/consumer/ordinary/resource/index/header effects, original H-to-C proofs,
+coalesced versions and operation-specific exact retries. Its three choices remain
+proposed for scoped written acceptance. No executable command registry, physical
+format/manifest/version, dependent component packet, real producer/cutoff or
+cross-owner atomic/native outcome is qualified; item 5 and all runtime gates
+remain open. Earlier technical statements and validation artifact bytes remain
+historical and unchanged. #1689/#1089 stay open; #740 stays closed research.

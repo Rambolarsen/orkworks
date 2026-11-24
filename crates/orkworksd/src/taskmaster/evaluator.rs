@@ -182,62 +182,28 @@ fn provider_cache_key(
     Ok(hex::encode(sha2::Sha256::digest(identity)))
 }
 
-fn manual_workspace_dispatch_gate(
+/// Runs inside `TaskmasterRuntime::invoke_authorized_inference`, where
+/// inference authority is already held. Keeps `state.workspace` locked through
+/// `start_dispatch`.
+fn workspace_dispatch_gate(
     state: &AppState,
-    expected_path: &std::path::Path,
-    expected_instance: u64,
-    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
-) -> Option<std::io::Result<()>> {
-    let workspace = state.workspace.lock().expect("workspace lock poisoned");
-    let Some(current) = workspace.as_ref() else {
-        return None;
-    };
-    if current.path != expected_path
-        || current.workflow_observations.instance_id() != expected_instance
-    {
-        return None;
-    }
-    let still_current = current
-        .recommendation_store
-        .list()
-        .ok()
-        .is_some_and(|recommendations| {
-            crate::taskmaster::active_workflow_recommendation(&recommendations).is_none()
-        });
-    still_current.then(|| start_dispatch())
-}
-
-fn native_workspace_dispatch_gate(
-    state: &AppState,
-    runtime: &TaskmasterRuntime,
-    snapshot: &EvaluationSnapshot,
     expected_path: &std::path::Path,
     expected_instance: u64,
     require_no_active_recommendation: bool,
     start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
 ) -> Option<std::io::Result<()>> {
-    let mut dispatch_result = None;
-    let snapshot_is_current = runtime
-        .with_current_native_evaluation(&state.harness_store, expected_path, snapshot, || {
-            let workspace = state.workspace.lock().expect("workspace lock poisoned");
-            let Some(current) = workspace.as_ref().filter(|current| {
-                current.path == expected_path
-                    && current.workflow_observations.instance_id() == expected_instance
-            }) else {
-                return;
-            };
-            if require_no_active_recommendation {
-                let Ok(recommendations) = current.recommendation_store.list() else {
-                    return;
-                };
-                if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
-                    return;
-                }
-            }
-            dispatch_result = Some(start_dispatch());
-        })
-        .unwrap_or(false);
-    snapshot_is_current.then_some(dispatch_result).flatten()
+    let workspace = state.workspace.lock().expect("workspace lock poisoned");
+    let current = workspace.as_ref().filter(|current| {
+        current.path == expected_path
+            && current.workflow_observations.instance_id() == expected_instance
+    })?;
+    if require_no_active_recommendation {
+        let recommendations = current.recommendation_store.list().ok()?;
+        if crate::taskmaster::active_workflow_recommendation(&recommendations).is_some() {
+            return None;
+        }
+    }
+    Some(start_dispatch())
 }
 
 fn parse_provider_response(
@@ -522,7 +488,6 @@ fn run_model_evaluation_with_context_and_workspace(
     analysis_lease: Option<std::fs::File>,
     scheduled_run: Option<ScheduledRun>,
 ) {
-    let root = runtime.root_path().to_path_buf();
     let mut run_guard = scheduled_run.map(|run| RunGuard {
         runtime: runtime.clone(),
         workspace_path: run.workspace_path,
@@ -575,7 +540,6 @@ fn run_model_evaluation_with_context_and_workspace(
     {
         return;
     }
-    let trust = super::inference_trust::InferenceTrustStore::new(root.clone());
     let _lease = match analysis_lease {
         Some(lease) => lease,
         None => match runtime.try_analysis_lease() {
@@ -590,35 +554,10 @@ fn run_model_evaluation_with_context_and_workspace(
     }) else {
         return;
     };
-    let Ok(providers) = super::provider_catalog::inspect(&state.harness_store, Some(&trust)) else {
-        return;
-    };
-    if !snapshot
-        .settings
-        .selection
-        .as_ref()
-        .is_some_and(|selection| {
-            super::provider_catalog::evaluation_availability(&providers, selection)
-                == super::provider_catalog::Availability::Ready
-        })
+    if runtime
+        .bind_ready_evaluation_provider(&state.harness_store, &workspace_path, &mut snapshot)
+        .is_err()
     {
-        return;
-    }
-    let Some(transport) = snapshot.settings.selection.as_ref().and_then(|selection| {
-        providers
-            .iter()
-            .find(|provider| provider.id == selection.provider)
-            .map(|provider| provider.transport.clone())
-    }) else {
-        return;
-    };
-    if !bind_evaluation_transport(
-        &runtime,
-        &state.harness_store,
-        &workspace_path,
-        &mut snapshot,
-        transport,
-    ) {
         return;
     }
     if let Some(guard) = run_guard.as_mut() {
@@ -788,52 +727,33 @@ fn run_model_evaluation_with_context_and_workspace(
             }
             result
         };
-        if snapshot.custom_inference.is_none() {
-            native_workspace_dispatch_gate(
-                &state,
-                &runtime,
-                &snapshot,
-                &workspace_path,
-                workspace_instance,
-                manual_workspace.is_some(),
-                &mut start_and_mark_dispatch,
-            )
-        } else if manual_workspace.is_some() {
-            manual_workspace_dispatch_gate(
-                &state,
-                &workspace_path,
-                workspace_instance,
-                &mut start_and_mark_dispatch,
-            )
-        } else {
-            Some(start_and_mark_dispatch())
-        }
+        workspace_dispatch_gate(
+            &state,
+            &workspace_path,
+            workspace_instance,
+            manual_workspace.is_some(),
+            &mut start_and_mark_dispatch,
+        )
     };
-    let providers = state.providers.clone();
     {
-        let selection = snapshot
-            .settings
-            .selection
-            .as_ref()
-            .expect("snapshot requires selection");
-        let result = if let Some(captured) = &snapshot.custom_inference {
-            runtime.invoke_custom_inference_with_dispatch_gate(
-                &state.harness_store,
-                captured,
+        let result = match runtime.invoke_authorized_inference(
+            &state.providers,
+            &state.harness_store,
+            &workspace_path,
+            &snapshot,
+            super::runtime::AuthorizedInferenceRequest {
                 prompt,
-                &mut dispatch_gate,
-            )
-        } else if let Some(native) = &snapshot.native_revision {
-            providers.invoke_native_taskmaster_prompt_with_dispatch_gate(
-                native.profile,
-                &selection.model,
-                selection.reasoning_effort.as_deref(),
-                selection.ollama_base_url.as_deref(),
-                prompt,
-                &mut dispatch_gate,
-            )
-        } else {
-            return;
+                codex_response_shape: None,
+                control: None,
+            },
+            &mut dispatch_gate,
+        ) {
+            Ok(output) => Ok(output),
+            Err(super::runtime::AuthorizedInferenceError::MissingTransport) => return,
+            Err(
+                super::runtime::AuthorizedInferenceError::Rejected(error)
+                | super::runtime::AuthorizedInferenceError::Provider(error),
+            ) => Err(error),
         };
         match result {
             Ok(output) => {
@@ -1021,46 +941,6 @@ impl Drop for RunGuard {
                     let _ = self.runtime.clear_run(&self.workspace_path, self.id);
                 }
             }
-        }
-    }
-}
-
-/// Bind once before collecting permitted context. A custom selection that loses
-/// its capability or approval must abort, never use the native provider branch.
-pub(super) fn bind_evaluation_transport(
-    runtime: &TaskmasterRuntime,
-    harnesses: &crate::harness::store::HarnessStore,
-    workspace: &std::path::Path,
-    snapshot: &mut EvaluationSnapshot,
-    transport: super::provider_catalog::Transport,
-) -> bool {
-    snapshot.custom_inference = None;
-    snapshot.native_revision = None;
-    match transport {
-        super::provider_catalog::Transport::Native(revision) => {
-            if !harnesses
-                .with_locked_snapshot(|current| {
-                    current.document_revision == revision.document_revision
-                })
-                .unwrap_or(false)
-            {
-                return false;
-            }
-            snapshot.native_revision = Some(revision);
-            true
-        }
-        super::provider_catalog::Transport::Unsupported => false,
-        super::provider_catalog::Transport::Custom => {
-            let capture = if snapshot.settings.enabled {
-                runtime.capture_custom_inference(harnesses, workspace, snapshot)
-            } else {
-                runtime.capture_manual_custom_inference(harnesses, workspace, snapshot)
-            };
-            let Ok(Some(captured)) = capture else {
-                return false;
-            };
-            snapshot.custom_inference = Some(captured);
-            true
         }
     }
 }

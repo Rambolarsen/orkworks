@@ -315,23 +315,17 @@ test("backend generation is invalidated at close admission before delayed cleanu
   assert.ok(admissionStart < closeStart, "generation must change before cleanup is awaited");
 });
 
-test("generation-bound IPC owns Taskmaster mutations and debug attention injection", () => {
+test("generation-bound IPC owns Taskmaster advice and debug attention injection", () => {
   assert.match(mainSource, /function withReadyBackendGeneration/);
-  assert.match(mainSource, /ipcMain\.handle\("dismiss-taskmaster-recommendation"/);
-  assert.match(mainSource, /ipcMain\.handle\("accept-taskmaster-recommendation"/);
+  assert.match(mainSource, /installTaskmasterIpc\(\{[\s\S]*?withReady: withReadyBackendGeneration/);
   assert.match(mainSource, /ipcMain\.handle\("apply-debug-attention"/);
-  for (const handlerName of [
-    "dismiss-taskmaster-recommendation",
-    "accept-taskmaster-recommendation",
-    "apply-debug-attention",
-  ]) {
-    const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);
-    const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
-    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, `${handlerName} handler not found`);
-    assert.match(mainSource.slice(handlerStart, handlerEnd), /withReadyBackendGeneration/);
-  }
-  const helperStart = mainSource.indexOf("async function withReadyBackendGeneration");
-  const helperEnd = mainSource.indexOf("\n  ipcMain.handle(\"get-backend-lifecycle\"", helperStart);
+  const debugStart = mainSource.indexOf('ipcMain.handle("apply-debug-attention"');
+  const debugEnd = mainSource.indexOf("\n  });", debugStart);
+  assert.ok(debugStart >= 0 && debugEnd > debugStart, "apply-debug-attention handler not found");
+  assert.match(mainSource.slice(debugStart, debugEnd), /withReadyBackendGeneration/);
+
+  const helperStart = mainSource.indexOf("function assertCurrentReadyBackendGeneration");
+  const helperEnd = mainSource.indexOf('\n  ipcMain.handle("get-backend-lifecycle"', helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, "generation-bound helper not found");
   const helper = mainSource.slice(helperStart, helperEnd);
   assert.match(helper, /latestBackendLifecycle\.state !== "ready"/);
@@ -355,37 +349,26 @@ test("debug attention aborts its fetch when the backend generation changes", () 
 });
 
 test("cleanup accepts may omit the session id at the IPC boundary", () => {
-  const start = mainSource.indexOf("function normalizeRecommendationAcceptOptions");
+  const taskmasterIpcSource = readFileSync(new URL("../electron/taskmasterIpc.ts", import.meta.url), "utf8");
+  const start = taskmasterIpcSource.indexOf("export function normalizeRecommendationAcceptOptions");
   assert.ok(start >= 0, "accept option normalizer not found");
-  const end = mainSource.indexOf("function normalizeDebugAttention", start);
+  const end = taskmasterIpcSource.indexOf("export function installTaskmasterIpc", start);
   assert.ok(end > start, "normalizer end marker not found");
-  const helper = mainSource.slice(start, end);
-  assert.match(helper, /sessionId\?: string/);
-  assert.match(helper, /input\.sessionId !== undefined\s*&&/);
+  const helper = taskmasterIpcSource.slice(start, end);
+  assert.match(helper, /input\.sessionId !== undefined &&/);
   assert.match(helper, /sessionId === undefined \? \{\} : \{ sessionId: input\.sessionId as string \}/);
-  assert.match(preloadSource, /type TaskmasterAcceptOptions = \{[\s\S]*?sessionId\?: string;/);
-  assert.match(rendererTypes, /acceptTaskmasterRecommendation: \(id: string, options: AcceptRecommendationOptions\) => Promise<unknown>/);
+  assert.match(taskmasterIpcSource, /export type TaskmasterAcceptOptions = \{[\s\S]*?sessionId\?: string;/);
+  assert.match(preloadSource, /import type \{ TaskmasterAcceptOptions \} from "\.\/taskmasterIpc"/);
+  assert.match(rendererTypes, /acceptAdviceRecommendation: \(workspacePath: string, id: string, options: AcceptRecommendationOptions\) => Promise<Record<string, unknown>>/);
 });
 
-test("Taskmaster mutations abort their fetch when the backend generation changes", () => {
-  const helperStart = mainSource.indexOf("async function taskmasterMutationRequest");
-  const helperEnd = mainSource.indexOf("\n  function normalizeRecommendationAcceptOptions", helperStart);
-  assert.ok(helperStart >= 0 && helperEnd > helperStart, "Taskmaster mutation helper not found");
-  const helper = mainSource.slice(helperStart, helperEnd);
-  assert.match(helper, /payload: unknown,\s*signal: AbortSignal/);
-  assert.match(helper, /timeoutMs: 15_000/);
-
-  for (const handlerName of [
-    "dismiss-taskmaster-recommendation",
-    "accept-taskmaster-recommendation",
-  ]) {
-    const handlerStart = mainSource.indexOf(`ipcMain.handle("${handlerName}"`);
-    const handlerEnd = mainSource.indexOf("\n  });", handlerStart);
-    assert.ok(handlerStart >= 0 && handlerEnd > handlerStart, `${handlerName} handler not found`);
-    const handler = mainSource.slice(handlerStart, handlerEnd);
-    assert.match(handler, /withReadyBackendGeneration\((?:async )?\(port, token, signal\)/);
-    assert.match(handler, /taskmasterMutationRequest\([\s\S]*signal/);
-  }
+test("Taskmaster advice mutations abort their fetch when the backend generation changes", () => {
+  const taskmasterIpcSource = readFileSync(new URL("../electron/taskmasterIpc.ts", import.meta.url), "utf8");
+  assert.match(mainSource, /installTaskmasterIpc\(\{[\s\S]*?withReady: withReadyBackendGeneration/);
+  assert.match(taskmasterIpcSource, /deps\.withReady\(async \(port, token, signal\)/);
+  assert.match(taskmasterIpcSource, /taskmasterAdviceRequest\(port, token, resource, payload, recordId, deps\.fetcher, signal, current\)/);
+  assert.match(taskmasterIpcSource, /deps\.handle\('dismiss-advice-recommendation'/);
+  assert.match(taskmasterIpcSource, /deps\.handle\('accept-advice-recommendation'/);
 });
 
 test("plan IPC operations use the ready generation admission guard", () => {
@@ -401,7 +384,7 @@ test("in-flight plan IPC requests are cancelled when their backend generation cl
   assert.match(mainSource, /const generationBoundRequestControllers = new Set<AbortController>\(\)/);
   assert.match(mainSource, /function cancelGenerationBoundRequests\(\)[\s\S]*controller\.abort\(\)/);
   const helperStart = mainSource.indexOf("async function withReadyBackendGeneration");
-  const helperEnd = mainSource.indexOf("\n  function taskmasterRecommendationPath", helperStart);
+  const helperEnd = mainSource.indexOf("\n  function normalizeDebugAttention", helperStart);
   assert.ok(helperStart >= 0 && helperEnd > helperStart, "generation-bound helper not found");
   const helper = mainSource.slice(helperStart, helperEnd);
   assert.match(helper, /new AbortController\(\)/);
@@ -413,20 +396,53 @@ test("in-flight plan IPC requests are cancelled when their backend generation cl
   assert.match(mainSource.slice(closeAdmission, closeAdmission + 220), /cancelGenerationBoundRequests\(\)/);
 });
 
-test("preload and renderer contracts expose only generation-bound mutation bridges", () => {
-  assert.match(preloadSource, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\)/);
-  assert.match(preloadSource, /acceptTaskmasterRecommendation: \(id: string, options: TaskmasterAcceptOptions\)/);
-  assert.match(preloadSource, /requestTaskmasterAnalysis: \(\): Promise<unknown> => ipcRenderer\.invoke\("analyze-taskmaster"\)/);
+test("preload and renderer contracts expose only consolidated advice mutation bridges and no legacy duplicates", () => {
+  assert.match(preloadSource, /dismissAdviceRecommendation: \(workspacePath: string, id: string, reason\?: string\)/);
+  assert.match(preloadSource, /acceptAdviceRecommendation: \(workspacePath: string, id: string, options: TaskmasterAcceptOptions\)/);
+  assert.match(preloadSource, /requestAdviceAnalysis: \(workspacePath: string\): Promise<Record<string, unknown>> => ipcRenderer\.invoke\("request-advice-analysis", workspacePath\)/);
   assert.match(preloadSource, /applyDebugAttention: \(id: string, attention: string, message\?: string\)/);
-  assert.match(rendererTypes, /dismissTaskmasterRecommendation: \(id: string, reason\?: string\) => Promise<void>/);
-  assert.match(rendererTypes, /acceptTaskmasterRecommendation: \(id: string, options: AcceptRecommendationOptions\)/);
-  assert.match(rendererTypes, /requestTaskmasterAnalysis: \(\) => Promise<import\("\.\/api"\)\.ManualTaskmasterAnalysisResponse>/);
+  assert.match(rendererTypes, /dismissAdviceRecommendation: \(workspacePath: string, id: string, reason\?: string\) => Promise<Record<string, unknown>>/);
+  assert.match(rendererTypes, /acceptAdviceRecommendation: \(workspacePath: string, id: string, options: AcceptRecommendationOptions\)/);
+  assert.match(rendererTypes, /requestAdviceAnalysis: \(workspacePath: string\) => Promise<Record<string, unknown>>/);
   assert.match(rendererTypes, /applyDebugAttention: \(id: string, attention: SessionAttention, message\?: string\) => Promise<void>/);
+  for (const legacyChannel of [
+    "analyze-taskmaster",
+    "dismiss-taskmaster-recommendation",
+    "accept-taskmaster-recommendation",
+    "get-readiness-status",
+    "get-improvement-status",
+    "request-improvement",
+    "cancel-improvement",
+    "assess-repository-readiness",
+    "assess-and-suggest",
+    "get-taskmaster-run-status",
+    "assess-taskmaster-workflow",
+  ]) {
+    assert.doesNotMatch(mainSource, new RegExp(legacyChannel), `legacy IPC channel ${legacyChannel} must not remain in main.ts`);
+    assert.doesNotMatch(preloadSource, new RegExp(legacyChannel), `legacy IPC channel ${legacyChannel} must not remain in preload.ts`);
+  }
+  for (const legacyMethod of [
+    "getTaskmasterRunStatus",
+    "requestTaskmasterAnalysis",
+    "getReadinessStatus",
+    "getImprovementStatus",
+    "requestImprovement",
+    "cancelImprovement",
+    "requestReadinessSuggestion",
+    "requestReadinessAssessment",
+    "requestTaskmasterAssessment",
+    "dismissTaskmasterRecommendation",
+    "acceptTaskmasterRecommendation",
+  ]) {
+    assert.doesNotMatch(preloadSource, new RegExp(`\\b${legacyMethod}\\b`), `legacy preload method ${legacyMethod} must not remain`);
+    assert.doesNotMatch(rendererTypes, new RegExp(`\\b${legacyMethod}\\b`), `legacy window method ${legacyMethod} must not remain`);
+  }
 });
 
 test("manual Taskmaster analysis uses the generation-bound authenticated Electron bridge", () => {
-  assert.match(mainSource, /ipcMain\.handle\("analyze-taskmaster"[\s\S]*?withReadyBackendGeneration/);
-  assert.match(mainSource, /"taskmaster\/analyze",\s*\{\},\s*signal/);
+  const taskmasterIpcSource = readFileSync(new URL("../electron/taskmasterIpc.ts", import.meta.url), "utf8");
+  assert.match(mainSource, /installTaskmasterIpc\(\{[\s\S]*?withReady: withReadyBackendGeneration/);
+  assert.match(taskmasterIpcSource, /\['request-advice-analysis', 'analyze'\]/);
   const panel = readFileSync(
     new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
     "utf8",

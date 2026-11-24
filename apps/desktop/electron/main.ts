@@ -1,4 +1,4 @@
-import { installAdviceIpc } from "./adviceIpc";
+import { installTaskmasterIpc } from "./taskmasterIpc";
 import { homedir } from "node:os";
 import { discoverSkills, readSkillDetail } from "./skillInventory";
 import type { SkillInventory } from "./skillTypes";
@@ -6,7 +6,8 @@ import { SkillInstaller, findApm, inspectApm, apmExecutablePath } from "./skillI
 import { realpath } from "node:fs/promises";
 import { readGitChanges, validateGitChangesRequest } from "./gitChanges";
 import { requestSessionTitle, validateSessionTitleRequest } from "./sessionTitle";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, Notification, shell } from "electron";
+import { installSessionNotificationIpc } from "./sessionNotificationIpc";
 import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
 import { inspectSessionApp, openSessionApp, sessionAppInvocation, type SessionAppDependencies } from "./sessionAppOpener";
@@ -15,8 +16,7 @@ import { createHash, randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import type { AppUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
-import { parseTaskmasterModels, taskmasterRequest } from "./taskmasterSettings";
-import { approveInferenceAdapter, readInferenceTrust, revokeInferenceAdapter, type TrustContext } from "./inferenceTrust";
+import { taskmasterRequest } from "./taskmasterSettings";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import { getDevSidecarPath, getDevUserDataPath, getPackagedSidecarPath } from "./paths";
@@ -61,6 +61,7 @@ import {
 import { getWindowChromeOptions } from "./windowChrome";
 
 app.setName("OrkWorks");
+if (process.platform === "win32" && app.isPackaged) app.setAppUserModelId("ai.orkworks.desktop");
 
 // A dev checkout running with ORKWORKS_DEV_PORT (the documented way to run
 // `pnpm dev` while another checkout holds port 5173) gets userData scoped to
@@ -460,7 +461,7 @@ function getSidecarPath(): string {
   return getDevSidecarPath(__dirname);
 }
 
-function createWindow(): void {
+function createWindow(clearSessionNotifications: () => void): void {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -494,7 +495,9 @@ function createWindow(): void {
   };
 
   mainWindow.webContents.on("did-start-navigation", (_event, url, _isInPlace, isMainFrame) => {
-    if (isMainFrame) recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
+    if (!isMainFrame) return;
+    if (!_isInPlace) clearSessionNotifications();
+    recoveryDocumentGuard.beginOriginalDocumentNavigation(url);
   });
 
   mainWindow.webContents.on("did-finish-load", () => {
@@ -517,6 +520,7 @@ function createWindow(): void {
   });
 
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    clearSessionNotifications();
     console.error("[main] renderer diagnostic", {
       type: "render-process-gone",
       reason: details.reason,
@@ -539,6 +543,7 @@ function createWindow(): void {
   }
 
   mainWindow.on("closed", () => {
+    clearSessionNotifications();
     mainWindow = null;
   });
 }
@@ -595,6 +600,12 @@ app.whenReady().then(async () => {
   const workspaceNavigationMemory = createWorkspaceNavigationMemory(app.getPath("userData"));
 
   let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
+  const clearSessionNotifications = installSessionNotificationIpc(
+    () => mainWindow,
+    () => latestBackendLifecycle.state === "ready"
+      && currentSettings?.desktopSessionNotifications === true,
+    { ipc: ipcMain, isSupported: () => Notification.isSupported(), create: options => new Notification(options) },
+  );
   let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
   let backendGeneration = 0;
@@ -608,98 +619,6 @@ app.whenReady().then(async () => {
     publicKey: existsSync(knowledgeKeyPath) ? readFileSync(knowledgeKeyPath, "utf8") : "",
     feedUrl: "https://rambolarsen.github.io/brain/orkworks-knowledge/manifest.json",
   });
-  async function readTaskmasterSettings(payload?: unknown): Promise<Record<string, unknown>> {
-    const generation = backendGeneration;
-    const port = await restoration.getReadiness();
-    if (generation !== backendGeneration) throw new Error("Workspace changed; reopen Recommendations settings");
-    const result = await taskmasterRequest(port, openPlanToken, "settings", payload);
-    if (generation !== backendGeneration) throw new Error("Workspace changed; reopen Recommendations settings");
-    const settings = result.settings as { automaticKnowledgeUpdates?: boolean } | undefined;
-    knowledgeUpdates.setEnabled(settings?.automaticKnowledgeUpdates !== false);
-    return { ...result, knowledgeUpdate: knowledgeUpdates.status() };
-  }
-  async function refreshTaskmasterModels(provider: unknown, ollamaBaseUrl?: unknown): Promise<{ id: string; displayName: string }[]> {
-    if (provider !== "codex" && provider !== "ollama") throw new Error("Taskmaster model refresh is unavailable for this provider");
-    if (ollamaBaseUrl !== undefined && typeof ollamaBaseUrl !== "string") throw new Error("Invalid Ollama URL");
-    const generation = backendGeneration;
-    const port = await restoration.getReadiness();
-    if (generation !== backendGeneration) throw new Error("Workspace changed; retry model discovery");
-    const result = await taskmasterRequest(port, openPlanToken, "models", {
-      provider,
-      ...(ollamaBaseUrl === undefined ? {} : { ollamaBaseUrl }),
-    });
-    if (generation !== backendGeneration) throw new Error("Workspace changed; retry model discovery");
-    return parseTaskmasterModels(result);
-  }
-  async function readinessRequest(resource: "readiness" | "assess-readiness" | "assess-and-suggest"): Promise<Record<string, unknown>> {
-    return withReadyBackendGeneration(async (port, token) => taskmasterRequest(port, token, resource));
-  }
-  async function improvementStatusRequest(): Promise<Record<string, unknown>> {
-    return withReadyBackendGeneration(async (port, token, signal) => taskmasterRequest(port, token, "improvement", undefined, fetch, undefined, signal));
-  }
-  async function improvementAdmissionRequest(): Promise<Record<string, unknown>> {
-    return withReadyBackendGeneration(async (port, token, signal) => {
-      const value = await taskmasterRequest(port, token, "start-improvement", undefined, fetch, undefined, signal);
-      if (!['scheduled', 'already_running', 'unavailable'].includes(value.outcome as string)
-        || !(value.runId === null || typeof value.runId === 'string' && /^[A-Za-z0-9-]{1,128}$/.test(value.runId))
-        || !(value.reasonCode === null || typeof value.reasonCode === 'string' && value.reasonCode.length <= 128)) {
-        throw new Error('Invalid improvement admission response');
-      }
-      return { outcome: value.outcome, runId: value.runId ?? null, reasonCode: value.reasonCode ?? null };
-    });
-  }
-  async function improvementCancellationRequest(runId: unknown): Promise<Record<string, unknown>> {
-    if (typeof runId !== 'string' || !/^[A-Za-z0-9-]{1,128}$/.test(runId)) throw new Error('Invalid improvement run ID');
-    return withReadyBackendGeneration(async (port, token, signal) => {
-      const value = await taskmasterRequest(port, token, 'cancel-improvement', { runId }, fetch, undefined, signal);
-      if (!['cancel_requested', 'not_running', 'unavailable'].includes(value.outcome as string)
-        || !(value.runId === null || value.runId === runId)
-        || !(value.reasonCode === null || typeof value.reasonCode === 'string' && value.reasonCode.length <= 128)) {
-        throw new Error('Invalid improvement cancellation response');
-      }
-      return { outcome: value.outcome, runId: value.runId ?? null, reasonCode: value.reasonCode ?? null };
-    });
-  }
-  async function readTaskmasterRunStatus(): Promise<Record<string, unknown>> {
-    const generation = backendGeneration;
-    const port = await restoration.getReadiness();
-    if (generation !== backendGeneration) throw new Error("Workspace changed; reload Recommendations");
-    const result = await taskmasterRequest(port, openPlanToken, "run-status");
-    if (generation !== backendGeneration) throw new Error("Workspace changed; reload Recommendations");
-    return result;
-  }
-  async function requestTaskmasterAssessment(): Promise<{
-    status: "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable";
-    recommendation?: { id: string; status: string };
-    message?: string;
-  }> {
-    return withReadyBackendGeneration(async (port, token, signal) => {
-      const response = await sidecarSend(port, "taskmaster/assess-workflow", {
-        method: "POST", token, signal, timeoutMs: 15_000,
-      });
-      const body: unknown = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(errorFromBody(body, `Taskmaster request failed (${response.status})`));
-      if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid Taskmaster assessment response");
-      const value = body as Record<string, unknown>;
-      const statuses = ["scheduled", "cached", "active_recommendation", "already_running", "unavailable"];
-      if (typeof value.status !== "string" || !statuses.includes(value.status)) throw new Error("Invalid Taskmaster assessment response");
-      let recommendation: { id: string; status: string } | undefined;
-      if (value.recommendation !== undefined) {
-        if (!value.recommendation || typeof value.recommendation !== "object" || Array.isArray(value.recommendation)) {
-          throw new Error("Invalid Taskmaster assessment response");
-        }
-        const candidate = value.recommendation as Record<string, unknown>;
-        if (typeof candidate.id !== "string" || typeof candidate.status !== "string") throw new Error("Invalid Taskmaster assessment response");
-        recommendation = { id: candidate.id, status: candidate.status };
-      }
-      if (value.message !== undefined && typeof value.message !== "string") throw new Error("Invalid Taskmaster assessment response");
-      return {
-        status: value.status as "scheduled" | "cached" | "active_recommendation" | "already_running" | "unavailable",
-        ...(recommendation ? { recommendation } : {}),
-        ...(typeof value.message === "string" ? { message: value.message } : {}),
-      };
-    });
-  }
   const STALE_BACKEND_GENERATION_MESSAGE =
     "The workspace changed before this request could run. Reload the current workspace and retry.";
   const generationBoundRequestControllers = new Set<AbortController>();
@@ -736,80 +655,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  function taskmasterRecommendationPath(id: string, action: "dismiss" | "accept"): string {
-    if (!id) throw new Error("Invalid recommendation ID.");
-    return `taskmaster/recommendations/${encodeURIComponent(id)}/${action}`;
-  }
-
-  async function taskmasterMutationRequest(
-    port: number,
-    token: string,
-    resource: string,
-    payload: unknown,
-    signal: AbortSignal,
-  ): Promise<unknown> {
-    const response = await sidecarSend(port, resource, {
-      method: "POST",
-      jsonBody: payload,
-      token,
-      signal,
-      timeoutMs: 15_000,
-    });
-    const body: unknown = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(errorFromBody(body, `Taskmaster request failed (${response.status})`));
-    }
-    return body;
-  }
-
-  function normalizeRecommendationAcceptOptions(value: unknown): {
-    sessionId?: string;
-    prompt?: string;
-    packetRevision?: number;
-    evidenceFingerprint?: string;
-    idempotencyKey?: string;
-  } {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("Invalid recommendation handoff.");
-    }
-    const input = value as {
-      sessionId?: unknown;
-      prompt?: unknown;
-      packetRevision?: unknown;
-      evidenceFingerprint?: unknown;
-      idempotencyKey?: unknown;
-    };
-    if (input.sessionId !== undefined
-      && (typeof input.sessionId !== "string" || !input.sessionId)) {
-      throw new Error("Invalid recommendation handoff session.");
-    }
-    if (input.prompt !== undefined && typeof input.prompt !== "string") {
-      throw new Error("Invalid recommendation handoff prompt.");
-    }
-    if (input.packetRevision !== undefined
-      && (!Number.isInteger(input.packetRevision) || (input.packetRevision as number) <= 0)) {
-      throw new Error("Invalid completion packet revision.");
-    }
-    if (input.evidenceFingerprint !== undefined
-      && (typeof input.evidenceFingerprint !== "string" || !/^[0-9a-f]{64}$/i.test(input.evidenceFingerprint))) {
-      throw new Error("Invalid completion packet evidence fingerprint.");
-    }
-    if (input.idempotencyKey !== undefined
-      && (typeof input.idempotencyKey !== "string"
-        || input.idempotencyKey.length === 0
-        || input.idempotencyKey.length > 128
-        || /[\s\x00-\x1f\x7f]/.test(input.idempotencyKey))) {
-      throw new Error("Invalid completion packet idempotency key.");
-    }
-    return {
-      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId as string }),
-      ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
-      ...(input.packetRevision === undefined ? {} : { packetRevision: input.packetRevision as number }),
-      ...(input.evidenceFingerprint === undefined ? {} : { evidenceFingerprint: input.evidenceFingerprint as string }),
-      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey as string }),
-    };
-  }
-
   function normalizeDebugAttention(value: unknown): string {
     if (value === "working" || value === "idle" || value === "needs_you"
       || value === "blocked" || value === "failed" || value === "capped") return value;
@@ -817,21 +662,6 @@ app.whenReady().then(async () => {
   }
 
   let knowledgeSync: Promise<void> | null = null;
-  async function inferenceTrustContext(): Promise<TrustContext> {
-    const generation = backendGeneration;
-    const port = await restoration.getReadiness();
-    if (generation !== backendGeneration) throw new Error("Sidecar changed. Refresh executable approvals.");
-    return { port, token: openPlanToken, isCurrent: () => generation === backendGeneration,
-      confirm: async (detail) => {
-        if (!mainWindow || mainWindow.isDestroyed()) return false;
-        const result = await dialog.showMessageBox(mainWindow, {
-          type: "warning", title: "Approve custom inference executable?", message: "Trust this executable with background inference context?", detail,
-          buttons: ["Cancel", "Approve executable"], defaultId: 0, cancelId: 0, noLink: true,
-        });
-        return result.response === 1;
-      },
-    };
-  }
   function refreshKnowledge(): Promise<void> {
     if (knowledgeSync) return knowledgeSync;
     const requestedGeneration = backendGeneration;
@@ -860,6 +690,7 @@ app.whenReady().then(async () => {
   let activeHarnessRevision = 0;
 
   function publishBackendLifecycle(event: BackendLifecycleEvent): void {
+    clearSessionNotifications();
     latestBackendLifecycle = event;
     mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
   }
@@ -1358,42 +1189,6 @@ app.whenReady().then(async () => {
     });
   });
 
-  ipcMain.handle("analyze-taskmaster", async () => withReadyBackendGeneration(
-    (port, token, signal) => taskmasterMutationRequest(
-      port,
-      token,
-      "taskmaster/analyze",
-      {},
-      signal,
-    ),
-  ));
-
-  ipcMain.handle("dismiss-taskmaster-recommendation", async (_event, id: unknown, reason: unknown) => {
-    if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
-    if (reason !== undefined && typeof reason !== "string") throw new Error("Invalid dismissal reason.");
-    await withReadyBackendGeneration(async (port, token, signal) => {
-      await taskmasterMutationRequest(
-        port,
-        token,
-        taskmasterRecommendationPath(id, "dismiss"),
-        reason === undefined ? {} : { reason },
-        signal,
-      );
-    });
-  });
-
-  ipcMain.handle("accept-taskmaster-recommendation", async (_event, id: unknown, options: unknown) => {
-    if (typeof id !== "string" || !id) throw new Error("Invalid recommendation ID.");
-    const normalized = normalizeRecommendationAcceptOptions(options);
-    return withReadyBackendGeneration((port, token, signal) => taskmasterMutationRequest(
-      port,
-      token,
-      taskmasterRecommendationPath(id, "accept"),
-      normalized,
-      signal,
-    ));
-  });
-
   ipcMain.handle("apply-debug-attention", async (_event, id: unknown, attention: unknown, message: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid session ID.");
     const normalizedAttention = normalizeDebugAttention(attention);
@@ -1577,34 +1372,43 @@ app.whenReady().then(async () => {
     historyDiagnostic: currentHistoryDiagnostic,
   }));
 
+  ipcMain.handle("save-desktop-session-notifications", async (event, enabled: unknown) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
+        || event.senderFrame !== mainWindow.webContents.mainFrame || typeof enabled !== "boolean") {
+      throw new Error("Invalid desktop notifications setting.");
+    }
+    await enqueueSettingsWrite(() => {
+      const base = readSettings(app.getPath("userData"));
+      const nextSettings = { ...base, desktopSessionNotifications: enabled };
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+      if (!enabled) clearSessionNotifications();
+    });
+  });
   ipcMain.handle("get-settings", async () => {
     currentSettings = readSettings(app.getPath("userData"));
     return rendererSettings(currentSettings);
   });
-  installAdviceIpc({
+  installTaskmasterIpc({
     handle: (name, handler) => ipcMain.handle(name, handler),
     withReady: withReadyBackendGeneration,
     workspacePath: () => workspacePath,
-    normalizeAccept: normalizeRecommendationAcceptOptions,
+    getGeneration: () => backendGeneration,
+    getReadiness: () => restoration.getReadiness(),
+    getToken: () => openPlanToken,
+    setKnowledgeUpdatesEnabled: (enabled) => knowledgeUpdates.setEnabled(enabled),
+    getKnowledgeUpdateStatus: () => knowledgeUpdates.status(),
+    refreshKnowledge: () => { void refreshKnowledge(); },
+    enqueueSettingsWrite,
+    confirmInferenceApproval: async (detail) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: "warning", title: "Approve custom inference executable?", message: "Trust this executable with background inference context?", detail,
+        buttons: ["Cancel", "Approve executable"], defaultId: 0, cancelId: 0, noLink: true,
+      });
+      return result.response === 1;
+    },
   });
-  ipcMain.handle("get-taskmaster-settings", () => readTaskmasterSettings());
-  ipcMain.handle("get-readiness-status", () => readinessRequest("readiness"));
-  ipcMain.handle("get-improvement-status", () => improvementStatusRequest());
-  ipcMain.handle("request-improvement", () => improvementAdmissionRequest());
-  ipcMain.handle("cancel-improvement", (_event, runId: unknown) => improvementCancellationRequest(runId));
-  ipcMain.handle("assess-repository-readiness", () => readinessRequest("assess-readiness"));
-  ipcMain.handle("assess-and-suggest", () => readinessRequest("assess-and-suggest"));
-  ipcMain.handle("get-taskmaster-run-status", () => readTaskmasterRunStatus());
-  ipcMain.handle("assess-taskmaster-workflow", () => requestTaskmasterAssessment());
-  ipcMain.handle("refresh-taskmaster-models", (_event, provider: unknown, ollamaBaseUrl?: unknown) => refreshTaskmasterModels(provider, ollamaBaseUrl));
-  ipcMain.handle("get-inference-trust", async () => readInferenceTrust(await inferenceTrustContext()));
-  ipcMain.handle("approve-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => approveInferenceAdapter(request, await inferenceTrustContext())));
-  ipcMain.handle("revoke-inference-adapter", (_event, request: unknown) => enqueueSettingsWrite(async () => revokeInferenceAdapter(request, await inferenceTrustContext())));
-  ipcMain.handle("save-taskmaster-settings", (_event, payload: unknown) => enqueueSettingsWrite(async () => {
-    const saved = await readTaskmasterSettings(payload);
-    void refreshKnowledge();
-    return saved;
-  }));
 
   ipcMain.handle("save-hotkeys", async (_event, hotkeys: unknown) => {
     const { nextSettings, nextMenu } = await enqueueSettingsWrite(() => {
@@ -2192,12 +1996,12 @@ app.whenReady().then(async () => {
     registerUpdateIpc(updateService);
   }
 
-  createWindow();
+  createWindow(clearSessionNotifications);
   applyMenu(createMenu(currentSettings));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createWindow(clearSessionNotifications);
     }
   });
 });

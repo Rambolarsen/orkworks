@@ -1,0 +1,613 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "32a0bae4f419",
+  "asOf": "2026-11-23",
+  "scope": "Purposive support-quality corpus, not a random sample or model-quality benchmark.",
+  "privacy": "Fixed-field excerpts only; per-case session aliases replace native IDs; no local paths, tokens, full prompts or transcripts.",
+  "snapshot": {
+    "proposedRecommendationCount": 33,
+    "source": "GET /taskmaster/recommendations; completed main-title record fetched separately"
+  },
+  "cases": [
+    {
+      "id": "title-main-sync",
+      "origin": "observed",
+      "category": "quoted-title",
+      "reference": {
+        "recommendationId": "recommendation-482fd6ec9d3418d2",
+        "statusAtRead": "completed",
+        "totalCitations": 6
+      },
+      "observations": [
+        {
+          "sequence": 676,
+          "observedAt": "2026-11-17T15:18:22.184599+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 679,
+          "observedAt": "2026-11-17T15:26:43.827599+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Action Required | Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 680,
+          "observedAt": "2026-11-17T15:26:43.835848+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Action Required | Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 681,
+          "observedAt": "2026-11-17T15:26:43.845196+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Action Required | Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 682,
+          "observedAt": "2026-11-17T15:26:43.852347+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Action Required | Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 683,
+          "observedAt": "2026-11-17T15:26:43.859554+00:00",
+          "kind": "obstacle",
+          "description": "main sync issue",
+          "evidence": "Action Required | Investigate main sync issue | orkworks",
+          "problemArea": null,
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "Native transcript and terminal OSC title establish work-topic text. Actual work fixed the WebGL font in merged PR #1850; separate API errors were tracked in #1851. No concrete main-sync tooling failure was supplied."
+    },
+    {
+      "id": "spinner-fragment",
+      "origin": "observed",
+      "category": "spinner",
+      "reference": {
+        "recommendationId": "recommendation-dfb38008b82de8c1",
+        "statusAtRead": "proposed",
+        "totalCitations": 5
+      },
+      "observations": [
+        {
+          "sequence": 668,
+          "observedAt": "2026-10-01T07:55:48.419004+00:00",
+          "kind": "repetition",
+          "description": "Ordinary workflow",
+          "evidence": "▘▝",
+          "problemArea": "none",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 1.0,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "Only the first citation is sampled: block-drawing status glyphs do not describe repeated work. Other citations on the mixed card are not adjudicated by this case."
+    },
+    {
+      "id": "background-status",
+      "origin": "observed",
+      "category": "status-chrome",
+      "reference": {
+        "recommendationId": "recommendation-f8706032427f7c99",
+        "statusAtRead": "proposed",
+        "totalCitations": 5
+      },
+      "observations": [
+        {
+          "sequence": 872,
+          "observedAt": "2026-11-17T20:48:20.037083+00:00",
+          "kind": "obstacle",
+          "description": "Continue issue #957 investigation | orkworks",
+          "evidence": "background terminal running · /ps to view · /stop to close",
+          "problemArea": "background terminal running",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 873,
+          "observedAt": "2026-11-17T20:48:20.103885+00:00",
+          "kind": "obstacle",
+          "description": "Continue issue #957 investigation | orkworks",
+          "evidence": "background terminal running · /ps to view · /stop to close",
+          "problemArea": "background terminal running",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 874,
+          "observedAt": "2026-11-17T20:48:20.179010+00:00",
+          "kind": "obstacle",
+          "description": "Continue issue #957 investigation | orkworks",
+          "evidence": "background terminal running · /ps to view · /stop to close",
+          "problemArea": "background terminal running",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 875,
+          "observedAt": "2026-11-17T20:48:20.231146+00:00",
+          "kind": "obstacle",
+          "description": "Continue issue #957 investigation | orkworks",
+          "evidence": "background terminal running · /ps to view · /stop to close",
+          "problemArea": "background terminal running",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 876,
+          "observedAt": "2026-11-17T20:48:20.284108+00:00",
+          "kind": "obstacle",
+          "description": "Continue issue #957 investigation | orkworks",
+          "evidence": "background terminal running · /ps to view · /stop to close",
+          "problemArea": "background terminal running",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "The cited background-terminal status identifies a UI facility, with no artifact establishing the described investigation obstacle. This labels support, not the absence of every possible defect."
+    },
+    {
+      "id": "ci-description",
+      "origin": "observed",
+      "category": "self-referential-prose",
+      "reference": {
+        "recommendationId": "recommendation-c83361379db06330",
+        "statusAtRead": "proposed",
+        "totalCitations": 2
+      },
+      "observations": [
+        {
+          "sequence": 1040,
+          "observedAt": "2026-11-19T05:18:35.717598+00:00",
+          "kind": "obstacle",
+          "description": "PR CI also exercises the Claude review workflow's inline failure diagnostics",
+          "evidence": "PR CI also exercises the Claude review workflow's inline failure diagnostics",
+          "problemArea": "claude review workflow",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 1041,
+          "observedAt": "2026-11-19T05:18:35.731871+00:00",
+          "kind": "obstacle",
+          "description": "PR CI also exercises the Claude review workflow's inline failure diagnostics",
+          "evidence": "PR CI also exercises the Claude review workflow's inline failure diagnostics",
+          "problemArea": "claude review workflow",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "A description of CI exercising diagnostics supplies no failed execution or avoidable friction. The quoted prose alone cannot establish an obstacle."
+    },
+    {
+      "id": "native-addon-error",
+      "origin": "observed",
+      "category": "concrete-error",
+      "reference": {
+        "recommendationId": "recommendation-e514f725d3e05032",
+        "statusAtRead": "proposed",
+        "totalCitations": 2
+      },
+      "observations": [
+        {
+          "sequence": 788,
+          "observedAt": "2026-11-17T19:56:10.728757+00:00",
+          "kind": "obstacle",
+          "description": "fs-ext cannot load in host Node",
+          "evidence": "fs-ext cannot load in host Node 22.23.5 (ERR_DLOPEN_FAILED).",
+          "problemArea": "node installation",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 789,
+          "observedAt": "2026-11-17T19:56:10.736290+00:00",
+          "kind": "obstacle",
+          "description": "fs-ext cannot load in host Node",
+          "evidence": "fs-ext cannot load in host Node 22.23.5 (ERR_DLOPEN_FAILED).",
+          "problemArea": "node installation",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "concrete-at-time",
+      "rationale": "Native source transcript has actual verification-prerequisite tool output at 2026-11-17T19:51:51.695Z containing this error. Later assistant reports native validation passed, but a complete repair-command trace and current worktree state are not qualified here."
+    },
+    {
+      "id": "missing-docs-dependencies",
+      "origin": "observed",
+      "category": "concrete-error",
+      "reference": {
+        "recommendationId": "recommendation-e4ea474caeb7cd45",
+        "statusAtRead": "proposed",
+        "totalCitations": 2
+      },
+      "observations": [
+        {
+          "sequence": 1091,
+          "observedAt": "2026-11-20T05:10:50.781774+00:00",
+          "kind": "obstacle",
+          "description": "Verification is blocked because required docs packages are missing.",
+          "evidence": "[verify] Missing docs dependencies: vitepress, vue, yaml. Run pnpm --dir docs install --frozen-lockfile with Node from .nvmrc.",
+          "problemArea": "missing docs dependencies",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.99,
+          "session": "session-1"
+        },
+        {
+          "sequence": 1153,
+          "observedAt": "2026-11-22T20:53:13.126766+00:00",
+          "kind": "obstacle",
+          "description": "Repository verification cannot proceed because required documentation dependencies are missing.",
+          "evidence": "[verify] Missing docs dependencies: vitepress, vue, yaml.",
+          "problemArea": "missing docs dependencies",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.99,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "concrete-at-time",
+      "rationale": "Native source transcript contains actual verifier output and repeated assistant reports that missing docs packages stopped broad verification. The current starting-work skill already requires per-surface dependency installation: real friction does not establish an absent policy."
+    },
+    {
+      "id": "ambiguous-app",
+      "origin": "observed",
+      "category": "concrete-error",
+      "reference": {
+        "recommendationId": "recommendation-534f1b8c77d29c44",
+        "statusAtRead": "proposed",
+        "totalCitations": 2
+      },
+      "observations": [
+        {
+          "sequence": 1206,
+          "observedAt": "2026-11-23T05:19:09.613114+00:00",
+          "kind": "obstacle",
+          "description": "Terminal inspection failed because multiple apps shared the requested bundle identifier.",
+          "evidence": "Failed: Inspecting terminal appearance — Ambiguous app identifier 'ai.orkworks.desktop.dev'. Multiple apps share this bundle identifier:",
+          "problemArea": "ambiguous app identifier",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.98,
+          "session": "session-1"
+        },
+        {
+          "sequence": 1217,
+          "observedAt": "2026-11-23T05:29:38.525822+00:00",
+          "kind": "obstacle",
+          "description": "Terminal appearance inspection failed because multiple apps share the same bundle identifier.",
+          "evidence": "Failed: Inspecting terminal appearance — Ambiguous app identifier 'ai.orkworks.desktop.dev'. Multiple apps share this bundle identifier",
+          "problemArea": "ambiguous app identifier",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.98,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "concrete-at-time",
+      "rationale": "Native source transcript has a failed app inspection at 2026-11-23T05:14:28.265Z with the exact ambiguous-identifier diagnostic. Local application paths are omitted. No present-day reproduction or cause/fix is claimed."
+    },
+    {
+      "id": "generic-failed-token",
+      "origin": "observed",
+      "category": "context-insufficient",
+      "reference": {
+        "recommendationId": "recommendation-0b866388bec8fb59",
+        "statusAtRead": "proposed",
+        "totalCitations": 2
+      },
+      "observations": [
+        {
+          "sequence": 957,
+          "observedAt": "2026-11-18T05:27:38.291386+00:00",
+          "kind": "obstacle",
+          "description": "test metadata::workspace_memory_tests::workspace_memory_reopen_rejects_original_busy_owner_before_adoption ... FAILED",
+          "evidence": "FAILED",
+          "problemArea": "test providers::inference::tests::profiles_preserve_auth_and_never_reuse_interactive_arguments",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        },
+        {
+          "sequence": 958,
+          "observedAt": "2026-11-18T05:27:38.302041+00:00",
+          "kind": "obstacle",
+          "description": "test metadata::workspace_memory_tests::workspace_memory_reopen_reports_normalization_write_failure_before_adoption ... FAILED",
+          "evidence": "FAILED",
+          "problemArea": "test providers::inference::tests::profiles_preserve_auth_and_never_reuse_interactive_arguments",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.8,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unresolved",
+      "rationale": "FAILED alone does not correlate the named metadata failures with the different providers-test problemArea. A real failure is plausible, but exact failure attribution and present applicability require more context."
+    },
+    {
+      "id": "duration-only",
+      "origin": "synthetic",
+      "category": "duration",
+      "context": [
+        "Status: 8s"
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-11-23T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Build is too slow",
+          "evidence": "8s",
+          "problemArea": "fixture-duration-only",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-11-23T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Build is too slow",
+          "evidence": "8s",
+          "problemArea": "fixture-duration-only",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    },
+    {
+      "id": "quoted-error-source",
+      "origin": "synthetic",
+      "category": "quoted-error",
+      "context": [
+        "Reading a test fixture, not running the command:",
+        "const expected = \"fatal: cannot open build.lock\";"
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-11-23T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-quoted-error-source",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-11-23T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-quoted-error-source",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "unsupported",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    },
+    {
+      "id": "real-current-error",
+      "origin": "synthetic",
+      "category": "current-obstacle",
+      "context": [
+        "Command: build",
+        "fatal: cannot open build.lock",
+        "exit status: 1",
+        "Owner confirms the same command still fails in the selected clean worktree."
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-11-23T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-real-current-error",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-11-23T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-real-current-error",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "current-actionable",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    },
+    {
+      "id": "resolved-old-error",
+      "origin": "synthetic",
+      "category": "historical-resolved",
+      "context": [
+        "Earlier command: build; fatal: cannot open build.lock; exit status: 1",
+        "Later command: build; exit status: 0; same worktree and command; lock repaired."
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-10-01T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-resolved-old-error",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-10-01T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-resolved-old-error",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "historical-resolved",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    },
+    {
+      "id": "old-still-current",
+      "origin": "synthetic",
+      "category": "old-current-obstacle",
+      "context": [
+        "The retained October error is old.",
+        "Same worktree and command reconfirmed failing on 2026-11-23:",
+        "fatal: cannot open build.lock; exit status: 1"
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-10-01T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-old-still-current",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-10-01T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Build lock unavailable",
+          "evidence": "fatal: cannot open build.lock",
+          "problemArea": "fixture-old-still-current",
+          "reportedImpact": "medium",
+          "source": "peon",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "current-actionable",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    },
+    {
+      "id": "agent-nonterminal-evidence",
+      "origin": "synthetic",
+      "category": "agent-evidence",
+      "context": [
+        "Authenticated agent reports repository inspection: required build input is missing.",
+        "No terminal capture is available; report is not subject to Peon substring grounding."
+      ],
+      "observations": [
+        {
+          "sequence": 1,
+          "observedAt": "2026-11-23T00:00:00Z",
+          "kind": "obstacle",
+          "description": "Required build input missing",
+          "evidence": "Repository inspection: required build input missing.",
+          "problemArea": "fixture-agent-nonterminal-evidence",
+          "reportedImpact": "medium",
+          "source": "agent",
+          "confidence": 0.9,
+          "session": "session-1"
+        },
+        {
+          "sequence": 2,
+          "observedAt": "2026-11-23T00:00:01Z",
+          "kind": "obstacle",
+          "description": "Required build input missing",
+          "evidence": "Repository inspection: required build input missing.",
+          "problemArea": "fixture-agent-nonterminal-evidence",
+          "reportedImpact": "medium",
+          "source": "agent",
+          "confidence": 0.9,
+          "session": "session-1"
+        }
+      ],
+      "judgement": "current-actionable",
+      "rationale": "Constructed control; not a production observation, model response or measured recommendation outcome."
+    }
+  ]
+}

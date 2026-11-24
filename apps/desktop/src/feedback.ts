@@ -4,6 +4,7 @@ export interface Toast {
   id: string;
   tone: ToastTone;
   message: string;
+  action?: { label: string; run: () => void };
 }
 
 type Listener = (toasts: readonly Toast[]) => void;
@@ -17,9 +18,9 @@ function emit(): void {
   for (const l of listeners) l(snapshot);
 }
 
-export function pushToast(tone: ToastTone, message: string, timeoutMs = 4000): string {
+export function pushToast(tone: ToastTone, message: string, timeoutMs = 4000, action?: Toast["action"]): string {
   const id = `t${++counter}`;
-  state.push({ id, tone, message });
+  state.push({ id, tone, message, ...(action ? { action } : {}) });
   emit();
   if (timeoutMs > 0) {
     setTimeout(() => dismissToast(id), timeoutMs);

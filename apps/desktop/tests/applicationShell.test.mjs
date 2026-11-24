@@ -111,6 +111,18 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.input'),[]);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         }
+        await fresh();
+        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+        await evaluate('fixture.menu({action:"focus",panelId:"recommendations"})');
+        await waitFor('document.querySelector(".recommendation-fix")');
+        await evaluate('document.querySelector(".recommendation-fix").click()');
+        await waitFor('document.querySelector("#fix-with-ai-prompt")');
+        await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+        await waitFor('document.querySelector("[data-session-id=other]")?.dataset.selected === "true"');
+        await evaluate('document.querySelector("[role=dialog] .new-session-confirm").click()');
+        await waitFor('document.querySelector(".toast")?.textContent.includes("The session for this fix changed")');
+        assert.deepEqual(await evaluate('fixture.accepted'), [], 'a pending fix cannot be redirected to another session');
+        assert.deepEqual(await evaluate('fixture.input'), []);
         return;
       } else if (scenario === 'app-review-terminal-fill') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
@@ -484,6 +496,83 @@ if (process.versions.electron) {
         await waitFor('fixture.hookReads >= 5 && document.querySelector(".shell-workspace .titlebar-text")?.textContent === "other"');
         await evaluate('fixture.releaseHookStatus(); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
         assert.equal(await evaluate('!!document.querySelector(".workspace-alert")'), false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
+      } else if (scenario === 'app-session-attention-alerts') {
+        const selected = id => `document.querySelector('[data-session-id=${id}]')?.dataset.selected === 'true'`;
+        const toast = 'document.querySelector(".toast button:not(.toast-dismiss)")';
+        await waitFor(selected('created'));
+        assert.equal(await evaluate(`!!${toast}`), false, 'existing waits stay quiet on load');
+
+        await evaluate('fixture.setAttention("other", "working")');
+        await waitFor('document.querySelector("[data-session-id=other]")?.dataset.attention === "working"');
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor(`${toast}?.textContent === "Open session"`);
+        await evaluate(`${toast}.click()`);
+        await waitFor(selected('other'));
+
+        await evaluate('fixture.setAttention("other", "working")');
+        await waitFor('document.querySelector("[data-session-id=other]")?.dataset.attention === "working"');
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor('document.querySelector("[data-session-id=other]")?.textContent.includes("Needs you")');
+        assert.equal(await evaluate(`!!${toast}`), false, 'the visible session stays quiet');
+
+        await evaluate('document.querySelector("[data-shell-settings]").click()');
+        await waitFor('!!document.querySelector(".settings-nav")');
+        await evaluate('[...document.querySelectorAll(".settings-nav button")].find(b=>b.textContent==="Notifications").click()');
+        const desktopToggle = 'document.querySelector(".settings-content [role=switch]")';
+        await waitFor(`${desktopToggle}?.getAttribute("aria-checked") === "false"`);
+        await evaluate(`${desktopToggle}.click()`);
+        await waitFor(`${desktopToggle}?.getAttribute("aria-checked") === "true"`);
+        await evaluate('fixture.focused=false; fixture.setAttention("created", "needs_you")');
+        await waitFor('document.querySelector("[data-session-id=created]")?.textContent.includes("Needs you")');
+        assert.equal(await evaluate('fixture.desktopAlerts.length'), 0, 'a modal defers navigation alerts');
+        await evaluate('document.querySelector("[aria-label=\\"Close settings\\"]").click()');
+        await waitFor('fixture.desktopAlerts.length === 1');
+        assert.equal(await evaluate(`!!${toast}`), false, 'desktop alerts have their own channel');
+        await evaluate('fixture.desktopAlerts[0].complete(true)');
+        await waitFor(selected('created'));
+
+        await evaluate('fixture.setAttention("other", "working")');
+        await waitFor('document.querySelector("[data-session-id=other]")?.dataset.attention === "working"');
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor('fixture.desktopAlerts.length === 2');
+        await evaluate('fixture.setAttention("other", "working")');
+        await waitFor('fixture.closedAlerts.includes(fixture.desktopAlerts[1].id)');
+        await evaluate('fixture.desktopAlerts[1].complete(true)');
+        assert.equal(await evaluate(selected('created')), true, 'resolved waits cannot navigate');
+
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor('fixture.desktopAlerts.length === 3');
+        await evaluate('fixture.sessionList=fixture.sessionList.map(s=>s.id==="other"?{...s,lifecycle:"dead"}:s)');
+        await waitFor('fixture.closedAlerts.includes(fixture.desktopAlerts[2].id)');
+        await evaluate('fixture.desktopAlerts[2].complete(true)');
+        assert.equal(await evaluate(selected('created')), true, 'ended sessions cannot navigate');
+
+        await evaluate('fixture.sessionList=fixture.sessionList.map(s=>s.id==="other"?{...s,lifecycle:"alive",attention:"needs_you"}:s)');
+        await waitFor('fixture.desktopAlerts.length === 4');
+        await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:"created",activeHarnessIds:["generic-shell"]},historyDiagnostic:null})');
+        await waitFor('fixture.closedAlerts.includes(fixture.desktopAlerts[3].id) && document.querySelector(".shell-workspace .titlebar-text")?.textContent === "other"');
+        await evaluate('fixture.desktopAlerts[3].complete(true)');
+        await waitFor(selected('created'));
+        assert.equal(await evaluate('fixture.desktopAlerts.length'), 4, 'new workspace establishes a quiet baseline');
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
+      } else if (scenario === 'app-session-alert-resume-warning') {
+        const row = 'document.querySelector("[data-session-id=other]")';
+        const toast = 'document.querySelector(".toast button:not(.toast-dismiss)")';
+        await waitFor('document.querySelector("[data-session-id=created]")?.dataset.selected === "true"');
+        await evaluate('fixture.sessionList=fixture.sessionList.map(s=>s.id==="created"?{...s,lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]}:s); fixture.setAttention("other", "working")');
+        await waitFor('document.querySelector("[data-shell-resume]")?.textContent.includes("Latest in folder")');
+        await evaluate('document.querySelector("[data-shell-resume]").click()');
+        await waitFor('document.querySelector("[data-resume-warning]")?.open');
+        await evaluate('fixture.setAttention("other", "needs_you")');
+        await waitFor(`${row}?.textContent.includes("Needs you")`);
+        assert.equal(await evaluate(`!!${toast}`), false, 'the native warning defers the alert');
+        await evaluate('document.querySelector("[data-resume-warning] button").click()');
+        await waitFor(`${toast}?.textContent === "Open session"`);
+        await evaluate(`${toast}.click()`);
+        await waitFor(`${row}?.dataset.selected === "true"`);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
       } else if (scenario === 'app-startup-composer') {
@@ -1222,42 +1311,6 @@ if (process.versions.electron) {
         await waitFor('document.querySelector("[data-shell-region=review]") && document.querySelector("[data-shell-region=inspector]")');
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
-      } else if (scenario === 'app-review-pending-navigation-recovery') {
-        for (const outcome of ['resolve','reject']) {
-          if (outcome==='reject') await fresh();
-          await waitFor('!!fixture.releaseSessions && document.querySelector("[data-rebuild-navigation]")');
-          await evaluate('fixture.cancelNavigationRebuild=false;fixture.deferNavigationRebuild=true;document.querySelector("[data-rebuild-navigation]").click()');
-          await waitFor('!!fixture.finishNavigationRebuild');
-          await evaluate('fixture.releaseSessions()');
-          await waitFor('document.querySelector("[data-session-id]")');
-          await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('created')).click()`);
-          await waitFor('!!fixture.resolveNewNavigation');
-          await evaluate('fixture.finishNavigationRebuild()');
-          await waitFor('!document.querySelector("[data-rebuild-navigation]")');
-          await evaluate(outcome==='resolve' ? 'fixture.resolveNewNavigation({lastCentralSurface:"terminal",revision:0,diagnostic:"corrupt_record"})' : 'fixture.rejectNewNavigation(new Error("Read during rebuild failed"))');
-          await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
-          assert.equal(await evaluate('document.body.innerText.includes("Saved navigation could not be read") || document.body.innerText.includes("Navigation could not be saved or restored")'),false,'reads begun during rebuild cannot undo completion');
-          assert.deepEqual(await evaluate('fixture.errors'),[]);
-        }
-        return;
-      } else if (scenario === 'app-review-delayed-navigation-recovery') {
-        for (const outcome of ['resolve','reject']) {
-          if (outcome==='reject') await fresh();
-          await waitFor('!!fixture.resolveOldNavigation && !!fixture.releaseSessions');
-          await evaluate('fixture.releaseSessions()');
-          await waitFor('document.querySelector("[data-session-id]")');
-          await evaluate(`Array.from(document.querySelectorAll('[data-session-id]')).find(row=>row.textContent.includes('created')).click()`);
-          await waitFor('document.querySelector("[data-rebuild-navigation]")');
-          await evaluate('fixture.navigationBeforeRecovery=fixture.navigation.length');
-          await evaluate('fixture.cancelNavigationRebuild=false;document.querySelector("[data-rebuild-navigation]").click()');
-          await waitFor('fixture.navigationRebuilds===1&&!document.querySelector("[data-rebuild-navigation]")');
-          await evaluate(outcome==='resolve' ? 'fixture.resolveOldNavigation({lastCentralSurface:"terminal",revision:0,diagnostic:"corrupt_record"})' : 'fixture.rejectOldNavigation(new Error("Old read failure"))');
-          await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
-          assert.equal(await evaluate('document.body.innerText.includes("Saved navigation could not be read") || document.body.innerText.includes("Navigation could not be saved or restored")'),false,'old diagnostic cannot undo confirmed rebuild');
-          assert.equal(await evaluate('fixture.navigation.length'),await evaluate('fixture.navigationBeforeRecovery'));
-          assert.deepEqual(await evaluate('fixture.errors'),[]);
-        }
-        return;
       } else if (scenario === 'app-review-stale-read-restore') {
         await waitFor('!!fixture.rejectRead');
         await evaluate('fixture.menu({action:"focus",panelId:"detail"})');
@@ -1268,24 +1321,6 @@ if (process.versions.electron) {
         assert.equal(await evaluate('document.activeElement?.matches("[data-shell-page-heading]")'),true);
         assert.equal(await evaluate('document.body.innerText.includes("Review could not be restored") || document.body.innerText.includes("no longer available")'),false);
         assert.deepEqual(await evaluate('fixture.navigation'),[]);
-        assert.deepEqual(await evaluate('fixture.errors'),[]);
-        return;
-      } else if (scenario === 'app-review-unreadable-restore') {
-        await waitFor('document.body.innerText.includes("Review could not be restored")');
-        await waitFor('document.querySelector("[data-shell-region=terminal]")');
-        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
-        assert.deepEqual(await evaluate('fixture.reads'),['created']);
-        assert.deepEqual(await evaluate('fixture.navigation'),[]);
-        assert.equal(await evaluate('fixture.prompts'),0);
-        assert.deepEqual(await evaluate('fixture.errors'),[]);
-        return;
-      } else if (scenario === 'app-review-empty-navigation-recovery') {
-        await waitFor('document.querySelector("[data-rebuild-navigation]")');
-        assert.equal(await evaluate('fixture.reads.length'),0);
-        await evaluate('fixture.cancelNavigationRebuild=false;document.querySelector("[data-rebuild-navigation]").click()');
-        await waitFor('fixture.navigationRebuilds===1&&!document.querySelector("[data-rebuild-navigation]")');
-        assert.deepEqual(await evaluate('fixture.navigation'),[]);
-        assert.equal(await evaluate('fixture.prompts'),0);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
       } else if (scenario === 'app-review-composer-return') {
@@ -1344,19 +1379,6 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.prompts'),0);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
-      } else if (scenario === 'app-review-native-race') {
-        await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-        await evaluate('fixture.deferRead=true;fixture.originalDigest=crypto.subtle.digest.bind(crypto.subtle);crypto.subtle.digest=()=>Promise.resolve(new ArrayBuffer(32));void 0');
-        await click('review');
-        await waitFor('!!fixture.resolveRead');
-        await evaluate('fixture.menu({action:"focus",panelId:"detail"});fixture.resolveRead("# Superseded native read")');
-        await waitFor('document.querySelector("[data-shell-region=inspector]")');
-        await evaluate('document.querySelector("[data-shell-return]").click()');
-        await waitFor('!document.querySelector("[data-shell-region=inspector]")');
-        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'native-menu intent fences completion before shell effects run');
-        assert.equal(await evaluate('fixture.navigation.includes("review")'),false);
-        assert.deepEqual(await evaluate('fixture.errors'),[]);
-        return;
       } else if (scenario === 'app-review-details-request') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
         await click('details');
@@ -1388,22 +1410,6 @@ if (process.versions.electron) {
         await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
         assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false,'navigation during opening supersedes saved Review');
         assert.deepEqual(await evaluate('fixture.errors'),[]);
-        return;
-      } else if (scenario === 'app-review-missing-restore') {
-        await waitFor('document.querySelector("[data-shell-region=terminal]")');
-        await waitFor('document.body.textContent.includes("Review could not be restored")');
-        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
-        assert.equal(await evaluate('fixture.reads.length'),0);
-        assert.equal(await evaluate('fixture.prompts'),0);
-        assert.deepEqual(await evaluate('fixture.errors'),[]);
-        return;
-      } else if (scenario === 'app-review-stale-restore') {
-        await waitFor('!!fixture.resolveNavigation');
-        await evaluate('fixture.menu({action:"focus",panelId:"terminal"})');
-        await evaluate('fixture.resolveNavigation()');
-        await evaluate('new Promise(resolve=>setTimeout(resolve,50))');
-        assert.equal(await evaluate('!!document.querySelector("[data-shell-region=review]")'),false);
-        assert.equal(await evaluate('fixture.reads.length'),0,'late hydration cannot override user navigation');
         return;
       } else if (scenario === 'app-review-history') {
         await waitFor('fixture.runtime()?.terminal.element?.isConnected');
@@ -2716,7 +2722,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery','app-review-stale-read-restore','app-review-unreadable-restore','app-review-empty-navigation-recovery','app-review-composer-return','app-review-initial-error','app-review-native-race','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-missing-restore','app-review-stale-restore','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2729,7 +2735,7 @@ if (process.versions.electron) {
     try {
       const bundle = await build({
         stdin: { contents: `
-          import React, {useState} from 'react';
+          import React, {useCallback, useRef, useState} from 'react';
           import {createRoot} from 'react-dom/client';
           import ApplicationShell from './src/components/ApplicationShell';
           import App from './src/App';
@@ -2808,32 +2814,37 @@ if (process.versions.electron) {
             rebuildShellLayout:async()=>{fixture.rebuildCalls++;if(fixture.cancelRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.snapshot.diagnostic=null;return {ok:true}}
           });
           if ((${javascriptLiteral(scenario)}.startsWith('app-'))) {
-            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${javascriptLiteral(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];fixture.navigationReads=0;
+            fixture.posts=0;fixture.navigation=[];fixture.navigationRebuilds=0;fixture.cancelNavigationRebuild=true;fixture.navigationDiagnostic=${javascriptLiteral(scenario)}.includes('navigation-recovery')?'corrupt_record':null;fixture.activeWrites=0;fixture.reads=[];
             fixture.plan='# Current plan';fixture.planSelections=[];fixture.documentKinds=[];fixture.documentSelectionIds=[];
             if(${javascriptLiteral(scenario)}==='app-review-terminal-links')fixture.plan='# Clicked document';fixture.savedSurface=${javascriptLiteral(scenario)}.includes('restore')||${javascriptLiteral(scenario)}==='app-review-opening-navigation'?'review':'terminal';
             const reviewSession=id=>({id,label:id,harness:'generic-shell',harnessId:'generic-shell',lifecycle:'alive',status:'running',cwd:'/tmp/test',created_at:'2026-10-13T10:00:00Z',memoryState:'live',resumeStrategy:'none',hasOpenablePlan:true,repoRoot:'/tmp/test',branch:'feature'});
             fixture.sessionList=${javascriptLiteral(scenario)}.startsWith('app-review')||${javascriptLiteral(scenario)}==='app-startup-composer'?[reviewSession('created'),reviewSession('other')]:[];
             if(${scenario === 'app-review-branch-documents'})for(const session of fixture.sessionList)session.planDocuments={branch:'feature',sharedSessions:2,steps:[{kind:'design',title:'Design document',available:true,pinned:false,source:'git_history',selectionId:'d'.repeat(64)},{kind:'implementation',title:'Implementation document',available:true,pinned:false,source:'agent_reported',selectionId:'a'.repeat(64)}]};
+            if (${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}) {
+              fixture.focused=true;
+              Object.defineProperty(document, "visibilityState", {get:()=>"visible"});
+              document.hasFocus=()=>fixture.focused;
+              fixture.sessionList=[{...reviewSession("created"),attention:"working"},{...reviewSession("other"),attention:"needs_you"}];
+              fixture.setAttention=(id, attention)=>{fixture.sessionList=fixture.sessionList.map(s=>s.id===id?{...s,attention}:s)};
+              fixture.desktopAlerts=[];fixture.closedAlerts=[];fixture.desktopEnabled=false;
+            }
             fixture.documentResets=[];
             if(${scenario === 'app-review-branch-recovery'})fixture.sessionList[0].planDocuments={branch:'feature',sharedSessions:2,steps:[],recoveryId:'a'.repeat(64),notice:'Saved choices could not be read. Reset to restore discovery.'};
             if(['app-review-terminal-links','app-review-replay'].includes(${javascriptLiteral(scenario)})){fixture.sessionList[0].hasOpenablePlan=false;fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
-            if(${javascriptLiteral(scenario)}==='app-review-empty-navigation-recovery')fixture.sessionList=[];
             if(${javascriptLiteral(scenario)}==='app-review-stale-read-restore')fixture.deferRead=true;
-            if(${javascriptLiteral(scenario)}==='app-review-unreadable-restore')fixture.unreadable=true;
-            if(${javascriptLiteral(scenario)}==='app-review-missing-restore')fixture.sessionList[0].hasOpenablePlan=false;
             if(${javascriptLiteral(scenario)}==='app-review-archived-stale')fixture.sessionList[1].sessionState='archived';
             if(${javascriptLiteral(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
-              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review')?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review') || ${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               openWorkspace:async()=>new Promise(resolve=>{fixture.cancelWorkspacePicker=resolve}),
               openRememberedWorkspace:async()=>new Promise((resolve,reject)=>{fixture.rejectRememberedWorkspace=reject}),
               getSettings:async()=>({debug:{showSessionIds:false,rendererHealthLogMs:0}}),
-              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>{if(${javascriptLiteral(scenario)}==='app-review-pending-navigation-recovery'&&fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveNewNavigation=resolve;fixture.rejectNewNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-delayed-navigation-recovery'&&!fixture.navigationReads++){return new Promise((resolve,reject)=>{fixture.resolveOldNavigation=resolve;fixture.rejectOldNavigation=reject})}if(${javascriptLiteral(scenario)}==='app-review-stale-restore')await new Promise(resolve=>fixture.resolveNavigation=resolve);return {lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}},
+              getProviderModels:async()=>({models:[]}),getWorkspaceNavigation:async()=>({lastCentralSurface:fixture.savedSurface,revision:0,diagnostic:fixture.navigationDiagnostic}),
               completeWorkspaceNavigation:async surface=>{if(["corrupt_record","unsupported_version"].includes(fixture.navigationDiagnostic))return {ok:false,diagnostic:fixture.navigationDiagnostic};fixture.navigation.push(surface);if(${javascriptLiteral(scenario)}==='app-review-create-persistence')fixture.savedSurface=surface;return {ok:true}},
-              rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.deferNavigationRebuild)await new Promise(resolve=>fixture.finishNavigationRebuild=resolve);if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
+              rebuildWorkspaceNavigation:async()=>{fixture.navigationRebuilds++;if(fixture.cancelNavigationRebuild)return {ok:false,diagnostic:'user_cancelled'};fixture.navigationDiagnostic=null;return {ok:true}},
               resetSavedPlanDocuments:async (id,recoveryId)=>{fixture.documentResets.push([id,recoveryId]);await new Promise((resolve,reject)=>{fixture.finishDocumentReset=resolve;fixture.rejectDocumentReset=reject})},
               selectTerminalPlan:async (id,path)=>{fixture.planSelections.push([id,path]);if(fixture.selectionFailure)throw new Error('Document is unavailable');if(fixture.deferSelection)await new Promise(resolve=>fixture.finishSelection=resolve);return fixture.selectedDocument},
               getPlanContent:async (id,kind,selectionId)=>{fixture.reads.push(id);if(kind){fixture.documentKinds.push(kind);fixture.documentSelectionIds.push(selectionId)}if(fixture.deferRead)return new Promise((resolve,reject)=>{fixture.resolveRead=resolve;fixture.rejectRead=reject});if(fixture.unreadable)throw new Error('Missing plan');if(${scenario === 'app-review-branch-documents'})return kind==='design'?'# Design document':fixture.currentImplementation||'# Implementation document';return id==='other'?'# Other session plan':fixture.plan},
@@ -2841,8 +2852,15 @@ if (process.versions.electron) {
             });
             if (${scenario === 'app-workspace-hook-notice'}) {
               window.orkworks.getBackendToken=()=>"hook-notice-test-token";
+            }
+            if (${scenario === 'app-session-attention-alerts'}) {
+              window.orkworks.saveDesktopSessionNotifications=async enabled=>{fixture.desktopEnabled=enabled};
+              window.orkworks.showSessionAttentionNotification=id=>new Promise(complete=>fixture.desktopAlerts.push({id,complete}));
+              window.orkworks.closeSessionAttentionNotification=async id=>{fixture.closedAlerts.push(id)};
+            }
+            if (${scenario === 'app-workspace-hook-notice' || scenario === 'app-session-attention-alerts'}) {
               window.orkworks.getSettings=async()=>({
-                hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},
+                hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},desktopSessionNotifications:fixture.desktopEnabled,
                 debug:{showSessionIds:false,rendererHealthLogMs:0},
                 providers:{version:2,revision:0,peonModel:null,ollamaBaseUrl:"http://localhost:11434",providers:[]}
               });
@@ -2864,7 +2882,7 @@ if (process.versions.electron) {
                 return response({lines:[{text:'\\x1b[2J\\x1b[H'+'0123456789'.repeat(12)+'Z\\x1b[3;1Hsecond-row\\x1b[40;1Hlast-row',delimiter:''}],cols:120,rows:40});
               }
               if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
-              if(path==='/sessions'){if(['app-startup-composer','app-review-pending-navigation-recovery','app-review-delayed-navigation-recovery'].includes(${javascriptLiteral(scenario)})&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
+              if(path==='/sessions'){if(${javascriptLiteral(scenario)}==='app-startup-composer'&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
               if(path==='/workspace/integrations' && ${scenario === 'app-workspace-hook-notice'}) {
                 if(new Headers(options.headers).get("x-orkworks-renderer-token")!=="hook-notice-test-token")return {ok:false,status:401};
                 const state=fixture.hookState??"drifted";
@@ -2892,11 +2910,11 @@ if (process.versions.electron) {
             fixture.hostile='<img data-inert-probe src=x onerror="window.modelScriptRan=true"> MODEL_DATA '+String.fromCharCode(96)+'pnpm test || true'+String.fromCharCode(96);
             fixture.accepted=[];
             fixture.recommendation={workspaceId:'/tmp/test',id:'recommendation-inert',type:'improve_workflow',status:'proposed',priority:'low',title:fixture.hostile,summary:fixture.hostile,reason:[fixture.hostile],evidence:[],repositoryEvidence:[],knowledgeEvidence:[],sourceSessionIds:[],targetSessionId:null,confidence:'medium',requiresApproval:true,dedupeKey:'proactive:v1:instructions:fixture',chainId:'fixture',chainDepth:0,createdAt:'2026-11-13T10:00:00Z',updatedAt:'2026-11-13T10:00:00Z',expiresAt:null,suggestedPrompt:null,assessment:{improvementReference:{version:2,intent:'implementation'}},workflowImprovement:{proposedImprovement:fixture.hostile,targetSurface:'instructions',observationIds:[],recurrenceCount:0,affectedSessionIds:[],impact:'low',expectedBenefit:fixture.hostile,supersedesRecommendationId:null,dismissalWatermark:null},completionPacket:null,audit:null,rollupMemberIds:[],rollupMemberDedupeKeys:[],rolledUpBy:null,proposedChange:null};
-            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
-            window.orkworks.getImprovementStatus=async()=>({workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
-            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.requestTaskmasterAnalysis=async()=>({status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
-            window.orkworks.acceptTaskmasterRecommendation=async(id,options)=>{fixture.accepted.push([id,options]);return fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId}};
+            window.orkworks.getAdviceReadinessStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:null,suggestionRun:null,snapshots:[],freshness:'unknown',retentionLimit:100,reasonCode:null});
+            window.orkworks.getAdviceImprovementStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',available:false,reasonCode:'not_qualified',run:null});
+            window.orkworks.getAdviceRunStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.requestAdviceAnalysis=async()=>({protocolVersion:3,status:'active_recommendation',recommendation:fixture.recommendation,recoveryAllowed:false});
+            window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>{fixture.accepted.push([id,options]);return {protocolVersion:3,...(fixture.recommendation.assessment.improvementReference.version===3?{id,status:'accepted',targetSessionId:options.sessionId}:{...fixture.recommendation,status:'accepted',targetSessionId:options.sessionId})}};
             const fetchBase=window.fetch;
             window.fetch=async(url,options)=>{
               const path=new URL(String(url)).pathname;
@@ -2909,12 +2927,12 @@ if (process.versions.electron) {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
             const snapshot={id:'readiness-one',startedAt:'2026-11-01T10:00:00Z',completedAt:'2026-11-01T10:01:00Z',redacted:false,data:{workspacePath:'/tmp/test',inputFingerprint:'a'.repeat(64),comparisonFingerprint:'b'.repeat(64),rubricDigest:'c'.repeat(64),summary:'Saved assessment',concepts:ids.map(conceptId=>({conceptId,maturity:2,confidence:'medium',repositoryFactHashes:['d'.repeat(64)],rubricPageId:'playbooks/rubric.md',rationale:'Documented guidance',limits:[],nextTransition:'Check evidence',unassessedReason:null})),repositoryEvidence:[],knowledgeEvidence:[],coverage:14,rawTotal:28,overallScore:50,git:{headOid:null,dirty:null},inferenceIdentity:{},knowledgeIdentity:{}}};
-            window.orkworks.getReadinessStatus=async()=>({workspacePath:'/tmp/test',run:{id:'failed-readiness',state:'failed',phase:null,startedAt:'2026-11-02T10:00:00Z',completedAt:'2026-11-02T10:01:00Z',errorCode:'evidence_evidence_limit'},snapshots:[snapshot],freshness:'unknown',retentionLimit:100,reasonCode:null});
-            window.orkworks.getTaskmasterRunStatus=async()=>({workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
-            window.orkworks.requestReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {outcome:'unavailable'}};
-            window.orkworks.requestReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {outcome:'unavailable'}};
-            window.orkworks.requestTaskmasterAssessment=async()=>{fixture.assessmentCalls.push('workflow');return {status:'unavailable'}};
-            window.orkworks.requestTaskmasterAnalysis=async()=>{fixture.assessmentCalls.push('discovery');return {status:'unavailable'}};
+            window.orkworks.getAdviceReadinessStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:{id:'failed-readiness',state:'failed',phase:null,startedAt:'2026-11-02T10:00:00Z',completedAt:'2026-11-02T10:01:00Z',errorCode:'evidence_evidence_limit'},snapshots:[snapshot],freshness:'unknown',retentionLimit:100,reasonCode:null});
+            window.orkworks.getAdviceRunStatus=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null,assessment:{state:'idle',report:null,reused:false}});
+            window.orkworks.requestAdviceReadinessSuggestion=async()=>{fixture.assessmentCalls.push('combined');return {protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null}};
+            window.orkworks.requestAdviceReadinessAssessment=async()=>{fixture.assessmentCalls.push('readiness');return {protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null}};
+            window.orkworks.requestAdviceAssessment=async()=>{fixture.assessmentCalls.push('workflow');return {protocolVersion:3,status:'unavailable'}};
+            window.orkworks.requestAdviceAnalysis=async()=>{fixture.assessmentCalls.push('discovery');return {protocolVersion:3,status:'unavailable'}};
             window.fetch=async(url,init)=>{
               const path=new URL(String(url)).pathname;
               if(path==='/taskmaster/audit/recommendations')fixture.auditCalls++;
@@ -2924,7 +2942,7 @@ if (process.versions.electron) {
           }
           if (${javascriptLiteral(scenario)}==='recommendation-status-error') {
             fixture.statusReads=0;
-            window.orkworks.getTaskmasterRunStatus=async()=>{fixture.statusReads++;return {workspacePath:'/tmp/test',state:'idle'}};
+            window.orkworks.getAdviceRunStatus=async()=>{fixture.statusReads++;return {protocolVersion:3,workspacePath:'/tmp/test',state:'idle'}};
             window.fetch=async()=>({ok:false,status:500,json:async()=>({})});
           }
           if (${javascriptLiteral(scenario)}==='actions-sources') {
@@ -2939,24 +2957,23 @@ if (process.versions.electron) {
           if (${javascriptLiteral(scenario)}==='session-menu') {
             window.fetch=async url=>({ok:true,json:async()=>({entries:[{timestamp:'2026-10-31T10:00:00Z',summary:'Checkpoint '+new URL(url).pathname.split('/')[2],source:'agent_hook'}]})});
           }
-          // Synthetic IPC replies for the modern client. These adapters are fixture-only.
+          // Default synthetic advice IPC replies for scenarios that do not override them.
           const adviceReply=async value=>({...await value,protocolVersion:3});
-          const adviceAdmission=async value=>({runId:null,reasonCode:null,...await value,protocolVersion:3});
           const adviceFetch=async path=>{const response=await window.fetch('http://127.0.0.1:12345'+path);if(!response.ok)throw Error('Fixture request failed '+response.status);return adviceReply(response.json());};
-          window.orkworks.getAdviceRecommendations=async()=>adviceFetch('/taskmaster/recommendations');
-          window.orkworks.getAdviceRecommendation=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
-          window.orkworks.runAdviceAudit=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
-          window.orkworks.getAdviceReadinessStatus=async()=>adviceReply(window.orkworks.getReadinessStatus?.()??{workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
-          window.orkworks.getAdviceImprovementStatus=async()=>adviceReply(window.orkworks.getImprovementStatus?.()??{workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
-          window.orkworks.getAdviceRunStatus=async()=>adviceReply(window.orkworks.getTaskmasterRunStatus?.()??{workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
-          window.orkworks.requestAdviceImprovement=async()=>adviceAdmission(window.orkworks.requestImprovement());
-          window.orkworks.cancelAdviceImprovement=async(_workspace,id)=>adviceAdmission(window.orkworks.cancelImprovement(id));
-          window.orkworks.requestAdviceReadinessAssessment=async()=>adviceAdmission(window.orkworks.requestReadinessAssessment());
-          window.orkworks.requestAdviceReadinessSuggestion=async()=>adviceAdmission(window.orkworks.requestReadinessSuggestion());
-          window.orkworks.requestAdviceAssessment=async()=>adviceReply(window.orkworks.requestTaskmasterAssessment());
-          window.orkworks.requestAdviceAnalysis=async()=>adviceReply(window.orkworks.requestTaskmasterAnalysis());
-          window.orkworks.acceptAdviceRecommendation=async(_workspace,id,options)=>adviceReply(window.orkworks.acceptTaskmasterRecommendation(id,options));
-          window.orkworks.dismissAdviceRecommendation=async(_workspace,id,reason)=>adviceReply(window.orkworks.dismissTaskmasterRecommendation(id,reason));
+          window.orkworks.getAdviceRecommendations??=async()=>adviceFetch('/taskmaster/recommendations');
+          window.orkworks.getAdviceRecommendation??=async(_workspace,_base,id)=>adviceFetch('/taskmaster/recommendations/'+encodeURIComponent(id));
+          window.orkworks.runAdviceAudit??=async()=>{const response=await window.fetch('http://127.0.0.1:12345/taskmaster/audit/recommendations',{method:'POST'});return adviceReply(response.json());};
+          window.orkworks.getAdviceReadinessStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',run:null,snapshots:[],freshness:'none',retentionLimit:100,reasonCode:null});
+          window.orkworks.getAdviceImprovementStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',available:false,run:null,reasonCode:'qualification_disabled'});
+          window.orkworks.getAdviceRunStatus??=async()=>({protocolVersion:3,workspacePath:'/tmp/test',activeAttempt:null,latestOutcome:null});
+          window.orkworks.requestAdviceImprovement??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:'not_qualified'});
+          window.orkworks.cancelAdviceImprovement??=async(_workspace,id)=>({protocolVersion:3,outcome:'not_running',runId:id,reasonCode:null});
+          window.orkworks.requestAdviceReadinessAssessment??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null});
+          window.orkworks.requestAdviceReadinessSuggestion??=async()=>({protocolVersion:3,outcome:'unavailable',runId:null,reasonCode:null});
+          window.orkworks.requestAdviceAssessment??=async()=>({protocolVersion:3,status:'unavailable'});
+          window.orkworks.requestAdviceAnalysis??=async()=>({protocolVersion:3,status:'unavailable',recoveryAllowed:false});
+          window.orkworks.acceptAdviceRecommendation??=async()=>({protocolVersion:3});
+          window.orkworks.dismissAdviceRecommendation??=async()=>({protocolVersion:3});
           function Preferences() {const prefs=useShellPreferences();return <ShellPreferencesNotice {...prefs} onCommand={command=>{fixture.noticeCommands.push(command);void prefs.reset()}}/>;}
           function PreferencesHarness() {const [generation,setGeneration]=useState(0);fixture.remountPreferences=()=>setGeneration(n=>n+1);return <Preferences key={generation}/>;}
           function Harness() {
@@ -2969,20 +2986,72 @@ if (process.versions.electron) {
             const [extraActionCount,setExtraActionCount]=useState(0);fixture.setExtraActionCount=setExtraActionCount;
             const [generation,setGeneration]=useState(0);fixture.workspaceGeneration=generation;fixture.advanceWorkspace=()=>{if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setGeneration(n=>n+1)};
             const [backendStatus,setBackendStatus]=useState('connected');
-            const [commandRequest,setCommandRequest]=useState(null);
-            fixture.command=(command,reveal=false)=>setCommandRequest(old=>({command,reveal,sequence:(old?.sequence||0)+1}));
+            const commandHandlerRef=useRef(null);
+            fixture.command=(command,reveal=false)=>commandHandlerRef.current?.(command,reveal);
             fixture.setBackendStatus=setBackendStatus;
             const [activeSessionId,setActiveSessionId]=useState('coding');
             fixture.activeSessionId=activeSessionId;
             fixture.select=setActiveSessionId;
             const [preferences,setPreferences]=useState({sessionsWidth:240,inspectorWidth:320,sessionsVisible:true,density:'low'});fixture.setPreferences=setPreferences;
-            return <ApplicationShell centralSurface={reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId}} onOpenReview={()=>setReviewing(true)} onCloseReview={()=>setReviewing(false)} reviewContent={<p>Current plan</p>} sessions={empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'})))}
-              workspace={{path:${javascriptLiteral(scenario)}==='utility-scope'?'/tmp/test/'+'LongWorkspaceDirectory'.repeat(12):'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'}} workspaceControl={<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>} onOpenSettings={section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)}} onCreateSession={()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}}} activeSessionId={activeSessionId} workspaceGeneration={generation}
-              newSessionContent={creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null}
-              onCancelNewSession={()=>setCreating(false)} backendStatus={backendStatus} sessionsSourceStatus={sessionsSourceStatus} taskmasterReady={['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)})} onOpenRecommendation={id=>fixture.openedRecommendations.push(id)} onFixWithAi={()=>fixture.prompts++} onRunCleanup={()=>fixture.prompts++} harnesses={[]} debugSettings={{showSessionIds:false}}
-              commandRequest={commandRequest} preferences={preferences} onPreferencesChange={setPreferences} onResetPreferences={()=>new Promise(resolve=>{fixture.finishReset=resolve})}
-              inspector={inspector} onInspect={setInspector} unreadIds={new Set(${javascriptLiteral(scenario)}==='actions'?['other']:[])} acknowledgedIds={new Set()}
-              visibleSubjectId={['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(${javascriptLiteral(scenario)})?activeSessionId:undefined} resumingSessionIds={resumingSessionIds} onResumeSession={(id,strategy)=>fixture.resumed.push({id,strategy})} onSelectSession={id=>{fixture.selections++;if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)}} onFocusTerminal={()=>fixture.runtime()?.terminal.focus()} onBackendUnavailable={()=>{}} />;
+            const onRegisterCommand=useCallback(handler=>{commandHandlerRef.current=handler;return ()=>{if(commandHandlerRef.current===handler)commandHandlerRef.current=null}},[]);
+            return <ApplicationShell
+              workspace={{
+                info:{path:${javascriptLiteral(scenario)}==='utility-scope'?'/tmp/test/'+'LongWorkspaceDirectory'.repeat(12):'/tmp/test',workspaceIdentity:['open-session-app','skills-main'].includes(${javascriptLiteral(scenario)})?'/real/test':'/tmp/test'},
+                control:<div className="shell-workspace-control"><span className="titlebar-text">test</span><WorkspaceHistoryDropdown triggerLabel="⇄" triggerClassName="titlebar-switch-button" triggerAriaLabel="Switch workspace" currentWorkspacePath="/tmp/test" isSwitching={false} onOpenPath={()=>{fixture.workspaceOpens++;setGeneration(n=>n+1)}} onOpenOtherFolder={()=>{}} onError={()=>{}}/></div>,
+                generation,
+                isSwitching:false,
+                backendStatus,
+                onOpen:()=>{},
+                onBackendUnavailable:()=>{},
+                onRetryBackend:()=>{},
+              }}
+              sessions={{
+                items:empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))),
+                sourceStatus:sessionsSourceStatus,
+                activeId:activeSessionId,
+                unreadIds:new Set(${javascriptLiteral(scenario)}==='actions'?['other']:[]),
+                acknowledgedIds:new Set(),
+                harnesses:[],
+                resumeTick:0,
+                resumingIds:resumingSessionIds,
+                onSelect:id=>{fixture.selections++;if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)},
+                onResume:(id,strategy)=>fixture.resumed.push({id,strategy}),
+                onApplyDebugAttention:()=>{},
+                onFocusTerminal:()=>fixture.runtime()?.terminal.focus(),
+              }}
+              navigation={{
+                centralSurface:reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId},
+                inspector,
+                visibleSubjectId:['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(${javascriptLiteral(scenario)})?activeSessionId:null,
+                onInspect:setInspector,
+                onRegisterCommand,
+              }}
+              review={{
+                content:<p>Current plan</p>,
+                onOpen:()=>setReviewing(true),
+                onClose:()=>setReviewing(false),
+              }}
+              composer={{
+                content:creating ? <NewSessionDialog key={generation} harnesses={[]} providerRuntime={null} onConfirm={async opts=>{fixture.submitted=opts;fixture.finishCreate=new Promise(resolve=>fixture.resolveCreate=resolve);await fixture.finishCreate;setCreating(false);fixture.command("terminal")}} onCancel={()=>fixture.command("cancel-new-session")}/> : null,
+                onCreate:()=>{fixture.sessionsCreated++;if(${javascriptLiteral(scenario)}==='new-session'){setCreating(true);fixture.command('new-session')}},
+                onCancel:()=>setCreating(false),
+              }}
+              recommendations={{
+                canFixWithAi:true,
+                taskmasterReady:['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)}),
+                focusedId:null,
+                onOpen:id=>fixture.openedRecommendations.push(id),
+                onFixWithAi:()=>fixture.prompts++,
+                onRunCleanup:()=>fixture.prompts++,
+              }}
+              preferences={{
+                value:preferences,
+                debugSettings:{showSessionIds:false},
+                onChange:setPreferences,
+                onReset:()=>new Promise(resolve=>{fixture.finishReset=resolve}),
+                onOpenSettings:section=>{fixture.settingsOpened++;(fixture.settingsSections??=[]).push(section)},
+              }}
+            />;
           }
           createRoot(document.getElementById('root')).render(${javascriptLiteral(scenario)}.startsWith('preferences-')?<PreferencesHarness/>:${javascriptLiteral(scenario)}.startsWith('app-')?<App/>:<Harness/>);
         `, resolveDir: root, loader: 'tsx' },

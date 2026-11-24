@@ -23,6 +23,7 @@ export interface AppSettings {
   [key: string]: unknown;
   version: 1;
   apmExecutablePath?: string | null;
+  desktopSessionNotifications?: boolean;
   hotkeys: HotkeySettings;
   defaultHotkeys: HotkeySettings;
   retention: RetentionSettings;

@@ -114,9 +114,9 @@ fn anchored_journal_recovers_every_publication_and_sync_boundary_after_restart()
             .unwrap()
             .prepare_session_removal("s")
             .unwrap();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
+        deletion_journal::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
         let receipt = removal.publish();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(None));
+        deletion_journal::JOURNAL_FAILURE.with(|f| f.set(None));
         let success = receipt.result().is_ok();
         let committed = !store.path_for("a").exists()
             || !store.path_for("b").exists()
@@ -524,9 +524,9 @@ fn anchored_journal_recovers_interruptions_while_discarding_first_manifest_draft
         fs::remove_file(tx.join("manifest.json")).unwrap();
         let originals = ["a", "b", "keep"].map(|id| fs::read(store.path_for(id)).unwrap());
         let bound = store.capture_cleanup().bind(lease.clone()).unwrap();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
+        deletion_journal::JOURNAL_FAILURE.with(|f| f.set(Some(boundary)));
         let receipt = bound.recover_removals().unwrap();
-        cleanup::JOURNAL_FAILURE.with(|f| f.set(None));
+        deletion_journal::JOURNAL_FAILURE.with(|f| f.set(None));
         let success = receipt.result().is_ok();
         drop(receipt);
         drop(bound);

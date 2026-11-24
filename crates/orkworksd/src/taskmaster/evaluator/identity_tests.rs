@@ -371,10 +371,11 @@ fn manual_dispatch_revalidation_rejects_a_workspace_replaced_after_admission() {
         dispatched = true;
         Ok(())
     };
-    assert!(manual_workspace_dispatch_gate(
+    assert!(workspace_dispatch_gate(
         &fixture.state,
         &expected_path,
         expected_instance,
+        true,
         &mut start,
     )
     .is_none());
@@ -389,10 +390,11 @@ fn manual_dispatch_runs_its_start_action_while_workspace_is_locked() {
         ran_under_lock = fixture.state.workspace.try_lock().is_err();
         Ok(())
     };
-    assert!(manual_workspace_dispatch_gate(
+    assert!(workspace_dispatch_gate(
         &fixture.state,
         fixture.dir.path(),
         fixture.instance,
+        true,
         &mut start,
     )
     .unwrap()
@@ -417,14 +419,40 @@ fn codex_snapshot(fixture: &Fixture) -> EvaluationSnapshot {
             .find(|provider| provider.id == "codex")
             .unwrap()
             .transport;
-    assert!(bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut snapshot,
         transport,
     ));
     snapshot
+}
+
+fn run_native_workspace_gate(
+    state: &AppState,
+    runtime: &TaskmasterRuntime,
+    snapshot: &EvaluationSnapshot,
+    expected_path: &std::path::Path,
+    expected_instance: u64,
+    require_no_active_recommendation: bool,
+    start_dispatch: &mut dyn FnMut() -> std::io::Result<()>,
+) -> Option<std::io::Result<()>> {
+    let mut inner = |start: &mut dyn FnMut() -> std::io::Result<()>| {
+        workspace_dispatch_gate(
+            state,
+            expected_path,
+            expected_instance,
+            require_no_active_recommendation,
+            start,
+        )
+    };
+    runtime.run_native_dispatch_gate(
+        &state.harness_store,
+        expected_path,
+        snapshot,
+        &mut inner,
+        start_dispatch,
+    )
 }
 
 #[test]
@@ -471,7 +499,7 @@ fn native_manual_dispatch_rejects_changed_settings_knowledge_and_harness() {
             Ok(())
         };
         assert!(
-            native_workspace_dispatch_gate(
+            run_native_workspace_gate(
                 &fixture.state,
                 &fixture.runtime,
                 &snapshot,
@@ -496,7 +524,7 @@ fn native_manual_dispatch_keeps_snapshot_and_workspace_guards_through_start() {
         ran_under_workspace_lock = fixture.state.workspace.try_lock().is_err();
         Ok(())
     };
-    assert!(native_workspace_dispatch_gate(
+    assert!(run_native_workspace_gate(
         &fixture.state,
         &fixture.runtime,
         &snapshot,
@@ -564,8 +592,7 @@ fn manual_evaluation_rechecks_active_recommendations_at_its_admission_point() {
 #[test]
 fn evaluation_identity_custom_capture_failure_never_becomes_native() {
     let mut fixture = Fixture::new();
-    assert!(bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut fixture.snapshot,
@@ -576,8 +603,7 @@ fn evaluation_identity_custom_capture_failure_never_becomes_native() {
         .trust
         .revoke("custom", fixture.trust.generation().unwrap())
         .unwrap();
-    assert!(!bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(!fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut fixture.snapshot,
@@ -588,8 +614,7 @@ fn evaluation_identity_custom_capture_failure_never_becomes_native() {
         serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     document["custom"][0]["inference"] = serde_json::Value::Null;
     fs::write(path, serde_json::to_vec(&document).unwrap()).unwrap();
-    assert!(!bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(!fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut fixture.snapshot,
@@ -743,8 +768,7 @@ fn evaluation_identity_native_to_custom_change_invalidates_binding_reservation_a
             .find(|p| p.id == "codex")
             .unwrap()
             .transport;
-    assert!(bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut fixture.snapshot,
@@ -816,8 +840,7 @@ fn evaluation_identity_native_to_custom_change_invalidates_binding_reservation_a
         .runtime
         .evaluation_snapshot(fixture.dir.path())
         .unwrap();
-    assert!(!bind_evaluation_transport(
-        &fixture.runtime,
+    assert!(!fixture.runtime.bind_evaluation_transport(
         &fixture.state.harness_store,
         fixture.dir.path(),
         &mut new_snapshot,
@@ -967,7 +990,7 @@ fn native_http_pending_poll_revalidates_signed_proof_before_each_poll() {
         let waker = Waker::from(Arc::new(NoopWake));
         let mut context = Context::from_waker(&waker);
         let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-            native_workspace_dispatch_gate(
+            run_native_workspace_gate(
                 &fixture.state,
                 &fixture.runtime,
                 &snapshot,
@@ -1061,8 +1084,7 @@ async fn native_http_endpoint_requires_current_signed_proof_and_discards_post_di
         .find(|entry| entry.id == "ollama")
         .unwrap()
         .transport;
-        assert!(bind_evaluation_transport(
-            &fixture.runtime,
+        assert!(fixture.runtime.bind_evaluation_transport(
             &fixture.state.harness_store,
             fixture.dir.path(),
             &mut snapshot,
@@ -1079,7 +1101,7 @@ async fn native_http_endpoint_requires_current_signed_proof_and_discards_post_di
                     fs::write(fixture.runtime.knowledge_path(), b"broken").unwrap();
                 }
                 first = false;
-                native_workspace_dispatch_gate(
+                run_native_workspace_gate(
                     &fixture.state,
                     &fixture.runtime,
                     snapshot,
@@ -1171,7 +1193,7 @@ fn native_process_marker_requires_current_signed_proof_at_actual_spawn() {
                 }
                 _ => {}
             }
-            native_workspace_dispatch_gate(
+            run_native_workspace_gate(
                 &fixture.state,
                 &fixture.runtime,
                 &snapshot,
@@ -1217,7 +1239,7 @@ fn native_process_output_is_not_accepted_after_proof_corruption_during_invocatio
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         let mut gate = |start: &mut dyn FnMut() -> std::io::Result<()>| {
-            native_workspace_dispatch_gate(
+            run_native_workspace_gate(
                 &running.state,
                 &running.runtime,
                 &running.snapshot,

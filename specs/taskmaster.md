@@ -1651,3 +1651,12 @@ signed guidance, six-call/eight-minute budget, lease and action authority remain
 Implementation approval grants no provider calls, activation, release or
 retroactive qualification credit. A fresh independent paired comparison remains
 required after implementation under separate finite authorization.
+
+## Workflow observation input policy proposal — pending review
+
+The [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+proposes dual-view ESC-payload grounding and a fourteen-day window for new
+exact-family creation and ordinary Brain observation input, with existing-ID
+updates and history explicitly grandfathered. It is **not accepted or implemented**.
+Existing recording, eligibility, lifecycle and authority rules above remain
+binding until scoped owner acceptance; merging the proposal is not that acceptance.

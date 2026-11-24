@@ -4,6 +4,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Workflow evidence payload exclusion and observation freshness](2026-11-23-workflow-evidence-policy-design.md) — Proposed dual-view Peon grounding, fourteen-day new-input policy and compatibility boundary for #1077.
+
 - [Separate session status and repository enrichment](2026-11-18-session-status-enrichment-design.md) — Proposed #1895 protocol, freshness, scheduling and recovery contract; owner approval required before implementation.
 
 - [Code-owned unverified improvement advice](2026-11-17-unverified-improvement-advice-design.md) — Owner-approved policy-3 status and consumer compatibility boundary; implementation and qualification tracked in #1694.
@@ -371,3 +373,7 @@ Dated design records; these do not establish current product behavior.
 - [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
 
 - [Research complete discovery and invalidation ownership](2026-11-23-research-discovery-invalidation-design.md) — Proposed per-family discovery ownership in both lookup directions, invalidation-ownership table and shared finite bounds over the accepted catalog; no format or runtime qualification.
+
+- [Research profile initializer creation manifest](2026-11-23-research-initializer-manifest-design.md) — Proposed complete fresh-profile initializer manifest over the accepted catalog (workspace/run/assignment scope rows, registered empty families, original proof links); physical format selection remains gated.
+
+- [Research command effects and original proof closure](2026-11-23-research-command-proof-design.md) — Accepted for written logical closure: command-wide effects, captured header, coalesced versions, accounting and original proofs; executable/physical/runtime qualification remains gated.
