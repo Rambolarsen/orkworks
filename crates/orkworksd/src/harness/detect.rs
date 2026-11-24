@@ -1,9 +1,13 @@
 //! Detects whether a harness's configured launch command resolves to an
 //! installed, executable binary — either on `PATH` or at an absolute
-//! override path.
+//! override path. On Windows, a bare command that misses the inherited
+//! `PATH` is also searched in the *current* registered system/user `PATH`
+//! (bounded native registry read), so a tool installed after the sidecar
+//! process started is still detected; inherited-`PATH` order and absolute
+//! overrides keep precedence.
 
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::definition::VersionRequirement;
@@ -23,13 +27,43 @@ pub(crate) fn probe_installed_tool(command: &str) -> Option<DetectedTool> {
         });
     }
     let path_var = env::var_os("PATH")?;
+    let fallback_dirs: Vec<PathBuf> = if cfg!(windows) {
+        windows_registered_fallback_dirs()
+    } else {
+        Vec::new()
+    };
+    probe_bare_command(command, &path_var, &fallback_dirs)
+}
+
+/// Searches a bare launch `command` first in the process-inherited `PATH`
+/// directories (`process_path`), then in explicitly supplied fallback
+/// directories (on Windows: the current registered system/user PATH). This
+/// ordering keeps normal lookup and any explicit absolute override fully in
+/// charge — the fallback only widens the search after the inherited
+/// environment misses, never replaces it.
+fn probe_bare_command(
+    command: &str,
+    process_path: &std::ffi::OsStr,
+    fallback_dirs: &[PathBuf],
+) -> Option<DetectedTool> {
     let candidates = if cfg!(windows) {
         windows_candidate_names(command, &env::var("PATHEXT").unwrap_or_default())
     } else {
         vec![command.to_string()]
     };
-    for dir in env::split_paths(&path_var) {
-        for candidate in &candidates {
+    let mut dirs: Vec<PathBuf> = env::split_paths(process_path).collect();
+    dirs.extend(fallback_dirs.iter().cloned());
+    find_executable_in_dirs(&candidates, dirs)
+}
+
+/// Finds the first directory in `dirs` containing an executable candidate
+/// for `command`, preserving directory order.
+fn find_executable_in_dirs<I: IntoIterator<Item = PathBuf>>(
+    candidates: &[String],
+    dirs: I,
+) -> Option<DetectedTool> {
+    for dir in dirs {
+        for candidate in candidates {
             let full = dir.join(candidate);
             if is_executable_file(&full) {
                 return Some(DetectedTool {
@@ -73,6 +107,135 @@ fn windows_candidate_names(command: &str, pathext: &str) -> Vec<String> {
         .iter()
         .map(|ext| format!("{command}.{ext}"))
         .collect()
+}
+
+/// Whether a Windows-style PATH entry is absolute: a UNC path (`\\server\…`)
+/// or a drive-letter path rooted at a separator (`C:\…`, `C:/…`). Drive-relative
+/// entries (`C:nodir`) are not absolute, so a stale or hostile value cannot
+/// redirect the fallback into the current working directory.
+#[cfg(any(windows, test))]
+fn windows_style_path_is_absolute(entry: &str) -> bool {
+    let bytes = entry.as_bytes();
+    if bytes.starts_with(b"\\\\") {
+        return true;
+    }
+    let drive = matches!(bytes.first(), Some(b) if b.is_ascii_alphabetic())
+        && matches!(bytes.get(1), Some(b':'));
+    drive && matches!(bytes.get(2), Some(sep) if *sep == b'\\' || *sep == b'/')
+}
+
+/// Parses an already environment-expanded registered Windows `Path` value
+/// into absolute directory candidates: semicolon-separated, trimmed, with
+/// surrounding quotes stripped; empty, relative and duplicate entries are
+/// skipped while preserving first-seen order.
+#[cfg(any(windows, test))]
+fn registered_windows_path_dirs(raw: &str) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for entry in raw.split(';') {
+        let trimmed = entry.trim().trim_matches('"');
+        if trimmed.is_empty() || !windows_style_path_is_absolute(trimmed) {
+            continue;
+        }
+        let dir = PathBuf::from(trimmed);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
+}
+
+/// Non-Windows stub: the registered-PATH fallback is Windows-only, so other
+/// platforms contribute no fallback directories.
+#[cfg(not(windows))]
+fn windows_registered_fallback_dirs() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+/// Reads the *current* registered Windows system and user `Path` values for
+/// the stale-inherited-PATH fallback. Bounded to `MAX_REGISTRY_PATH_BYTES` per
+/// value; the registry (not a shell, not an install-directory scan) is the
+/// only extra source, and a missing, oversized or unreadable value simply
+/// contributes no fallback directories.
+///
+/// # Errors
+///
+/// Registry failures are swallowed by design: an unavailable fallback is
+/// indistinguishable from no registered tool, and probe results stay `None`.
+#[cfg(windows)]
+fn windows_registered_fallback_dirs() -> Vec<PathBuf> {
+    use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+
+    const SESSION_MANAGER_ENVIRONMENT: &str =
+        "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+    const USER_ENVIRONMENT: &str = "Environment";
+
+    let mut dirs = Vec::new();
+    for (hive, subkey) in [
+        (HKEY_LOCAL_MACHINE, SESSION_MANAGER_ENVIRONMENT),
+        (HKEY_CURRENT_USER, USER_ENVIRONMENT),
+    ] {
+        if let Some(raw) = read_registry_path_value(hive, subkey) {
+            for dir in registered_windows_path_dirs(&raw) {
+                if !dirs.contains(&dir) {
+                    dirs.push(dir);
+                }
+            }
+        }
+    }
+    dirs
+}
+
+/// One read is bounded to this many UTF-16 code units (128 KiB) so a corrupt
+/// or hostile value cannot force an unbounded allocation.
+#[cfg(windows)]
+const MAX_REGISTRY_PATH_UNITS: usize = 64 * 1024;
+
+/// Reads one registry value as auto-expanded string data (`REG_SZ` or
+/// `REG_EXPAND_SZ`) and returns it as UTF-8. Returns `None` on any failure,
+/// including values larger than the bound.
+///
+/// # Safety
+///
+/// `hive` must be one of the predefined registry keys; `subkey` and
+/// `value_name` must be NUL-terminated UTF-16 strings.
+#[cfg(windows)]
+unsafe fn read_registry_path_value_raw(
+    hive: windows_sys::Win32::System::Registry::HKEY,
+    subkey: *const u16,
+    value_name: *const u16,
+) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ};
+
+    let mut buf = vec![0u16; MAX_REGISTRY_PATH_UNITS];
+    let mut len = (buf.len() * 2) as u32;
+    let err = unsafe {
+        RegGetValueW(
+            hive,
+            subkey,
+            value_name,
+            RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut len,
+        )
+    };
+    if err != 0 || len == 0 {
+        return None;
+    }
+    let units = (len as usize / 2).saturating_sub(1).min(buf.len());
+    Some(String::from_utf16_lossy(&buf[..units]))
+}
+
+#[cfg(windows)]
+fn read_registry_path_value(
+    hive: windows_sys::Win32::System::Registry::HKEY,
+    subkey: &str,
+) -> Option<String> {
+    let subkey_wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+    let value_name: Vec<u16> = b"Path\0".iter().map(|b| *b as u16).collect();
+    // SAFETY: `subkey_wide` and `value_name` are NUL-terminated UTF-16, and
+    // `hive` is a predefined registry key passed by the caller.
+    unsafe { read_registry_path_value_raw(hive, subkey_wide.as_ptr(), value_name.as_ptr()) }
 }
 
 #[cfg(unix)]
@@ -339,6 +502,135 @@ mod tests {
             windows_candidate_names("claude", ""),
             vec!["claude.exe", "claude.cmd", "claude.bat"]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_executable_in_dirs_searches_dirs_in_order() {
+        use crate::test_support::make_test_executable;
+        use std::fs;
+
+        let miss = tempfile::tempdir().unwrap();
+        let hit = tempfile::tempdir().unwrap();
+        let bin = hit.path().join("toolfake");
+        fs::write(&bin, "#!/bin/sh\n").unwrap();
+        make_test_executable(&bin);
+
+        let detected = find_executable_in_dirs(
+            &["toolfake".to_string()],
+            [miss.path().to_path_buf(), hit.path().to_path_buf()],
+        )
+        .expect("should be detected in the second directory");
+        assert_eq!(detected.executable, bin);
+    }
+
+    #[test]
+    fn find_executable_in_dirs_returns_none_when_no_dir_matches() {
+        let miss = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        assert!(find_executable_in_dirs(
+            &["definitely-not-a-real-binary-xyz".to_string()],
+            [miss.path().to_path_buf(), other.path().to_path_buf()]
+        )
+        .is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_bare_command_uses_fallback_dirs_after_process_path_misses() {
+        use crate::test_support::make_test_executable;
+        use std::fs;
+
+        let stale = tempfile::tempdir().unwrap();
+        let registered = tempfile::tempdir().unwrap();
+        let bin = registered.path().join("toolfakereg.exe");
+        fs::write(&bin, "stub\n").unwrap();
+        make_test_executable(&bin);
+
+        let detected = probe_bare_command(
+            "toolfakereg.exe",
+            &std::env::join_paths([stale.path()]).unwrap(),
+            &[registered.path().to_path_buf()],
+        )
+        .expect("registered fallback should be searched after the stale PATH misses");
+        assert_eq!(detected.executable, bin);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probe_bare_command_prefers_process_path_over_fallback() {
+        use crate::test_support::make_test_executable;
+        use std::fs;
+
+        let on_path = tempfile::tempdir().unwrap();
+        let registered = tempfile::tempdir().unwrap();
+        let path_bin = on_path.path().join("toolfakereg.exe");
+        fs::write(&path_bin, "stub\n").unwrap();
+        make_test_executable(&path_bin);
+
+        let detected = probe_bare_command(
+            "toolfakereg.exe",
+            &std::env::join_paths([on_path.path()]).unwrap(),
+            &[registered.path().to_path_buf()],
+        )
+        .expect("process PATH hit should win");
+        assert_eq!(detected.executable, path_bin);
+    }
+
+    #[test]
+    fn registered_windows_path_dirs_splits_trims_and_filters() {
+        let raw = " C:\\Tools\\Links ;\"C:\\Program Files\\X\";;relative\\dir;C:\\Tools\\Links ";
+        assert_eq!(
+            registered_windows_path_dirs(raw),
+            vec![
+                PathBuf::from("C:\\Tools\\Links"),
+                PathBuf::from("C:\\Program Files\\X"),
+            ]
+        );
+    }
+
+    #[test]
+    fn registered_windows_path_dirs_skips_drive_relative_and_empty_entries() {
+        let raw = ";;relative\\dir;C:nodir;.\\x";
+        assert_eq!(registered_windows_path_dirs(raw), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn windows_style_path_is_absolute_recognizes_drive_and_unc() {
+        assert!(windows_style_path_is_absolute("C:\\Tools"));
+        assert!(windows_style_path_is_absolute("C:/Tools"));
+        assert!(windows_style_path_is_absolute("\\\\server\\share"));
+        assert!(!windows_style_path_is_absolute("relative\\dir"));
+        assert!(!windows_style_path_is_absolute("C:nodir"));
+        assert!(!windows_style_path_is_absolute(""));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn registered_windows_fallback_dirs_reads_current_registry_paths() {
+        for dir in windows_registered_fallback_dirs() {
+            let text = dir.to_string_lossy();
+            assert!(
+                windows_style_path_is_absolute(&text),
+                "fallback dir must be absolute: {text}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn probe_installed_tool_uses_registry_fallback_when_process_path_is_stale() {
+        use std::fs;
+
+        let registered = tempfile::tempdir().unwrap();
+        let bin = registered.path().join("toolfake-win.exe");
+        fs::write(&bin, "stub\n").unwrap();
+        let _fake_path = FakePath::prepend(registered.path());
+        // FakePath::prepend puts the tool's own directory first, so this test
+        // asserts the resolution succeeds; the stale-PATH ordering case is
+        // covered by probe_bare_command_uses_fallback_dirs_after_process_path_misses.
+        let detected = probe_installed_tool("toolfake-win.exe").expect("should be detected");
+        assert_eq!(detected.executable, bin);
     }
 
     #[test]
