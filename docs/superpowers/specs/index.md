@@ -1,5 +1,7 @@
 # Design history
 
+- [Antigravity native terminal attention](2026-11-24-antigravity-native-attention-design.md) — Proposed native input-wait evidence, qualification gates and hook coexistence.
+
 Dated design records; these do not establish current product behavior.
 
 ## Documents
