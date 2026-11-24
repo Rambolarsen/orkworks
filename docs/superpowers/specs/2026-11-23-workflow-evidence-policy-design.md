@@ -4,12 +4,12 @@ title: Workflow evidence payload exclusion and observation freshness
 description: Proposed first policy slice for Peon evidence matching and age-bounded new recommendation and ordinary Brain inputs.
 tags: [taskmaster, peon, workflow, evidence, policy]
 status: draft
-workflow_status: proposed
+workflow_status: accepted
 ---
 
 # Workflow evidence payload exclusion and observation freshness
 
-Owner decision: **pending**. This proposal and its
+Owner decision: **accepted 2026-11-24**. This proposal and its
 [implementation plan](../plans/2026-11-23-workflow-evidence-policy.md) are for
 [#1077](https://github.com/Rambolarsen/orkworks/issues/1077). Neither a proposal
 merge nor a request to continue writing approves runtime implementation.
@@ -216,3 +216,12 @@ the reviewed plan with TDD, repository checks and the required current-code
 review. Deterministic tests can establish these invariants, not model semantic
 quality. Do not mark #1077 complete without independently adjudicated current
 useful/held-out examples and measured support/usefulness outcomes.
+
+## Owner acceptance — 2026-11-24
+
+The owner replied “keep going” directly to the explicit implementation approval
+question after reviewed proposal PR #2024 merged. This accepts A–D and the linked
+three-task plan for implementation: dual-view grounding, inclusive fourteen-day
+new-input age policy for both sources, existing-ID grandfathering and fenced
+whole-reply currentness. No empirical model/native trial or semantic-quality
+qualification is granted. #1077 remains open for its independent quality criteria.

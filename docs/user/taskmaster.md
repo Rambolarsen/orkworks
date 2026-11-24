@@ -70,6 +70,15 @@ Analysis recommendations judge what your workflow is missing; Observations
 recommendations target what already went wrong (and an Analysis rollup may
 bundle both angles). Both are suggestions you review and act on yourself.
 
+Current source builds require at least two confidence-qualified reports from
+the last fourteen days when creating a new observation recommendation. Existing
+cards and their historical evidence are preserved; nothing is automatically
+dismissed. Ordinary **Run discovery** uses up to sixteen recent textual reports
+and rejects a result if that selected input changes before it can be applied.
+A recent report still needs your judgment: its wording does not prove the
+problem remains unresolved. Older installers may retain the earlier selection
+behavior.
+
 ## Model choices and analysis status
 
 In current source builds, **Settings → Recommendations** shows a model dropdown

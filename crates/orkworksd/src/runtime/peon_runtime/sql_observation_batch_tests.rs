@@ -254,3 +254,30 @@ async fn batch_keeps_full_slot_after_caller_loss_until_actual_settlement() {
     drop(held);
     store.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn captured_sql_evidence_ignores_hidden_payload_without_consuming_sequence() {
+    let _guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, _, _, _, _) = fixture().await;
+    let captured = ending(&state, &writes)
+        .await
+        .capture_sql_observation_origin()
+        .await
+        .unwrap();
+    let rejected = captured
+        .persist_workflow_observations(9, vec![candidate()], vec!["\x1b]0;real error\x07".into()])
+        .await
+        .unwrap();
+    assert!(matches!(
+        rejected.candidates[0],
+        SqlCandidateResult::Ungrounded
+    ));
+    let accepted = captured
+        .persist_workflow_observations(9, vec![candidate()], output())
+        .await
+        .unwrap();
+    assert!(
+        matches!(&accepted.candidates[0], SqlCandidateResult::Recorded(Ok(RecordOutcome::Accepted(o))) if o.sequence == 1)
+    );
+    store.close().await.unwrap();
+}

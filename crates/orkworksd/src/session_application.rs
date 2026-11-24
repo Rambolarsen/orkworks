@@ -8400,26 +8400,31 @@ mod tests {
                 .to_string(),
         ];
 
-        let result = SessionApplication::new(state.clone())
-            .record_peon_workflow_observations_for_test(
-                id,
-                Some(root.path()),
-                &range,
-                &captured_output,
-                &candidates,
-            );
+        for captured_output in [
+            captured_output,
+            vec!["\x1b]0;docs/harness-capability-a-termin-markdown-design-review\x07".into()],
+        ] {
+            let result = SessionApplication::new(state.clone())
+                .record_peon_workflow_observations_for_test(
+                    id,
+                    Some(root.path()),
+                    &range,
+                    &captured_output,
+                    &candidates,
+                );
 
-        assert!(!result.accepted_observation);
-        assert!(state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .workflow_observations
-            .workspace_observations()
-            .unwrap()
-            .is_empty());
+            assert!(!result.accepted_observation);
+            assert!(state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .workflow_observations
+                .workspace_observations()
+                .unwrap()
+                .is_empty());
+        }
     }
 
     #[test]
@@ -8583,25 +8588,30 @@ mod tests {
                 .to_string(),
         ];
 
-        let result = SessionApplication::new(state.clone()).persist_final_peon_scan(
-            id,
-            7,
-            Some(&scan),
-            &captured_output,
-        );
+        for captured_output in [
+            captured_output,
+            vec!["\x1b]0;docs/harness-capability-a-termin-markdown-design-review\x07".into()],
+        ] {
+            let result = SessionApplication::new(state.clone()).persist_final_peon_scan(
+                id,
+                7,
+                Some(&scan),
+                &captured_output,
+            );
 
-        assert!(result.should_finalize);
-        assert!(!result.observation_accepted);
-        assert!(state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .workflow_observations
-            .workspace_observations()
-            .unwrap()
-            .is_empty());
+            assert!(result.should_finalize);
+            assert!(!result.observation_accepted);
+            assert!(state
+                .workspace
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .workflow_observations
+                .workspace_observations()
+                .unwrap()
+                .is_empty());
+        }
     }
 
     #[test]

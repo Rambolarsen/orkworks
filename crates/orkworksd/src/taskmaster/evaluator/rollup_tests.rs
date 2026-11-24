@@ -1388,6 +1388,7 @@ fn apply_with_disposition(
         snapshot,
         directory,
         workspace_instance(state),
+        &current_test_selection(state),
         &[],
         &stored_recommendations(state),
         Some(request),
@@ -1729,6 +1730,7 @@ fn evidence_change_after_preflight_cannot_apply_legacy_enrichment() {
         &snapshot,
         directory.path(),
         workspace_instance(&state),
+        &current_test_selection(&state),
         &[],
         &recommendations,
         model,
@@ -1762,6 +1764,7 @@ fn evidence_change_after_preflight_cannot_apply_legacy_enrichment_when_degraded(
         &snapshot,
         directory.path(),
         workspace_instance(&state),
+        &current_test_selection(&state),
         &[],
         &recommendations,
         model,
@@ -1992,4 +1995,52 @@ fn executing_rollup_parent_keeps_its_proposed_change() {
         parent.proposed_change.unwrap().summary,
         "Document the retry policy"
     );
+}
+
+#[test]
+fn ordinary_brain_stale_selection_prevents_rollup_graph_effects() {
+    use crate::workflow_observations::{ObservationCandidate, ObservationOrigin};
+    let directory = tempfile::tempdir().unwrap();
+    let (state, runtime, records) = seeded_state(&directory, &["a", "b"]);
+    let snapshot = bound_snapshot(&state, &runtime, directory.path());
+    let request = build_rollup_request(workspace_instance(&state), &snapshot, &records).unwrap();
+    // Dispatch saw no observations; a report arrived while its fake reply was pending.
+    let dispatch_selection = Vec::<crate::workflow_observations::WorkflowObservation>::new();
+    state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .workflow_observations
+        .record_observation(
+            "source",
+            ObservationOrigin::Agent,
+            "new",
+            ObservationCandidate {
+                kind: ObservationKind::Obstacle,
+                description: "build failed".into(),
+                evidence: "build failed".into(),
+                problem_area: None,
+                reported_impact: Impact::Low,
+                confidence: None,
+            },
+        )
+        .unwrap();
+    let before = stored_recommendations(&state);
+    let result = apply_provider_output_with_diagnostic(
+        &state,
+        &runtime,
+        &snapshot,
+        directory.path(),
+        workspace_instance(&state),
+        &dispatch_selection,
+        &[],
+        &records,
+        Some(&request),
+        &output(&[cluster(&["a", "b"])]),
+    );
+    assert!(result.is_err());
+    assert_eq!(stored_recommendations(&state), before);
+    assert!(dispatch_selection.is_empty());
 }

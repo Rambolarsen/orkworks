@@ -1253,14 +1253,16 @@ pub fn is_terminal_observed_status(observed: Option<&str>) -> bool {
 /// see recommendation-c96a57164037ba7d, whose "evidence" field merged
 /// pieces of two unrelated wrapped file paths. Grounding evidence against
 /// the actual captured text catches that corruption (and any other cause
-/// of an ungrounded citation) before it is ever persisted.
+/// of an ungrounded citation) before it is ever persisted. The same excerpt
+/// must also survive the existing ANSI parser, excluding hidden ESC payloads
+/// without allowing normalization to broaden the original contiguous match.
 pub fn evidence_is_grounded(evidence: &str, output: &[String]) -> bool {
     let evidence = evidence.trim();
     if evidence.is_empty() {
         return false;
     }
     let haystack = output.join("\n");
-    haystack.contains(evidence)
+    haystack.contains(evidence) && strip_ansi(&haystack).contains(evidence)
 }
 
 /// Rejoins Claude Code's hard-wrapped continuation rows using the PTY's
@@ -2739,6 +2741,50 @@ mod tests {
             "   ",
             &["some real output".to_string()]
         ));
+    }
+
+    #[test]
+    fn evidence_is_grounded_requires_visible_text_without_broadening_raw_matches() {
+        for (captured, evidence, expected) in [
+            ("\x1b]0;main sync issue\x07", "main sync issue", false),
+            ("\x1b]2;main sync issue\x1b\\", "main sync issue", false),
+            ("\x1b]0;hidden\ntitle\x07", "hidden\ntitle", false),
+            ("\x1b]0;unfinished title", "unfinished title", false),
+            ("\x1bPsecret payload\x1b\\", "secret payload", false),
+            (
+                "\x1b]8;;https://hidden.invalid\x1b\\caption\x1b]8;;\x1b\\",
+                "https://hidden.invalid",
+                false,
+            ),
+            (
+                "\x1b]8;;https://hidden.invalid\x1b\\caption\x1b]8;;\x1b\\",
+                "caption",
+                true,
+            ),
+            (
+                "fatal: cannot open build.lock",
+                "fatal: cannot open build.lock",
+                true,
+            ),
+            (
+                "const expected = \"fatal: cannot open build.lock\";",
+                "fatal: cannot open build.lock",
+                true,
+            ),
+            ("main sync issue", "main sync issue", true),
+            (
+                "fatal: cannot \x1b[31mopen\x1b[0m build.lock",
+                "fatal: cannot open build.lock",
+                false,
+            ),
+            ("fatal\x1b]0; hidden\x07 error", "fatal error", false),
+        ] {
+            assert_eq!(
+                evidence_is_grounded(evidence, &[captured.into()]),
+                expected,
+                "{captured:?}"
+            );
+        }
     }
 
     #[test]

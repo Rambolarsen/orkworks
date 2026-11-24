@@ -128,12 +128,25 @@ allowance, which governs background discovery only. At most
 one analysis may run at a time, and the existing evidence cache still suppresses
 a provider call when the evidence and effective settings have not changed.
 
-For ordinary analysis, select up to the latest 16 normalized observations with
-textual evidence containing Unicode letters or numbers. Exclude whitespace and
-terminal-glyph-only evidence before applying that bound, and use the same
-observation window for relevant-guidance retrieval and the model prompt. Include
-observation kind and observation time; an old report is not proof that friction
-still applies. Preserve durable observation history and grounding rules.
+For ordinary analysis (manual or background), select up to the latest sixteen
+observations whose evidence contains Unicode letters or numbers and whose
+parsed RFC3339 accepted age is between zero and 1,209,600 seconds inclusive at
+one server-owned UTC dispatch instant. Exclude missing/malformed/future times,
+whitespace and glyph-only evidence before applying the bound. Both sources use
+the age rule. Use exactly this selection for observation-derived repository
+signals, relevant-guidance retrieval and the prompt, retaining kind and time.
+The policy tag `workflow-observation-input-v2` is part of ordinary prompt/cache
+identity. Before any combined enrichment/proposal/rollup effects, recompute the
+full ordered selected-input identity at the server-owned apply instant under
+the existing current-workspace/application fence. Any change rejects the whole
+reply as stale through existing diagnostics; do not retry or refund usage.
+Advancing time alone with an unchanged selection does not invalidate a reply.
+
+Repository-readiness, repository-led assessment and the separately gated manual
+improvement investigation retain their existing input contracts. Durable
+observations, existing cards and raw history remain unchanged. This first
+[#1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+was owner-approved on 2026-11-24; it makes no semantic-quality or installer claim.
 
 Repository context collection prioritizes root instructions and manifests, scoped
 instructions, and current workflow guidance before historical plans and agent

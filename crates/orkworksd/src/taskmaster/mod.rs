@@ -319,6 +319,11 @@ pub(crate) fn evaluate_workflow_improvements(
     workspace_id: &str,
     now: &str,
 ) -> Vec<Recommendation> {
+    let Ok(as_of) = chrono::DateTime::parse_from_rfc3339(now) else {
+        tracing::warn!("workflow recommendation evaluation skipped: invalid evaluation time");
+        return Vec::new();
+    };
+    let as_of = as_of.with_timezone(&chrono::Utc);
     let mut groups: HashMap<String, Vec<_>> = HashMap::new();
     for observation in observations {
         if observation.confidence < 0.6 {
@@ -410,6 +415,16 @@ pub(crate) fn evaluate_workflow_improvements(
                 && active_rollup_member.is_none()
         }) {
             continue;
+        }
+        // Existing IDs retain their historical evidence/update rules. Only a
+        // new card (including a terminal successor) needs two recent reports.
+        let retains_id = active_rollup_member.is_some()
+            || prior.is_some_and(|item| item.status == RecommendationStatus::Proposed);
+        if !retains_id {
+            qualifying.retain(|item| context::observation_is_recent(&item.observed_at, as_of));
+            if qualifying.len() < 2 {
+                continue;
+            }
         }
         let terminal_evidence = terminal_predecessor.map(|recommendation| {
             if prior.is_some_and(|recommendation| {
@@ -1083,6 +1098,162 @@ mod tests {
     }
 
     #[test]
+    fn new_workflow_cards_only_count_recent_date_valid_evidence() {
+        for source in [ObservationSource::Peon, ObservationSource::Agent] {
+            let dates = [
+                ("old", "2026-11-10T11:59:59.999999999Z", Impact::High),
+                ("edge", "2026-11-10T13:00:00+01:00", Impact::Low),
+                ("future", "2026-11-24T12:00:00.000000001Z", Impact::High),
+                ("bad", "not-a-date", Impact::High),
+                ("now", "2026-11-24T12:00:00Z", Impact::Low),
+            ];
+            let rows = dates
+                .iter()
+                .enumerate()
+                .map(|(i, (id, date, impact))| {
+                    let mut o = observation(id, i as u64 + 1, "session-a", 0.9, *impact);
+                    o.source = source;
+                    o.observed_at = (*date).into();
+                    o
+                })
+                .collect::<Vec<_>>();
+            let before = rows.clone();
+            let cards =
+                evaluate_workflow_improvements(&rows, &[], "workspace", "2026-11-24T12:00:00Z");
+            assert_eq!(cards.len(), 1);
+            assert_eq!(
+                cards[0].workflow_improvement.observation_ids,
+                ["edge", "now"]
+            );
+            assert_eq!(cards[0].workflow_improvement.recurrence_count, 2);
+            assert_eq!(cards[0].priority, Impact::Low);
+            assert_eq!(rows, before, "selection cannot rewrite observations");
+            assert!(evaluate_workflow_improvements(
+                &rows[..4],
+                &[],
+                "workspace",
+                "2026-11-24T12:00:00Z"
+            )
+            .is_empty());
+            assert!(
+                evaluate_workflow_improvements(&rows, &[], "workspace", "invalid-time").is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn workflow_cards_grandfather_existing_ids_but_not_terminal_successors() {
+        let old = vec![
+            observation("old-a", 1, "session-a", 0.9, Impact::Low),
+            observation("old-b", 2, "session-a", 0.9, Impact::Low),
+        ];
+        let card = evaluate_workflow_improvements(&old, &[], "workspace", "2026-08-21T12:00:00Z")
+            .remove(0);
+        let updates = evaluate_workflow_improvements(
+            &old,
+            std::slice::from_ref(&card),
+            "workspace",
+            "2026-11-24T12:00:00Z",
+        );
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].id, card.id);
+        assert_eq!(updates[0].evidence, card.evidence);
+        assert!(evaluate_workflow_improvements(
+            &old,
+            std::slice::from_ref(&card),
+            "workspace",
+            "invalid-time"
+        )
+        .is_empty());
+        for status in [
+            RecommendationStatus::Completed,
+            RecommendationStatus::Dismissed,
+        ] {
+            let mut terminal = card.clone();
+            terminal.status = status;
+            terminal.workflow_improvement.dismissal_watermark = Some(DismissalWatermark {
+                dismissed_at: "2026-08-22T12:00:00Z".into(),
+                observation_ids: vec!["old-a".into(), "old-b".into()],
+                qualifying_count: 2,
+                dismissed_through_sequence: 2,
+                affected_session_ids: vec!["session-a".into()],
+                highest_impact: Impact::Low,
+                reason: None,
+            });
+            let mut rows = old.clone();
+            for (id, seq, session) in [("fresh-a", 3, "session-a"), ("fresh-b", 4, "session-b")] {
+                let mut fresh = observation(id, seq, session, 0.9, Impact::Low);
+                fresh.observed_at = "2026-11-24T11:00:00Z".into();
+                rows.push(fresh);
+            }
+            assert!(evaluate_workflow_improvements(
+                &rows[..3],
+                std::slice::from_ref(&terminal),
+                "workspace",
+                "2026-11-24T12:00:00Z"
+            )
+            .is_empty());
+            let successor = evaluate_workflow_improvements(
+                &rows,
+                std::slice::from_ref(&terminal),
+                "workspace",
+                "2026-11-24T12:00:00Z",
+            )
+            .remove(0);
+            assert_ne!(successor.id, terminal.id);
+            assert_eq!(
+                successor.workflow_improvement.observation_ids,
+                ["fresh-a", "fresh-b"]
+            );
+            assert_eq!(
+                successor
+                    .workflow_improvement
+                    .supersedes_recommendation_id
+                    .as_deref(),
+                Some(terminal.id.as_str())
+            );
+            assert_eq!(terminal.evidence, card.evidence);
+        }
+    }
+
+    #[test]
+    fn workflow_cards_grandfather_only_members_with_a_live_proposed_parent() {
+        let old = vec![
+            observation("a", 1, "session-a", 0.9, Impact::Low),
+            observation("b", 2, "session-a", 0.9, Impact::Low),
+        ];
+        let mut member =
+            evaluate_workflow_improvements(&old, &[], "workspace", "2026-08-21T12:00:00Z")
+                .remove(0);
+        let mut parent = member.clone();
+        parent.id = "parent".into();
+        parent.dedupe_key = "rollup:v1:parent".into();
+        parent.rollup_member_ids = vec![member.id.clone()];
+        member.status = RecommendationStatus::RolledUp;
+        member.rolled_up_by = Some(parent.id.clone());
+        let records = vec![member.clone(), parent.clone()];
+        let update =
+            evaluate_workflow_improvements(&old, &records, "workspace", "2026-11-24T12:00:00Z")
+                .remove(0);
+        assert_eq!(update.id, member.id);
+        assert_eq!(update.status, RecommendationStatus::RolledUp);
+        assert_eq!(update.evidence, member.evidence);
+        parent.status = RecommendationStatus::Completed;
+        let records = vec![member, parent];
+        let mut rows = old;
+        let mut fresh = observation("c", 3, "session-b", 0.9, Impact::Low);
+        fresh.observed_at = "2026-11-24T11:00:00Z".into();
+        rows.push(fresh);
+        assert!(evaluate_workflow_improvements(
+            &rows,
+            &records,
+            "workspace",
+            "2026-11-24T12:00:00Z"
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn proposes_one_deduplicated_improvement_for_two_qualifying_observations() {
         let observations = vec![
             observation("one", 1, "session-a", 0.6, Impact::Low),
@@ -1541,7 +1712,7 @@ mod tests {
             ],
             &[],
             "workspace-1",
-            "2026-09-09T00:00:00Z",
+            "2026-08-21T12:00:00Z",
         )
         .remove(0);
         recommendation.evidence.clear();
@@ -1595,7 +1766,7 @@ mod tests {
             ],
             &[],
             "workspace-1",
-            "2026-09-13T00:00:00Z",
+            "2026-08-21T12:00:00Z",
         )
         .remove(0);
         recommendation.id = format!("rollup:{}", "a".repeat(64));
@@ -1768,7 +1939,7 @@ mod tests {
             ],
             &[],
             "workspace-1",
-            "2026-09-13T00:00:00Z",
+            "2026-08-21T12:00:00Z",
         )
         .remove(0);
         recommendation.id = "rollup-injected\0<id>".into();
@@ -1830,7 +2001,7 @@ mod tests {
             ],
             &[],
             "workspace-1",
-            "2026-09-13T00:00:00Z",
+            "2026-08-21T12:00:00Z",
         )
         .remove(0);
         recommendation.rollup_member_ids = (0..64).map(|index| format!("member-{index}")).collect();
@@ -1866,7 +2037,7 @@ mod tests {
             ],
             &[],
             "workspace-1",
-            "2026-09-13T00:00:00Z",
+            "2026-08-21T12:00:00Z",
         )
         .remove(0);
         let rollup_id = format!("rollup:{}", "a".repeat(64));

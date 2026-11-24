@@ -163,18 +163,18 @@ Signals that an observation is this noise, not a verified defect:
   moving between sessions. The `capacity/<id>.json` metadata path is
   protocol design, not an implemented detection mechanism.)
 - The observation's `evidence` field fails the implemented grounding gate.
-  `evidence_is_grounded` performs a literal substring match against the
-  hard-wrap-rejoined snapshot — reassembly runs before the provider call
-  and observation recording — with ANSI escape sequences intact, so an
-  excerpt split by an escape sequence is rejected even though it reads as
-  contiguous after stripping. Searching an ANSI-stripped copy is a
-  readability aid only: absence there proves absence only when no wrap
-  reassembly could join rows into the phrase, so reproduce the reassembly —
-  on the raw capture, with the recorded column width — before concluding an
-  accepted observation was ungrounded; and a stripped hit does not prove
-  Peon accepted it. Peon's prompt pins only the evidence field as a
-  contiguous verbatim excerpt; the `description` may legitimately
-  paraphrase, so a paraphrased description alone is not a noise signal.
+  `evidence_is_grounded` requires a literal substring match in both the raw
+  hard-wrap-rejoined snapshot and its existing regular ANSI-stripped view.
+  Reassembly runs before the provider call and observation recording. An
+  excerpt split by an escape sequence still fails the raw match even if it
+  reads contiguously after stripping; an excerpt found only inside a recognized
+  hidden ESC payload fails the normalized match. Reproduce both views on the
+  captured rows/width. This is not a terminal emulator or a semantic classifier:
+  visible titles and printed fixture text can still match, C1 parsing is not
+  added, and an evicted opener cannot be reconstructed. Older retained records
+  and installers may predate the dual-view gate. Peon's prompt pins only the
+  evidence field as a contiguous verbatim excerpt; the description may
+  legitimately paraphrase, so paraphrase alone is not a noise signal.
   Test the persisted `evidence` value, not the description's wording. Treat
   reconstructed absence as inconclusive, not proof: the retained replay is
   bounded to the newest 1,000 lines / 1 MiB, so the window Peon scanned may
@@ -298,6 +298,23 @@ verified limit exists — treat it as this noise family: documentation is
 the valid resolution, and no code change can "remove" the obstacle. Do not
 act on the obstacle, and do not modify recommendation or observation files
 directly.
+
+## Recent input and retained history
+
+Current source applies an inclusive fourteen-day accepted-report age window to
+new exact-family recommendation IDs (including successors) and ordinary Brain
+observation input. Missing, malformed and future times are unavailable for those
+selections; they are never repaired or rewritten. Ordinary Brain filters before
+its sixteen-row bound and rejects a whole reply if its selected input changes
+before fenced application. Separate readiness/assessment/manual-investigation
+input contracts are unchanged.
+
+Existing proposed IDs, live proposed-rollup member updates and acted-on history
+retain their current rules. An old card remaining visible is not evidence that
+the new-creation filter failed; use its evidence and existing audit/action
+lifecycle. A recent timestamp is not proof of semantic support or unresolved
+friction, and an old timestamp is not proof that a defect was fixed. Source
+support reaches installers only through normal update/release.
 
 ## Recommended handling
 

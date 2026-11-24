@@ -758,3 +758,30 @@ async fn captured_provider(capture: &CapturedEndingEvidence) {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn captured_file_evidence_ignores_hidden_payload_without_consuming_sequence() {
+    let _guard = diagnostic_test_guard();
+    let (_dir, state, store, writes, _, _, _, _) = fixture().await;
+    let captured = capture(&writes, &state).await;
+    let rejected = captured
+        .persist_workflow_observations(9, vec![candidate()], vec!["\x1b]0;failure\x07".into()])
+        .await
+        .unwrap();
+    assert!(matches!(
+        rejected.candidates[0],
+        CandidateResult::Ungrounded
+    ));
+    assert!(evidence(&state)
+        .workspace_observations()
+        .unwrap()
+        .is_empty());
+    let accepted = captured
+        .persist_workflow_observations(9, vec![candidate()], vec!["failure".into()])
+        .await
+        .unwrap();
+    assert!(
+        matches!(&accepted.candidates[0], CandidateResult::Recorded(Ok(crate::workflow_observations::RecordOutcome::Accepted(o))) if o.sequence == 1)
+    );
+    store.close().await.unwrap();
+}

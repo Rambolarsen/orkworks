@@ -707,6 +707,15 @@ delete_session_observations(session_id) -> deletion outcome
 
 Two adapters cross this seam: the explicit agent-report HTTP adapter and the Peon inference adapter. Neither adapter implements storage, fingerprinting, or deduplication rules directly, and Taskmaster reads through the module rather than opening metadata files directly.
 
+Peon candidates must have a nonempty edge-trimmed evidence string appearing
+contiguously in both the exact captured, wrap-reassembled text joined with
+newlines and that text after the existing regular ANSI parser. This excludes
+recognized hidden ESC payloads without broadening the raw match. Persist the
+original validated evidence; do not normalize the candidate or alter terminal
+replay, situation/label/capacity inference or explicit agent-report validation.
+The [accepted first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+records parser limits and preservation of existing observation history.
+
 ### Explicit agent reporting
 
 ```text
@@ -1313,11 +1322,10 @@ polling remains the compatibility/disconnection fallback. Thirty-second server
 reconciliation permits bounded delay for Git/cwd, clock and external changes.
 Session attention, organization and recommendation action authority are unchanged.
 
-## Peon workflow evidence grounding proposal — pending review
+## Peon workflow evidence policy — accepted 2026-11-24
 
-The [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
-proposes dual-view ESC-payload grounding and a fourteen-day window for new
-exact-family creation and ordinary Brain observation input, with existing-ID
-updates and history explicitly grandfathered. It is **not accepted or implemented**.
-Existing recording, eligibility, lifecycle and authority rules above remain
-binding until scoped owner acceptance; merging the proposal is not that acceptance.
+The owner accepted [#1077 policy A–D and its implementation plan](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md#owner-acceptance--2026-11-24)
+in direct response to the implementation approval question for PR #2024.
+The original immutable observation format, authenticated reporting authority,
+replay and lifecycle contracts remain unchanged. Source implementation and
+verification are tracked in #1077; installer availability is separate.
