@@ -27,33 +27,36 @@ pub(crate) fn probe_installed_tool(command: &str) -> Option<DetectedTool> {
         });
     }
     let path_var = env::var_os("PATH")?;
-    let fallback_dirs: Vec<PathBuf> = if cfg!(windows) {
-        windows_registered_fallback_dirs()
+    let fallback: fn() -> Vec<PathBuf> = if cfg!(windows) {
+        windows_registered_fallback_dirs
     } else {
-        Vec::new()
+        || Vec::new()
     };
-    probe_bare_command(command, &path_var, &fallback_dirs)
+    probe_bare_command(command, &path_var, fallback)
 }
 
 /// Searches a bare launch `command` first in the process-inherited `PATH`
-/// directories (`process_path`), then in explicitly supplied fallback
-/// directories (on Windows: the current registered system/user PATH). This
-/// ordering keeps normal lookup and any explicit absolute override fully in
-/// charge — the fallback only widens the search after the inherited
-/// environment misses, never replaces it.
-fn probe_bare_command(
+/// directories (`process_path`), then — only after they miss — in
+/// directories supplied by `fallback` (on Windows: the current registered
+/// system/user PATH, computed lazily exactly once on a miss). This ordering
+/// keeps normal lookup and any explicit absolute override fully in charge —
+/// the fallback only widens the search after the inherited environment
+/// misses, never replaces it.
+fn probe_bare_command<F: Fn() -> Vec<PathBuf>>(
     command: &str,
     process_path: &std::ffi::OsStr,
-    fallback_dirs: &[PathBuf],
+    fallback: F,
 ) -> Option<DetectedTool> {
     let candidates = if cfg!(windows) {
         windows_candidate_names(command, &env::var("PATHEXT").unwrap_or_default())
     } else {
         vec![command.to_string()]
     };
-    let mut dirs: Vec<PathBuf> = env::split_paths(process_path).collect();
-    dirs.extend(fallback_dirs.iter().cloned());
-    find_executable_in_dirs(&candidates, dirs)
+    let process_dirs: Vec<PathBuf> = env::split_paths(process_path).collect();
+    if let Some(tool) = find_executable_in_dirs(&candidates, process_dirs.iter().cloned()) {
+        return Some(tool);
+    }
+    find_executable_in_dirs(&candidates, fallback())
 }
 
 /// Finds the first directory in `dirs` containing an executable candidate
@@ -152,8 +155,9 @@ fn windows_registered_fallback_dirs() -> Vec<PathBuf> {
 }
 
 /// Reads the *current* registered Windows system and user `Path` values for
-/// the stale-inherited-PATH fallback. Bounded to `MAX_REGISTRY_PATH_BYTES` per
-/// value; the registry (not a shell, not an install-directory scan) is the
+/// the stale-inherited-PATH fallback. Bounded to `MAX_REGISTRY_PATH_UNITS`
+/// UTF-16 code units per value; the registry (not a shell, not an
+/// install-directory scan) is the
 /// only extra source, and a missing, oversized or unreadable value simply
 /// contributes no fallback directories.
 ///
@@ -163,7 +167,7 @@ fn windows_registered_fallback_dirs() -> Vec<PathBuf> {
 /// indistinguishable from no registered tool, and probe results stay `None`.
 #[cfg(windows)]
 fn windows_registered_fallback_dirs() -> Vec<PathBuf> {
-    use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
     const SESSION_MANAGER_ENVIRONMENT: &str =
         "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
@@ -550,7 +554,7 @@ mod tests {
         let detected = probe_bare_command(
             "toolfakereg.exe",
             &std::env::join_paths([stale.path()]).unwrap(),
-            &[registered.path().to_path_buf()],
+            || vec![registered.path().to_path_buf()],
         )
         .expect("registered fallback should be searched after the stale PATH misses");
         assert_eq!(detected.executable, bin);
@@ -571,7 +575,7 @@ mod tests {
         let detected = probe_bare_command(
             "toolfakereg.exe",
             &std::env::join_paths([on_path.path()]).unwrap(),
-            &[registered.path().to_path_buf()],
+            || vec![registered.path().to_path_buf()],
         )
         .expect("process PATH hit should win");
         assert_eq!(detected.executable, path_bin);
@@ -619,7 +623,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn probe_installed_tool_uses_registry_fallback_when_process_path_is_stale() {
+    fn probe_installed_tool_resolves_windows_style_executable_name() {
         use std::fs;
 
         let registered = tempfile::tempdir().unwrap();
