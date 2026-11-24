@@ -169,3 +169,14 @@ metadata read stopped at an uncached dependency; target build/startup/cache/
 lookaside/native-adapter custody remains unqualified. No source-map count or
 candidate API is promoted to actual mechanism proof. Gate 1 remains Investigate;
 Gate 2 execution, native budgets and production eligibility remain gated.
+
+## Build/startup amendment proposed — 2026-11-24
+
+The [source-backed build/startup recipe](../specs/2026-11-24-pair-build-startup-design.md)
+identifies a bundled unified-page-cache recycling path that bypasses allocation-
+time pair routing. It proposes one shared-build feature undefinition plus early
+startup custody for further qualification; the flag change and its global memory-
+reclamation consequences remain owner-pending. This does not reopen accepted
+VFS/resource policy or qualify a default build. Gate 1 remains Investigate;
+Gates 2–4 and all spent execution budgets remain unchanged. No dependent native
+or code plan may silently assume the proposal has been accepted.
