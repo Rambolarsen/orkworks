@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Workflow evidence candidate packet](workflow-evidence-packet.md) — Bounded candidate snapshots, executable coverage gaps and independent-evaluation limits.
+
 - [Workflow observation support and freshness](workflow-observation-quality.md) — Sanitized support-quality corpus, source trace and proposed admission/currentness gates for #1077.
 
 - [Ordinary-review Codex capture source audit](ordinary-review-codex-capture-audit.md) — Actual adapter inputs, late isolation mutation and missing pure capture/owner qualification.
