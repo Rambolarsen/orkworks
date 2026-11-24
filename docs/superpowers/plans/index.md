@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Pair file-length and fixed-arena qualification](2026-11-24-pair-resource-assurance-qualification.md) — Ready for source-only controlled-route closure; offline/native execution and production admission remain gated.
+
 - [Workflow evidence policy implementation](2026-11-23-workflow-evidence-policy.md) — Gated deterministic implementation and verification handoff for #1077.
 
 - [Session status and enrichment delivery](2026-11-19-session-status-enrichment.md) — Approved #1895 implementation, compatibility and performance checks.

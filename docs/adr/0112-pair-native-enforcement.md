@@ -8,7 +8,7 @@ status: draft
 
 # Original Windows pairs use owned VFS admission and pair-routed SQL allocation
 
-- Status: accepted for further qualification; envelopes, implementation and execution gated
+- Status: superseded in part by [ADR 0118](0118-pair-resource-assurance.md) for resource meanings and numeric E/S qualification; other architecture remains accepted
 - Deciders: repository owner, “keep going” on 2026-11-06 to the explicit #1469 package question
 - Date: 2026-11-06
 - Tracking: [#1472](https://github.com/Rambolarsen/orkworks/issues/1472), [#1176](https://github.com/Rambolarsen/orkworks/issues/1176)
@@ -68,3 +68,12 @@ profile or runtime activation is authorized. All existing execution budgets and
 separate source/cutoff/restart/durability/initializer/ordinary-activation gates
 remain. Record unavailable and stop this candidate if the unchanged limits cannot
 be justified; do not request the same architecture acceptance again.
+
+## Resource decision superseded — 2026-11-24
+
+[ADR 0118](0118-pair-resource-assurance.md) replaces the historical total-native-
+peak resource contract and complete numeric E/S first gate above with the owner's
+[accepted file-length/fixed-arena assurance](../superpowers/specs/2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24).
+The same-worker, VFS/router, original-owner, startup/escape/retirement and all
+independent qualification gates remain accepted. This dated supersession does
+not claim earlier evidence proved the stronger guarantee or authorize execution.

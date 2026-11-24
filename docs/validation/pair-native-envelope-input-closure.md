@@ -416,3 +416,15 @@ accepted architecture and owner/recovery rules remain unchanged. Both earlier
 execution batches stay consumed. No new probe budget, dependent implementation
 plan, quota, profile eligibility or activation follows; #1176 remains open and
 #740 remains closed research.
+
+## Resource policy supersession — 2026-11-24
+
+The [accepted resource assurance](../superpowers/specs/2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+and [ADR 0118](../adr/0118-pair-resource-assurance.md) replace the complete numeric
+native-growth/scratch requirement for this selected profile with owned logical
+file-length/fixed-arena capacities. All earlier component facts, unknowns and
+consumed execution budgets above remain unchanged; they did not become a proof
+of the former stronger guarantee. Unknown controlled extension/allocation routes
+still deny qualification; actual VFS/router, source and durability remain
+unqualified. Follow the [new qualification sequence](../superpowers/plans/2026-11-24-pair-resource-assurance-qualification.md),
+not another automatic E/S sampling or probe chain.

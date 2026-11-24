@@ -4,7 +4,7 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
-- [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Proposed owned file-length and fixed-arena capacities with total host costs excluded; owner decision and physical qualification pending.
+- [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Accepted owned file-length and fixed-arena capacities with total host costs excluded; physical qualification and execution pending.
 
 - [Workflow evidence payload exclusion and observation freshness](2026-11-23-workflow-evidence-policy-design.md) — Proposed dual-view Peon grounding, fourteen-day new-input policy and compatibility boundary for #1077.
 

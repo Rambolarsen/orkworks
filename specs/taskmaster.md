@@ -360,6 +360,15 @@ and [scoped baseline handoff](../docs/superpowers/plans/2026-09-26-taskmaster-or
 define the review sequence. Documentation alignment is not launch eligibility
 or approval of runtime implementation.
 
+The [pair resource-assurance contract](../docs/superpowers/specs/2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+and [ADR 0118](../docs/adr/0118-pair-resource-assurance.md) record the owner-accepted
+2026-11-24 resource reduction for further qualification: hierarchy 1 GiB and one
+shared auxiliary 2 GiB logical file-length high-water capacities, plus a fixed
+8 MiB SQL arena. Total native disk/memory costs are outside these guarantees.
+This does not qualify the mechanism, change source/commit authority, select the
+research physical profile or enable runtime work. The [qualification plan](../docs/superpowers/plans/2026-11-24-pair-resource-assurance-qualification.md)
+keeps actual coverage, native recovery/durability and activation separately gated.
+
 ## Inputs
 
 Taskmaster evaluates workspace-level state from the following sources.

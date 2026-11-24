@@ -516,3 +516,19 @@ Gate2 stays Investigate; hard namespace/auxiliary/resource/restart/durability an
 strict source-cutoff evidence remain required before any coupled publisher plan.
 No code, workflow implementation, SQL/database, probe, source registration or
 activation ran while recording this decision. #1176 open; #740 closed research.
+
+## Resource assurance accepted — 2026-11-24
+
+The [scoped #2034 resource acceptance](../specs/2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+changes only the selected Windows pair's numeric guarantee: 1 GiB hierarchy and
+shared 2 GiB auxiliary logical file-length high-water capacities, plus one fixed
+8 MiB SQL arena. Total native disk/memory use is outside those caps. [ADR 0118](../../adr/0118-pair-resource-assurance.md)
+supersedes the stronger resource requirement; earlier complete E/S gates are
+historical for this profile, not evidence of an implementation defect or proof.
+
+The [resource qualification plan](2026-11-24-pair-resource-assurance-qualification.md)
+still requires actual controlled-operation/allocation-route coverage, retained
+accounting, native compatibility and paired recovery/durability. Gate 2 remains
+Investigate and Gates 3–4 gated on their independent requirements. No source
+factory, physical research format (including #2033), backend implementation,
+probe budget, migration or runtime activation is accepted here. #1176 stays open.
