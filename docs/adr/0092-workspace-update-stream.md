@@ -60,7 +60,11 @@ The owner approved [independent status and enrichment refreshes](../superpowers/
 to address the active-projection CPU cost reserved in the consequences above.
 Negotiated `status-enrichment-v1` subscribers receive separate typed status and
 repository-enrichment messages under the existing cursor. One workspace-owned
-publisher shares work across those subscribers. Status retains two-second
+publisher shares work across those subscribers. Updated clients may also request
+`snapshot=status-first` to receive the first snapshot while enrichment is
+pending. Unqualified adaptive subscriptions wait for checked rows. The
+[approved startup amendment](../superpowers/specs/2026-11-22-adaptive-snapshot-startup-design.md)
+defines compatibility and Review restoration. Status retains two-second
 coalescing; enrichment starts every five seconds during recent output activity
 and every 30 seconds when idle, with no overlap or unbounded catch-up queue.
 A changed output timestamp on an existing row selects the active cadence for
@@ -73,3 +77,13 @@ This amendment authorizes source implementation, not a claim of runtime or
 installer qualification. Idle/busy performance and mixed-version checks are
 required before enabling the capability. ADR 0103's format-2/version-2 activation
 and scoped supersession are unchanged; the new capability does not activate it.
+
+## Amendment — 2026-11-22
+
+The [approved startup design](../superpowers/specs/2026-11-22-adaptive-snapshot-startup-design.md)
+makes the first adaptive snapshot authoritative for a complete, newly captured
+session status list. It carries the matching enrichment state and check time.
+Git and document details can arrive independently as enrichment deltas. A
+subscription requests fresh status from the shared publisher. Explicit refresh
+continues to request a full inspection. Retain the ordered cursor, current
+action validation, legacy complete snapshots, and REST recovery.

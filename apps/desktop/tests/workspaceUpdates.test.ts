@@ -38,7 +38,14 @@ test("transport adopts only a valid snapshot and restores fallback on a gap; dis
   const health: boolean[] = []; const lists: string[][] = [];
   const stream = startWorkspaceUpdates({
     workspacePath: "/workspace", getBackendUrl: async () => "http://localhost:1234",
-    createSocket: () => { const socket = { onmessage: null, onclose: null, onerror: null, close() {}, send(_s:string) {} }; sockets.push(socket); return socket as unknown as WebSocket; },
+    createSocket: address => {
+      const url = new URL(address);
+      assert.equal(url.searchParams.get("capability"), "status-enrichment-v1");
+      assert.equal(url.searchParams.get("snapshot"), "status-first");
+      const socket = { onmessage: null, onclose: null, onerror: null, close() {}, send(_s:string) {} };
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
     scheduler: { set: callback => { timers.set(++timerId, callback); return timerId; }, clear: handle => { timers.delete(handle); } },
     onHealthy: value => health.push(value), onSessions: rows => lists.push(rows.map(x => x.id)), onRecommendationsInvalidated: () => {},
   });
@@ -135,6 +142,21 @@ test("heartbeats renew liveness only after the first workspace snapshot", async 
 const splitSnapshot = () => ({ ...snapshot(), capability: "status-enrichment-v1", sessions: [
   { ...row("a"), branch: "main", enrichmentRevision: "r1", enrichment: { state: "ready", checkedAt: 1000 } },
 ] });
+test("a pending negotiated snapshot establishes status and accepts independently checked enrichment", () => {
+  const state = createStreamState("/workspace");
+  const { branch: _, ...status } = splitSnapshot().sessions[0];
+  const pending = { ...status, cwd: "", enrichment: { state: "pending", checkedAt: null } };
+  const result = state.apply({ ...splitSnapshot(), sessions: [pending] });
+  assert.equal(result.sessions?.[0].status, "running");
+  assert.equal(result.sessions?.[0].repoRoot, undefined);
+  assert.deepEqual(result.sessions?.[0].enrichment, pending.enrichment);
+
+  const checked = state.apply({ ...header, type: "session-enrichment-delta", base: 0, sequence: 1,
+    changed: [{ id: "a", revision: "r1", data: { cwd: "/workspace", branch: "main" }, state: "ready", checkedAt: 1000 }] });
+  assert.equal(checked.sessions?.[0].status, "running");
+  assert.equal(checked.sessions?.[0].branch, "main");
+  assert.equal(state.expire(6000).sessions?.[0].enrichment?.state, "stale");
+});
 test("negotiated status preserves enrichment and enrichment cannot roll back newer status", () => {
   const state = createStreamState("/workspace"); state.apply(splitSnapshot());
   const { cwd: _, ...status } = row("a", "new status");

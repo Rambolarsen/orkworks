@@ -110,6 +110,7 @@ use crate::http::api_auth::{origin_allowed, WEBSOCKET_PROTOCOL};
 pub(crate) struct Subscription {
     workspace: String,
     capability: Option<String>,
+    snapshot: Option<String>,
 }
 
 pub(crate) async fn subscribe(
@@ -139,7 +140,8 @@ pub(crate) async fn subscribe(
         .max_message_size(4096)
         .on_upgrade(move |socket| async move {
             if query.capability.is_some() {
-                split::run(socket, state, workspace, root).await
+                let status_first = query.snapshot.as_deref() == Some(split::STATUS_FIRST);
+                split::run(socket, state, workspace, root, status_first).await
             } else {
                 run(socket, state, workspace, root).await
             }
@@ -766,6 +768,15 @@ mod tests {
     }
     #[tokio::test]
     async fn established_directory_disappearance_is_unavailable_then_recreation_resynchronizes() {
+        assert_directory_recovery(None).await;
+    }
+
+    #[tokio::test]
+    async fn adaptive_socket_recovers_from_an_incomplete_session_read() {
+        assert_directory_recovery(Some(split::CAPABILITY)).await;
+    }
+
+    async fn assert_directory_recovery(capability: Option<&str>) {
         let directory = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(directory.path());
         let root = state
@@ -794,6 +805,11 @@ mod tests {
         let mut url = url::Url::parse(&format!("ws://{address}/workspace/updates")).unwrap();
         url.query_pairs_mut()
             .append_pair("workspace", &directory.path().display().to_string());
+        if let Some(capability) = capability {
+            url.query_pairs_mut()
+                .append_pair("capability", capability)
+                .append_pair("snapshot", split::STATUS_FIRST);
+        }
         let (mut socket, _) = tokio_tungstenite::connect_async(url.as_str())
             .await
             .unwrap();
@@ -801,11 +817,24 @@ mod tests {
             next_json(&mut socket).await["sessions"][0]["id"],
             "retained"
         );
-        next_json(&mut socket).await;
+        if capability.is_none() {
+            next_json(&mut socket).await;
+        }
         std::fs::rename(root.join("sessions"), root.join("sessions-replacing")).unwrap();
         // Both transports must reject this incomplete directory, not publish an empty list.
         assert!(SessionProjection::new(state.clone()).list().is_err());
-        assert_eq!(next_json(&mut socket).await["type"], "unavailable");
+        tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                let message = next_json(&mut socket).await;
+                if message["type"] == "unavailable" {
+                    break;
+                }
+                assert_ne!(message["type"], "snapshot");
+                assert!(message["removed"].as_array().is_none_or(Vec::is_empty));
+            }
+        })
+        .await
+        .unwrap();
         std::fs::rename(root.join("sessions-replacing"), root.join("sessions")).unwrap();
         let (mut recovered, _) = tokio_tungstenite::connect_async(url.as_str())
             .await

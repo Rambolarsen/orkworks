@@ -560,10 +560,14 @@ skills do not establish native loading/use or change session lifecycle authority
 
 [ADR 0092](../adr/0092-workspace-update-stream.md) defines the workspace-scoped
 read-only update socket owned by `workspaceSessionController.ts`. An initial
-complete snapshot establishes the instance/workspace cursor; gaps and reconnects
-require a new snapshot. Legacy clients receive complete changed rows. Clients
-negotiating `status-enrichment-v1` instead receive typed status and enrichment
-groups under that same cursor. One workspace-owned publisher shares inspection
+complete status snapshot establishes the instance/workspace cursor; gaps and
+reconnects require a new snapshot. Legacy clients receive complete rows. Clients
+negotiating `status-enrichment-v1` receive a freshly captured status baseline,
+then typed status and enrichment groups under that same cursor. The
+`snapshot=status-first` opt-in allows pending enrichment in the first snapshot.
+Earlier desktops receive checked enrichment in that snapshot. Connecting requests
+status without invalidating
+the workspace's shared Git and document data. One workspace-owned publisher shares inspection
 across negotiated subscribers; two-second status updates do not inspect Git or
 documents. Enrichment runs every five seconds when an existing row has changed
 its output timestamp in the past ten seconds, otherwise every 30 seconds. These

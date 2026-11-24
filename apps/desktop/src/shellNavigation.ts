@@ -465,8 +465,13 @@ function reviewLocationKey(session: SessionInfo | undefined): string {
   ]);
 }
 
+function isReviewEnrichmentPending(session: SessionInfo | undefined): boolean {
+  return session?.enrichment?.state === "pending";
+}
+
 function reviewScopeKey(session: SessionInfo | undefined): string {
   return JSON.stringify([
+    isReviewEnrichmentPending(session),
     session?.enrichmentRevision,
     session?.repoRoot ?? session?.cwd,
     session?.planDocuments?.branch ?? session?.branch,
@@ -550,6 +555,7 @@ export function createShellNavigationController(
   let navigationReadSequence = 0;
   let restoredNavigationGeneration: number | null = null;
   let lastHydrationKey: string | null = null;
+  let restoringReview: { generation: number; scopeKey: string; intent: number } | null = null;
 
   // Navigation persistence diagnostic state.
   let navigationDiagnostic: ShellMemoryDiagnostic | null = null;
@@ -812,8 +818,19 @@ export function createShellNavigationController(
 
   function hydrateWorkspaceNavigation(): void {
     const generation = navigation.workspaceGeneration;
-    if (!runtime.backendConnected || !runtime.workspace || restoredNavigationGeneration === generation) return;
     const session = activeSession();
+    const enrichmentPending = isReviewEnrichmentPending(session);
+    const currentScopeKey = reviewScopeKey(session);
+    if (restoringReview?.generation === generation && restoringReview.scopeKey !== currentScopeKey) {
+      // The old document request loses its scope. Retry only the original navigation.
+      const interrupted = restoringReview;
+      restoringReview = null;
+      if (interrupted.intent === navigationIntent) {
+        restoredNavigationGeneration = null;
+        lastHydrationKey = null;
+      }
+    }
+    if (!runtime.backendConnected || !runtime.workspace || enrichmentPending || restoredNavigationGeneration === generation) return;
     const hydrationKey = `${generation}:${runtime.workspace.workspaceIdentity || runtime.workspace.path}:${session?.id ?? ""}`;
     if (lastHydrationKey === hydrationKey) return;
     lastHydrationKey = hydrationKey;
@@ -838,10 +855,25 @@ export function createShellNavigationController(
         return;
       }
       if (saved.lastCentralSurface === "review") {
-        if (session.hasOpenablePlan) {
-          const preferred = selectPreferredStep(session);
+        const current = activeSession();
+        const scope = reviewScopeKey(current);
+        if (!current || current.id !== sessionId) return;
+        if (isReviewEnrichmentPending(current)) {
+          restoredNavigationGeneration = null;
+          lastHydrationKey = null;
+          return;
+        }
+        if (current.hasOpenablePlan) {
+          const preferred = selectPreferredStep(current);
           reviewLoadIntent = intent;
-          void loadReview(false, true, undefined, preferred.kind, preferred.selectionId);
+          const attempt = { generation, scopeKey: scope, intent };
+          restoringReview = attempt;
+          void loadReview(false, true, undefined, preferred.kind, preferred.selectionId)
+            .finally(() => {
+              if (restoringReview === attempt && reviewScopeKey(activeSession()) === scope) {
+                restoringReview = null;
+              }
+            });
         } else {
           dispatch({ type: "preferences-restored", surface: "review", artifactId: null, generation });
           emit();
@@ -916,6 +948,7 @@ export function createShellNavigationController(
       navigationDiagnostic = null;
       navigationRebuilding = false;
       lastHydrationKey = null;
+      restoringReview = null;
       resetReviewState();
       dispatch({ type: "workspace-generation-changed", generation });
       fencedScope = captureScopeTuple();
@@ -965,7 +998,8 @@ export function createShellNavigationController(
         fencedScope.locationKey = next.locationKey;
       }
 
-      if (scopeChanged && navigation.centralSurface.kind === "review") {
+      const enrichmentPending = isReviewEnrichmentPending(session);
+      if (scopeChanged && !enrichmentPending && navigation.centralSurface.kind === "review") {
         const previous = lastReviewDocument;
         if (
           locationUnchanged
@@ -999,7 +1033,7 @@ export function createShellNavigationController(
         }
       }
 
-      if (navigation.centralSurface.kind === "review" && !session?.hasOpenablePlan) {
+      if (navigation.centralSurface.kind === "review" && !enrichmentPending && !session?.hasOpenablePlan) {
         if (dispatch({
           type: "target-missing",
           target: {
@@ -1045,6 +1079,7 @@ export function createShellNavigationController(
     selectSession(sessionId) {
       if (disposed) return;
       ++navigationIntent;
+      restoringReview = null;
       resetReviewState();
       dispatch({
         type: "session-selected",
@@ -1105,6 +1140,7 @@ export function createShellNavigationController(
       if (disposed) return;
       const wasReview = navigation.centralSurface.kind === "review";
       ++navigationIntent;
+      restoringReview = null;
       resetReviewState();
       dispatch({ type: "review-closed", generation: navigation.workspaceGeneration });
       emit();
@@ -1159,6 +1195,7 @@ export function createShellNavigationController(
     dispose() {
       disposed = true;
       ++reviewRequest;
+      restoringReview = null;
       reviewDocument = null;
       lastReviewDocument = null;
       reviewRequests.clear();

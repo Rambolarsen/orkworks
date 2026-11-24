@@ -139,9 +139,12 @@ subscription. A new server acknowledges it in the first snapshot; without that
 acknowledgement, the client stays on the existing version-1 reducer and polling
 fallback. A legacy request must never receive the new message types.
 
-For negotiated clients, the initial authoritative snapshot establishes both
-field groups and their freshness; initial synchronization can wait for the full
-query. Thereafter `session-status-delta` and `session-enrichment-delta` share the
+For negotiated clients, the initial authoritative snapshot establishes current
+session status, membership and order. Each row carries its enrichment revision
+and freshness. Clients that opt in with `snapshot=status-first` may receive
+pending Git and document enrichment at startup or reconnect, as specified in the
+[approved startup amendment](2026-11-22-adaptive-snapshot-startup-design.md).
+`session-status-delta` and `session-enrichment-delta` share the
 existing instance/workspace/generation/global sequence cursor with recommendation
 invalidations. Each message is validated atomically before updating state.
 Status messages own membership/removal/order; enrichment messages may only update
