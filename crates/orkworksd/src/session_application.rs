@@ -12263,6 +12263,34 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         )
         .unwrap();
         crate::test_support::make_test_executable(&executable);
+        #[cfg(target_os = "macos")]
+        {
+            // First execution of a new script inode can exceed the 3-second
+            // production probe deadline under load. Prepare this synthetic
+            // fixture via its read-only debug path before exercising resume.
+            let mut preparation = std::process::Command::new(&executable);
+            preparation
+                .env_clear()
+                .args(["debug", "paths", "db"])
+                .current_dir(root.path());
+            let output = crate::probe_process::run(
+                &mut preparation,
+                crate::probe_process::ProbePolicy {
+                    max_bytes: 8192,
+                    reject_overflow: true,
+                    require_success: true,
+                },
+                std::time::Duration::from_secs(30),
+            )
+            .await
+            .expect("synthetic OpenCode fixture preparation timed out or failed");
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout).trim(),
+                path.display().to_string()
+            );
+            assert!(output.stderr.is_empty());
+            assert!(!root.path().join("opencode-fixture.started").exists());
+        }
         state
             .harness_store
             .mutate(&state.harness_catalog, |doc| {
@@ -12310,7 +12338,18 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let result = SessionApplication::new(state.clone())
             .resume_session(id, Some(harness::ResumeStrategy::Exact))
             .await;
-        assert!(matches!(result, Err(SessionError::BadRequest("OpenCode has no saved local conversation for this exact ID; no replacement was started."))));
+        match &result {
+            Err(SessionError::BadRequest(
+                "OpenCode has no saved local conversation for this exact ID; no replacement was started.",
+            )) => {}
+            Err(other) => {
+                panic!("expected missing-conversation BadRequest, got Err({other:?})")
+            }
+            Ok(info) => panic!(
+                "expected missing-conversation BadRequest, got Ok(id={}, status={}, lifecycle_phase={})",
+                info.id, info.status, info.lifecycle_phase
+            ),
+        }
         assert!(!state.sessions.lock().unwrap().contains_key(id));
         assert!(!root.path().join("opencode-fixture.started").exists());
         let saved = state
