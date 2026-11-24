@@ -105,7 +105,7 @@ mechanism as this proposal's explicit new choice):
   bridge, not the hierarchy header, owns their disposition. Nothing here
   qualifies their participation.
 
-### New-store-only format 7 and the closed union registry
+### Store format 7 and the closed union registry
 
 Propose **format 7 as the research profile's store format, reached two ways**:
 fresh initialization of a new store (null-predecessor outcome), or the one
