@@ -1002,14 +1002,16 @@ mod tests {
                 Some("build"),
             ),
         ];
-        let cards = evaluate_workflow_improvements(&observations, &[], WORKSPACE, NOW);
+        let now = Utc::now();
+        let cards =
+            evaluate_workflow_improvements(&observations, &[], WORKSPACE, &now.to_rfc3339());
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].workflow_improvement.dismissal_watermark, None);
         let family = FamilyContext {
             has_newer_proposed_sibling: false,
             has_unextended_terminal_sibling: false,
         };
-        assert!(classify(&cards[0], &family, Utc::now()).is_empty());
+        assert!(classify(&cards[0], &family, now).is_empty());
     }
 
     fn cleanup_proposed_card(dedupe_key: &str) -> Recommendation {

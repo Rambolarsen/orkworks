@@ -1301,6 +1301,7 @@ fn provider_output_counts_created_and_duplicate_suppressed_proposals() {
         &fixture.snapshot,
         fixture.dir.path(),
         fixture.instance,
+        &current_test_selection(&fixture.state),
         &fixture.facts,
         &[],
         None,
@@ -1326,6 +1327,7 @@ fn provider_output_counts_created_and_duplicate_suppressed_proposals() {
         &fixture.snapshot,
         fixture.dir.path(),
         fixture.instance,
+        &current_test_selection(&fixture.state),
         &fixture.facts,
         &recommendations,
         None,
@@ -1363,6 +1365,7 @@ fn repeated_proposals_in_one_provider_response_count_once_as_created() {
         &fixture.snapshot,
         fixture.dir.path(),
         fixture.instance,
+        &current_test_selection(&fixture.state),
         &fixture.facts,
         &[],
         None,
@@ -1372,4 +1375,202 @@ fn repeated_proposals_in_one_provider_response_count_once_as_created() {
 
     assert_eq!(disposition.proposal_counts.created, 1);
     assert_eq!(disposition.proposal_counts.suppressed, 1);
+}
+
+fn workflow_row(
+    fixture: &Fixture,
+    key: &str,
+    at: chrono::DateTime<chrono::Utc>,
+) -> crate::workflow_observations::WorkflowObservation {
+    use crate::workflow_observations::{
+        Impact, ObservationCandidate, ObservationKind, ObservationOrigin, RecordOutcome,
+    };
+    let store = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .workflow_observations
+        .clone();
+    store.test_set_clock(at);
+    let result = store
+        .record_observation(
+            "source",
+            ObservationOrigin::Agent,
+            key,
+            ObservationCandidate {
+                kind: ObservationKind::Obstacle,
+                description: "verification failed".into(),
+                evidence: "build failed".into(),
+                problem_area: Some("build".into()),
+                reported_impact: Impact::Low,
+                confidence: None,
+            },
+        )
+        .unwrap();
+    let RecordOutcome::Accepted(row) = result else {
+        panic!("fresh fixture report must be accepted")
+    };
+    row
+}
+
+#[test]
+fn ordinary_brain_rejects_changed_input_before_enrichment_or_proposal_effects() {
+    for scenario in ["cutoff", "displaced", "deleted"] {
+        let mut fixture = Fixture::new();
+        fs::write(
+            fixture.dir.path().join("AGENTS.md"),
+            "Use the bounded verification workflow.",
+        )
+        .unwrap();
+        fixture.facts = crate::taskmaster::context::collect_repository_facts(
+            fixture.dir.path(),
+            fixture.snapshot.settings.context_level,
+            &[],
+            "2026-11-24T00:00:00Z",
+            "",
+        )
+        .unwrap();
+        assert_eq!(fixture.apply(), 1);
+        let store = fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .workflow_observations
+            .clone();
+        let now = chrono::Utc::now();
+        let at = if scenario == "cutoff" {
+            now - chrono::Duration::days(14) - chrono::Duration::hours(1)
+        } else {
+            now - chrono::Duration::hours(1)
+        };
+        workflow_row(&fixture, "original", at);
+        if scenario == "displaced" {
+            for index in 1..16 {
+                workflow_row(&fixture, &format!("row-{index}"), at);
+            }
+        }
+        // The fake provider reply is withheld until the original dispatch
+        // selection has changed (including age crossing the cutoff).
+        let dispatch_time = if scenario == "cutoff" {
+            now - chrono::Duration::days(1)
+        } else {
+            now
+        };
+        let dispatch_selection =
+            analysis_observations(&store.workspace_observations().unwrap(), dispatch_time)
+                .cloned()
+                .collect::<Vec<_>>();
+        assert!(!dispatch_selection.is_empty());
+        if scenario == "displaced" {
+            workflow_row(&fixture, "newer", now);
+        }
+        if scenario == "deleted" {
+            store.delete_session_observations("source").unwrap();
+        }
+        let retained = store.workspace_observations().unwrap();
+        let records = fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        let before = serde_json::to_value(&records).unwrap();
+        let fact = fixture
+            .facts
+            .iter()
+            .find(|f| f.path == "AGENTS.md")
+            .unwrap();
+        let page = &fixture.snapshot.knowledge.as_ref().unwrap().pages[0].id;
+        let output = serde_json::json!({"enrichments":[{"dedupeKey":records[0].dedupe_key,"knowledgePageIds":[page]}],
+            "proposals":[{"targetSurface":"documentation","title":"Another improvement","summary":"Another source-supported hypothesis",
+            "repositoryFactHashes":[fact.sha256],"knowledgePageIds":[]}]}).to_string();
+        let result = super::apply_provider_output_with_diagnostic(
+            &fixture.state,
+            &fixture.runtime,
+            &fixture.snapshot,
+            fixture.dir.path(),
+            fixture.instance,
+            &dispatch_selection,
+            &fixture.facts,
+            &records,
+            None,
+            &output,
+        );
+        assert!(
+            result.is_err(),
+            "{scenario} must reject the whole stale reply"
+        );
+        let after = fixture
+            .state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .recommendation_store
+            .list()
+            .unwrap();
+        assert_eq!(serde_json::to_value(after).unwrap(), before, "{scenario}");
+        assert_eq!(
+            store.workspace_observations().unwrap(),
+            retained,
+            "application cannot rewrite evidence"
+        );
+    }
+}
+
+#[test]
+fn ordinary_brain_accepts_an_unchanged_selection_as_time_advances() {
+    let fixture = Fixture::new();
+    workflow_row(
+        &fixture,
+        "original",
+        chrono::Utc::now() - chrono::Duration::days(1),
+    );
+    // Advancing an apply instant alone must not be an identity mismatch.
+    let store = fixture
+        .state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .workflow_observations
+        .clone();
+    let dispatch_selection = analysis_observations(
+        &store.workspace_observations().unwrap(),
+        chrono::Utc::now() - chrono::Duration::hours(1),
+    )
+    .cloned()
+    .collect::<Vec<_>>();
+    assert_eq!(dispatch_selection.len(), 1);
+    let fact = fixture
+        .facts
+        .iter()
+        .find(|f| f.path == "README.md")
+        .unwrap();
+    let output = serde_json::json!({"enrichments":[], "proposals":[{"targetSurface":"documentation", "title":"Document verification", "summary":"Experimental improvement", "repositoryFactHashes":[fact.sha256], "knowledgePageIds":[]}]}).to_string();
+    assert!(super::apply_provider_output_with_diagnostic(
+        &fixture.state,
+        &fixture.runtime,
+        &fixture.snapshot,
+        fixture.dir.path(),
+        fixture.instance,
+        &dispatch_selection,
+        &fixture.facts,
+        &[],
+        None,
+        &output
+    )
+    .is_ok());
 }

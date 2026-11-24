@@ -627,6 +627,19 @@ Taskmaster reevaluates five seconds after the latest accepted workflow observati
 
 Two inference results over the same unchanged Peon evidence window count as one observation; a genuinely repeated action produces a later evidence range and therefore a distinct, separately-countable occurrence. Recurrence may span one session or multiple sessions; the recommendation states which. Exact evidence families remain deterministic audit units. A separate bounded rollup layer may combine related proposed exact families; it does not replace exact identity or allow generated prose to become evidence. Observations below `0.6` confidence, and high-impact observations below `0.8` confidence, are not cited or counted, though they may remain stored as supporting context.
 
+New exact-family recommendation IDs (including successors) additionally require
+at least two retained qualifying observations whose parsed RFC3339 accepted
+age is between zero and 1,209,600 seconds inclusive at one server-owned UTC
+evaluation instant. Missing, malformed or future timestamps do not qualify;
+both Peon and agent sources use this age rule. Derive new evidence, recurrence,
+affected sessions, impact and confidence only from that recent set. Existing
+lineage and dismissal-watermark conditions remain necessary. Existing proposed
+IDs and members of live proposed rollups retain their update/merge rules and
+embedded history; no age-based list/get/accept/complete rejection, automatic
+cleanup or retroactive count rewrite is introduced. Invalid evaluation time
+permits no proposed writes. The accepted [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+defines precise compatibility and ordinary Brain application fences.
+
 ### Identity and rollup contract
 
 New workflow observations may include an optional, short `problemArea`
@@ -1652,11 +1665,10 @@ Implementation approval grants no provider calls, activation, release or
 retroactive qualification credit. A fresh independent paired comparison remains
 required after implementation under separate finite authorization.
 
-## Workflow observation input policy proposal — pending review
+## Workflow observation input policy — accepted 2026-11-24
 
-The [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
-proposes dual-view ESC-payload grounding and a fourteen-day window for new
-exact-family creation and ordinary Brain observation input, with existing-ID
-updates and history explicitly grandfathered. It is **not accepted or implemented**.
-Existing recording, eligibility, lifecycle and authority rules above remain
-binding until scoped owner acceptance; merging the proposal is not that acceptance.
+The owner accepted [#1077 policy A–D and its implementation plan](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md#owner-acceptance--2026-11-24)
+in direct response to the implementation approval question for PR #2024.
+This is the first bounded slice only; semantic-quality and same-window incident
+counting remain outside its acceptance. Source implementation and verification
+are tracked in #1077; published installers require normal release/update.

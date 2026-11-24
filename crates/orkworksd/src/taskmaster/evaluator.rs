@@ -570,13 +570,17 @@ fn run_model_evaluation_with_context_and_workspace(
             return;
         }
     }
-    let now = chrono::Utc::now().to_rfc3339();
+    let analysis_time = chrono::Utc::now();
+    let now = analysis_time.to_rfc3339();
+    let observations = analysis_observations(&observations, analysis_time)
+        .cloned()
+        .collect::<Vec<_>>();
     let facts = match collect_facts(
         &workspace_path,
         snapshot.settings.context_level,
         &snapshot.settings.excluded_paths,
         &now,
-        &super::context::observation_signals(analysis_observations(&observations)),
+        &super::context::observation_signals(observations.iter()),
     ) {
         Ok(facts) => facts,
         Err(error) => {
@@ -763,6 +767,7 @@ fn run_model_evaluation_with_context_and_workspace(
                     &prompt_snapshot,
                     &workspace_path,
                     workspace_instance,
+                    &observations,
                     &facts,
                     &recommendations,
                     rollup_request.as_ref(),
@@ -956,8 +961,25 @@ fn clear_in_flight() {
 /// Unicode letters and numbers remain eligible; retained history is untouched.
 fn analysis_observations(
     observations: &[crate::workflow_observations::WorkflowObservation],
+    as_of: chrono::DateTime<chrono::Utc>,
 ) -> impl Iterator<Item = &crate::workflow_observations::WorkflowObservation> {
-    super::context::recent_observations(observations, 16)
+    super::context::recent_workflow_observations(observations, as_of)
+}
+
+#[cfg(test)]
+fn current_test_selection(
+    state: &AppState,
+) -> Vec<crate::workflow_observations::WorkflowObservation> {
+    let workspace = state.workspace.lock().unwrap();
+    let rows = workspace
+        .as_ref()
+        .unwrap()
+        .workflow_observations
+        .workspace_observations()
+        .unwrap();
+    analysis_observations(&rows, chrono::Utc::now())
+        .cloned()
+        .collect()
 }
 
 fn build_taskmaster_prompt(
@@ -967,7 +989,8 @@ fn build_taskmaster_prompt(
     recommendations: &[Recommendation],
     include_rollups: bool,
 ) -> String {
-    let evidence = analysis_observations(observations)
+    let evidence = observations
+        .iter()
         .map(|observation| {
             serde_json::json!({
                 "id": observation.id,
@@ -989,6 +1012,7 @@ fn build_taskmaster_prompt(
     serde_json::json!({
         "instruction": instruction,
         "proposedRecommendations": recommendations.iter().filter(|item| item.status == RecommendationStatus::Proposed && !super::is_unverified_improvement(item)).take(16).map(|item| serde_json::json!({"dedupeKey":item.dedupe_key,"title":item.title,"summary":item.summary})).collect::<Vec<_>>(),
+        "workflowObservationPolicy": "workflow-observation-input-v2",
         "workflowObservations": evidence,
         "knowledgePages": pages,
         "repositoryFacts": facts.iter().map(|fact| serde_json::json!({"path":fact.path,"sha256":fact.sha256,"excerpt":fact.excerpt})).collect::<Vec<_>>(),
@@ -1037,6 +1061,7 @@ fn apply_provider_output(
         snapshot,
         workspace_path,
         workspace_instance,
+        &current_test_selection(state),
         facts,
         supplied_recommendations,
         rollup_request,
@@ -1051,6 +1076,7 @@ fn apply_provider_output_with_diagnostic(
     snapshot: &EvaluationSnapshot,
     workspace_path: &std::path::Path,
     workspace_instance: u64,
+    selected_observations: &[crate::workflow_observations::WorkflowObservation],
     facts: &[crate::taskmaster::RepositoryEvidence],
     supplied_recommendations: &[Recommendation],
     rollup_request: Option<&RollupEvaluationRequest>,
@@ -1073,6 +1099,7 @@ fn apply_provider_output_with_diagnostic(
             snapshot,
             workspace_path,
             workspace_instance,
+            selected_observations,
             facts,
             supplied_recommendations,
             model,
@@ -1268,6 +1295,7 @@ fn apply_model_output_parsed(
     snapshot: &EvaluationSnapshot,
     workspace_path: &std::path::Path,
     workspace_instance: u64,
+    selected_observations: &[crate::workflow_observations::WorkflowObservation],
     facts: &[crate::taskmaster::RepositoryEvidence],
     supplied_recommendations: &[Recommendation],
     model: ModelOutput,
@@ -1354,7 +1382,11 @@ fn apply_model_output_parsed(
     else {
         return;
     };
-    let Ok(current_facts) = crate::taskmaster::context::collect_repository_facts(workspace_path, snapshot.settings.context_level, &snapshot.settings.excluded_paths, &chrono::Utc::now().to_rfc3339(), &super::context::observation_signals(analysis_observations(&workspace.workflow_observations.workspace_observations().unwrap_or_default()))) else { return; };
+    let Ok(current_observations) = workspace.workflow_observations.workspace_observations() else { return; };
+    let apply_time = chrono::Utc::now();
+    let current_selection = analysis_observations(&current_observations, apply_time).cloned().collect::<Vec<_>>();
+    if current_selection != selected_observations { return; }
+    let Ok(current_facts) = crate::taskmaster::context::collect_repository_facts(workspace_path, snapshot.settings.context_level, &snapshot.settings.excluded_paths, &apply_time.to_rfc3339(), &super::context::observation_signals(current_selection.iter())) else { return; };
     if facts.iter().any(|fact| !current_facts.iter().any(|current| current.path == fact.path && current.sha256 == fact.sha256)) { return; }
     let Ok(recommendations) = workspace.recommendation_store.list() else {
         return;
@@ -1535,7 +1567,8 @@ pub(super) fn select_relevant_pages(
     observations: &[crate::workflow_observations::WorkflowObservation],
     facts: &[crate::taskmaster::RepositoryEvidence],
 ) {
-    let signals = analysis_observations(observations)
+    let signals = observations
+        .iter()
         .map(|item| item.description.as_str())
         .chain(facts.iter().map(|item| item.excerpt.as_str()))
         .collect::<Vec<_>>()
@@ -2164,10 +2197,10 @@ mod tests {
             excerpt: "verification".into(),
             observed_at: "now".into(),
         }];
-        select_relevant_pages(&mut snapshot, &[], &facts);
+        select_relevant_pages_for_test(&mut snapshot, &[], &facts);
         assert_eq!(snapshot.knowledge.as_ref().unwrap().pages.len(), 8);
         assert_eq!(snapshot.knowledge.as_ref().unwrap().pages[0].id, "page9.md");
-        let prompt = build_taskmaster_prompt(&snapshot, &[], &facts, &[], false);
+        let prompt = build_taskmaster_prompt_for_test(&snapshot, &[], &facts, &[], false);
         assert!(prompt.contains("hypothesis"));
         assert!(prompt.contains("relatedIds"));
         assert!(prompt.contains("never infer absence"));
@@ -2175,7 +2208,7 @@ mod tests {
 
         let observations = (0..32).map(|sequence| serde_json::from_value(
             serde_json::json!({"id":format!("o{sequence}"),"sequence":sequence,
-                "sessionId":"session","observedAt":"2026-09-12T00:00:00Z",
+                "sessionId":"session","observedAt":"2026-09-26T00:00:00Z",
                 "kind":"obstacle","description":if sequence < 16 { "obsolete" } else { "verification" },
                 "evidence":"observed","reportedImpact":"low","source":"agent",
                 "confidence":0.9,"fingerprint":"friction"})
@@ -2191,10 +2224,47 @@ mod tests {
                     page.content = "obsolete".into();
                 }
             });
-        select_relevant_pages(&mut snapshot, &observations, &[]);
+        select_relevant_pages_for_test(&mut snapshot, &observations, &[]);
         assert_eq!(snapshot.knowledge.as_ref().unwrap().pages[0].id, "page9.md");
-        let prompt = build_taskmaster_prompt(&snapshot, &observations, &[], &[], false);
+        let prompt = build_taskmaster_prompt_for_test(&snapshot, &observations, &[], &[], false);
         assert!(!prompt.contains("\"description\":\"obsolete\""));
+    }
+
+    fn selected_fixture_rows(
+        rows: &[crate::workflow_observations::WorkflowObservation],
+    ) -> Vec<crate::workflow_observations::WorkflowObservation> {
+        analysis_observations(
+            rows,
+            chrono::DateTime::parse_from_rfc3339("2026-09-27T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+        )
+        .cloned()
+        .collect()
+    }
+
+    fn build_taskmaster_prompt_for_test(
+        snapshot: &EvaluationSnapshot,
+        observations: &[crate::workflow_observations::WorkflowObservation],
+        facts: &[crate::taskmaster::RepositoryEvidence],
+        recommendations: &[Recommendation],
+        include_rollups: bool,
+    ) -> String {
+        build_taskmaster_prompt(
+            snapshot,
+            &selected_fixture_rows(observations),
+            facts,
+            recommendations,
+            include_rollups,
+        )
+    }
+
+    fn select_relevant_pages_for_test(
+        snapshot: &mut EvaluationSnapshot,
+        observations: &[crate::workflow_observations::WorkflowObservation],
+        facts: &[crate::taskmaster::RepositoryEvidence],
+    ) {
+        select_relevant_pages(snapshot, &selected_fixture_rows(observations), facts)
     }
 
     fn brain_observation_fixture(
@@ -2234,8 +2304,13 @@ mod tests {
             .version = 2;
         let records = vec![item.clone(), old];
         assert!(super::super::active_workflow_recommendation(&records).is_some());
-        let prompt =
-            build_taskmaster_prompt(&brain_observation_snapshot(), &[], &[], &records, false);
+        let prompt = build_taskmaster_prompt_for_test(
+            &brain_observation_snapshot(),
+            &[],
+            &[],
+            &records,
+            false,
+        );
         assert!(!prompt.contains("UNVERIFIED_ADVICE"));
         assert!(prompt.contains("Retained legacy advice"));
         let output = ModelOutput {
@@ -2271,6 +2346,43 @@ mod tests {
         .is_none());
     }
 
+    #[test]
+    fn ordinary_brain_input_filters_age_before_the_sixteen_row_bound() {
+        let mut fresh = brain_observation_fixture(1, "verification failed");
+        fresh.observed_at = chrono::Utc::now().to_rfc3339();
+        let mut rows = vec![fresh];
+        rows.extend((2..32).map(|n| brain_observation_fixture(n, "old verification error")));
+        let mut future = brain_observation_fixture(32, "future error");
+        future.observed_at = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        rows.push(future);
+        let before = rows.clone();
+        let selected = analysis_observations(&rows, chrono::Utc::now())
+            .map(|o| o.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(selected, ["o1"]);
+        assert_eq!(
+            super::super::context::recent_observations(&rows, 128).count(),
+            32,
+            "assessment/readiness retain their separate age-unbounded helper"
+        );
+        assert_eq!(rows, before);
+    }
+
+    #[test]
+    fn ordinary_brain_policy_fences_pre_policy_cache_results() {
+        let snapshot = brain_observation_snapshot();
+        let prompt = build_taskmaster_prompt_for_test(&snapshot, &[], &[], &[], false);
+        let mut legacy: serde_json::Value = serde_json::from_str(&prompt).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("workflowObservationPolicy");
+        assert_ne!(
+            snapshot.cache_key(&prompt).unwrap(),
+            snapshot.cache_key(&legacy.to_string()).unwrap()
+        );
+    }
+
     fn brain_observation_snapshot() -> EvaluationSnapshot {
         EvaluationSnapshot {
             readiness_rubric: None,
@@ -2286,7 +2398,7 @@ mod tests {
     fn brain_observation_prompt(
         observations: &[crate::workflow_observations::WorkflowObservation],
     ) -> serde_json::Value {
-        serde_json::from_str(&build_taskmaster_prompt(
+        serde_json::from_str(&build_taskmaster_prompt_for_test(
             &brain_observation_snapshot(),
             observations,
             &[],
@@ -2379,9 +2491,9 @@ mod tests {
             item.description = "obsolete".into();
             item
         }));
-        select_relevant_pages(&mut snapshot, &observations, &[]);
+        select_relevant_pages_for_test(&mut snapshot, &observations, &[]);
         assert_eq!(snapshot.knowledge.as_ref().unwrap().pages[0].id, "page8.md");
-        let prompt: serde_json::Value = serde_json::from_str(&build_taskmaster_prompt(
+        let prompt: serde_json::Value = serde_json::from_str(&build_taskmaster_prompt_for_test(
             &snapshot,
             &observations,
             &[],

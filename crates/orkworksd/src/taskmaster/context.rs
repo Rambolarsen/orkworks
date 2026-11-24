@@ -100,6 +100,28 @@ pub(crate) fn collect_repository_facts(
     Ok(evidence)
 }
 
+/// Recency is a derived selection decision, never a rewrite of durable evidence.
+pub(super) fn observation_is_recent(
+    observed_at: &str,
+    as_of: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    chrono::DateTime::parse_from_rfc3339(observed_at).is_ok_and(|observed| {
+        let age = as_of.signed_duration_since(observed);
+        age >= chrono::Duration::zero() && age <= chrono::Duration::days(14)
+    })
+}
+
+/// Ordinary Brain input uses a distinct, age-bounded view; assessment and
+/// readiness deliberately retain their own shared helper contract.
+pub(super) fn recent_workflow_observations(
+    observations: &[crate::workflow_observations::WorkflowObservation],
+    as_of: chrono::DateTime<chrono::Utc>,
+) -> impl Iterator<Item = &crate::workflow_observations::WorkflowObservation> {
+    recent_observations(observations, observations.len())
+        .filter(move |item| observation_is_recent(&item.observed_at, as_of))
+        .take(16)
+}
+
 /// Both analysis modes filter before bounding; persisted evidence is untouched.
 pub(super) fn recent_observations(
     observations: &[crate::workflow_observations::WorkflowObservation],
