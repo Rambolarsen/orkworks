@@ -3125,8 +3125,50 @@ html, body, #root {
   border-bottom: 1px solid var(--border-default);
 }
 
-.workspace-alert { color: var(--state-warn); font-size: var(--text-sm); }
-.workspace-alert > [role="status"] { min-width: 0; overflow-wrap: anywhere; }
+.workspace-alerts {
+  margin: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-inline-start: 3px solid var(--state-warn);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--state-warn-bg) 35%, var(--surface-1));
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.workspace-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-3);
+}
+
+.workspace-alert + .workspace-alert {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.workspace-alert > [role="status"] {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-alert > button {
+  margin-inline-start: auto;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.workspace-alert > button:hover {
+  background: var(--surface-3);
+}
 
 /* Ordinary session creation is part of the central pane. */
 .new-session-composer {

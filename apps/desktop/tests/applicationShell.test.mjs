@@ -484,6 +484,16 @@ if (process.versions.electron) {
       } else if (scenario === 'app-workspace-hook-notice') {
         await waitFor('document.querySelector(".workspace-alert")?.textContent.includes("The OrkWorks hook for Codex is outdated. OrkWorks may miss session attention updates.")');
         assert.equal(await evaluate('document.querySelector(".workspace-alert button").textContent'), 'Review hook');
+        assert.equal(await evaluate('document.querySelectorAll(".workspace-alerts .workspace-alert").length'), 4);
+        await win.setContentSize(360, 700);
+        await waitFor('innerWidth === 360');
+        assert.equal(await evaluate(`[...document.querySelectorAll(".workspace-alert")].every(row => {
+          const message = row.querySelector('[role="status"]');
+          const button = row.querySelector('button');
+          return message.scrollWidth <= message.clientWidth &&
+            button.getBoundingClientRect().right <= row.getBoundingClientRect().right &&
+            button.getBoundingClientRect().top >= message.getBoundingClientRect().bottom;
+        })`), true, 'stacked warnings and actions fit a narrow window');
         await evaluate('document.querySelector(".workspace-alert button").click()');
         await waitFor('document.querySelector(".settings-content h3")?.textContent === "Active coding tools"');
         await evaluate('fixture.hookState = "trust"; document.querySelector("[aria-label=\\"Close settings\\"]").click()');
@@ -2956,9 +2966,9 @@ if (process.versions.electron) {
                 if(new Headers(options.headers).get("x-orkworks-renderer-token")!=="hook-notice-test-token")return {ok:false,status:401};
                 const state=fixture.hookState??"drifted";
                 fixture.hookReads=(fixture.hookReads??0)+1;
-                const group=state=>({
-                  key:{adapterId:"codex",targetId:"workspace"},consumers:[{harnessId:"codex",harnessName:"Codex"}],
-                  status:{harnessId:"codex",enabled:true,toolDetected:true,registration:state==="drifted"?"drifted":"installed",
+                const group=(state, harnessId="codex", harnessName="Codex")=>({
+                  key:{adapterId:harnessId,targetId:"workspace"},consumers:[{harnessId,harnessName}],
+                  status:{harnessId,enabled:true,toolDetected:true,registration:state==="drifted"?"drifted":"installed",
                     ownership:"ork_works",activation:state==="trust"?"needs_trust":"active",coverage:"limited",confirmation:null,
                     diagnostics:state==="drifted"?[{code:"owned_fragment_drifted",message:"Outdated"}]:[]}
                 });
@@ -2966,7 +2976,12 @@ if (process.versions.electron) {
                   fixture.deferHookStatus=false;
                   return new Promise(resolve=>{fixture.releaseHookStatus=()=>resolve(response([group("drifted")]));});
                 }
-                return response([group(state)]);
+                return response(state === "drifted" ? [
+                  group(state),
+                  group(state, "antigravity", "Antigravity CLI"),
+                  group(state, "claude", "Claude Code"),
+                  group(state, "copilot", "GitHub Copilot CLI"),
+                ] : [group(state)]);
               }
               if(path==='/harnesses')return response({harnesses:[],documentRevision:null});
               if(path==='/providers')return response({providers:[],appliedRevision:null});
