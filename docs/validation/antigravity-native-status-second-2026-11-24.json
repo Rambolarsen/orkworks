@@ -1,0 +1,193 @@
+{
+  "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+  "deadline_seconds": 180,
+  "workspace_mode": "existing_orkworks",
+  "events": [
+    {
+      "seconds": 0.336,
+      "state": "blocked",
+      "payload_bytes": 73,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "auth",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 0.387,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 41.069,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 45.836,
+      "state": "blocked",
+      "payload_bytes": 73,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "question",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 65.647,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 68.932,
+      "state": "done",
+      "payload_bytes": 56,
+      "field_names": [
+        "app",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 88.016,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 88.068,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 96.118,
+      "state": "done",
+      "payload_bytes": 56,
+      "field_names": [
+        "app",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 127.269,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 127.504,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 132.769,
+      "state": "done",
+      "payload_bytes": 56,
+      "field_names": [
+        "app",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 149.649,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    }
+  ],
+  "group_cleanup": "permission_denied",
+  "child_exit_confirmed": true,
+  "platform": "macos-arm64",
+  "native_version": "1.5.15",
+  "qualification": "question-and-completion-only",
+  "model_prompt_count": 3,
+  "manual_tool_permission_qualified": false,
+  "question_cancellation_qualified": false
+}

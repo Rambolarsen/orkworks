@@ -2070,9 +2070,10 @@ impl MetadataStore {
             PlanPathUpdate::Set(_) => "session.plan_path_set",
             PlanPathUpdate::Unchanged => "session.attention_reported",
         };
-        // Only the application path with validated OpenCode authority supplies this tag.
+        // Only the application path with validated OpenCode/Antigravity authority supplies these tags.
         // Durable source priority and provenance remain at the existing agent tier.
-        let opencode_hook = source == "opencode_hook";
+        let antigravity_hook = source == "antigravity_hook";
+        let opencode_hook = source == "opencode_hook" || antigravity_hook;
         let source = if opencode_hook { "agent" } else { source };
         let mut checkpoint_written = false;
         let result = self.mutate_session_optional_before_replace(
@@ -2160,6 +2161,7 @@ impl MetadataStore {
                 meta.provenance.attention_origin = Some(
                     match source {
                         "codex_hook" => "harness_hook",
+                        "agent" if antigravity_hook => "harness_hook",
                         "agent" => "direct_agent",
                         "user" => "user",
                         "peon" => "peon",

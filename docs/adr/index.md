@@ -164,3 +164,5 @@ Decision records and their original rationale and consequences.
 - [Pair resource assurance](0118-pair-resource-assurance.md) — Accepted scoped replacement of total native resource guarantees; implementation and qualification pending.
 
 - [Pair build and startup custody](0119-pair-build-startup-custody.md) — Accepted shared candidate macro undefinition and process bootstrap custody for further qualification.
+
+- [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native attention architecture with qualification-gated activation.

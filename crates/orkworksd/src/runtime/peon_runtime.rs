@@ -947,7 +947,13 @@ fn prepare_idle_candidates(
             if handle.info.status != "running"
                 || handle.info.lifecycle_phase != "active"
                 || handle.active_work_hook
-                || handle.runtime.codex_terminal_status_active
+                || handle.runtime.terminal_status_active
+                || handle
+                    .info
+                    .harness_id
+                    .as_deref()
+                    .or(handle.info.harness.as_deref())
+                    == Some("antigravity")
                 || crate::runtime::prompt_authority::registry().is_active(id)
                 || !matches!(
                     handle.info.observed_status.as_deref(),
@@ -1147,8 +1153,7 @@ where
                                 &handle.runtime.identity(),
                             ))
                             .then_some(
-                                handle.active_work_hook
-                                    || handle.runtime.codex_terminal_status_active,
+                                handle.active_work_hook || handle.runtime.terminal_status_active,
                             )
                         })
                     };
@@ -1425,6 +1430,22 @@ mod tests {
             .unwrap()
             .insert(id.into(), "partial input".into());
         state.peon.mark_idle("keep", "no_new_silent_output");
+    }
+
+    #[test]
+    fn antigravity_expired_idle_timer_is_not_selected_without_hook_activation() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        scheduling_fixture(&state, "antigravity-idle-candidate", false);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("antigravity-idle-candidate").unwrap();
+            handle.info.harness_id = Some("antigravity".into());
+            handle.info.lifecycle = "alive".into();
+            handle.info.lifecycle_phase = "active".into();
+            handle.info.observed_status = Some("working".into());
+        }
+        assert!(prepare_idle_candidates(&state, || {}).is_empty());
     }
 
     async fn delete_scheduling_fixture(state: Arc<AppState>, deletion: u8) {

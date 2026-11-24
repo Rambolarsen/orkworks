@@ -3,16 +3,18 @@ type: Design Proposal
 title: Antigravity attention from native terminal status
 description: Qualify Antigravity OSC 7501 status and reuse the live terminal attention path without Peon prompt inference.
 tags: [orkworks, antigravity, attention, qualification]
-status: draft
-workflow_status: awaiting-owner-review
+status: stable
+workflow_status: accepted
 ---
 
 # Antigravity attention from native terminal status
 
 Research and proposed implementation boundary for [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
 The owner requested Needs You for permissions and questions, rejected Peon for
-this purpose, and requested research into native signals. This document is not
-approval of a new attention source or evidence that it has been activated.
+this purpose, and requested research into native signals. The owner approved this concrete design on 2026-11-24 by directing continued
+implementation after review of the published proposal. Native activation
+remains subject to retained live qualification; design approval is not that
+evidence.
 
 ## Outcome and proposed decision
 
@@ -49,7 +51,7 @@ approved MVP/contract amendment before dependent runtime implementation.
 - T3 Code's [Antigravity protocol adapter](https://github.com/pingdotgg/t3code/blob/main/apps/server/src/provider/acp/AntigravityProtocol.ts)
   uses ACP requests, including `interaction_` permission-method IDs for
   questions; it does not qualify an observer of an existing CLI session.
-- OrkWorks already has a bounded [Codex terminal reader](../../../crates/orkworksd/src/runtime/codex_terminal_status.rs)
+- OrkWorks already has a bounded [Codex terminal reader](../../../crates/orkworksd/src/runtime/terminal_status.rs)
   and generation-fenced attention application. Both select Codex explicitly;
   they do not accept Antigravity frames. See the
   [accepted Codex design](2026-10-25-codex-automatic-approval-signal-design.md).
@@ -58,7 +60,9 @@ approved MVP/contract amendment before dependent runtime implementation.
   probe and zero status reports were found. This is consistent with missing
   support negotiation, not proof of that cause or complete historical coverage.
 
-No live permission/question status sequence has been retained. The first
+A later owner-authorized run retained a partial startup-only auth/permission
+wait and idle-after-cancellation sequence; see the [qualification record](../../validation/antigravity-native-status.md).
+No ordinary tool-permission/question lifecycle is qualified. The first
 human-started capture produced no evidence file. A capture exit-path defect
 was independently reproduced with a dummy process: group cleanup denial
 raised before evidence publication. The revised temporary fixture checkpoints
@@ -193,6 +197,8 @@ implementer settled them above: artifact hashes are qualification evidence,
 with exact platform/version and built-in-route admission rather than per-launch
 hash enforcement; existing Peon attention is preserved until an ordinary
 authorized transition, with no rollout migration or nonprompt reconciliation.
-These are proposed implementer choices, not owner-approved requirements.
+These implementer choices were included in the published design the owner
+approved for implementation.
 No other unanswered builder questions were reported in the one-round review.
-Implementation approval and retained live qualification remain outstanding.
+Implementation approval is recorded above. Retained live qualification remains
+outstanding; no activation is authorized by the design approval alone.

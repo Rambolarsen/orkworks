@@ -384,6 +384,28 @@ authenticated channel and uncommon prompts may be missed. This accepted
 tradeoff requires no observer, producer migration, new hook trust or native
 approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-program-status.md).
 
+### Antigravity native terminal attention (approved; qualification pending)
+
+For source-qualified built-in Antigravity launches, reuse live OSC 7501 UI
+status under the [accepted design](../docs/superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
+and [ADR 0120](../docs/adr/0120-antigravity-native-terminal-attention.md).
+Only retained native evidence may populate the source-owned exact platform/
+version profile. No Antigravity profile is qualified by documentation or design
+approval alone. Force emission with source-owned launch environment only after
+that gate; do not modify existing sessions or user settings.
+
+Native blocked permission/question/auth maps to Needs You. Working, idle/done,
+error and clear/unknown use the existing terminal attention semantics. Preserve
+explicit user/separate-agent attention and runtime-generation fences. The first
+recognized live frame supersedes later Antigravity attention hooks, while hook
+identity capture remains available; non-emitting runs keep hook Working/Idle.
+Peon preserves the complete Antigravity attention tuple before and after native
+activation while continuing summaries and descriptive metadata. Do not bulk-
+clear an existing Peon wait at rollout. A prose question without a native wait
+remains unsupported. Silence, typing and replayed history cannot synthesize a
+resolution. Native terminal evidence is spoofable best-effort display state,
+not permission authority or an aggregate of unqualified child sessions.
+
 ### Deterministic harness-supplied signals
 
 Session titles describe a stable task topic, separately from activity summaries.

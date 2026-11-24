@@ -1066,7 +1066,7 @@ fn mark_committed_input_working(
         && handle.info.attention.as_deref() == Some("needs_you")
         && permission_owned;
     let committed_input = line_completed || single_key_qualifies || codex_mouse_click_qualifies;
-    let commit_working = !handle.runtime.codex_terminal_status_active
+    let commit_working = !handle.runtime.terminal_status_active
         && !already_working
         && committed_input
         && attention_source != Some("user")
