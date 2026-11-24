@@ -6,6 +6,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Pair build provenance and startup custody](2026-11-24-pair-build-startup-design.md) — Proposed shared SQLite feature undefinition and early process bootstrap; owner decision and qualification pending.
+
 - [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Accepted owned file-length and fixed-arena capacities with total host costs excluded; physical qualification and execution pending.
 
 - [Research profile physical catalog and boundary](2026-11-24-research-physical-profile-design.md) — Proposed written physical format, additive registration, index/proof mapping and limit accounting for the retained-file research profile; audit item 5. All physical/native/authority qualification stays explicitly no-go.

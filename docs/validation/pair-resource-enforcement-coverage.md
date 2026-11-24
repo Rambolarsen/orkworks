@@ -257,3 +257,20 @@ names pre-effect checks and retention for all existing public slots; unresolved
 build/configuration/native evidence above is not hidden as a passed Gate 1.
 No code, database/SQL, target build, compiler/native/model probe, allocator/VFS
 installation, migration, profile eligibility or budget renewal occurred.
+
+## Shared page-cache startup finding — 2026-11-24
+
+Further source inspection follows the unresolved cache/startup edge rather than
+repeating this callback map. The bundled memory-management define selects a
+unified PGroup; pcache1FetchStage2 can recycle an equal-sized page between caches
+without a page allocation callback. That conditional path can supply unpaired-
+origin storage to a pair even with an early router; it is not an observed overrun.
+Production Codex and OpenCode read-only SQLite consumers make unpaired startup/
+coexistence concrete, not merely hypothetical future ordinary storage.
+
+The [build/startup proposal](../superpowers/specs/2026-11-24-pair-build-startup-design.md)
+compares an explicit shared-build feature undefinition with leaving the candidate
+unavailable or adding a new PCACHE2 integration. The recommended global flag is
+owner-pending, affects unpaired memory reclamation, and is not accepted by this
+source evidence or merge. Existing resource/worker/VFS choices remain accepted;
+Gate 1 stays Investigate and no implementation or execution budget is renewed.
