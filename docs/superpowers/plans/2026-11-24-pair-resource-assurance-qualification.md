@@ -158,3 +158,14 @@ before executable decomposition; later native rollback remains an explicit gate.
 
 No implementation or probe ran to write this plan. The acceptance record changes
 requirements only. #1176 remains open and the selected backend unqualified.
+
+## Gate 1 source map recorded — 2026-11-24
+
+The [controlled enforcement map](../../validation/pair-resource-enforcement-coverage.md)
+reconciles cached SQLite bytes and declared dependency features, distinguishes
+hint/close wrapper behavior, covers the existing public slots and identifies the
+original EOF accounting owner as a bounded code candidate. Its exact Windows
+metadata read stopped at an uncached dependency; target build/startup/cache/
+lookaside/native-adapter custody remains unqualified. No source-map count or
+candidate API is promoted to actual mechanism proof. Gate 1 remains Investigate;
+Gate 2 execution, native budgets and production eligibility remain gated.

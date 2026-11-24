@@ -428,3 +428,13 @@ of the former stronger guarantee. Unknown controlled extension/allocation routes
 still deny qualification; actual VFS/router, source and durability remain
 unqualified. Follow the [new qualification sequence](../superpowers/plans/2026-11-24-pair-resource-assurance-qualification.md),
 not another automatic E/S sampling or probe chain.
+
+## Controlled enforcement map — 2026-11-24
+
+The [accepted-contract source map](pair-resource-enforcement-coverage.md) connects
+this inventory to concrete pre-effect EOF admission, ignored hint/close results,
+allocation provenance and a bounded private accounting slice. The source hash
+was rechecked; target metadata stopped at an uncached Windows support crate,
+without a fetch/build/probe fallback. It supplies no complete target build,
+startup configuration or actual VFS/router proof. Gate 1 remains Investigate for
+those requirements; later executable/native/production gates stay closed.

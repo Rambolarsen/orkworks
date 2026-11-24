@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Pair controlled enforcement coverage](pair-resource-enforcement-coverage.md) — Pinned-source file-growth, callback and allocation ownership map; exact build/configuration and native enforcement remain unqualified.
+
 - [Workflow evidence candidate packet](workflow-evidence-packet.md) — Bounded candidate snapshots, executable coverage gaps and independent-evaluation limits.
 
 - [Workflow observation support and freshness](workflow-observation-quality.md) — Sanitized support-quality corpus, source trace and proposed admission/currentness gates for #1077.
