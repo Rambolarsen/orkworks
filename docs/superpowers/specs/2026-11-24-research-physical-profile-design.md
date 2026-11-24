@@ -156,12 +156,18 @@ Compatibility, stated as this proposal's explicit mechanism:
 
 The header-adjacent registration carries one row per admitted profile:
 `{profile:"retained-file-research-v1", admittedBy:<original outcome C>,
-families:<the complete enumerated name list>}`. The research profile registers
-only through its own original admission/initialization outcome; the registration
-row is a real effect, counted in that outcome's manifest and limits. Profile
-identity is selected by the accepted admission rules (per RunKey at fresh root
-admission, per ChildAssignmentIdentity at the unique attachment), never by row
-presence or registration lookup alone.
+families:<the complete enumerated name list>}`. The committed registration
+body is exactly the profile and the complete enumerated family list; the
+`admittedBy` CommitRef is an **excluded outer link** — attached after C is
+computed, validated separately through the owning manifest, never inside the
+body whose digest contributes to C. No registration field contains its own new
+C, so no hash fixed point or extra exclusion beyond this named link is needed,
+matching the accepted excluded-CommitRef construction. The research profile
+registers only through its own original admission/initialization outcome; the
+registration row is a real effect, counted in that outcome's manifest and
+limits. Profile identity is selected by the accepted admission rules (per
+RunKey at fresh root admission, per ChildAssignmentIdentity at the unique
+attachment), never by row presence or registration lookup alone.
 
 ### Physical name and key mapping
 
@@ -195,12 +201,17 @@ The discovery inventory's both-direction obligation is realized physically as:
 - lookup maintenance rows only where an owning contract already names them —
   this profile adds no new global dictionary, alias table or hidden index.
 
-Key/digest/body disagreement, duplicate keys, changed same-key bytes or a
-missing/owning-proof-less index is unavailable, never overwrite or collision
-chaining. **Every index creation and maintenance cost counts** in the owning
-outcome's complete-command/store accounting and in this document's limit table;
-no index escapes accounting as infrastructure. Read-side discovery work is
-bounded by the accepted cumulative discovery bounds, unchanged.
+Key/digest/body disagreement, duplicate keys, changed same-key bytes for
+**immutable** families, or a missing/owning-proof-less index is unavailable,
+never overwrite or collision chaining. Mutable control families and report
+heads/ledgers replace same-key values only through their owning contract's
+captured original-to-final CAS/coalescing rules within one admitted outcome —
+the index reflects the replaced value under that same outcome, never a silent
+or out-of-band overwrite. **Every index creation and maintenance cost counts**
+in the owning outcome's complete-command/store accounting and in this
+document's limit table; no index escapes accounting as infrastructure.
+Read-side discovery work is bounded by the accepted cumulative discovery
+bounds, unchanged.
 
 ### Proof and recovery representation
 
