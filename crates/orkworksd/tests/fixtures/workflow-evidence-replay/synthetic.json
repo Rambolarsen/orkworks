@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "synthetic-grounding",
+      "declaredOrigin": "synthetic",
+      "workspaceId": "synthetic-workspace",
+      "asOf": "2026-11-24T12:00:00Z",
+      "capturedCandidates": [
+        {
+          "id": "hidden-title",
+          "evidence": "main sync issue",
+          "reassembledRows": [
+            "\u001b]0;main sync issue\u0007"
+          ]
+        },
+        {
+          "id": "visible-error",
+          "evidence": "fatal: cannot open build.lock",
+          "reassembledRows": [
+            "fatal: cannot open build.lock"
+          ]
+        },
+        {
+          "id": "quoted-error",
+          "evidence": "fatal: cannot open build.lock",
+          "reassembledRows": [
+            "const expected = \"fatal: cannot open build.lock\";"
+          ]
+        },
+        {
+          "id": "raw-missing",
+          "evidence": "fatal: cannot open build.lock",
+          "reassembledRows": [
+            "fatal: cannot \u001b[31mopen\u001b[0m build.lock"
+          ]
+        },
+        {
+          "id": "missing-capture",
+          "evidence": "SYNTHETIC_PRIVATE_TEXT",
+          "reassembledRows": null
+        }
+      ]
+    },
+    {
+      "id": "synthetic-recent-store",
+      "declaredOrigin": "synthetic",
+      "workspaceId": "synthetic-workspace",
+      "asOf": "2026-11-24T12:00:00Z",
+      "storedObservations": [
+        {
+          "id": "old",
+          "sequence": 1,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-10T11:59:59.999999999Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "edge",
+          "sequence": 2,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-10T13:00:00+01:00",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "future",
+          "sequence": 3,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-24T12:00:00.000000001Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "invalid",
+          "sequence": 4,
+          "sessionId": "synthetic-session",
+          "observedAt": "bad-time",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "high",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "now",
+          "sequence": 5,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-24T12:00:00Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "weak",
+          "sequence": 6,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-24T11:00:00Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "visible failure",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.1,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "glyph",
+          "sequence": 7,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-24T11:00:00Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "\u2598\u259d",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-glyph"
+        }
+      ],
+      "existingRecommendations": []
+    },
+    {
+      "id": "synthetic-retained-history",
+      "declaredOrigin": "synthetic",
+      "workspaceId": "synthetic-workspace",
+      "asOf": "2026-11-24T12:00:00Z",
+      "capturedCandidates": [
+        {
+          "id": "new-hidden-title",
+          "evidence": "retained title",
+          "reassembledRows": [
+            "\u001b]0;retained title\u0007"
+          ]
+        }
+      ],
+      "storedObservations": [
+        {
+          "id": "history-a",
+          "sequence": 1,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-23T00:00:00Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "retained title",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        },
+        {
+          "id": "history-b",
+          "sequence": 2,
+          "sessionId": "synthetic-session",
+          "observedAt": "2026-11-23T01:00:00Z",
+          "kind": "obstacle",
+          "description": "synthetic control, not a production incident",
+          "evidence": "retained title",
+          "reportedImpact": "low",
+          "source": "peon",
+          "confidence": 0.9,
+          "fingerprint": "synthetic-family"
+        }
+      ],
+      "existingRecommendations": []
+    }
+  ]
+}
