@@ -51,6 +51,8 @@ mod root_bootstrap;
 mod root_bootstrap_tests;
 pub(crate) mod runtime;
 pub(crate) mod store;
+#[cfg(test)]
+mod workflow_evidence_replay_tests;
 
 use crate::workflow_observations::{Impact, ObservationKind, ObservationSource};
 use serde::{Deserialize, Serialize};
