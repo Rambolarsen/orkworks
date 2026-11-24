@@ -311,3 +311,29 @@ consumer/resource coverage and honest physical/executable deferrals. Reviewers
 ran no fixtures or product/native/model/database probes. Static agreement and
 documentation checks do not qualify a physical manifest, original authority,
 actual cross-owner outcome, full-state history or production writer.
+
+
+## Scoped owner acceptance — 2026-11-24
+
+After PR [#2025](https://github.com/Rambolarsen/orkworks/pull/2025) merged and
+the review/verification evidence above was presented, the owner answered
+“keep going” to the explicit three-choice acceptance question. This accepts
+those choices — complete typed-owner capture/derive/revalidate/effect recipes;
+one H-to-C outcome per prescribed durable phase with coalesced sole versions,
+ledger deltas, original direct proofs and operation-specific read-only retries;
+and unchanged independent bounds with fail-closed recovery — **for written
+command/proof closure only**.
+
+This acceptance applies to this document's three choices and merged #2025,
+not to a separate overlapping proposal or any unreviewed physical design. It
+adds no executable command tag/codec, physical format/table/layout/header/
+manifest/version, complete-command representation, original producer/cutoff or
+ordinary/native atomicity qualification. No dependent fixture, runtime/native/
+model/database execution, adapter, migration, activation or implementation plan
+is authorized. Existing technical definitions and historical artifact bytes
+remain unchanged; Gate 2 remains **Investigate**.
+
+Audit item 5 remains the separately reviewed physical-profile boundary. Its
+preparation must retain actual resource/cutoff/ordinary/native qualification
+limits, including unresolved prerequisites; written acceptance cannot supply
+them. #1689/#1089/#610 stay open; #740 stays closed research.
