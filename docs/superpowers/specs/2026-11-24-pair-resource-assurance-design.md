@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Pair resource assurance through owned file lengths and fixed arena storage
-description: Proposed explicit replacement of total native peak guarantees with enforceable owned file-length and SQL arena budgets, with host costs disclosed and implementation still gated.
+description: Owner-accepted owned file-length and SQL arena budgets replace total native peak guarantees for further qualification; host costs are disclosed and implementation remains gated.
 tags: [orkworks, hierarchy, windows, sqlite, resources, assurance]
 status: draft
-workflow_status: proposed-owner-decision-pending
+workflow_status: accepted-qualification-pending
 ---
 
 # Pair resource assurance through owned file lengths and fixed arena storage
@@ -14,6 +14,10 @@ of #738/#741/#744/#746 and the physical research profile under #1689. Design bas
 `65ae7351`. This is a **proposed material reduction in the resource guarantee**,
 not a clarification that the existing guarantee always meant logical bytes.
 Publication or merge records the proposal; it does not accept it.
+
+Current decision: [scoped acceptance](#scoped-resource-assurance-acceptance--2026-11-24)
+accepts the guarantee changes below for further qualification. Earlier proposed/
+pending wording records the reviewed proposal, not a remaining approval gate.
 
 ## Decision requested and reason
 
@@ -220,3 +224,27 @@ text reviews, not independent file/line or source verification. The author check
 the saved document against the supplied content and linked accepted constraints.
 No reviewer finding required a design change. Review or merge cannot accept the
 changed product guarantee on the owner's behalf.
+
+## Scoped resource-assurance acceptance — 2026-11-24
+
+After [#2034](https://github.com/Rambolarsen/orkworks/pull/2034), reviewed head
+`f1c38499c08752eeda91a9c515fbc29c1389f161`, merge
+`b39fff709530390725382e46c2ce1230aa54bf30`, the owner answered “keep going” to the
+explicit question approving the three reduced guarantees **for further
+qualification**. Acceptance covers 1 GiB hierarchy and one shared 2 GiB auxiliary
+logical file-length high-water capacities, one fixed 8 MiB SQL arena, the
+no-refund/retained-unknown accounting and the disclosed uncapped total native
+disk/memory costs. It does not claim the original stronger bounds were proved.
+
+[ADR 0118](../../adr/0118-pair-resource-assurance.md) supersedes ADR 0112 only for
+these resource meanings and its complete numeric E/S first gate. The existing
+same-worker/VFS/router/original-owner architecture and every lower/source/
+recovery/durability/cutoff/activation gate stay binding. Do not request acceptance
+of these same resource choices again. No new source format, physical research
+profile choice (including #2033), execution budget or implementation is approved.
+
+The [qualification plan](../plans/2026-11-24-pair-resource-assurance-qualification.md)
+starts with exact-build controlled-operation/allocation-route closure. The backend
+remains unqualified; no database, SQL/native/compiler/model probe, allocator/VFS
+installation, migration, source registration or runtime activation follows from
+this acceptance record.

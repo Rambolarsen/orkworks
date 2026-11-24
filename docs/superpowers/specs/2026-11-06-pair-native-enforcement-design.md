@@ -1,10 +1,10 @@
 ---
 type: Design Proposal
 title: Pair-local native namespace and resource enforcement
-description: Accepted public SQLite VFS and pair-routed fixed-arena direction for further qualification under unchanged limits; complete envelopes and implementation remain gated.
+description: Accepted VFS/router ownership with the dated file-length/fixed-arena resource amendment; actual enforcement qualification and implementation remain gated.
 tags: [orkworks, hierarchy, windows, sqlite, ownership, resources]
 status: draft
-workflow_status: accepted-envelope-qualification-pending
+workflow_status: accepted-resource-assurance-qualification-pending
 ---
 
 # Pair-local native namespace and resource enforcement
@@ -12,6 +12,24 @@ workflow_status: accepted-envelope-qualification-pending
 Tracking: [#1467](https://github.com/Rambolarsen/orkworks/issues/1467),
 [#1176](https://github.com/Rambolarsen/orkworks/issues/1176). Design base:
 `19b6a2eb4a98aab1f31a507a903fc6cbe3353a10`.
+
+## Current resource contract — 2026-11-24
+
+The [accepted resource amendment](2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+and [ADR 0118](../../adr/0118-pair-resource-assurance.md) govern this profile:
+1 GiB hierarchy logical file-length high-water, one shared 2 GiB auxiliary
+logical file-length high-water total, and one fixed 8 MiB SQL arena. Total native
+allocation, OS/helper scratch and stacks have no numeric guarantee. The ordinary
+main file remains under its existing owner and all lower budgets remain binding.
+
+The original resource wording below is retained as decision history. In
+“Unchanged contracts and scope”, “Admission before growth and recovery”, “Fixed
+SQL memory and process-wide routing”, “Compatibility, failure and qualification”
+and the 2026-11-06 acceptance, the stronger physical-peak and complete numeric
+E/S requirements are superseded only by this dated amendment. The original
+same-worker/PairCore, rooted identity, deletion, no-spill, ABI/provenance/escape,
+startup/unpaired behavior and independent authority/recovery/durability gates
+remain binding. The amendment changes requirements, not implementation status.
 
 ## Proposed decision
 
@@ -341,3 +359,28 @@ closes only named component facts and leaves the manifest unavailable. No depend
 backend implementation plan, SQL/database, native/model probe, dispatch/budget
 renewal, qualified constructor or runtime activation is authorized by this answer.
 #1176 remains open and #740 remains closed research.
+
+## Resource qualification amendment — 2026-11-24
+
+The owner accepted the [exact #2034 resource package](2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+for further qualification. For an auxiliary's retained largest admitted EOF `h`,
+reserve `h_new = max(h, requested_end)` before I/O and require the checked shared
+sum `T - h + h_new <= 2 GiB`. Include both participants, pending/uncertain growth,
+super-journals and every permitted disk auxiliary exactly once by owned object.
+No shrink refund; unknown outcomes retain the full charge. Reuse requires proved
+original-owner reclamation. Apply the separate 1 GiB EOF check to hierarchy main.
+Allocation hints cannot bypass checked EOF admission. Recovery admits its complete
+validated inventory and lengths before SQL work; it gains no fresh authority.
+
+Use a fixed 8 MiB backing region including alignment, bookkeeping, fragmentation,
+all pair SQL heap/owned variable SQL callback buffers and simultaneous copies.
+No growing application buffer or allocator fallback escapes it. Native helper/
+OS costs and stacks are disclosed outside this numeric cap, not assigned zero.
+Unknown routing of controlled allocation denies qualification; exact-build route
+coverage is still required. A complete numeric E/S envelope is no longer the gate.
+
+The [qualification plan](../plans/2026-11-24-pair-resource-assurance-qualification.md)
+separates controlled-operation coverage, offline accounting/arena checks, actual
+native behavior and production authority/activation. Host costs can exceed the
+named capacities. No new native/compiler/model execution allowance, backend
+implementation or runtime activation follows. The candidate remains unqualified.

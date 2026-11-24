@@ -160,3 +160,5 @@ Decision records and their original rationale and consequences.
 
 - [Code-owned unverified improvement advice](0116-unverified-improvement-advice.md) — Accepted producer-3 status, negotiated presentation and fixed warned handoffs; activation remains gated.
 - [Authenticated sidecar listener with a renderer credential](0117-authenticated-sidecar-listener.md) — Accepted listener-wide credential and origin requirement; supersedes the loopback-only access posture.
+
+- [Pair resource assurance](0118-pair-resource-assurance.md) — Accepted scoped replacement of total native resource guarantees; implementation and qualification pending.

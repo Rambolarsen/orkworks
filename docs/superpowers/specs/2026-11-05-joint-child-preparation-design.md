@@ -296,15 +296,25 @@ large effect set under the ordinary 1 MiB intent limit; no maximum-profile fit
 or extra allowance is inferred. Queued expiration/FIFO/read fairness and native
 SQL cancellation/busy behavior remain owned and bounded; no replacement worker.
 
-The linked hierarchy file keeps its existing 4,096-byte pages / 1 GiB physical
-ceiling and logical/source limits. The ordinary history file remains under its
-ordinary owner rather than being counted as hierarchy history. The joint job's
-actual logical projection bytes still count as described above. The accepted
-2 GiB rollback/auxiliary-file ceiling must cover the joint command's ordinary
-and hierarchy journals **and super-journal together**, including recovery and
-statement-journal classes; it is not a fresh allowance per attached file.
-The 8 MiB SQL scratch and all artifact/materializer/queue budgets remain separate.
-Unknown native amplification or accounting denies qualification, not extra disk.
+The [resource amendment accepted on 2026-11-24](2026-11-24-pair-resource-assurance-design.md#scoped-resource-assurance-acceptance--2026-11-24)
+changes the earlier physical-peak/scratch guarantee explicitly: the linked
+hierarchy file retains 4,096-byte pages and at most 1 GiB logical file-length
+high-water. The ordinary history main file stays under its existing owner, outside
+that capacity and the auxiliary total; actual logical projection bytes still
+count as described above. One shared 2 GiB logical file-length high-water total
+covers ordinary and hierarchy journals **and super-journal together**, including
+all permitted recovery/disk auxiliary classes and pending/uncertain extensions.
+It is not a fresh allowance per attached file. Admission precedes growth;
+shrinking does not refund, and unknown outcomes retain their admitted charge.
+
+One separate fixed 8 MiB SQL arena includes its bookkeeping, fragmentation,
+pair-routed heap, owned variable SQL callback buffers and peak copies. Total
+native filesystem allocation, OS/helper scratch and stacks are outside these
+numeric guarantees and can exceed them. All artifact/materializer/queue and
+other lower budgets remain separate. Unknown controlled routing/accounting still
+denies qualification; numeric native E/S envelopes are no longer required for
+this profile. [ADR 0118](../../adr/0118-pair-resource-assurance.md) records this
+scoped reduction without qualifying an enforcement mechanism or runtime route.
 
 A blocked joint transaction can occupy both owners' durable service in this
 workspace. Ordinary history/metadata requests may report bounded queue/busy/
