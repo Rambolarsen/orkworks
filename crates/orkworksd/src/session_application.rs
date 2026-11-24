@@ -4127,7 +4127,11 @@ impl SessionApplication {
             signal.message.as_deref(),
             &signal.plan_path,
             &signal.timestamp,
-            &signal.source,
+            if signal.opencode_authority.is_some() {
+                "opencode_hook"
+            } else {
+                &signal.source
+            },
             signal.confidence,
             signal.activate_work_hook,
         );
@@ -6123,6 +6127,9 @@ fn bind_accepted_attention(
         signal.confidence,
     );
     if let Some(stored) = workspace.metadata.read_session(&signal.session_id) {
+        if signal.opencode_authority.is_some() {
+            handle.info.summary = stored.summary;
+        }
         handle.info.provenance = stored.provenance;
         handle.info.metadata_source = Some(stored.metadata_source);
         handle.info.metadata_confidence = Some(stored.metadata_confidence);
@@ -8823,6 +8830,99 @@ mod tests {
         assert!(live.info.needs_user_input.is_none());
         assert!(live.info.detected_question.is_none());
         assert!(live.info.suggested_options.is_none());
+    }
+
+    #[tokio::test]
+    async fn opencode_resolution_clears_only_its_current_prompt_summary() {
+        for status in ["working", "idle"] {
+            for (summary, source, newer, user_override, clear) in [
+                (
+                    "OpenCode is asking for an answer",
+                    "agent",
+                    false,
+                    false,
+                    true,
+                ),
+                (
+                    "OpenCode is asking for a permission decision",
+                    "agent",
+                    false,
+                    false,
+                    true,
+                ),
+                (
+                    "OpenCode needs an answer or permission decision",
+                    "agent",
+                    false,
+                    false,
+                    true,
+                ),
+                ("Running verification", "agent", false, false, false),
+                (
+                    "OpenCode is asking for an answer",
+                    "peon",
+                    false,
+                    false,
+                    false,
+                ),
+                (
+                    "OpenCode is asking for an answer",
+                    "agent",
+                    true,
+                    false,
+                    false,
+                ),
+                (
+                    "OpenCode is asking for an answer",
+                    "agent",
+                    false,
+                    true,
+                    false,
+                ),
+            ] {
+                let root = tempfile::tempdir().unwrap();
+                let id = "opencode-summary-resolution";
+                let state = opencode_attention_state(root.path(), id);
+                let app = SessionApplication::new(state.clone());
+                let mut wait = opencode_attention_signal("question.asked", "waiting_for_input");
+                wait.message = Some(summary.into());
+                app.report_attention(id, wait).await.unwrap();
+                {
+                    let workspace = state.workspace.lock().unwrap();
+                    let store = &workspace.as_ref().unwrap().metadata;
+                    let mut meta = store.read_session(id).unwrap();
+                    meta.provenance.summary_source = Some(source.into());
+                    if newer {
+                        meta.provenance.summary_observed_at = Some("2099-01-01T00:00:00Z".into());
+                    }
+                    if user_override {
+                        meta.provenance.attention_source = Some("user".into());
+                    }
+                    store.write_session(&meta);
+                }
+                let mut resolved = opencode_attention_signal("question.replied", status);
+                resolved.observed_at = Some("2026-09-26T12:00:01.123456Z".into());
+                resolved.message = None;
+                app.report_attention(id, resolved).await.unwrap();
+                let workspace = state.workspace.lock().unwrap();
+                let meta = workspace
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap();
+                assert_eq!(
+                    meta.summary.as_deref(),
+                    if clear { None } else { Some(summary) }
+                );
+                if clear {
+                    assert!(meta.provenance.summary_source.is_none());
+                    assert!(meta.provenance.summary_confidence.is_none());
+                    assert!(meta.provenance.summary_observed_at.is_none());
+                    assert!(state.sessions.lock().unwrap()[id].info.summary.is_none());
+                }
+            }
+        }
     }
 
     fn opencode_attention_state(root: &std::path::Path, id: &str) -> Arc<AppState> {

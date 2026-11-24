@@ -2070,6 +2070,10 @@ impl MetadataStore {
             PlanPathUpdate::Set(_) => "session.plan_path_set",
             PlanPathUpdate::Unchanged => "session.attention_reported",
         };
+        // Only the application path with validated OpenCode authority supplies this tag.
+        // Durable source priority and provenance remain at the existing agent tier.
+        let opencode_hook = source == "opencode_hook";
+        let source = if opencode_hook { "agent" } else { source };
         let mut checkpoint_written = false;
         let result = self.mutate_session_optional_before_replace(
             id,
@@ -2082,6 +2086,39 @@ impl MetadataStore {
                     meta.provenance.attention_age_secs(),
                 ) {
                     return Ok(false);
+                }
+                // A prompt message is a snapshot of a resolved request, not ongoing work.
+                // Preserve newer descriptive snapshots and incomplete/unknown provenance.
+                let prompt_summary = matches!(
+                    meta.summary.as_deref(),
+                    Some("OpenCode is asking for an answer")
+                        | Some("OpenCode is asking for a permission decision")
+                        | Some("OpenCode needs an answer or permission decision")
+                );
+                let summary_precedes_attention = meta
+                    .provenance
+                    .summary_observed_at
+                    .as_deref()
+                    .zip(meta.provenance.attention_updated_at.as_deref())
+                    .and_then(|(summary, attention)| {
+                        Some(
+                            chrono::DateTime::parse_from_rfc3339(summary).ok()?
+                                <= chrono::DateTime::parse_from_rfc3339(attention).ok()?,
+                        )
+                    })
+                    .unwrap_or(false);
+                if opencode_hook
+                    && meta.harness == "opencode"
+                    && matches!(status, "working" | "idle")
+                    && message.is_none()
+                    && meta.provenance.summary_source.as_deref() == Some("agent")
+                    && prompt_summary
+                    && summary_precedes_attention
+                {
+                    meta.summary = None;
+                    meta.provenance.summary_source = None;
+                    meta.provenance.summary_confidence = None;
+                    meta.provenance.summary_observed_at = None;
                 }
                 meta.observed_status = Some(status.to_string());
                 if meta.lifecycle == "alive" {
