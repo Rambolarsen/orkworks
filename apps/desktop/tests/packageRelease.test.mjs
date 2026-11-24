@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { load as yamlLoad } from "js-yaml";
 
@@ -55,11 +56,36 @@ test("electron-builder config declares signed release targets", () => {
   assert.deepEqual(config.win.target, ["nsis"]);
   assert.equal(config.win.verifyUpdateCodeSignature, true);
   assert.equal(config.win.forceCodeSigning, true);
-  assert.deepEqual(config.win.publisherName, []);
+  assert.equal(config.win.publisherName, undefined);
   assert.deepEqual(config.win.publish, {
     provider: "github",
     owner: "Rambolarsen",
     repo: "orkworks",
+  });
+});
+
+test("the canonical release config passes the installed electron-builder schema", async () => {
+  const require = createRequire(import.meta.url);
+  const builderRequire = createRequire(require.resolve("electron-builder/package.json"));
+  const libraryRequire = createRequire(builderRequire.resolve("app-builder-lib/package.json"));
+  const { validateConfiguration } = libraryRequire("./out/util/config/config.js");
+  const config = yamlLoad(readFileSync(resolve(desktopRoot, "electron-builder.yml"), "utf8"));
+
+  await validateConfiguration(config, { isEnabled: false });
+});
+
+test("electron-builder can parse and rewrite a macOS bundle plist", () => {
+  const require = createRequire(import.meta.url);
+  const builderRequire = createRequire(require.resolve("electron-builder/package.json"));
+  const libraryRequire = createRequire(builderRequire.resolve("app-builder-lib/package.json"));
+  const plist = libraryRequire("plist");
+  const source = '<plist version="1.0"><dict><key>CFBundleName</key><string>OrkWorks</string></dict></plist>';
+  const info = plist.parse(source);
+  info.CFBundleVersion = "42";
+
+  assert.deepEqual(plist.parse(plist.build(info)), {
+    CFBundleName: "OrkWorks",
+    CFBundleVersion: "42",
   });
 });
 

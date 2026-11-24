@@ -22,3 +22,5 @@ patchedDependencies:
   # Electron 45.2.3 rejects leading whitespace in connected canvas font strings (#1849).
   '@xterm/addon-webgl@0.19.0': patches/@xterm__addon-webgl@0.19.0.patch
   '@xterm/xterm@6.0.0': patches/@xterm__xterm@6.0.0.patch
+  # plist 3.1.0 omits the XML MIME type required by the patched xmldom version (#903).
+  plist@3.1.0: patches/plist@3.1.0.patch
