@@ -285,3 +285,94 @@ wording is historical only for those choices. No actual flag/configuration/code
 changed and no target/native mechanism was qualified. Existing source facts,
 metadata failure, unknowns and execution budgets stay intact. Gate 1 remains
 Investigate for actual artifact/startup/adapter closure; Gate 2 is not unlocked.
+
+## Configuration-writer source audit — 2026-11-24
+
+Inspection base: `bfacb5fa551776b12d53df575e351a25d5583c71`, following the
+[bounded bootstrap-state plan](../superpowers/plans/2026-11-24-pair-bootstrap-state-tests.md).
+This closes a narrower source question: which inspected layers can initialize
+or change the relevant configuration, and what the absence of application calls
+can actually establish. It does **not** close Gate 1 or execute that plan.
+
+### Repository and dependency boundary
+
+A source-only scan of all `.rs`, `.c` and `.h` files under
+`crates/orkworksd/src/` found no direct sqlite3_config, sqlite3_initialize,
+sqlite3_shutdown, SQLITE_CONFIG_*, config_log, auto_extension, set_db_config,
+SQLITE_DBCONFIG_LOOKASIDE or enable_shared_cache occurrence. The package build.rs
+only compiles the existing listener-identity C helper on macOS/aarch64; it adds
+no inspected SQLite configuration writer. This is a scoped textual result, not
+a whole-program or alias/indirect-call proof. Existing rusqlite opens still
+initialize the library through dependency code.
+
+The lock's named dependency edges into this family remain orkworksd → rusqlite
+→ libsqlite3-sys. That can exclude another named lock consumer from this small
+inventory, but cannot establish the Windows resolved features, native link map,
+forced compiler includes, pre-main code or an actual artifact's writer history.
+No Cargo command was rerun; the earlier uncached Windows metadata failure remains.
+
+| Inspected source boundary | Source result | Custody consequence |
+| --- | --- | --- |
+| rusqlite lib.rs,57/96–97/136–138 | Reexports raw ffi; auto_extension module is available unless loadable_extension; trace module is feature-gated | Bundled/hooks does not seal the C API. An exposed registration API is not evidence that it ran |
+| rusqlite trace.rs,27–52 | config_log calls global SQLITE_CONFIG_LOG; its wrapper exists only when the trace module is enabled | No inspected repo call or direct trace feature request; actual feature unification still needs reconciliation. Do not call every dependency config writer absent |
+| rusqlite inner_connection.rs,420–449 | Opening checks sqlite3_threadsafe, then allocates/frees a recursive mutex to detect single-thread mode | That check can initialize SQLite before sqlite3_open_v2. It is unsuitable as a pre-install custody probe |
+| Pinned sqlite3.c,22887–22945 | Static defaults include core mutex enabled, empty allocator/cache methods, NULL pPage/pHeap and compiled lookaside defaults | These are conditional initial source values, not a live public configuration read or proof no earlier writer changed them |
+| sqlite3MemSetDefault,26915–26928 | The selected system allocator default installs all methods via SQLITE_CONFIG_MALLOC | Expected internal writer under the reviewed default build; selecting another allocator macro changes this path. Do not mistake it for an application foreign allocator |
+| sqlite3PCacheSetDefault,56349–56366 | Installs the default method table via SQLITE_CONFIG_PCACHE2 | Internal method selection does not prove external PAGECACHE backing-pool provenance |
+| sqlite3_initialize,179984–180152 | Initializes mutex/allocator/cache/OS state; may run SQLLOG and EXTRA_INIT hooks when compiled | Configuration history includes initialization and build-selected hooks, not just explicit repo sqlite3_config calls |
+
+The same cached SQLite and build.rs SHA-256 values above were rechecked. Additional
+read source identities, relative to the pinned rusqlite 0.32.1 crate:
+
+| File | SHA-256 |
+| --- | --- |
+| src/lib.rs | `6649c0c96b04ded5a192de3de5adc40d3103fec186f9f056dddfae7d34a36108` |
+| src/inner_connection.rs | `3c49805fe5a239c89ff512f603c6f3f514061d653e3fcb5e7b46af1887a98382` |
+| src/trace.rs | `0eabb4d60c8f1a32c44fb462cca2a64c10db771a62fd33a6f803c2f5df5ad707` |
+
+### Getter, initialization and build observations
+
+Pinned sqlite3_config,180287–180365, separates MALLOC table replacement from
+PAGECACHE pPage/szPage/nPage replacement and PCACHE2 method replacement. GETMALLOC
+can install defaults; GETPCACHE2 can do likewise but cannot return the pool.
+Retain the accepted omission of GETPCACHE2. NULL pPage in static initialization
+cannot be promoted to live pool custody without the complete build/writer path.
+The compiled lookaside slot defaults are source observations, not newly accepted
+pair counts or permission to disable lookaside.
+
+The initializer sets isInit before the optional EXTRA_INIT call at180141–180145.
+An error returned by a build-supplied extra hook can therefore coexist with
+initialized state. That hook is excluded by the accepted reviewed-default recipe;
+its reachable source path illustrates why a non-OK initialization result must not
+be interpreted as pristine state or permission to reinstall/reset. The accepted
+sticky retained-failure rule already covers this; no new retry policy is added.
+
+The inspected tree has no `.cargo/config` or `.cargo/config.toml` at repository,
+`crates/` or `crates/orkworksd/` level. This does not cover ancestor/CARGO_HOME or
+command-line configuration. `rust-toolchain.toml` selects floating stable;
+desktop build scripts use ordinary cargo build, and the release workflow uses
+windows-latest/stable. None supplies the accepted candidate undefinition or a
+fixed actual compiler/linker/SDK/artifact manifest. Historical compile-evidence
+scripts still describe their original memory-management define; do not edit or
+reuse those artifacts as evidence of the new candidate.
+
+### Remaining closure and next finite action
+
+**Gate 1 remains Investigate; the offline implementation plan remains gated.**
+Static inspection now distinguishes application, wrapper, engine-default and
+build-hook writers. It cannot manufacture the missing target feature graph,
+effective flags, linked artifact or native adapter. No reasonable additional
+no-match search can establish those actual-build facts.
+
+Next prepare a separately reviewable finite Windows dependency/build-evidence
+proposal: identify the required dependency acquisition and metadata operation,
+fixed toolchain/SDK/compiler inputs, exact candidate build, artifact/flag custody,
+invocation/time limits and owned cleanup. State explicitly whether it is metadata
+only or compiler/native execution, and obtain its applicable execution allowance
+before running it. Do not reuse the spent compile/native batch or silently treat
+this source audit as that allowance. The broader adapter/source/context and
+ordinary-compatibility gates still require their own evidence afterward.
+
+No dependency fetch, metadata retry, compilation, SQL/database access, SQLite API,
+bootstrap code, flag change, native/model probe or budget renewal occurred here.
+#1176 stays open; production hierarchy remains unavailable before I/O.
