@@ -260,6 +260,8 @@ jobs:
             "session_application::tests::accept_recommendation_submits_prompt_and_transitions_status",
             "harness::integrations::tests::report_harness_event_ps1_rejects_array_lifecycle_sources",
             "harness::integrations::tests::report_harness_event_ps1_native_scalar_success_fallback_and_secret_exclusion",
+            "harness::detect::tests::registered_windows_fallback_dirs_reads_current_registry_paths",
+            "harness::detect::tests::probe_installed_tool_resolves_windows_style_executable_name",
             "taskmaster::inference_trust::identity::tests::defaulted_identity_is_stable_but_execution_changes_invalidate_it",
             "workspace_runtime::tests::native_identity_rejects_missing_windows_identity_parts",
             "runtime::session_runtime::windows_cwd::tests::npm_cmd_shim_starts_in_selected_workspace",
@@ -274,6 +276,8 @@ jobs:
           }
       - name: Test owned short probe processes
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml probe_process -- --test-threads=1
+      - name: Test harness tool detection
+        run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml harness::detect
       - name: Test native Claude reporter event mapping
         run: cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test claude_reporter_ps1
       - name: Run native custom inference transport
