@@ -208,3 +208,14 @@ oracles. It is ready as a planning handoff, not executable authority. Gate 1
 remains Investigate; Gate 2 still requires source closure and bounded execution
 authorization. Native/compiler/database budgets and production admission remain
 unchanged. The separate EOF/arena/native owners are not implemented by that plan.
+
+## Configuration-writer source audit recorded — 2026-11-24
+
+The [source audit](../../validation/pair-resource-enforcement-coverage.md#configuration-writer-source-audit--2026-11-24)
+distinguishes absent inspected application calls from dependency wrappers,
+engine-default writers and build-selected initialization hooks. Static defaults
+and a no-match search do not establish actual pool/build custody. Gate 1 remains
+Investigate and the bootstrap-state plan is not executed. The next finite action
+is a separately reviewed Windows dependency/build-evidence proposal, with an
+explicit execution allowance before any acquisition, metadata retry or build;
+spent budgets and independent native/source/compatibility gates remain unchanged.
