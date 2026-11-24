@@ -123,7 +123,36 @@ export default {
     let lastMicros = 0;
     const permissionIds = new Set();
     const questionIds = new Set();
-    const formIds = new Set();
+    const formIds = new Map();
+    let formLookupPending = false;
+
+    // Native events are volatile. Recover a missed form resolution only from
+    // the captured question tool's completed state, never from terminal activity.
+    const recoverFormWait = async () => {
+      if (!formIds.size || permissionIds.size || questionIds.size || formLookupPending ||
+          typeof ctx.session?.context !== 'function') return;
+      const sessionID = openCodeSessionId;
+      let lookup;
+      formLookupPending = true;
+      try {
+        lookup = Promise.resolve(ctx.session.context({ sessionID }, {
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(2000)]),
+        })).finally(() => { formLookupPending = false; });
+      } catch {
+        formLookupPending = false;
+        return;
+      }
+      const messages = await boundedLookup(lookup, controller.signal);
+      if (controller.signal.aborted || sessionID !== openCodeSessionId ||
+          !Array.isArray(messages)) return;
+      for (const [id, owner] of formIds) {
+        if (!owner) continue;
+        const message = messages.find(item => item?.type === 'assistant' && item.id === owner.messageID);
+        if (Array.isArray(message?.content) && message.content.some(part =>
+          part?.type === 'tool' && part.id === owner.id && part.name === 'question' &&
+          part.state?.status === 'completed')) formIds.delete(id);
+      }
+    };
 
     const effectiveAttention = () => {
       const needsAnswer = questionIds.size || formIds.size;
@@ -297,7 +326,14 @@ export default {
           break;
         case 'form.created':
           if (typeof data.form?.id !== 'string' || !data.form.id) return;
-          formIds.add(data.form.id);
+          {
+            const metadata = data.form.metadata;
+            const owner = metadata?.tool;
+            formIds.set(data.form.id, metadata?.kind === 'question' &&
+              typeof owner?.messageID === 'string' && owner.messageID &&
+              typeof owner.id === 'string' && owner.id
+              ? { messageID: owner.messageID, id: owner.id } : null);
+          }
           break;
         case 'form.replied':
         case 'form.cancelled':
@@ -311,6 +347,9 @@ export default {
           break;
         default:
           return;
+      }
+      if (!['permission.asked', 'question.asked', 'form.created'].includes(type)) {
+        await recoverFormWait();
       }
       await postAttention(type);
     };

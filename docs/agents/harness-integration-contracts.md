@@ -114,6 +114,18 @@ may create/use its normal WAL coordination files; this is not a promise of zero
 filesystem or shared-memory activity. Immutable mode is unsuitable for a native
 store that another OpenCode process may still change.
 
+OpenCode pending-form recovery ([#2045](https://github.com/Rambolarsen/orkworks/issues/2045))
+feature-probes the plugin's `session.context` API. After a later recognized work,
+turn-end or resolution event, the captured form's native question ownership must
+match a completed question tool in the exact session's context before it clears.
+Unknown forms, permission and legacy-question waits, missing/mismatched/running
+tools, malformed/failed reads, absent APIs and cleanup preserve waiting.
+Reads have a two-second deadline and at most one outstanding call; there is no
+polling or terminal-text inference. Official 2.4.1 plugin/client/schema packages
+and installed macOS arm64 source establish this narrow contract, not installed
+end-to-end qualification. The plugin adapter does not expose the general
+client's pending-form API. See the [recovery contract](../superpowers/specs/2026-09-26-opencode-prompt-attention-design.md#native-pending-form-recovery-2045).
+
 ### Codex terminal status
 
 The sidecar reads live OSC 7501 frames for Codex sessions (ADR 0093). Once a

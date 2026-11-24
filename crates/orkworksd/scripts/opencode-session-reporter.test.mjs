@@ -69,7 +69,7 @@ function makeSubscription() {
   };
 }
 
-async function withReporter(run, identityStatuses = [], attentionStatuses = []) {
+async function withReporter(run, identityStatuses = [], attentionStatuses = [], sessionApi) {
   const posts = [];
   const server = createServer(async (request, response) => {
     const chunks = [];
@@ -103,6 +103,7 @@ async function withReporter(run, identityStatuses = [], attentionStatuses = []) 
   let cleanup = null;
   try {
     cleanup = await reporter.setup({
+      session: sessionApi,
       event: {
         subscribe: ({ signal } = {}) => {
           signal?.addEventListener('abort', () => subscription.abort());
@@ -687,3 +688,137 @@ test('cleanup cancels an in-flight attention request without retrying', { timeou
     assert.equal(attention(posts).length, 1);
   }, [], [() => started()]);
 });
+
+// OpenCode 2.4.1 plugin SessionDomain exposes context, not session.form.list.
+const ownedForm = () => {
+  const event = formCreated();
+  event.data.form.metadata = { kind: 'question', tool: { messageID: 'msg_1', id: 'call_1' } };
+  return event;
+};
+const completedQuestion = (status = 'completed') => [{
+  id: 'msg_1', type: 'assistant', content: [{
+    type: 'tool', id: 'call_1', name: 'question', state: { status },
+  }],
+}];
+
+for (const [event, expected] of [
+  ['session.step.started', 'working'],
+  ['session.execution.succeeded', 'idle'],
+  ['session.execution.interrupted', 'idle'],
+]) {
+  test(`missing form resolution recovers on ${event} from the completed question tool`, async () => {
+    const session = { context: async input => {
+      assert.deepEqual(input, { sessionID: 'ses_1' });
+      return completedQuestion();
+    } };
+    await withReporter(async ({ push, posts }) => {
+      await push(sessionEvent('session.step.started'));
+      await push(ownedForm());
+      // The form was answered, but form.replied never reached this subscription.
+      await push(sessionEvent(event));
+      assert.deepEqual(attention(posts).map(r => r.status),
+        ['idle', 'working', 'waiting_for_input', expected]);
+      assert.equal(attention(posts).at(-1).message, undefined);
+    }, [], [], session);
+  });
+}
+
+test('native read-back preserves an unanswered form until the matching question tool completes', async () => {
+  let forms = completedQuestion('running');
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(ownedForm());
+    await push(sessionEvent('session.step.started'));
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+    forms = completedQuestion();
+    await push(sessionEvent('session.step.started'));
+    assert.equal(attention(posts).at(-1).status, 'working');
+  }, [], [], { context: async () => forms });
+});
+
+for (const response of [undefined, null, {}, { data: [] }]) {
+  test(`malformed native context response ${JSON.stringify(response)} preserves the wait`, async () => {
+    await withReporter(async ({ push, posts }) => {
+      await push(sessionEvent('session.step.started'));
+      await push(ownedForm());
+      await push(sessionEvent('session.step.started'));
+      assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+    }, [], [], { context: async () => response });
+  });
+}
+
+test('native form lookup failure preserves the wait', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(ownedForm());
+    await push(sessionEvent('session.step.started'));
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+  }, [], [], { context: async () => { throw new Error('unavailable'); } });
+});
+
+test('foreign work events cannot reconcile the captured form wait', async () => {
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(ownedForm());
+    await push(sessionEvent('session.step.started', { sessionID: 'ses_foreign' }));
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+  }, [], [], { context: async () => completedQuestion() });
+});
+
+for (const kind of ['permission', 'question']) {
+  test(`form recovery preserves a pending ${kind} and recovers after its resolution`, async () => {
+    await withReporter(async ({ push, posts }) => {
+      await push(sessionEvent('session.step.started'));
+      await push(sessionEvent(`${kind}.asked`, { id: 'other_1' }));
+      await push(ownedForm());
+      await push(sessionEvent('session.step.started'));
+      assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+      await push(sessionEvent(`${kind}.replied`, { requestID: 'other_1' }));
+      assert.equal(attention(posts).at(-1).status, 'working');
+    }, [], [], { context: async () => completedQuestion() });
+  });
+}
+
+test('stalled native form lookup is bounded and cannot accumulate outstanding reads', { timeout: 6000 }, async () => {
+  let lookups = 0;
+  await withReporter(async ({ push, posts }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(ownedForm());
+    await push(sessionEvent('session.step.started'));
+    await push(sessionEvent('session.step.started'));
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+    assert.equal(lookups, 1);
+  }, [], [], { context: () => { lookups++; return new Promise(() => {}); } });
+});
+
+test('cleanup cancels native form recovery without publishing a clear', { timeout: 1500 }, async () => {
+  let started;
+  const lookupStarted = new Promise(resolve => { started = resolve; });
+  await withReporter(async ({ push, posts, cleanup }) => {
+    await push(sessionEvent('session.step.started'));
+    await push(ownedForm());
+    const processing = push(sessionEvent('session.step.started'));
+    const beganLookup = await Promise.race([lookupStarted.then(() => true), processing.then(() => false)]);
+    assert.equal(beganLookup, true, 'recovery starts the native read before finishing the event');
+    cleanup();
+    await processing;
+    assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+  }, [], [], { context: () => { started(); return new Promise(() => {}); } });
+});
+
+for (const mismatch of ['message', 'call', 'tool', 'missing', 'running', 'unknown-form']) {
+  test(`question recovery preserves ${mismatch} evidence`, async () => {
+    const messages = completedQuestion();
+    if (mismatch === 'message') messages[0].id = 'other';
+    if (mismatch === 'call') messages[0].content[0].id = 'other';
+    if (mismatch === 'tool') messages[0].content[0].name = 'bash';
+    if (mismatch === 'missing') messages.length = 0;
+    if (mismatch === 'running') messages[0].content[0].state.status = 'running';
+    await withReporter(async ({ push, posts }) => {
+      await push(sessionEvent('session.step.started'));
+      await push(mismatch === 'unknown-form' ? formCreated() : ownedForm());
+      await push(sessionEvent('session.step.started'));
+      assert.equal(attention(posts).at(-1).status, 'waiting_for_input');
+    }, [], [], { context: async () => messages });
+  });
+}
