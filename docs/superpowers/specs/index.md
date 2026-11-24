@@ -6,6 +6,8 @@ Dated design records; these do not establish current product behavior.
 
 - [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Accepted owned file-length and fixed-arena capacities with total host costs excluded; physical qualification and execution pending.
 
+- [Research profile physical catalog and boundary](2026-11-24-research-physical-profile-design.md) — Proposed written physical format, additive registration, index/proof mapping and limit accounting for the retained-file research profile; audit item 5. All physical/native/authority qualification stays explicitly no-go.
+
 - [Workflow evidence payload exclusion and observation freshness](2026-11-23-workflow-evidence-policy-design.md) — Proposed dual-view Peon grounding, fourteen-day new-input policy and compatibility boundary for #1077.
 
 - [Publish adaptive workspace status before Git enrichment](2026-11-22-adaptive-snapshot-startup-design.md) — Approved startup and recovery contract for #1965.

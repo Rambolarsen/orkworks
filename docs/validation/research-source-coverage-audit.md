@@ -278,3 +278,27 @@ format/manifest/version, dependent component packet, real producer/cutoff or
 cross-owner atomic/native outcome is qualified; item 5 and all runtime gates
 remain open. Earlier technical statements and validation artifact bytes remain
 historical and unchanged. #1689/#1089 stay open; #740 stays closed research.
+
+
+## Physical-profile boundary proposal — 2026-11-24
+
+The [written physical-profile proposal](../superpowers/specs/2026-11-24-research-physical-profile-design.md)
+addresses catalog-closure item 5 over the accepted enumeration, discovery
+ownership, initializer outcomes and command/proof recipes. It proposes one
+hierarchy store per workspace with one header/epoch/manifest sequence,
+new-store-only format 7 with a closed union registry over the accepted
+35-family inventory plus the research names, additive registration that
+preserves the actual H, the physical name/key/index mapping with all index and
+registration costs counted, direct-proof recovery under the unchanged crash
+oracles, and a written limit-accounting table. Format-3/4/6 artifacts are never
+retokened.
+
+Every physical/native/authority term stays explicitly unresolved — the
+pre-operation whole-peak growth and scratch envelope (candidate unavailable,
+both execution batches consumed), SQLite page/index/journal overhead,
+authority/cutoff, custody, ordinary storage activation and native bridge
+participation. Its five choices remain proposed for scoped written acceptance;
+no component packet, executable codec, migration, probe budget, adapter or
+activation follows. #1689/#1089/#610 stay open; #740 stays closed research.
+Gate 2 remains **Investigate**.
+
