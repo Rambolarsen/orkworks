@@ -1725,38 +1725,79 @@ mod tests {
     #[test]
     fn git_control_fifos_fail_closed_without_hanging() {
         const CHILD: &str = "ORKWORKS_CONTROL_FIFO_TEST";
-        if std::env::var_os(CHILD).is_some() {
+        if let Some(repo) = std::env::var_os(CHILD) {
             use std::ffi::CString;
-            let d = init();
+            let repo = std::path::PathBuf::from(repo);
+            let start = Instant::now();
+            eprintln!("FIFO child: setup started");
             for name in [".gitattributes", ".gitignore"] {
-                let path = d.path().join(name);
+                let path = repo.join(name);
                 let c = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
                 assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
-                assert!(capture(d.path(), Comparison::Uncommitted, None).is_err());
+                eprintln!(
+                    "FIFO child: {name} capture started after {:?}",
+                    start.elapsed()
+                );
+                let outcome = capture(&repo, Comparison::Uncommitted, None);
+                match &outcome {
+                    Err(error) => eprintln!(
+                        "FIFO child: {name} capture finished after {:?}; err={error}",
+                        start.elapsed()
+                    ),
+                    Ok(captured) => panic!(
+                        "{name}: expected fail-closed error after {:?}, got Ok(partial={}, files={}, notice={:?})",
+                        start.elapsed(),
+                        captured.partial,
+                        captured.files.len(),
+                        captured.notice
+                    ),
+                }
                 std::fs::remove_file(path).unwrap();
             }
             return;
         }
+        // Prepare the synthetic repo before starting the 3-second hang watchdog
+        // so slow git subprocess setup under parallel test load is not billed as
+        // a FIFO capture hang.
+        let d = init();
+        let log_dir = tempfile::tempdir().unwrap();
+        let child_stderr_path = log_dir.path().join("fifo-child.stderr");
+        let child_stderr = std::fs::File::create(&child_stderr_path).unwrap();
+        let start = Instant::now();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "git_changes::tests::git_control_fifos_fail_closed_without_hanging",
+                "--nocapture",
             ])
-            .env(CHILD, "1")
+            .env(CHILD, d.path())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::from(child_stderr))
             .spawn()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = start + Duration::from_secs(3);
         loop {
             if let Some(status) = child.try_wait().unwrap() {
-                assert!(status.success());
+                if !status.success() {
+                    let diagnostics =
+                        std::fs::read_to_string(&child_stderr_path).unwrap_or_default();
+                    panic!(
+                        "Git control FIFO child exited with {status} after {:?}; child diagnostics:\n{}",
+                        start.elapsed(),
+                        diagnostics.trim()
+                    );
+                }
                 break;
             }
             if Instant::now() > deadline {
                 let _ = child.kill();
                 let _ = child.wait();
-                panic!("Git control FIFO blocked capture")
+                let diagnostics = std::fs::read_to_string(&child_stderr_path).unwrap_or_default();
+                panic!(
+                    "Git control FIFO fixture parent deadline exceeded after {:?}; child diagnostics:\n{}",
+                    start.elapsed(),
+                    diagnostics.trim()
+                );
             }
             std::thread::sleep(Duration::from_millis(10));
         }
