@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [One Windows pair dependency metadata attempt](2026-11-25-pair-windows-metadata-evidence.md) — Proposed one-job locked acquisition/offline graph allowance; no compiler build or execution granted.
+
 - [Antigravity native terminal attention](2026-11-24-antigravity-native-attention.md) — Approved design delivery with retained native qualification before activation.
 
 - [Private pair bootstrap state tests](2026-11-24-pair-bootstrap-state-tests.md) — Bounded fake-API state-owner plan; source closure and execution remain gated.
