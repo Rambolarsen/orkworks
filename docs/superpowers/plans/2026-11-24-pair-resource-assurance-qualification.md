@@ -219,3 +219,12 @@ Investigate and the bootstrap-state plan is not executed. The next finite action
 is a separately reviewed Windows dependency/build-evidence proposal, with an
 explicit execution allowance before any acquisition, metadata retry or build;
 spent budgets and independent native/source/compatibility gates remain unchanged.
+
+## Windows metadata allowance proposed — 2026-11-25
+
+The [finite metadata proposal](2026-11-25-pair-windows-metadata-evidence.md)
+selects dependency acquisition and one offline Windows graph observation before
+requesting a fixed compiler build. Its new allowance remains owner-pending;
+writing or merging the proposal does not execute or renew any batch. Even a
+complete graph supplies no effective flag, linked-artifact or native custody
+proof. Gate 1 remains Investigate and dependent implementation stays gated.
