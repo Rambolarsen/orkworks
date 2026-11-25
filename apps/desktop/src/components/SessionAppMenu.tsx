@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ExternalLink } from "lucide-react";
 import HarnessIcon from "./HarnessIcon";
 import type { SessionInfo } from "../api";
 import { useCompactPopover } from "../useCompactPopover";
 
+type Destination = "native" | "vscode";
 type Availability = { label: string; available: boolean; reason?: string; installed?: boolean };
 
 export default function SessionAppMenu({ workspacePath, session, disabled, compact = false }: { workspacePath: string; session: SessionInfo; disabled: boolean; compact?: boolean }) {
@@ -17,37 +18,61 @@ export default function SessionAppMenu({ workspacePath, session, disabled, compa
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const intent = useRef(0);
+  const refreshAvailability = useRef<(() => void) | null>(null);
   const panelId = useId();
   useCompactPopover(open && compact, trigger, panel, "end");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAvailability(null);
     setFolderAvailability(null);
     setError(null);
-    if (!open || disabled) return;
+    if (disabled) return;
+
+    const pending = new Map<Destination, number>();
+    const freshUntil = new Map<Destination, number>();
     let current = true;
-    const timers: number[] = [];
-    for (const destination of ["native", "vscode"] as const) {
-      let settled = false;
-      const finish = (value: Availability, message?: string) => {
-        if (!current || settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        (destination === "native" ? setAvailability : setFolderAvailability)(value);
-        if (message) setError(message);
-      };
-      const fail = (reason: unknown) => finish({
-        label: destination === "vscode" ? "Visual Studio Code"
-          : session.harnessId === "codex" ? "ChatGPT" : session.harnessId === "claude-code" ? "Claude" : "Native application",
-        available: false,
-      }, reason instanceof Error ? reason.message : "Couldn't check the desktop application.");
-      const timer = window.setTimeout(() => fail(new Error("Application check timed out. Close and reopen this menu to try again.")), 15_000);
-      timers.push(timer);
-      void window.orkworks.inspectSessionApp(workspacePath, sessionId, destination)
-        .then(value => finish(value)).catch(fail);
+    const warmTimer = window.setTimeout(refresh, 250);
+    refreshAvailability.current = refresh;
+
+    function refresh() {
+      window.clearTimeout(warmTimer);
+      for (const destination of ["native", "vscode"] as const) {
+        if (pending.has(destination) || (freshUntil.get(destination) ?? 0) > Date.now()) continue;
+
+        let settled = false;
+        const finish = (value: Availability, message?: string) => {
+          if (!current || settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          pending.delete(destination);
+          if (message) freshUntil.delete(destination);
+          else freshUntil.set(destination, Date.now() + 60_000);
+          (destination === "native" ? setAvailability : setFolderAvailability)(value);
+          if (message) setError(message);
+        };
+        const fail = (reason: unknown) => finish({
+          label: destination === "vscode" ? "Visual Studio Code"
+            : session.harnessId === "codex" ? "ChatGPT" : session.harnessId === "claude-code" ? "Claude" : "Native application",
+          available: false,
+        }, reason instanceof Error && reason.message ? reason.message : "Couldn't check the desktop application.");
+        const timer = window.setTimeout(() => fail(new Error("Application check timed out. Close and reopen this menu to try again.")), 15_000);
+        pending.set(destination, timer);
+        try {
+          void window.orkworks.inspectSessionApp(workspacePath, sessionId, destination)
+            .then(value => finish(value), fail);
+        } catch (error) {
+          fail(error);
+        }
+      }
     }
-    return () => { current = false; timers.forEach(timer => window.clearTimeout(timer)); };
-  }, [open, disabled, workspacePath, sessionId, session.harnessId, session.resume?.harnessSessionId, session.lifecycle, session.cwd, session.worktreeBinding?.root]);
+
+    return () => {
+      current = false;
+      refreshAvailability.current = null;
+      window.clearTimeout(warmTimer);
+      pending.forEach(timer => window.clearTimeout(timer));
+    };
+  }, [disabled, workspacePath, sessionId, session.harnessId, session.resume?.harnessSessionId, session.lifecycle, session.cwd, session.worktreeBinding?.root]);
 
   useEffect(() => {
     if (!open || disabled) return;
@@ -59,7 +84,7 @@ export default function SessionAppMenu({ workspacePath, session, disabled, compa
   }, [open, disabled, workspacePath, sessionId]);
   useEffect(() => () => { intent.current++; }, []);
 
-  async function launch(destination: "native" | "vscode" = "native") {
+  async function launch(destination: Destination = "native") {
     const request = ++intent.current;
     setOpening(true);
     setError(null);
@@ -83,7 +108,13 @@ export default function SessionAppMenu({ workspacePath, session, disabled, compa
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
   }}>
     <button ref={trigger} type="button" data-session-app-trigger aria-expanded={open} aria-controls={open ? panelId : undefined}
-      disabled={disabled} onClick={() => setOpen(value => !value)}><ExternalLink size={14} aria-hidden="true" />Open in…<ChevronDown size={13} aria-hidden="true" /></button>
+      disabled={disabled} onClick={() => {
+        if (!open) {
+          setError(null);
+          refreshAvailability.current?.();
+        }
+        setOpen(!open);
+      }}><ExternalLink size={14} aria-hidden="true" />Open in…<ChevronDown size={13} aria-hidden="true" /></button>
     {open && <div ref={panel} id={panelId} className="session-app-popover" role="group" aria-label="Open session in application">
       <button type="button" data-session-app-open disabled={!availability?.available || opening || disabled} onClick={() => void launch()}>
         <span aria-hidden="true"><HarnessIcon tool={session.harnessId} size={16} /></span>

@@ -141,10 +141,11 @@ may still use the earlier resume controls.
 
 ## Open a session in its desktop app
 
-In current source builds, the top-bar **Open in…** menu checks which destinations
-are available when you open it. While the menu is open, it refreshes when the
-session's identity, lifecycle or project directory changes. Built-in Codex
-sessions can open the same conversation in **ChatGPT**.
+In current source builds, OrkWorks checks desktop destinations in the background
+for the selected session. **Open in…** uses the cached results and refreshes
+them on open when they are stale. A change to the session's identity, lifecycle,
+or project directory starts a new check. Built-in Codex sessions can open the
+same conversation in **ChatGPT**.
 Built-in Claude Code sessions can open in **Claude** after you explicitly
 **Close** the session in OrkWorks. Opening never closes a running session for you.
 
