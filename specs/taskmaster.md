@@ -175,7 +175,9 @@ under #1966 define the architecture owner-accepted on 2026-11-22: a complete
 first-profile resource set, retained read-only observation and shared checked
 owner. Initial native descriptor evidence leaves concurrent-spawn custody
 unqualified under #1981. No actual collector, mutation coverage, native role or
-prepared Start is enabled.
+prepared Start is enabled. A [startup-sealed custody-owner amendment](../docs/superpowers/specs/2026-11-22-review-codex-custody-owner-design.md)
+proposes a process-lifetime/bootstrap resolution under #1981; it is not approved
+or implemented, and its finite native evidence does not qualify a real observer.
 
 ### Independence is valuable
 
