@@ -22,7 +22,12 @@ function stageSidecarBinary(step) {
 }
 
 for (const step of createReleaseBuildPlan(process.platform, process.arch)) {
-  run("cargo", ["build", "--release", "--manifest-path", sidecarManifestPath, "--target", step.rustTarget], repoRoot);
+  const cargoArgs = ["build", "--release", "--manifest-path", sidecarManifestPath, "--target", step.rustTarget];
+  if (step.builderTarget === "mac") {
+    // The packaged sidecar cannot depend on the signing machine's Homebrew libraries.
+    cargoArgs.push("--locked", "--features", "vendored-git");
+  }
+  run("cargo", cargoArgs, repoRoot);
   stageSidecarBinary(step);
   const { command, args } = electronBuilderInvocation(process.execPath, electronBuilderCliPath, step, {
     channel: process.env.ORKWORKS_RELEASE_CHANNEL ?? "latest",

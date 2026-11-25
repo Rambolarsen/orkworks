@@ -200,6 +200,10 @@ checksum generation and before artifact upload. The default gate requires the
 manifest. Its platform-native checks are the evidence that must be present in
 a real signed run.
 
+The macOS packaging command builds the sidecar with vendored libgit2 and
+OpenSSL so the installed app can run on a Mac without Homebrew libraries.
+Check the staged sidecar with `otool -L` when validating a linkage change.
+
 On macOS, for the staged app and the app extracted from the DMG and ZIP, the
 workflow runs commands equivalent to:
 

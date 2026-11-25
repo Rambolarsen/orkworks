@@ -205,6 +205,7 @@ overrides:
 patchedDependencies:
   '@xterm/addon-webgl@0.19.0': d6c412c074ff480f838073d9fa10ce1fafa66b07a2010e34853eeb1020ac8b1f
   '@xterm/xterm@6.0.0': a8d5ae5da104042e084dbf80c3707274a8ea111c44c287d2b8eccfbb2e8098bf
+  plist@3.1.0: 5e96a8183577f236291776ff1f850b331c49e31e1a49a8886503ce66ae3499e5
 
 importers:
 
@@ -2135,7 +2136,7 @@ snapshots:
       fs-extra: 10.1.0
       isbinaryfile: 4.0.10
       minimist: 1.2.8
-      plist: 3.1.0
+      plist: 3.1.0(patch_hash=5e96a8183577f236291776ff1f850b331c49e31e1a49a8886503ce66ae3499e5)
     transitivePeerDependencies:
       - supports-color
 
@@ -2158,7 +2159,7 @@ snapshots:
       dir-compare: 4.2.0
       fs-extra: 11.3.5
       minimatch: 11.0.6
-      plist: 3.1.0
+      plist: 3.1.0(patch_hash=5e96a8183577f236291776ff1f850b331c49e31e1a49a8886503ce66ae3499e5)
     transitivePeerDependencies:
       - supports-color
 
@@ -2476,7 +2477,7 @@ snapshots:
       lazy-val: 1.0.5
       minimatch: 11.0.6
       pkijs: 3.4.0
-      plist: 3.1.0
+      plist: 3.1.0(patch_hash=5e96a8183577f236291776ff1f850b331c49e31e1a49a8886503ce66ae3499e5)
       proper-lockfile: 4.1.2
       resedit: 1.7.2
       semver: 7.7.4
@@ -3680,7 +3681,7 @@ snapshots:
       pvutils: 1.1.5
       tslib: 2.8.1
 
-  plist@3.1.0:
+  plist@3.1.0(patch_hash=5e96a8183577f236291776ff1f850b331c49e31e1a49a8886503ce66ae3499e5):
     dependencies:
       '@xmldom/xmldom': 0.9.12
       base64-js: 1.5.1
