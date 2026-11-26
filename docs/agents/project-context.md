@@ -29,6 +29,29 @@ Use **pnpm** for Node.js package-management tasks in this repository, including
 `apps/desktop/` and `docs/`; do not use npm or yarn. For desktop-specific
 commands and validation, read [`apps/desktop/AGENTS.md`](https://github.com/Rambolarsen/orkworks/blob/main/apps/desktop/AGENTS.md).
 
+## Inspect a macOS development app
+
+The desktop development launcher creates a checkout-local `OrkWorks.app` under
+`apps/desktop/node_modules/.cache/orkworks-electron/`. Cached copies share the
+`ai.orkworks.desktop.dev` bundle ID, so a native inspection tool can report an
+ambiguous ID even when only one copy is running.
+
+1. List the running dev app bundle paths on the Mac:
+
+   ```bash
+   lsof -a -c Electron -d txt -Fn |
+     sed -n 's|^n\(.*\/OrkWorks\.app\)/Contents/MacOS/Electron$|\1|p' |
+     sort -u
+   ```
+
+2. Match the absolute path to the checkout that launched your dev server.
+   If you cannot identify the running target, stop before interacting with a
+   window. Keep other apps and their caches in place.
+3. Pass the full `.app` path to the inspection tool. In Codex computer use,
+   pass it to `cua.getApp(path)`. Check that the returned OrkWorks window's
+   renderer URL matches the Vite URL printed by your dev launcher, including
+   the port when using `ORKWORKS_DEV_PORT`.
+
 ## CI routing
 
 ### Local repository verification
