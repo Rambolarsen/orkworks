@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 61 tests, including real newline stdio exchange with an
+The focused suite includes real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
