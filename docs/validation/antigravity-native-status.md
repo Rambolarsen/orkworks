@@ -1,7 +1,7 @@
 ---
 type: Validation Record
 title: Antigravity native terminal status qualification
-description: Retained native question-answer and cancellation traces; literal denial and automatic-command coverage remain unqualified.
+description: Native question, cancellation, explicit rejection and automatic-command traces with retained coverage and cleanup limits.
 tags: [orkworks, antigravity, attention, validation]
 status: draft
 ---
@@ -178,22 +178,69 @@ mutated. This describes current source rather than a published installer or
 an independent installed end-to-end OrkWorks UI test.
 
 
-## Owner-accepted limited source activation, 2026-11-26
+## Explicit rejection and automatic-command follow-up, 2026-11-26
 
-After reviewing the request to enable macOS arm64 1.5.16 with the documented
-limits, the owner directed continued implementation. This accepts the narrowed
-coverage for exactly that source profile. Literal Deny-button behavior,
-automatic-command behavior on 1.5.16, human-visible dialog confirmation and
-all-descendant cleanup remain unverified; they are not retroactively marked
-passed. The retained structured state and cancellation sequences are sufficient
-for this owner-accepted best-effort UI activation, not permission authority.
+The owner directed this follow-up after [activation PR #2068](https://github.com/Rambolarsen/orkworks/pull/2068).
+It changes retained evidence, not source eligibility or permission ownership.
+The installed executable had advanced to 1.5.17, which remains outside the
+source profile. The official [1.5.16 macOS arm64 release](https://github.com/google-antigravity/antigravity-cli/releases/tag/1.5.16)
+was downloaded into a disposable directory. Its archive matched the release
+asset digest; its executable matched the earlier retained hash and reported
+1.5.16. Both hashes are in the [derived follow-up record](antigravity-native-denial-automatic-2026-11-26.json).
+The installed CLI was not downgraded or replaced.
 
-The source-owned version table admits only `1.5.16`, with the existing macOS
-arm64, built-in command, exact resume/initial-prompt and successful bounded
-version-probe checks. Fresh runtimes force OSC emission and brief messages;
-existing sessions are not changed. The diagnostic `toolPermission: strict`
-override is never added to production launches. Other versions/platforms and
-custom routes retain their prior hook fallback. Explicit user/separate-agent
-attention, generation fencing, no replay and whole-tuple Peon preservation stay
-unchanged. This updates source behavior, not a published-installer qualification.
-No further native probe is authorized by accepting activation.
+Four interactive native starts occurred, each capped at 180 seconds and one prompt. The
+first exited with code 1 before any prompt or status; its error text was not
+retained and its cause remains unknown. The second reached a startup permission
+wait, which was canceled without approval. That test copy changed bytes during
+startup, so none of its frames qualify 1.5.16. A subsequent hash preflight
+refused before another native start. The test artifact was then restored,
+placed in its own read-only directory and launched with the process-only
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` override. The two successful trials retained
+unchanged executable hashes. These measures pin this experiment, not production
+launches or future artifacts.
+
+The successful trials used the existing workspace that supported the earlier
+capture, with disposable fixture files outside the checkout. Neither inspected
+or edited repository files. The denial trial used the session-only strict tool
+setting; the automatic trial used no mode or tool-permission override, retaining
+the existing native configuration. No user settings, hook installations,
+permission lists or persistent grants were changed. No inherited OrkWorks
+reporting capability or model/proxy credential was forwarded. Normal native
+login and global configuration still applied. Exactly one fixture prompt was
+submitted in each successful trial; model-call accounting was not measured.
+
+| Case | Retained native sequence | Independent observation and boundary |
+| --- | --- | --- |
+| Explicit command rejection | Working 21.913s → blocked/permission 31.979s → Working 52.530s → Idle 52.601s | Fixed native permission text and numbered Yes/No controls were observed. The operator sent the observed No option number; its selected marker appeared before the native wait cleared. No Escape or approval was sent for this resolution. This establishes the native rejection control, not a human-visible confirmation or retained structured tool-error receipt. |
+| Automatic command | Working 18.281s → done 30.931s | Fixed shell-activity text appeared at 23.098s and the prepared disposable file contained the exact execution marker at 26.815s. No permission/question blocked frame occurred during this turn and no approval input was sent. Startup auth had already cleared to Idle at 1.511s. This is one automatic-command negative case under the existing configuration, not a guarantee for all commands or policies. |
+
+The denial fixture initially used a relative output target, whereas its
+collector checked a temporary path. Its absent marker is therefore not an
+independent proof of nonexecution and is not used to qualify rejection. The
+qualification relies on the observed No control/selection and native state
+transition. The automatic fixture used an absolute temporary output target;
+its exact marker is independent of echoed prompt text.
+
+All successful frames had root `app=antigravity`, no child ID/title, the existing
+app/state/kind/msg field shape and at most 73 payload bytes. Raw PTY, native IDs,
+message/title bodies, prompts and answer text were omitted. Fixed generic
+permission-control labels are retained only to establish the rejection action.
+This remains an agent-operated terminal capture, not an installed OrkWorks UI
+end-to-end test or a human-confirmed dialog test.
+
+The denial collector attempted process-group teardown but checked root exit
+before closing its PTY, then reported exit unconfirmed. A subsequent process
+inventory found no process using this task's unique pinned executable; this is
+not a retrospective child-reap or all-descendant proof. A dummy-only test then
+established that closing the PTY before waiting lets a TERM-resistant child
+exit. The automatic collector used that order, delivered the group signal and
+confirmed root exit with code 0. Possible-descendant cleanup remains unproven.
+
+Explicit native rejection and one independently witnessed automatic command
+are now retained for this artifact. Human-visible dialog confirmation, installed
+OrkWorks UI behavior, other versions/platforms, child aggregation and complete
+descendant cleanup remain unqualified. The source table stays exactly 1.5.16;
+this evidence does not enable 1.5.17, broaden production permission policy or
+claim the original full qualification gate passed. No native test remains
+running and no further native start is part of this evidence update.

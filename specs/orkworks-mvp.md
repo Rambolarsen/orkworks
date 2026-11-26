@@ -391,8 +391,10 @@ status under the [accepted design](../docs/superpowers/specs/2026-11-24-antigrav
 and [ADR 0120](../docs/adr/0120-antigravity-native-terminal-attention.md).
 The owner accepted narrowed empirical coverage on 2026-11-26 for exactly CLI
 1.5.16 on macOS arm64, based on the [retained native trial](../docs/validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
-Literal Deny-button and automatic-command behavior, human-visible confirmation
-and descendant cleanup remain unverified. This limited admission does not claim
+The [follow-up trials](../docs/validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
+retain an explicit native rejection and one automatic command without a prompt
+block. Human-visible confirmation, installed OrkWorks UI behavior and complete
+descendant cleanup remain unverified. This limited admission does not claim
 full qualification. Other platform/version profiles require retained evidence
 and approval. Force emission with source-owned launch environment only for the
 admitted profile; do not modify existing sessions, permission policy or user

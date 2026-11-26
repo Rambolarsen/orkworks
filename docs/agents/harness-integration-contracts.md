@@ -148,13 +148,17 @@ for the live evidence and accepted missed/spoofed-frame limitations.
 
 Current source enables a separate Antigravity OSC 7501 profile for exactly
 **CLI 1.5.16 on macOS arm64**, using the shared bounded live-PTY parser. The owner
-accepted narrowed coverage on 2026-11-26; the [native evidence record](../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26)
-retains question/answer and working/done traces, plus a strict-session trial with
-permission and question cancellation. Literal Deny-button behavior, automatic-
-command behavior on 1.5.16 and human-visible dialog confirmation remain
-unqualified. Root exit was confirmed despite a denied process-group cleanup
-signal; descendant cleanup is not proven. This is limited owner-accepted
-admission, not a claim of full qualification or a published-installer update.
+accepted narrowed coverage on 2026-11-26. The [native evidence record](../validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
+retains question/answer and cancellation traces, an explicit native No rejection
+followed by Working/Idle, and one independently witnessed automatic command
+without a permission/question block. The rejection used strict session-only
+permissions; the automatic case retained existing native policy. These are
+agent-operated trials, not human-visible or installed OrkWorks UI qualification.
+Root cleanup was unconfirmed for the rejection trial and confirmed for the
+automatic trial; all-descendant cleanup remains unproven. This limited admission
+does not claim full qualification or a published-installer update. The installed
+1.5.17 executable is outside the source profile; the follow-up used a separate,
+update-disabled 1.5.16 artifact.
 
 The launch check admits only built-in command templates, exact resume and the
 source-owned initial-prompt argument. A canonical resolved executable and a

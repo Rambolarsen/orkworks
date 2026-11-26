@@ -257,9 +257,11 @@ In current source builds, fresh built-in Antigravity CLI **1.5.16** sessions on
 **macOS arm64** use the tool’s native terminal status for **Needs You**. Native
 question and permission waits clear when the tool reports working or idle;
 typing alone does not clear them. This has limited coverage: native question
-answering/cancellation and permission dismissal were captured, while literal
-Deny-button and automatic-command behavior remain untested. Status is best
-effort and can miss or misread a wait. Explicit user/agent status stays protected.
+answering/cancellation, permission dismissal and explicit rejection were captured.
+One automatically executed command completed without a permission wait. These
+were agent-operated trials; installed UI and human-visible confirmation remain
+unverified. Status is best effort and can miss or misread a wait. Explicit
+user/agent status stays protected.
 
 Other versions, platforms and custom commands retain hook **Working**/**Idle**.
 Peon continues summaries while preserving Antigravity attention, including during
