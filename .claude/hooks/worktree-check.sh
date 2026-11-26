@@ -12,6 +12,10 @@ STALE_SECS=$((7 * 86400))
 NOW=$(date +%s)
 
 flags=()
+local_only=false
+if [ "${1:-}" = "--local-only" ]; then
+  local_only=true
+fi
 
 check_worktree() {
   local path="$1" branch="$2"
@@ -24,18 +28,23 @@ check_worktree() {
     return
   fi
 
-  local last_ts age has_pr=1
+  local last_ts age pr_count
   last_ts=$(git log -1 --format=%ct "$branch" 2>/dev/null) || return
   age=$((NOW - last_ts))
+  [ "$age" -gt "$STALE_SECS" ] || return
 
-  if command -v gh >/dev/null 2>&1; then
-    gh pr list --state open --head "$branch" --json number 2>/dev/null | grep -q '"number"' && has_pr=0
+  local days=$((age / 86400))
+  if [ "$local_only" = false ] && command -v gh >/dev/null 2>&1 &&
+    pr_count=$(gh pr list --state open --head "$branch" --limit 1 --json number --jq length 2>/dev/null); then
+    case "$pr_count" in
+      1) return ;;
+      0)
+        flags+=("$branch ($path): ${days}d stale, no open PR — decide: rebase & progress, or close")
+        return
+        ;;
+    esac
   fi
-
-  if [ "$age" -gt "$STALE_SECS" ] && [ "$has_pr" -ne 0 ]; then
-    local days=$((age / 86400))
-    flags+=("$branch ($path): ${days}d stale, no open PR — decide: rebase & progress, or close")
-  fi
+  flags+=("$branch ($path): ${days}d stale, open PR status unknown")
 }
 
 path="" branch=""
