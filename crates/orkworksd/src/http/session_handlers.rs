@@ -9270,17 +9270,7 @@ mod tests {
             .unwrap();
         let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
 
-        let router = axum::Router::new()
-            .route("/sessions/:id/resume", axum::routing::post(resume_session))
-            .with_state(state.clone());
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.unwrap();
-        });
-        let client = reqwest::Client::new();
-
-        for (session_id, expected_statuses) in [
+        for (case_id, expected_statuses) in [
             (
                 "codex-missing-rollout",
                 &[
@@ -9307,7 +9297,7 @@ mod tests {
         ] {
             let session = sessions
                 .iter()
-                .find(|s| s["id"] == session_id)
+                .find(|s| s["id"] == case_id)
                 .expect("projected session present");
             let options = session["resumeOptions"].as_array().unwrap();
             for &(strategy, expected_status) in expected_statuses {
@@ -9315,26 +9305,31 @@ mod tests {
                     .iter()
                     .find(|opt| opt["strategy"] == strategy)
                     .expect("strategy option present");
-                assert_eq!(option["available"], false, "{session_id}/{strategy}");
+                assert_eq!(option["available"], false, "{case_id}/{strategy}");
                 let expected_reason = option["reason"]
                     .as_str()
                     .expect("unavailable option must include reason");
 
-                let res = client
-                    .post(format!("http://{address}/sessions/{session_id}/resume"))
-                    .json(&serde_json::json!({ "strategy": strategy }))
-                    .send()
-                    .await
-                    .unwrap();
+                let payload =
+                    serde_json::to_vec(&serde_json::json!({ "strategy": strategy })).unwrap();
+                let res = resume_session(
+                    State(state.clone()),
+                    Path(case_id.to_string()),
+                    axum::body::Bytes::from(payload),
+                )
+                .await;
                 assert_eq!(
                     res.status(),
                     expected_status,
-                    "{session_id}/{strategy} status mismatch"
+                    "{case_id}/{strategy} status mismatch"
                 );
-                let body = res.text().await.unwrap();
+                let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let body = String::from_utf8(body_bytes.to_vec()).unwrap();
                 assert_eq!(
                     body, expected_reason,
-                    "{session_id}/{strategy} chooser reason must match launch rejection"
+                    "{case_id}/{strategy} chooser reason must match launch rejection"
                 );
             }
         }
@@ -9345,8 +9340,6 @@ mod tests {
             .unwrap();
         assert_eq!(archived["resumeStrategy"], "none");
         assert_eq!(archived["memoryState"], "unsupported");
-
-        server.abort();
     }
 
     #[test]
