@@ -457,3 +457,66 @@ and explicit compiler/linker/SDK identities and invocation limits. Obtain its
 separate allowance before execution. Do not infer Gate 1 closure, bootstrap code
 authority, ordinary compatibility, source permission, recovery/durability or
 production activation from this successful metadata result. #1176 stays open.
+
+## Fixed-build input audit — 2026-11-26
+
+The owner accepted the [new fixed-build allowance](../superpowers/plans/2026-11-26-pair-fixed-windows-build.md#scoped-allowance-accepted--2026-11-26).
+Dispatch remains0/1 while its separate tooling is reviewed. The earlier metadata,
+compiler and native batches remain spent; no new metadata operation is selected.
+
+The tooling policy at scripts/qualification/pair-fixed-windows-build.inputs.json
+pins the four source inputs, installed Cargo/rustc/cl bytes and 37 cached registry
+custom-build entrypoints from the retained graph. Acquired crate files must match
+Cargo's lock/archive and per-file checksums; any new build script is rejected.
+Source, Rust/toolset and selected SDK include/library/tool trees are sealed before
+code generation, with acquired registry sources added after the sole fetch, and
+compared again before publication. This provides input identity and drift checks,
+not independently reproduced outputs or a sandbox against arbitrary native code.
+
+The selected Windows native paths were inspected in cached locked sources:
+
+| Helper | Selected path and exclusion |
+| --- | --- |
+| libgit2-sys0.18.8+1.9.7 | Existing default features; LIBGIT2_NO_PKG_CONFIG=1 makes pkg-config0.3.33 return before spawning a probe. Require packaged libgit2/src; no vendored-git feature change or submodule download. |
+| libssh2-sys0.3.1 | VCPKGRS_DISABLE=1 rejects vcpkg discovery; omit LIBSSH2_SYS_USE_PKG_CONFIG. Existing Windows CNG path, packaged libssh2/src. A missing package cannot be repaired with Git. |
+| libz-sys1.1.29 | Existing MSVC path skips pkg-config, vcpkg disabled, packaged source build; no zlib-ng feature selection. |
+| ring0.17.14 | Require packaged pregenerated directory and no .git; no assembly regeneration with Perl/NASM. |
+| cc1.2.64/find-msvc-tools0.1.9 | Explicit cl/lib/link paths, fixed VC/SDK environment and restricted PATH; no latest toolset or ambient wrappers/flags. |
+| Remaining pinned build scripts | Rust cfg/version probes use the selected Rust toolchain. Non-Windows native discovery branches are outside this target. All package files, including script modules and proc-macro source, remain checksum verified. |
+
+The minimal child environment omits inherited credentials, Cargo configuration,
+CL/_CL_, CFLAGS/CXXFLAGS, wrappers and package-manager roots. Its PATH includes
+only the fixed Rust/MSVC/SDK directories and Windows System32; Git, pkg-config,
+vcpkg, CMake, Perl and NASM are not selected helpers. Cargo --offline alone is
+not the source/helper closure argument. Missing selected inputs or unknown actual
+SQLite compiler options deny the candidate without a rescue build or oracle retry.
+
+The evidence-only macro translation unit checks the undefinition and THREADSAFE1
+before and after including the same pinned amalgamation. Its argv is derived from
+the actual logged cc command, rejecting response files, forced includes and unknown
+options. Object/archive hashes, archive members, final map/import reports and
+unsigned sidecar identity must be inspected separately; test fixtures are not
+evidence that those artifacts exist. No sidecar or SQLite runtime will execute.
+
+This audit does not close Gate1, qualify startup/allocator/VFS/context behavior or
+permit bootstrap implementation. #1176 remains open. The one manual45-minute job
+and its terminal evidence record are still pending; no dispatch or build has run.
+
+The compile-time inventory additionally pins all14 procedural-macro entrypoints
+from the retained graph. Their non-dev dependency closure comprises those14 plus
+proc-macro2, quote, syn, synstructure and unicode-ident. Inspection of the cached
+source modules found token parsing/generation paths rather than network/helper
+launches; windows-implement's rustfmt launch belongs to its cfg(test) module,
+which this build does not run. proc-macro2/quote build probes use the explicit
+RUSTC. Unknown procedural-macro packages or entrypoints deny the build. This is a
+source-and-configuration closure for these trusted pinned packages, not an OS
+egress firewall or a claim that Cargo offline sandboxes arbitrary build code.
+
+Link custody requires the unique Cargo compiler-artifact for libsqlite3_sys,
+byte equality of its extracted SQLite member with the captured native object and
+the native sqlite3.lib member, and final map rows naming that selected Rust
+archive/member for SQLite symbols. The fixed lib.exe informational
+[/EXTRACT operation](https://learn.microsoft.com/en-us/cpp/build/reference/extracting-a-library-member?view=msvc-170)
+copies an existing member without recompilation or execution. Both SQLite
+archives and the custody receipt join the same bounded artifact; temporary
+extracted copies are removed. Unknown output formats leave custody unavailable.

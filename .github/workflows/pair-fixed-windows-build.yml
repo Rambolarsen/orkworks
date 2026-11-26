@@ -1,0 +1,51 @@
+name: Fixed Windows sidecar candidate build
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pair-fixed-build-allowance-2026-11-26
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved fixed-build attempt
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/qualification/pair-fixed-windows-build.ps1
+      - name: Retain bounded allowlisted candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-fixed-windows-build
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/result.json
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/inputs.json
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/cargo.jsonl
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/diagnostics.txt
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/oracle.c
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/oracle.i
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/sqlite3.lib
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/orkworksd.exe
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/candidate.map
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/dependencies.txt
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/archive-members.txt
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/compiler.json
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/libsqlite3_sys.rlib
+            ${{ runner.temp }}/ork-pair-fixed-windows-build/evidence/link-custody.json
