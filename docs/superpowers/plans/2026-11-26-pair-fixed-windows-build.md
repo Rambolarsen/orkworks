@@ -4,7 +4,7 @@ title: One fixed Windows sidecar candidate build
 description: Proposed finite locked sidecar build with named Rust, MSVC and SDK inputs, macro evidence and linked-artifact custody; no resulting binary execution or runtime qualification.
 tags: [orkworks, hierarchy, sqlite, windows, build, qualification]
 status: draft
-workflow_status: proposed-owner-allowance-required
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One fixed Windows sidecar candidate build
@@ -153,7 +153,7 @@ scratch after references/processes drain; failure/timeout gives no retry credit.
 
 ## Tooling, review and handoff
 
-- [ ] Obtain this exact new scoped allowance; old batches remain spent.
+- [x] Obtain this exact new scoped allowance; old batches remain spent.
 - [ ] Prepare a separate manual qualification workflow and owned script with
   offline behavioral tests. Freeze effective argv/manifest/oracle derivation and
   all invoked helper selections in its PR. Reuse the proven first-run, input-pin,
@@ -198,3 +198,14 @@ locked fetch, one offline Cargo build at jobs2 and one preprocessing oracle**, w
 zero resulting-sidecar execution and zero retries. No compiler, metadata retry,
 source acquisition, tool query, flag/code change or experiment ran to write this
 proposal; only repository/cached source and official documentation were read.
+
+## Scoped allowance accepted — 2026-11-26
+
+The owner answered “keep going” to the explicit #2066 question approving the
+reviewed tooling and this one45-minute Windows build job. Acceptance covers only
+the recipe/limits above, including build-helper descendants and the one macro
+oracle. [#2066](https://github.com/Rambolarsen/orkworks/pull/2066) merged as
+`cd12001b37a661232195f68def753b51a0d21c61`. Prior batches remain spent, and no
+resulting-sidecar execution or runtime/bootstrap/source authority is granted.
+Tooling must still close and review the stated inputs before dispatch; this
+acceptance does not turn unknown provenance into evidence. Dispatch remains0/1.

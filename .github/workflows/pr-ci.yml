@@ -60,6 +60,20 @@ jobs:
 
       - name: Test metadata evidence policy without acquisition
         run: node --test scripts/qualification/pair-windows-metadata-evidence.test.mjs
+      - name: Test fixed-build policy without acquisition or compilation
+        run: node --test scripts/qualification/pair-fixed-windows-build.test.mjs
+      - name: Parse and reject non-dispatch fixed-build entry
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$pwd/scripts/qualification/pair-fixed-windows-build.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'PowerShell parse failed' }
+          $env:GITHUB_EVENT_NAME = 'pull_request'
+          $denied = $false
+          try { & ./scripts/qualification/pair-fixed-windows-build.ps1 }
+          catch { $denied = $_.Exception.Message -eq 'Only the approved first Windows fixed-build attempt may run' }
+          if (-not $denied) { throw 'Non-dispatch build was not denied' }
       - name: Parse and reject non-dispatch metadata entry without acquisition
         if: runner.os == 'Windows'
         shell: pwsh
