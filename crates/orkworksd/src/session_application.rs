@@ -7729,6 +7729,11 @@ async fn create_session_workflow(
             }
         }
     }
+    #[cfg(all(test, windows, target_arch = "x86_64"))]
+    let image_fixture = crate::image_context::capture_windows_image_fixture();
+    #[cfg(all(test, windows, target_arch = "x86_64"))]
+    let image_bundle = image_bundle.filter(|_| image_fixture.is_some());
+    #[cfg(not(all(test, windows, target_arch = "x86_64")))]
     drop(image_bundle);
 
     drop(creation_workspace);
@@ -7778,7 +7783,19 @@ async fn create_session_workflow(
                 &startup_executable,
                 None,
             ) {
-                Ok(()) => runtime_future.await,
+                Ok(()) => {
+                    #[cfg(all(test, windows, target_arch = "x86_64"))]
+                    let _image_pins = match (&image_fixture, &image_bundle) {
+                        (Some(fixture), Some(bundle)) => fixture
+                            .observe_bundle(bundle)
+                            .map_err(|error| format!("Windows image qualification: {error}"))?,
+                        _ => Vec::new(),
+                    };
+                    let result = runtime_future.await;
+                    #[cfg(all(test, windows, target_arch = "x86_64"))]
+                    drop(image_bundle);
+                    result
+                }
                 Err(error) => {
                     drop(runtime_future);
                     Err(error.into())
