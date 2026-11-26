@@ -4,7 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
-- [One read-only Windows component inventory](2026-11-26-pair-toolchain-inventory.md) — Proposed bounded file/version/SDK inventory; no compiler, Cargo or target execution.
+- [One SDK servicing registration observation](2026-11-26-pair-sdk-servicing-evidence.md) — Proposed SDK-only registration allowance after the spent inventory entry-limit refusal; no execution granted.
+- [One read-only Windows component inventory](2026-11-26-pair-toolchain-inventory.md) — Completed unavailable: fixed file identities retained, SDK product scan stopped at its approved entry limit.
 - [One fixed Windows sidecar candidate build](2026-11-26-pair-fixed-windows-build.md) — Proposed named-toolchain Cargo build/macro/linkage allowance; no execution granted.
 
 - [One Windows pair dependency metadata attempt](2026-11-25-pair-windows-metadata-evidence.md) — Proposed one-job locked acquisition/offline graph allowance; no compiler build or execution granted.

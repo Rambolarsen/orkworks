@@ -806,3 +806,17 @@ current evidence does not support a replacement build yet. #1176 stays open and
 Gate1 stays Investigate; runtime/bootstrap, allocator/VFS/context, compatibility,
 source/cutoff/newness/catalog/initializer/recovery/durability and production
 activation remain gated.
+
+## SDK servicing observation proposed (2026-11-26)
+
+The [SDK-only proposal](../superpowers/plans/2026-11-26-pair-sdk-servicing-evidence.md)
+addresses the retained688-entry refusal without repeating binary inspection.
+It proposes a separate1,024-entry combined ceiling, two comparison passes and
+bounded SDK product fields; the old256-entry allowance and all earlier batches
+remain spent. Field limits are post-managed-read checks, not a native-memory
+ceiling, and equal comparison passes do not prove an atomic registry snapshot.
+New numerical limits and the sole manual job require scoped owner acceptance
+before tooling/execution. No new registry/runner query, replacement pin or build
+has run or been authorized. Even success cannot turn observations from different
+runner lifetimes into one co-availability proof. Gate1 remains Investigate and
+#1176 stays open; source/native/compatibility and runtime activation gates remain.
