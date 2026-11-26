@@ -84,7 +84,7 @@ Cleanup failure makes the batch incomplete. Raw data caps are 1 MiB per file and
 python3 -I -B -m unittest discover -s crates/orkworksd/tests/fixtures/parent-native-packet -p test_packet.py -v
 ```
 
-The focused suite now has 61 tests, including real newline stdio exchange with an
+The focused suite includes real newline stdio exchange with an
 owned Python fake client, a second fresh fake process, nonce/tool/turn joins,
 retained state, source drift, missing approval, identity/resume denials, private
 payload decode sentinels, observed caps and owned process cleanup. POSIX process
@@ -285,3 +285,23 @@ Proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47
 The changed manifest matches none of the spent live approvals. A future native
 attempt needs its own new exact decision; this offline implementation approval
 provides none.
+
+
+## Offline first-prompt progress reporting
+
+A phase-one native prompt that exits nonzero may retain a `promptProgress`
+object with two booleans. `sessionStartObserved` means the observer validated
+the initial session identity from native history. `firstNativeMcpCallCompleted`
+means native history contained a recognized fixture MCP tool start with a
+matching successful completion for the same call and turn. A pending call
+leaves the second flag false. These flags describe events validated by the
+existing scanner. They do not join a fixture helper receipt, establish child
+result delivery, or explain the process exit.
+
+No additional history, stdout, stderr or helper reads are required. The
+observer retains neither the native event contents nor call identifiers.
+Historical receipts, tool and launch inputs, limits and cleanup are unchanged.
+This model-free change creates no live authorization.
+
+Current progress-reporting manifest SHA-256: `ea04659424846d1dd4d835d169b63a190fee8d5814e9e7518f06ce6b9aeed823`.
+The proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
