@@ -560,13 +560,17 @@ fn evaluator_output_supersedes_a_changed_rollup_and_releases_unassigned_members(
             .status,
         RecommendationStatus::Superseded
     );
+    let new_parent = records
+        .iter()
+        .find(|item| item.id == new_parent_id)
+        .unwrap();
+    assert_eq!(new_parent.rollup_member_ids, ["a", "c"]);
     assert_eq!(
-        records
-            .iter()
-            .find(|item| item.id == new_parent_id)
-            .unwrap()
-            .rollup_member_ids,
-        ["a", "c"]
+        new_parent
+            .workflow_improvement
+            .supersedes_recommendation_id
+            .as_deref(),
+        Some(old_parent_id.as_str())
     );
     let released = records.iter().find(|item| item.id == "b").unwrap();
     assert_eq!(released.status, RecommendationStatus::Proposed);
@@ -650,6 +654,7 @@ fn rejects_a_rollup_that_would_supersede_multiple_active_parents() {
         &merge,
         &output(&[cluster(&["a", "b", "c", "d"])]),
     ));
+    assert_eq!(stored_recommendations(&state), current);
 }
 
 #[test]
@@ -674,6 +679,7 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
     let store = &workspace.as_ref().unwrap().recommendation_store;
     let mut existing = store.get(&parent_id).unwrap().unwrap();
     existing.title = "Original title".into();
+    existing.created_at = "2026-09-14T00:00:00Z".into();
     store.put(&existing).unwrap();
     drop(workspace);
 
@@ -728,14 +734,9 @@ fn same_set_rollup_updates_in_place_and_is_idempotent() {
             .count(),
         2
     );
-    assert_eq!(
-        records
-            .iter()
-            .find(|item| item.rollup_member_ids.len() == 2)
-            .unwrap()
-            .title,
-        "Updated title"
-    );
+    let parent = records.iter().find(|item| item.id == parent_id).unwrap();
+    assert_eq!(parent.title, "Updated title");
+    assert_eq!(parent.created_at, existing.created_at);
 }
 
 #[test]

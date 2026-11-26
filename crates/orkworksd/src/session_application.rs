@@ -1068,28 +1068,23 @@ impl SessionApplication {
                     }
                     _ => return false,
                 };
-            let superseded_parents = current
-                .values()
-                .filter(|item| {
-                    matches!(item.status, RecommendationStatus::Proposed)
-                        && !item.rollup_member_ids.is_empty()
-                        && item.id != parent_id
-                        && item
-                            .rollup_member_ids
-                            .iter()
-                            .any(|member_id| member_ids.contains(member_id))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            if superseded_parents.len() > 1 {
+            let mut overlapping_parents = current.values().filter(|parent| {
+                parent.status == RecommendationStatus::Proposed
+                    && parent.id != parent_id
+                    && parent
+                        .rollup_member_ids
+                        .iter()
+                        .any(|member_id| member_ids.contains(member_id))
+            });
+            let superseded_parent = overlapping_parents.next();
+            if overlapping_parents.next().is_some() {
                 return false;
             }
-            let mut parent = existing_parent
-                .cloned()
-                .unwrap_or_else(|| first_member.clone());
-            if existing_parent.is_none() {
+            let mut parent = existing_parent.cloned().unwrap_or_else(|| {
+                let mut parent = first_member.clone();
                 parent.created_at = now.clone();
-            }
+                parent
+            });
             let supersedes_recommendation_id = existing_parent
                 .and_then(|parent| {
                     parent
@@ -1097,7 +1092,7 @@ impl SessionApplication {
                         .supersedes_recommendation_id
                         .clone()
                 })
-                .or_else(|| superseded_parents.first().map(|parent| parent.id.clone()));
+                .or_else(|| superseded_parent.map(|parent| parent.id.clone()));
             parent.id = parent_id.clone();
             parent.status = parent_status;
             parent.workspace_id = workspace.path.display().to_string();
