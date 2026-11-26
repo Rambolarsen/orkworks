@@ -228,3 +228,14 @@ requesting a fixed compiler build. Its new allowance remains owner-pending;
 writing or merging the proposal does not execute or renew any batch. Even a
 complete graph supplies no effective flag, linked-artifact or native custody
 proof. Gate 1 remains Investigate and dependent implementation stays gated.
+
+## One Windows metadata observation completed — 2026-11-26
+
+The accepted [finite metadata batch](2026-11-25-pair-windows-metadata-evidence.md#terminal-result--2026-11-26)
+completed once with a full attributable target-filtered graph and matching acquired
+SQLite source identities. The [canonical result](../../validation/pair-resource-enforcement-coverage.md#one-windows-metadata-attempt-completed--2026-11-26)
+supersedes the earlier uncached metadata failure for those frozen inputs only.
+Its dispatch/fetch/metadata allowances are spent; compiler/native batches are not
+renewed. Actual effective flags, linked artifact, MSVC/SDK and startup/adapter/
+source/compatibility evidence remain unqualified. Gate1 remains Investigate and
+no implementation is unlocked. Next is a separately scoped exact build proposal.

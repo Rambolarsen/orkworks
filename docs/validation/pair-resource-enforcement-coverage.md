@@ -4,7 +4,7 @@ title: Pair controlled file-growth and allocation enforcement coverage
 description: Pinned-source pre-effect ownership map and bounded offline accounting slice under accepted file-length/fixed-arena assurance; exact native build and enforcement remain unqualified.
 tags: [orkworks, hierarchy, sqlite, windows, resources, qualification]
 status: draft
-workflow_status: source-map-recorded-build-and-mechanism-unqualified
+workflow_status: metadata-observed-build-and-mechanism-unqualified
 ---
 
 # Pair controlled file-growth and allocation enforcement coverage
@@ -17,6 +17,11 @@ not backend implementation or a numerical native E/S search.
 1 GiB/shared auxiliary 2 GiB logical file-length high-water and fixed 8 MiB arena
 meanings. Native host allocation, helper workspaces and stacks remain outside
 those numeric guarantees. All lower/source/lifetime/authority gates remain.
+
+Current metadata status: the [single Windows attempt below](#one-windows-metadata-attempt-completed--2026-11-26)
+supersedes the earlier uncached-target failure for its exact frozen request only.
+Actual effective flags, linked artifact, startup and native mechanism remain
+unqualified; Gate 1 is still Investigate and no executable slice is unlocked.
 
 ## Result, source identity and evidence limits
 
@@ -376,3 +381,79 @@ ordinary-compatibility gates still require their own evidence afterward.
 No dependency fetch, metadata retry, compilation, SQL/database access, SQLite API,
 bootstrap code, flag change, native/model probe or budget renewal occurred here.
 #1176 stays open; production hierarchy remains unavailable before I/O.
+
+## One Windows metadata attempt completed — 2026-11-26
+
+The owner accepted the exact [metadata-only allowance](../superpowers/plans/2026-11-25-pair-windows-metadata-evidence.md#scoped-allowance-accepted--2026-11-26).
+Tooling [#2061](https://github.com/Rambolarsen/orkworks/pull/2061), reviewed head
+`4b1984ddc8f1f8d6d598799a730f228133abef1a`, merged as
+`d5dfcc676ee0a605da1fb073f2135095026babf2`. Hosted review identified Windows CRLF
+conversion of frozen inputs; explicit LF attributes and real Git-filter
+red/green tests fixed it before the sole dispatch. Current-head Codex then found
+no issues; all applicable normal CI checks passed. Copilot review was unavailable
+because of a monthly service quota; no extra request was made after diagnosis.
+
+[Run 45763908423](https://github.com/Rambolarsen/orkworks/actions/runs/45763908423)
+completed successfully on the frozen merged head. Its one metadata job ran from
+05:47:50 to 05:48:16 UTC, within the 15-minute bound. The retained result reports
+one locked target fetch and one locked/offline metadata operation, both exit0,
+zero compilations and zero target executions. Read-only workflow history observed
+one dispatch; original-owned cache/target scratch cleanup completed. No rerun,
+alternate target/toolchain, source override, SQLite API or production route ran.
+Normal repository CI builds are separate from this metadata experiment.
+
+### Observed identities and graph
+
+| Observation | Retained value |
+| --- | --- |
+| Runner | windows-2022; ImageOS win22; ImageVersion 20261116.370.1 |
+| Installed Cargo | 1.100.0, commit 3acc79c0c841844675bc53a605922dbfc441e750, x86_64-pc-windows-msvc |
+| Cargo binary SHA-256 | `f381bae27c59588eacf69208e115b2c001a2998afed83a2e9084ea93620737b1` |
+| Installed rustc | 1.100.0, commit 0ef1bc386059596dada8fb65b50425aab2ea637a, LLVM 23.1.5, x86_64-pc-windows-msvc |
+| rustc binary SHA-256 | `d4f8a0283de2dba0dc458cd13c333337d2b76c3649eb39e91c4acce618e661a1` |
+| Request | Existing default features; x86_64-pc-windows-msvc resolve filter; frozen manifest/lock/toolchain/build.rs hashes in the accepted plan |
+| Graph | Format1, 258 packages and 258 resolve nodes; root orkworksd 0.3.0 |
+| rusqlite 0.32.1 features | bundled, hooks, modern_sqlite |
+| libsqlite3-sys 0.30.1 features | bundled, bundled_bindings, cc, default, min_sqlite_version_3_14_0, pkg-config, vcpkg |
+| SQLite source SHA-256 | `c01235302fe80da901fb70c7622c39147e29d9f29b7f6eb746b23517f320c90d` — expected and acquired value match |
+| libsqlite3-sys build.rs SHA-256 | `11bebc3787657749279375ab2e875e52259f995dce8916b4907103975e2a76ee` — expected and acquired value match |
+
+Independent readback of the downloaded JSON confirmed the metadata hash/byte
+count, root and family incoming edges: orkworksd → rusqlite → libsqlite3-sys.
+The latter's cc 1.2.64, pkg-config 0.3.33 and vcpkg 0.2.15 edges have build kind.
+These resolved helpers/features do not prove a linked-library selection or actual
+compiler arguments. The packages array and resolve graph are not a release
+link/unit graph or evidence that any dependency's build script executed.
+
+The actual literal fetch/metadata commands and all four frozen input hashes are
+retained in result.json. No LIBSQLITE3_FLAGS change was applied. This observation
+closes the earlier missing metadata result for this exact request; it does not
+prove the accepted MEMORY_MANAGEMENT undefinition, THREADSAFE/core-mutex state,
+external cache/lookaside provenance or a built sidecar's identity.
+
+### Retained evidence and terminal counters
+
+[Artifact 15090528686](https://github.com/Rambolarsen/orkworks/actions/runs/45763908423/artifacts/15090528686)
+is the sole allowlisted Actions artifact (114,386 compressed bytes). It expires
+2026-12-10 at05:48:12 UTC under the approved 14-day retention. The uncompressed
+three-file total is 1,314,992 bytes, below 32 MiB. This canonical record preserves
+observations and identities; the complete raw graph/diagnostics remain in that
+approved expiring artifact, without extending its retention or persisting caches.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| metadata.json | 1,301,173 | `e20b228d67729cc6ee9443857b330cd0f6d72c6c5274fbef3d749df0f03990c4` |
+| result.json | 5,701 | `948bda8ed70b29c983b2611055521889e35e2dd592493c9e1afe6b10c9cdf671` |
+| diagnostics.txt | 8,118 | `52edc18426d7944bdbb3cbeb713b622756f6832a9486900542ef9ac1c6b04b01` |
+
+**Terminal: dispatch1/1, fetch1/1, metadata1/1 consumed.** Successful acquisition
+supplies no retry credit or compiler/native allowance. Old batches remain spent.
+Installed Rust identities are observations, not a selected fixed production
+build. MSVC/linker/SDK identities, effective flags, linked artifacts and actual
+startup/router/VFS/context behavior still need separately reviewed evidence.
+
+Next finite task: propose an exact compiler-build batch using this resolved graph
+and explicit compiler/linker/SDK identities and invocation limits. Obtain its
+separate allowance before execution. Do not infer Gate 1 closure, bootstrap code
+authority, ordinary compatibility, source permission, recovery/durability or
+production activation from this successful metadata result. #1176 stays open.

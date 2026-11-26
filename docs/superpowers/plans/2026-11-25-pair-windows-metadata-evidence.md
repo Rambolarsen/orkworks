@@ -4,7 +4,7 @@ title: One Windows pair dependency metadata attempt
 description: Proposed finite dependency acquisition and offline Windows metadata run before selecting an exact compiler build; no compilation or pair qualification.
 tags: [orkworks, sqlite, hierarchy, windows, qualification, dependencies]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: completed-metadata-only-build-unqualified
 ---
 
 # One Windows pair dependency metadata attempt
@@ -115,19 +115,19 @@ failure receipt, not a complete graph. Retain no crate cache or credential files
 
 ## Delivery, verification and handoff gates
 
-- [ ] Obtain the scoped allowance for the limits above. This does not accept a
+- [x] Obtain the scoped allowance for the limits above. This does not accept a
   compiler build, implement the bootstrap or unlock the parent execution gates.
-- [ ] Prepare `.github/workflows/pair-windows-metadata-evidence.yml` and
+- [x] Prepare `.github/workflows/pair-windows-metadata-evidence.yml` and
   `scripts/qualification/pair-windows-metadata-evidence.ps1`, with offline Node
   contract tests beside the script. Review the exact tooling diff before merge.
   Tests must cover literal commands, no rerun/build/online fallback, identity/
   configuration denial, failure receipts, output cap and evidence allowlist.
   Tooling CI runs those offline tests only; it never dispatches the experiment.
-- [ ] Freeze the reviewed merged SHA, record allowance and unconsumed counters,
+- [x] Freeze the reviewed merged SHA, record allowance and unconsumed counters,
   then dispatch exactly once. Record run ID immediately. Review sanitized
   complete evidence, or retain terminal unavailable status and consumed counters.
   Remove only owned scratch; runner disposal does not claim source reclamation.
-- [ ] Append outcome and identities to the existing coverage concept. Only then
+- [x] Append outcome and identities to the existing coverage concept. Only then
   propose an exact separately authorized compiler-build batch using the observed
   inputs, fixed MSVC/SDK identities and accepted macro-absence recipe. Do not
   silently install a different version because the observed one is unsuitable.
@@ -199,3 +199,19 @@ Cargo children receive no GitHub token. Bounded raw metadata and observed source
 hashes survive drift as failed evidence; oversize output yields only a bounded
 failure receipt. Author verified these dispositions with behavioral red/green
 tests; no second independent review round is claimed.
+
+## Terminal result — 2026-11-26
+
+Tooling [#2061](https://github.com/Rambolarsen/orkworks/pull/2061) merged as
+`d5dfcc676ee0a605da1fb073f2135095026babf2` after current-head Codex and passing
+applicable CI. [Run45763908423](https://github.com/Rambolarsen/orkworks/actions/runs/45763908423)
+completed its one job successfully within 26seconds: one fetch and one offline
+metadata command, both exit0; zero compilations/target executions and owned
+scratch cleanup completed. The [canonical result and evidence hashes](../../validation/pair-resource-enforcement-coverage.md#one-windows-metadata-attempt-completed--2026-11-26)
+record the 258-node graph, actual Rust identities and matching SQLite source hashes.
+The complete raw graph stays in the approved artifact until its 14-day expiry.
+
+Dispatch1/1, fetch1/1 and metadata1/1 are consumed. No repeat attempt or compiler
+allowance follows from success. The earlier offline-cache failure is superseded
+only for this exact request. The separate fixed compiler/linker/SDK-build proposal
+remains future work; parent Gate1 and the bootstrap implementation are still gated.
