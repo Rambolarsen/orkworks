@@ -35,15 +35,16 @@ use windows_sys::{
             PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
         },
         Storage::FileSystem::{
-            FileDispositionInfoEx, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
-            GetDriveTypeW, GetFileInformationByHandle, GetFileInformationByHandleEx,
-            GetFinalPathNameByHandleW, GetVolumeInformationByHandleW, SetFileInformationByHandle,
-            BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS, FILE_ATTRIBUTE_DEVICE,
-            FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
-            FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
-            FILE_DISPOSITION_INFO_EX, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, VOLUME_NAME_GUID,
+            FileDispositionInfo, FileDispositionInfoEx, FileIdBothDirectoryInfo,
+            FileIdBothDirectoryRestartInfo, GetDriveTypeW, GetFileInformationByHandle,
+            GetFileInformationByHandleEx, GetFinalPathNameByHandleW, GetVolumeInformationByHandleW,
+            SetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS,
+            FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_DISPOSITION_FLAG_DELETE,
+            FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            VOLUME_NAME_GUID,
         },
         System::{
             SystemServices::{ACCESS_ALLOWED_ACE_TYPE, FILE_PERSISTENT_ACLS},
@@ -597,6 +598,20 @@ pub(super) fn mark_remove(file: &File) -> io::Result<()> {
         SetFileInformationByHandle(
             file.as_raw_handle(),
             FileDispositionInfoEx,
+            std::ptr::from_ref(&info).cast(),
+            size_of_val(&info) as u32,
+        )
+    })
+}
+
+pub(super) fn mark_record_remove(file: &File) -> io::Result<()> {
+    let info = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // SAFETY: the verified record handle has DELETE access and the native
+    // information buffer remains live through the call.
+    check(unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfo,
             std::ptr::from_ref(&info).cast(),
             size_of_val(&info) as u32,
         )

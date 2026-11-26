@@ -3,6 +3,7 @@ mod native;
 
 use self::native::{child, mark_remove, names, rename, Anchor, PrivateAcl};
 use super::ValidatedImage;
+use crate::workspace_runtime::WorkspaceIdentity;
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
@@ -11,6 +12,7 @@ use std::{
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
+use windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND;
 use windows_sys::Win32::Storage::FileSystem::{
     DELETE, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_READ_ATTRIBUTES, SYNCHRONIZE,
 };
@@ -301,21 +303,99 @@ impl Drop for ImageBundle {
     }
 }
 
-pub(crate) struct ImageCleanup {
-    root: Root,
-    session: String,
-    directory: RefCell<Option<File>>,
-    _lock: File,
+pub(crate) struct ImageCleanup(CleanupTarget);
+
+enum CleanupTarget {
+    Bundle {
+        root: Root,
+        session: String,
+        directory: RefCell<Option<File>>,
+        _lock: File,
+    },
+    AbsentStore(WorkspaceIdentity),
+}
+
+fn verify_store_absent(metadata: &WorkspaceIdentity) -> io::Result<()> {
+    metadata.revalidate()?;
+    // This lookup observes only the image-store entry relative to the retained
+    // metadata directory. It never follows the entry or opens a bundle.
+    let store = child(
+        metadata.directory(),
+        OsStr::new(DIRECTORY),
+        true,
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        None,
+    );
+    match store {
+        Err(error) if error.raw_os_error() == Some(ERROR_FILE_NOT_FOUND as i32) => {
+            metadata.revalidate()
+        }
+        Err(error) => Err(error),
+        Ok(_) => Err(invalid("Image store is present on an ineligible root")),
+    }
 }
 
 impl ImageCleanup {
     pub(crate) fn remove(&self) -> io::Result<()> {
-        let mut directory = self.directory.borrow_mut();
-        if let Some(handle) = directory.as_ref() {
-            remove_bundle(handle, &self.root.acl, Some(&self.session))?;
-            directory.take();
+        match &self.0 {
+            CleanupTarget::Bundle {
+                root,
+                session,
+                directory,
+                ..
+            } => {
+                let mut directory = directory.borrow_mut();
+                if let Some(handle) = directory.as_ref() {
+                    remove_bundle(handle, &root.acl, Some(session))?;
+                    directory.take();
+                }
+                Ok(())
+            }
+            CleanupTarget::AbsentStore(metadata) => verify_store_absent(metadata),
         }
-        Ok(())
+    }
+
+    pub(crate) fn remove_and_delete_record(
+        &self,
+        metadata: &crate::metadata::MetadataStore,
+        id: &str,
+    ) -> io::Result<()> {
+        let CleanupTarget::AbsentStore(root) = &self.0 else {
+            self.remove()?;
+            return metadata.delete_session(id);
+        };
+        metadata.delete_session_using(id, |paths| {
+            let sessions = child(
+                root.directory(),
+                OsStr::new("sessions"),
+                true,
+                FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                None,
+            )?;
+            let mut records = Vec::with_capacity(paths.len());
+            for path in &paths {
+                let name = path
+                    .file_name()
+                    .ok_or_else(|| invalid("Missing session record name"))?;
+                match child(
+                    &sessions,
+                    name,
+                    false,
+                    DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                    None,
+                ) {
+                    Ok(record) => records.push(record),
+                    Err(error) if error.raw_os_error() == Some(ERROR_FILE_NOT_FOUND as i32) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            verify_store_absent(root)?;
+            // Record handles are relative to the exact directory checked above.
+            for record in records {
+                native::mark_record_remove(&record)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -323,23 +403,32 @@ pub(crate) fn prepare_cleanup(root: &Path, id: &str) -> io::Result<Option<ImageC
     if !valid_id(id) {
         return Err(invalid("Invalid image bundle owner"));
     }
-    let root = Root::open(root, false);
-    if is_missing(&root) {
-        return Ok(None);
-    }
-    let root = root?;
+    let root = match Root::open(root, false) {
+        Ok(root) => root,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            let absence = WorkspaceIdentity::resolve(root).and_then(|metadata| {
+                verify_store_absent(&metadata)?;
+                Ok(metadata)
+            });
+            return match absence {
+                Ok(metadata) => Ok(Some(ImageCleanup(CleanupTarget::AbsentStore(metadata)))),
+                Err(_) => Err(error),
+            };
+        }
+    };
     let directory = root.bundle(OsStr::new(id), false);
     if is_missing(&directory) {
         return Ok(None);
     }
     let directory = directory?;
     let lock = root.lock()?;
-    Ok(Some(ImageCleanup {
+    Ok(Some(ImageCleanup(CleanupTarget::Bundle {
         root,
         session: id.into(),
         directory: RefCell::new(Some(directory)),
         _lock: lock,
-    }))
+    })))
 }
 
 pub(crate) fn recover(root: &Path, metadata: &crate::metadata::MetadataStore) -> io::Result<()> {
@@ -414,6 +503,47 @@ mod tests {
         assert!(ImageBundle::publish(root.path(), SESSION, fixture()).is_err());
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
         fs::remove_dir(&image_root).unwrap();
+    }
+
+    #[test]
+    fn absence_guard_preserves_records_if_the_store_appears_or_the_alias_changes() {
+        let parent = tempfile::tempdir().unwrap();
+        let original = parent.path().join("original");
+        let other = parent.path().join("other");
+        let alias = parent.path().join("alias");
+        let record = PathBuf::from("sessions").join(format!("{SESSION}.json"));
+        for root in [&original, &other] {
+            fs::create_dir_all(root.join("sessions")).unwrap();
+            fs::write(root.join(&record), b"synthetic record").unwrap();
+        }
+
+        let link = std::os::windows::fs::symlink_dir(&original, &alias);
+        if link
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(1314))
+        {
+            eprintln!("Symlink creation unavailable on this Windows host (1314)");
+            return;
+        }
+        link.unwrap();
+
+        let metadata = crate::metadata::MetadataStore::new(&alias);
+        let cleanup = prepare_cleanup(&alias, SESSION).unwrap().unwrap();
+        let image_store = original.join(DIRECTORY);
+        fs::create_dir(&image_store).unwrap();
+        assert!(cleanup
+            .remove_and_delete_record(&metadata, SESSION)
+            .is_err());
+        assert!(original.join(&record).is_file());
+        fs::remove_dir(&image_store).unwrap();
+
+        fs::remove_dir(&alias).unwrap();
+        std::os::windows::fs::symlink_dir(&other, &alias).unwrap();
+        assert!(cleanup
+            .remove_and_delete_record(&metadata, SESSION)
+            .is_err());
+        assert!(original.join(&record).is_file());
+        assert!(other.join(&record).is_file());
     }
 
     #[test]

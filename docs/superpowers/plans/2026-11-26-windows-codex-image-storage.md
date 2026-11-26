@@ -146,9 +146,24 @@ storage checks.
 The native storage tests passed on fixed local NTFS (five passed, with the
 subprocess helper ignored when run directly). The existing retention suite
 and Forget handler tests passed (25 and three). These tests exercise
-ordinary deletion and recovery on the current profile. The UUID case on an
-image-ineligible root still needs its own regression. The current backend
-and launch override are test-only.
+ordinary deletion and recovery on the current profile. A regression using
+two text-only UUID sessions under a disposable directory alias reproduced
+the gap. Forget returned an application error and age retention left its
+expired record. The Windows image anchor refused the alias before checking
+whether the image store existed. The owner approved a read-only absence
+check for this case. Resolve and retain the ordinary metadata directory
+identity, then look up the image-store name relative to that handle.
+Revalidate the identity and absence before deleting the session record.
+Open and remove metadata files relative to the same retained directory on
+this path. A present or unverifiable image store keeps the cleanup error.
+That evidence covers the final lookup. Ordinary creation assigns a fresh
+UUID, so it cannot publish images for the record being deleted. Use the
+existing verified image cleanup for eligible roots.
+
+The regression now passes for Forget and age retention. A second test
+preserves the records when an image store appears before the final check
+or the directory alias changes. The Windows backend and launch override
+are test-only.
 
 ## Windows live fixture result (2026-11-26)
 
