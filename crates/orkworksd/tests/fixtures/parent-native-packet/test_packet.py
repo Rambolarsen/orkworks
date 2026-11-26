@@ -794,13 +794,25 @@ class StopReportingTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE", json.dumps(value))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
-    def _failed_run(self, fail_cleanup=False):
+    def _failed_run(self, fail_cleanup=False, native_events=None):
         import shutil
         directory = Path(__file__).parent
         pb, mb = (directory/"proposal.json").read_bytes(), (directory/"manifest.json").read_bytes()
         approval = {"decision": "approve-one-batch", "proposalSha256": observer.sha(pb),
                     "manifestSha256": observer.sha(mb), "maxNativePrompts": 2}
+        supervise = observer.supervise
+        def synthetic_prompt(argv, cwd, env, root, *args, **kwargs):
+            if native_events is None:
+                raise AssertionError("Native launch forbidden")
+            script = ("from pathlib import Path; import sys; p=Path(sys.argv[1]); "
+                      "p.parent.mkdir(parents=True); p.write_text(sys.argv[2]); sys.exit(1)")
+            path = root/"settings/session-state"/PROPOSAL["nativeSessionId"]/"events.jsonl"
+            fake = [sys.executable, "-I", "-B", "-c", script, str(path), "\n".join(native_events + [""])]
+            return supervise(fake, cwd, {}, root, *args, **kwargs)
+
         def fail_discovery(*args, **kwargs):
+            if native_events is not None:
+                return
             diagnostic = kwargs.get("diagnostic")
             if diagnostic is not None:
                 diagnostic["stage"] = "instruction-discovery"
@@ -825,7 +837,7 @@ class StopReportingTests(unittest.TestCase):
                     patch.object(observer, "check_native_sources"), \
                     patch.object(observer, "discovery", side_effect=fail_discovery), \
                     patch("subprocess.run", side_effect=local_only), \
-                    patch("subprocess.Popen", side_effect=AssertionError("Native launch forbidden")):
+                    patch.object(observer, "supervise", side_effect=synthetic_prompt):
                 try:
                     result = observer.run_native(approval, output)
                     retained = (output/"summary.json").read_text()
@@ -841,6 +853,28 @@ class StopReportingTests(unittest.TestCase):
         self.assertEqual(result.get("failure", {}).get("stage"), "instruction-discovery")
         self.assertEqual(result.get("failure", {}).get("category"), "check-failed")
         self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_nonzero_first_prompt_reports_validated_native_progress(self):
+        start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")
+        call = event("tool.execution_start", toolCallId="PRIVATE_CALL", turnId="PRIVATE_TURN",
+                     model=PROPOSAL["model"], mcpConfigServerName="ork742", mcpToolName="read_run_state",
+                     mcpTransport="stdio", arguments={"bootstrap": True})
+        completed = event("tool.execution_complete", toolCallId="PRIVATE_CALL", turnId="PRIVATE_TURN",
+                          success=True, result={"content": "PRIVATE_OUTPUT"})
+        for rows, expected in (
+                ([], (False, False)),
+                ([start], (True, False)),
+                ([start, call], (True, False)),
+                ([start, call, completed], (True, True))):
+            with self.subTest(events=len(rows)):
+                result, retained = self._failed_run(native_events=rows)
+                self.assertTrue(result["rawRootsRemoved"])
+                self.assertEqual(result["nativePromptInvocations"], 1)
+                self.assertEqual(result["failure"]["supervisorCheckCode"], "supervisor-exit")
+                self.assertEqual(result["failure"].get("promptProgress"), dict(
+                    sessionStartObserved=expected[0], firstNativeMcpCallCompleted=expected[1]))
+                self.assertNotIn("PRIVATE", retained)
 
     def test_raw_cleanup_failure_does_not_erase_primary_failure(self):
         result, retained = self._failed_run(fail_cleanup=True)

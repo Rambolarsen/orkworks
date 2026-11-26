@@ -788,6 +788,13 @@ def run_native(approval, output):
         summary["outcome"] = "unverified"
         summary["stopReason"] = "Packet check failed; no retry or fallback"
         summary["failure"] = failure_details(diagnostic, error)
+        failure = summary["failure"]
+        if (failure["phase"] == 1 and failure["stage"] == "native-prompt"
+                and failure.get("supervisorCheckCode") == "supervisor-exit"):
+            failure["promptProgress"] = {
+                "sessionStartObserved": trace.started,
+                "firstNativeMcpCallCompleted": bool(trace.completed),
+            }
     finally:
         try:
             subprocess.run([proposal["python"]["path"], "-I", "-B", "-c",
