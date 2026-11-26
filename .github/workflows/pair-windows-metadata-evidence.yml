@@ -1,0 +1,43 @@
+name: Windows pair dependency metadata evidence
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pair-metadata-allowance-2026-11-26
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved metadata-only attempt
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/qualification/pair-windows-metadata-evidence.ps1
+      - name: Retain allowlisted evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-windows-metadata-evidence
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-windows-metadata/evidence/result.json
+            ${{ runner.temp }}/ork-pair-windows-metadata/evidence/metadata.json
+            ${{ runner.temp }}/ork-pair-windows-metadata/evidence/diagnostics.txt
