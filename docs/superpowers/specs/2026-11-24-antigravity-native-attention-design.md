@@ -241,3 +241,16 @@ cleanup remain unqualified. This improves retained evidence for the existing
 1.5.16 profile without changing the approved architecture, permission policy or
 other-version gates. Historical qualifications and failed attempts above remain
 limited to their actual observations.
+
+
+## Owner-accepted 1.5.17 profile amendment, 2026-11-26
+
+The owner directed continued implementation after the request to admit exactly
+macOS arm64 CLI 1.5.17 alongside 1.5.16 with the [retained qualification and remaining limits](../../validation/antigravity-native-status.md#owner-accepted-1517-source-activation-2026-11-26).
+This accepts the additional exact-version profile for best-effort UI attention.
+Human-visible/installed OrkWorks UI behavior and full descendant cleanup remain
+unqualified; the amendment does not claim those cases passed. Existing built-in
+launch, exact bounded version probe, parser and attention-ownership rules stand.
+No diagnostic strict-permission or update-suppression setting is added to
+production. Other versions/platforms retain their gates, and existing sessions
+are not modified. This approval authorizes no new native probe.

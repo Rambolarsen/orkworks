@@ -10,8 +10,8 @@ status: draft
 
 Supports [the approved design](../superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
-The owner accepted the limited 1.5.16/macOS arm64 profile below for source
-activation on 2026-11-26. The untested cases remain unqualified.
+The owner accepted the limited 1.5.16 and 1.5.17 macOS arm64 profiles below for
+source activation on 2026-11-26. The untested cases remain unqualified.
 
 ## Owner-authorized first run, 2026-11-24
 
@@ -300,3 +300,24 @@ terminal negotiation, errors/unknown states and other artifacts remain outside
 this evidence. The source version table remains 1.5.16 pending explicit owner
 acceptance of the narrower 1.5.17 coverage; the original full qualification gate
 is not claimed passed. No additional native start is part of this update.
+
+
+## Owner-accepted 1.5.17 source activation, 2026-11-26
+
+After the 1.5.17 evidence merged in [PR #2081](https://github.com/Rambolarsen/orkworks/pull/2081),
+the owner directed continued implementation in direct response to the concrete
+request to enable exactly 1.5.17 on macOS arm64 alongside 1.5.16 with the stated
+limits. This accepts narrowed empirical coverage for that additional source
+profile; it does not retroactively establish human-visible/installed OrkWorks UI
+behavior or complete descendant cleanup. Those cases remain unqualified.
+
+The existing source table now admits exactly 1.5.16 and 1.5.17. Built-in launch,
+exact resume/initial-prompt, platform and successful bounded executable-version
+checks remain in force. Fresh qualified runtimes force native OSC emission and
+brief messages; existing sessions are not changed. The diagnostic strict tool
+setting and process-only update suppression are not applied in production.
+Other versions/platforms and custom commands retain prior hook fallback.
+Explicit attention ownership, generation fencing, live-only ingestion and Peon
+preservation remain unchanged. This describes source behavior, not a published
+installer or installed UI test. No further native start is authorized by this
+activation approval, and none is needed for this implementation.

@@ -13365,13 +13365,14 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     #[cfg(unix)]
     #[tokio::test]
     async fn terminal_status_flows_through_real_pty() {
-        terminal_status_pty_fixture(false, false).await;
-        terminal_status_pty_fixture(true, true).await;
-        terminal_status_pty_fixture(true, false).await;
+        terminal_status_pty_fixture(false, false, "1.5.16").await;
+        terminal_status_pty_fixture(true, true, "1.5.16").await;
+        terminal_status_pty_fixture(true, true, "1.5.17").await;
+        terminal_status_pty_fixture(true, false, "1.5.17").await;
     }
 
     #[cfg(unix)]
-    async fn terminal_status_pty_fixture(antigravity: bool, qualified: bool) {
+    async fn terminal_status_pty_fixture(antigravity: bool, qualified: bool, version: &str) {
         use crate::runtime::session_runtime::{
             start_session_runtime, RuntimeCommand, SessionRuntime,
         };
@@ -13402,7 +13403,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let command = if antigravity {
             use std::os::unix::fs::PermissionsExt;
             let executable = root.path().join("fake-native-status");
-            let header = "#!/usr/bin/python3\nimport os, sys\nif '--version' in sys.argv:\n print('1.5.16'); sys.exit(0)\n";
+            let header = format!("#!/usr/bin/python3\nimport os, sys\nif '--version' in sys.argv:\n print('{version}'); sys.exit(0)\n");
             let env_check = if qualified {
                 "assert os.environ.get('AGY_CLI_OSC7501') == 'on'\nassert os.environ.get('AGY_CLI_OSC7501_MESSAGES') == 'brief'\n"
             } else {

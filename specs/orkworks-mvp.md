@@ -384,13 +384,15 @@ authenticated channel and uncommon prompts may be missed. This accepted
 tradeoff requires no observer, producer migration, new hook trust or native
 approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-program-status.md).
 
-### Antigravity native terminal attention (limited 1.5.16 activation)
+<a id="antigravity-native-terminal-attention-limited-1516-activation"></a>
+
+### Antigravity native terminal attention (limited source activation)
 
 For source-qualified built-in Antigravity launches, reuse live OSC 7501 UI
 status under the [accepted design](../docs/superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [ADR 0120](../docs/adr/0120-antigravity-native-terminal-attention.md).
 The owner accepted narrowed empirical coverage on 2026-11-26 for exactly CLI
-1.5.16 on macOS arm64, based on the [retained native trial](../docs/validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
+1.5.16 and 1.5.17 on macOS arm64, based on their [retained native trials and owner acceptance](../docs/validation/antigravity-native-status.md#owner-accepted-1517-source-activation-2026-11-26).
 The [follow-up trials](../docs/validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
 retain an explicit native rejection and one automatic command without a prompt
 block. Human-visible confirmation, installed OrkWorks UI behavior and complete

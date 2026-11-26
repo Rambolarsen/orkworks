@@ -12,7 +12,7 @@ workflow_status: limited-activation
 Outcome: a qualified Antigravity native question/permission wait projects Needs
 You and resolves from native state, without Peon prompt inference or permission
 participation. Implements [the approved design](../specs/2026-11-24-antigravity-native-attention-design.md)
-and [MVP contract](../../../specs/orkworks-mvp.md#antigravity-native-terminal-attention-limited-1516-activation),
+and [MVP contract](../../../specs/orkworks-mvp.md#antigravity-native-terminal-attention-limited-source-activation),
 tracked in [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
 
 One owner implements inline in the owned worktree. No worker fan-out or new
@@ -147,3 +147,15 @@ and installed OrkWorks UI qualification and complete descendant cleanup remain
 open. This evidence alone does not expand the source version table; activation
 requires owner acceptance of the narrower coverage. Current checks are recorded
 in the follow-up PR.
+
+
+## Approved 1.5.17 source activation
+
+After the retained evidence in [PR #2081](https://github.com/Rambolarsen/orkworks/pull/2081),
+the owner accepted adding exactly 1.5.17 on macOS arm64 alongside 1.5.16 with the
+remaining qualification limits. The implementation adds one existing-profile
+allowlist entry, exercises both versions through executable and real synthetic
+PTY fixtures, and retains rejection of other versions, platforms and routes.
+No new native session, parser, protocol or permission setting is needed.
+Current TDD, full repository verification and manual code-review evidence belong
+in the activation PR; historical results above do not substitute for them.
