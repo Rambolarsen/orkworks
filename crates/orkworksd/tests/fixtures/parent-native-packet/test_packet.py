@@ -796,19 +796,38 @@ class StopReportingTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
     def _failed_run(self, fail_cleanup=False, native_events=None):
         import shutil
+        import subprocess
         directory = Path(__file__).parent
         pb, mb = (directory/"proposal.json").read_bytes(), (directory/"manifest.json").read_bytes()
         approval = {"decision": "approve-one-batch", "proposalSha256": observer.sha(pb),
                     "manifestSha256": observer.sha(mb), "maxNativePrompts": 2}
         supervise = observer.supervise
+        real_popen = subprocess.Popen
+        allowed_argv = None
+
+        def guarded_popen(argv, *args, **kwargs):
+            nonlocal allowed_argv
+            if allowed_argv is None or argv != allowed_argv:
+                raise AssertionError("Only the synthetic Python process is allowed")
+            allowed_argv = None
+            return real_popen(argv, *args, **kwargs)
+
         def synthetic_prompt(argv, cwd, env, root, *args, **kwargs):
+            nonlocal allowed_argv
             if native_events is None:
                 raise AssertionError("Native launch forbidden")
-            script = ("from pathlib import Path; import sys; p=Path(sys.argv[1]); "
-                      "p.parent.mkdir(parents=True); p.write_text(sys.argv[2]); sys.exit(1)")
+            script = """from pathlib import Path
+import sys
+if sys.argv[2]:
+    path = Path(sys.argv[1])
+    path.parent.mkdir(parents=True)
+    path.write_text(sys.argv[2])
+sys.exit(1)
+"""
             path = root/"settings/session-state"/PROPOSAL["nativeSessionId"]/"events.jsonl"
-            fake = [sys.executable, "-I", "-B", "-c", script, str(path), "\n".join(native_events + [""])]
-            return supervise(fake, cwd, {}, root, *args, **kwargs)
+            rows = "".join(row + "\n" for row in native_events)
+            allowed_argv = [sys.executable, "-I", "-B", "-c", script, str(path), rows]
+            return supervise(allowed_argv, cwd, {}, root, *args, **kwargs)
 
         def fail_discovery(*args, **kwargs):
             if native_events is not None:
@@ -837,6 +856,7 @@ class StopReportingTests(unittest.TestCase):
                     patch.object(observer, "check_native_sources"), \
                     patch.object(observer, "discovery", side_effect=fail_discovery), \
                     patch("subprocess.run", side_effect=local_only), \
+                    patch("subprocess.Popen", side_effect=guarded_popen), \
                     patch.object(observer, "supervise", side_effect=synthetic_prompt):
                 try:
                     result = observer.run_native(approval, output)
