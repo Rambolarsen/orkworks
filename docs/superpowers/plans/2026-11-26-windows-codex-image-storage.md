@@ -208,3 +208,20 @@ the PNG bytes dispatched by the installed client to a synthetic endpoint.
 The cause of the live discrepancy remains open. Activation stays gated on
 native visual delivery, cross-user access denial, NTFS publication ordering,
 and ordinary-session retention on storage ineligible for images.
+
+## Direct Windows Codex control (2026-11-26)
+
+A single interactive PowerShell launch used the same installed Codex 0.172.0
+executable, GPT-6 Sol, current login, two hash-verified fixture PNGs in the
+same order, and the exact multiple-image prompt. It ran from the qualification
+worktree with the CLI's read-only sandbox setting. The CLI opened both local
+PNGs directly with `--image` and displayed two image attachments before
+submitting the prompt.
+
+The direct run answered **red, white, blue, white**, matching the prior
+OrkWorks run. The expected order was red, green, blue, orange. The
+multiple-image color error therefore also occurs in a direct Codex session.
+Together with the byte-identical offline payloads, this gives evidence about
+the OrkWorks handoff independent of the model's color answer. The direct
+control covered the multiple-image case. The image-only result and the
+native cause of the color error remain unresolved.
