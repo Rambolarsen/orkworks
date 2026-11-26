@@ -901,6 +901,15 @@ impl SessionProjection {
         if let Some((store, inputs)) = inputs {
             for (info, (closed, active, key)) in infos.iter_mut().zip(inputs) {
                 info.organization = read(&store, info, closed, active, &key);
+                if info.organization.session_state
+                    == Some(crate::session_archive::SessionState::Archived)
+                {
+                    crate::resume_diagnostics::mark_archived(
+                        &mut info.memory_state,
+                        &mut info.resume_strategy,
+                        &mut info.resume_options,
+                    );
+                }
             }
         }
     }

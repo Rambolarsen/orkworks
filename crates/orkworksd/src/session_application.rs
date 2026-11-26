@@ -6618,6 +6618,111 @@ pub(crate) fn try_install_claimed_resume_handle(
     })
 }
 
+struct PreparedResumeLaunch {
+    meta: metadata::SessionMetadata,
+    command: harness::CommandSpec,
+    strategy: harness::ResumeStrategy,
+    capacity_check_pending: bool,
+    active_work_hook: bool,
+    resume_root: std::path::PathBuf,
+}
+
+enum ResumePreparation {
+    Ready {
+        expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+        prepared: PreparedResumeLaunch,
+    },
+    NeedsCodexPreflight {
+        expected_generation: Option<crate::runtime::session_runtime::RuntimeGeneration>,
+        root_path: std::path::PathBuf,
+        native_session_id: String,
+    },
+}
+
+fn check_resume_lifecycle_state(
+    state: &Arc<AppState>,
+    ws: &WorkspaceState,
+    id: &str,
+    meta: &metadata::SessionMetadata,
+) -> Result<Option<crate::runtime::session_runtime::RuntimeGeneration>, SessionError> {
+    if ws.metadata.organization.pending(id) {
+        return Err(SessionError::Conflict);
+    }
+    let is_archived = ws
+        .metadata
+        .organization
+        .state(id, &meta.created_at, meta.lifecycle_phase == "ended", false)
+        .map_err(|_| SessionError::Conflict)?
+        .0
+        == crate::session_archive::SessionState::Archived;
+    let sessions = state.sessions.lock().unwrap();
+    let has_tracked_pid = state.session_pids.lock().unwrap().contains_key(id);
+    let expected_generation = sessions
+        .get(id)
+        .map(|handle| handle.runtime.run_generation());
+    let is_live = meta.lifecycle_phase != "ended"
+        || has_tracked_pid
+        || sessions.get(id).is_some_and(|handle| {
+            resume_handle_conflicts(handle, meta.lifecycle_phase == "ended", has_tracked_pid)
+        });
+    if is_live {
+        return Err(SessionError::ConflictWithMessage(
+            crate::resume_diagnostics::REASON_SESSION_RUNNING,
+        ));
+    }
+    if is_archived {
+        return Err(SessionError::ConflictWithMessage(
+            crate::resume_diagnostics::REASON_SESSION_ARCHIVED,
+        ));
+    }
+    Ok(expected_generation)
+}
+
+fn prepare_resume_launch(
+    ws: &WorkspaceState,
+    registry: &crate::harness::registry::ResolvedHarnessRegistry,
+    meta: metadata::SessionMetadata,
+    requested_strategy: Option<harness::ResumeStrategy>,
+    codex_saved_session_exists: Option<bool>,
+) -> Result<PreparedResumeLaunch, SessionError> {
+    let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
+    let harness = session_harness_id
+        .and_then(|id| registry.get(id))
+        .or_else(|| registry.get("generic-shell"))
+        .expect("generic-shell builtin exists");
+    let active_work_hook = harness.initial_work_hook_active();
+    let ctx = crate::resume_diagnostics::ResumeContext::for_launch(
+        false,
+        false,
+        Some(harness),
+        session_harness_id,
+        meta.resume.as_ref(),
+        codex_saved_session_exists,
+    );
+    let strategy = crate::resume_diagnostics::validate_launch(&ctx, requested_strategy)?;
+    let Some(command) = harness.build_resume(
+        strategy.clone(),
+        &meta.cwd,
+        meta.resume
+            .as_ref()
+            .and_then(|resume| resume.harness_session_id.as_deref()),
+        meta.repo_root.as_deref(),
+        (!meta.model.is_empty()).then_some(meta.model.as_str()),
+    ) else {
+        return Err(SessionError::BadRequest(
+            crate::resume_diagnostics::REASON_NO_REMEMBERED_SESSION,
+        ));
+    };
+    Ok(PreparedResumeLaunch {
+        meta,
+        command,
+        strategy,
+        capacity_check_pending: !harness.capacity_patterns().is_empty(),
+        active_work_hook,
+        resume_root: ws.metadata.root_path(),
+    })
+}
+
 async fn resume_session_workflow(
     state: Arc<AppState>,
     id: &str,
@@ -6625,126 +6730,109 @@ async fn resume_session_workflow(
 ) -> Result<SessionInfo, crate::session_application::SessionError> {
     let id = id.to_string();
     let now = iso_now();
-    let expected_generation = state
-        .sessions
-        .lock()
-        .unwrap()
-        .get(&id)
-        .map(|handle| handle.runtime.run_generation());
     let registry = state
         .harness_catalog
         .read()
         .expect("harness catalog lock poisoned")
         .clone();
-    let codex_preflight = {
+    let preparation = {
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
-            return Err(crate::session_application::SessionError::Conflict);
+            return Err(SessionError::Conflict);
         };
         let Some(meta) = ws.metadata.read_session(&id) else {
-            return Err(crate::session_application::SessionError::NotFound);
+            return Err(SessionError::NotFound);
         };
-        if meta.harness == "codex" {
-            let Some(native_session_id) = meta
-                .resume
-                .as_ref()
-                .and_then(|resume| resume.harness_session_id.clone())
-            else {
-                return Err(crate::session_application::SessionError::BadRequest(
-                    "Codex session has no captured native ID",
-                ));
-            };
-            Some((ws.metadata.root_path(), native_session_id))
+        let expected_generation = check_resume_lifecycle_state(&state, ws, &id, &meta)?;
+        let codex_native_id = if meta.harness == "codex"
+            && matches!(
+                requested_strategy,
+                None | Some(harness::ResumeStrategy::Exact)
+            ) {
+            crate::resume_diagnostics::valid_native_session_id(
+                meta.resume
+                    .as_ref()
+                    .and_then(|resume| resume.harness_session_id.as_deref()),
+            )
+            .map(str::to_string)
         } else {
             None
-        }
-    };
-    if let Some((_, native_session_id)) = codex_preflight.as_ref() {
-        let native_session_id = native_session_id.clone();
-        let has_saved_session = tokio::task::spawn_blocking(move || {
-            crate::codex_session_store::has_saved_session(&native_session_id)
-        })
-        .await
-        .map_err(|_| {
-            crate::session_application::SessionError::Internal("application operation failed")
-        })?;
-        if !has_saved_session {
-            return Err(crate::session_application::SessionError::BadRequest(
-                "Codex has no saved local session for this ID",
-            ));
-        }
-    }
-    let (
-        meta,
-        command,
-        strategy,
-        resume_flags,
-        capacity_check_pending,
-        active_work_hook,
-        resume_root,
-    ) = {
-        let ws_guard = state.workspace.lock().unwrap();
-        let Some(ref ws) = *ws_guard else {
-            return Err(crate::session_application::SessionError::Conflict);
         };
-        let Some(meta) = ws.metadata.read_session(&id) else {
-            return Err(crate::session_application::SessionError::NotFound);
-        };
-        let Some(resume) = meta.resume.as_ref() else {
-            return Err(crate::session_application::SessionError::EmptyBadRequest);
-        };
-        if let Some((preflight_root, preflight_session_id)) = codex_preflight.as_ref() {
-            if ws.metadata.root_path() != *preflight_root
-                || meta.harness != "codex"
-                || resume.harness_session_id.as_deref() != Some(preflight_session_id)
-            {
-                return Err(crate::session_application::SessionError::Conflict);
+        if let Some(native_session_id) = codex_native_id {
+            ResumePreparation::NeedsCodexPreflight {
+                expected_generation,
+                root_path: ws.metadata.root_path(),
+                native_session_id,
+            }
+        } else {
+            ResumePreparation::Ready {
+                expected_generation,
+                prepared: prepare_resume_launch(
+                    ws,
+                    &registry,
+                    meta,
+                    requested_strategy.clone(),
+                    None,
+                )?,
             }
         }
-        let session_harness_id = (!meta.harness.is_empty()).then_some(meta.harness.as_str());
-        let harness = session_harness_id
-            .and_then(|id| registry.get(id))
-            .or_else(|| registry.get("generic-shell"))
-            .expect("generic-shell builtin exists");
-        if meta.harness == "codex" && resume.harness_session_id.is_none() {
-            return Err(crate::session_application::SessionError::BadRequest(
-                "Codex session has no captured native ID",
-            ));
-        }
-        let active_work_hook = harness.initial_work_hook_active();
-        let strategy = requested_strategy
-            .clone()
-            .unwrap_or_else(|| harness.select_resume_strategy(resume));
-        if strategy == harness::ResumeStrategy::None {
-            return Err(crate::session_application::SessionError::EmptyBadRequest);
-        }
-        let flags = harness.resume_flags();
-        if !metadata::derive_resume_options(&strategy, Some(resume), flags.0, flags.1, flags.2)
-            .iter()
-            .any(|option| option.strategy == strategy && option.available)
-        {
-            return Err(SessionError::ConflictWithMessage(
-                "Selected resume option is no longer available. Refresh and choose again.",
-            ));
-        }
-        let Some(command) = harness.build_resume(
-            strategy.clone(),
-            &meta.cwd,
-            resume.harness_session_id.as_deref(),
-            meta.repo_root.as_deref(),
-            (!meta.model.is_empty()).then_some(meta.model.as_str()),
-        ) else {
-            return Err(crate::session_application::SessionError::EmptyBadRequest);
-        };
-        (
+    };
+    let (
+        expected_generation,
+        PreparedResumeLaunch {
             meta,
             command,
             strategy,
-            harness.resume_flags(),
-            !harness.capacity_patterns().is_empty(),
+            capacity_check_pending,
             active_work_hook,
-            ws.metadata.root_path(),
-        )
+            resume_root,
+        },
+    ) = match preparation {
+        ResumePreparation::Ready {
+            expected_generation,
+            prepared,
+        } => (expected_generation, prepared),
+        ResumePreparation::NeedsCodexPreflight {
+            expected_generation,
+            root_path,
+            native_session_id,
+        } => {
+            let probe_id = native_session_id.clone();
+            let has_saved_session = tokio::task::spawn_blocking(move || {
+                crate::codex_session_store::has_saved_session(&probe_id)
+            })
+            .await
+            .map_err(|_| SessionError::Internal("application operation failed"))?;
+            let ws_guard = state.workspace.lock().unwrap();
+            let Some(ws) = ws_guard.as_ref() else {
+                return Err(SessionError::Conflict);
+            };
+            let Some(meta) = ws.metadata.read_session(&id) else {
+                return Err(SessionError::NotFound);
+            };
+            if ws.metadata.root_path() != root_path
+                || meta.harness != "codex"
+                || meta
+                    .resume
+                    .as_ref()
+                    .and_then(|resume| resume.harness_session_id.as_deref())
+                    != Some(native_session_id.as_str())
+            {
+                return Err(SessionError::Conflict);
+            }
+            let rechecked_generation = check_resume_lifecycle_state(&state, ws, &id, &meta)?;
+            if rechecked_generation != expected_generation {
+                return Err(SessionError::Conflict);
+            }
+            let prepared = prepare_resume_launch(
+                ws,
+                &registry,
+                meta,
+                requested_strategy,
+                Some(has_saved_session),
+            )?;
+            (expected_generation, prepared)
+        }
     };
 
     if meta.harness == "opencode" && strategy == harness::ResumeStrategy::Exact {
@@ -6851,13 +6939,20 @@ async fn resume_session_workflow(
         memory_state: MemoryState::Live,
         resume_strategy: strategy.clone(),
         resume: resumed_memory.clone(),
-        resume_options: metadata::derive_resume_options(
-            &strategy,
-            resumed_memory.as_ref(),
-            resume_flags.0,
-            resume_flags.1,
-            resume_flags.2,
-        ),
+        resume_options: crate::resume_diagnostics::derive_assessment(
+            &crate::resume_diagnostics::ResumeContext::for_launch(
+                true,
+                false,
+                (!meta.harness.is_empty())
+                    .then(|| registry.get(&meta.harness))
+                    .flatten()
+                    .or_else(|| registry.get("generic-shell")),
+                (!meta.harness.is_empty()).then_some(meta.harness.as_str()),
+                resumed_memory.as_ref(),
+                None,
+            ),
+        )
+        .options,
         resumed_from: meta.resumed_from.clone(),
         has_openable_plan: None,
         plan_documents: None,
@@ -12482,7 +12577,12 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .resume_session(id, None)
             .await;
 
-        assert!(matches!(result, Err(SessionError::Conflict)));
+        assert!(matches!(
+            result,
+            Err(SessionError::ConflictWithMessage(
+                crate::resume_diagnostics::REASON_SESSION_RUNNING
+            ))
+        ));
     }
 
     #[tokio::test]
@@ -21753,7 +21853,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         assert!(matches!(
             result,
             Err(SessionError::ConflictWithMessage(
-                "Selected resume option is no longer available. Refresh and choose again."
+                crate::resume_diagnostics::REASON_NO_CAPTURED_ID
             ))
         ));
         assert!(!state.sessions.lock().unwrap().contains_key(id));
@@ -21770,6 +21870,205 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 .lifecycle_phase,
             "ended"
         );
+    }
+
+    #[tokio::test]
+    async fn archived_session_is_rejected_before_resume_with_archived_reason() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "archived-opencode-resume";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Archived Resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("ses_archived".into()),
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&meta);
+            ws.metadata
+                .organization
+                .write(
+                    id,
+                    &meta.created_at,
+                    crate::session_archive::SessionState::Archived,
+                )
+                .unwrap();
+        }
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id, Some(harness::ResumeStrategy::Exact))
+            .await;
+        assert!(matches!(
+            result,
+            Err(SessionError::ConflictWithMessage(
+                crate::resume_diagnostics::REASON_SESSION_ARCHIVED
+            ))
+        ));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+    }
+
+    #[tokio::test]
+    async fn pending_organization_action_returns_bare_conflict_without_archived_reason() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "pending-org-action-resume";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Pending Org Action",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "opencode".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("ses_pending".into()),
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        let reservation = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&meta);
+            ws.metadata.organization.reserve(id).unwrap()
+        };
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id, Some(harness::ResumeStrategy::Exact))
+            .await;
+        drop(reservation);
+        assert!(matches!(result, Err(SessionError::Conflict)));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
+    }
+
+    #[tokio::test]
+    async fn blank_native_session_id_is_rejected_without_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+
+        let opencode_id = "opencode-blank-id";
+        let mut opencode_meta = crate::test_support::test_session_metadata(
+            opencode_id,
+            "Blank OpenCode",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        opencode_meta.harness = "opencode".into();
+        opencode_meta.lifecycle_phase = "ended".into();
+        opencode_meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("   ".into()),
+            latest_fallback: true,
+            last_seen_at: None,
+        });
+
+        let codex_id = "codex-blank-id";
+        let mut codex_meta = crate::test_support::test_session_metadata(
+            codex_id,
+            "Blank Codex",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        codex_meta.harness = "codex".into();
+        codex_meta.lifecycle_phase = "ended".into();
+        codex_meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("\t ".into()),
+            latest_fallback: false,
+            last_seen_at: None,
+        });
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&opencode_meta);
+            ws.metadata.write_session(&codex_meta);
+        }
+
+        let app = SessionApplication::new(state.clone());
+        assert!(matches!(
+            app.resume_session(opencode_id, Some(harness::ResumeStrategy::Exact))
+                .await,
+            Err(SessionError::ConflictWithMessage(
+                crate::resume_diagnostics::REASON_NO_CAPTURED_ID
+            ))
+        ));
+        assert!(matches!(
+            app.resume_session(codex_id, Some(harness::ResumeStrategy::Exact))
+                .await,
+            Err(SessionError::BadRequest(
+                crate::resume_diagnostics::REASON_CODEX_NO_CAPTURED_ID
+            ))
+        ));
+        assert!(matches!(
+            app.resume_session(codex_id, None).await,
+            Err(SessionError::BadRequest(
+                crate::resume_diagnostics::REASON_CODEX_NO_CAPTURED_ID
+            ))
+        ));
+        assert!(state.sessions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn explicit_unsupported_strategy_is_rejected_with_capability_reason_without_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let id = "claude-unsupported-repo";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Claude Resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "claude-code".into();
+        meta.lifecycle_phase = "ended".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("claude-session-123".into()),
+            latest_fallback: true,
+            last_seen_at: Some("before".into()),
+        });
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+
+        let result = SessionApplication::new(state.clone())
+            .resume_session(id, Some(harness::ResumeStrategy::LatestRepo))
+            .await;
+        assert!(matches!(
+            result,
+            Err(SessionError::ConflictWithMessage(
+                crate::resume_diagnostics::REASON_UNSUPPORTED_LATEST_REPO
+            ))
+        ));
+        assert!(!state.sessions.lock().unwrap().contains_key(id));
     }
 }
 
