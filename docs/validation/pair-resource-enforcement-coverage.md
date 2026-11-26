@@ -660,9 +660,13 @@ controller has a six-minute internal deadline, bounded output and drained proces
 references before owned working-scratch cleanup. The ten-minute workflow uploads
 only result.json, inventory.json and diagnostics.txt, with4MiB/14-day limits.
 
-Offline tests cover wrong-head/rerun denial, unknown paths, missing/drifting
-inputs, byte/entry/text/evidence limits, terminal failures and real controller
-timeout/output closure. Windows reader tests use hand-built data fixtures only;
+Offline policy tests cover wrong-head/rerun denial, unknown paths, missing/drifting
+inputs, reported byte/entry/text/evidence limits, terminal failures and real
+controller timeout/output closure. The registry pre-enumeration guard is source-
+reviewed; its actual registry I/O path is not exercised by the synthetic tests.
+The embedded parser fixtures cover valid fixed-info data and an invalid RVA;
+other section/directory/length bound branches are source-reviewed, not exhaustively
+fixture-tested. Windows reader tests use hand-built data fixtures only;
 no installed compiler or SDK binary is inspected by those tests. Their observed
 missing-reader and missing-version-parser red runs precede implementation. Normal
 repository CI remains separate from the one authorized inventory experiment.
@@ -671,3 +675,13 @@ Complete metadata would establish this limited observation/co-availability
 snapshot, not authenticity, full used-helper closure, historical root cause,
 macro/link custody or a replacement build selection. #1176 remains open and
 Gate1 stays Investigate; all runtime/bootstrap/source/compatibility gates persist.
+
+The independent review also identified a receipt boundary: dispatch/source/
+workspace admission and initial scratch creation precede controller collection.
+Denials there can have an Actions terminal result without an artifact receipt.
+No file receipt can be promised when checkout/runner/storage itself is unavailable.
+Record that provider-observed outcome as unavailable; do not infer completed
+inspection or fabricate operation counts from an absent receipt. Once the
+controller has established owned writable evidence scratch, ordinary collection
+failures retain the bounded JSON result and available observations. The first-run
+guard still closes the sole dispatch regardless of which evidence is available.
