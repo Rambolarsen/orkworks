@@ -595,3 +595,33 @@ then propose a named component-availability request or replacement candidate wit
 a new finite allowance if further runner evidence is needed. That is a proposal,
 not permission to query a new runner, amend the fixed pin, retry this workflow or
 start the build. No new compiler/metadata/native allowance is created here.
+
+## Compiler provenance review (2026-11-26)
+
+The owner requested retained-evidence review after #2070. No new runner query,
+compiler/tool invocation, acquisition or qualification dispatch was performed.
+The review found different selection procedures and a historical custody limit:
+
+| Evidence | What it establishes | Remaining gap |
+| --- | --- | --- |
+| Run42352195449 and its reviewed driver | The earlier driver used vswhere -latest, Launch-VsDevShell and Get-Command cl.exe, then recorded file version19.44.35229.0 and hash fe251…36619 on image20261101.353.1. | The report schema did not retain the full selected toolset path or compiler bytes. The current artifact endpoint lists zero artifacts; the approved one-day retention has elapsed. |
+| Run45876634487 | Fixed path VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe had hash e87e…eb226 on image20261116.370.1; all four source pins and Cargo/rustc hashes matched. | File-version/SDK inventory was never reached. The observed hash does not identify why the bytes differ. |
+
+The [older official image manifest](https://raw.githubusercontent.com/actions/runner-images/win22/20261101.353/images/windows/Windows2022-Readme.md)
+lists Visual Studio17.14.37827.9 and SDK servicing package10.1.26100.7705. The
+[newer manifest](https://raw.githubusercontent.com/actions/runner-images/win22/20261116.370/images/windows/Windows2022-Readme.md)
+lists Visual Studio17.14.37906.3 and SDK servicing package10.1.26100.9457. Both
+list SDK directory10.0.26100.0. These are published image inventories, not hashes
+of the old and new compiler files or proof of the old driver's exact selection.
+
+Image servicing and selection differences are plausible explanations, not a
+verified historical root cause. There is no retained compiler binary pair for a
+byte comparison, and equal directory/version labels would not prove equal bytes.
+No evidence supports a claim of corruption, equivalence or an automatically
+acceptable replacement compiler. Earlier component observations remain tied to
+their original input identity and do not transfer to the new file.
+
+The [proposed read-only component inventory](../superpowers/plans/2026-11-26-pair-toolchain-inventory.md)
+asks for the missing current metadata and co-availability evidence before any
+replacement build proposal. It does not reopen the spent batch, change its pin
+or grant a new allowance. Gate1 remains Investigate; #1176 stays open.
