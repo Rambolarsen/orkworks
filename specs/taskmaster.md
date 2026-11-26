@@ -808,8 +808,9 @@ the `.git` segment rule, the surface-class rule, and sensitivity to it, so an
 allowed-looking symlink such as `docs/guide.md` pointing into `.git/` or into
 product source is rejected. `sensitive` is true when either the stated or the
 canonical path is sensitive, and the card and handoff use that computed value.
-An `edit` target that the platform reports as having more than one hard link is
-also rejected, because a hard link hides its other path from canonicalization
+An `edit` target that the platform reports as having more than one hard link
+(Unix `nlink` or Windows `GetFileInformationByHandle` `nNumberOfLinks`) is also
+rejected, because a hard link hides its other path from canonicalization
 (for example `docs/guide.md` hard-linked to `.git/config`). The stored `path` is
 the validated stated repo-relative path, not the canonical one.
 
