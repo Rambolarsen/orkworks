@@ -208,23 +208,17 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn fifo_controls_do_not_block_live_git_context() {
+        use std::os::unix::ffi::OsStrExt;
         const CHILD: &str = "ORKWORKS_GIT_CONTEXT_FIFO_TEST";
         if let Some(control) = std::env::var_os(CHILD) {
-            use std::os::unix::ffi::OsStrExt;
             let start = std::time::Instant::now();
-            eprintln!("FIFO child: setup started");
-            let dir = tempfile::tempdir().unwrap();
-            init_repo(dir.path());
-            std::fs::create_dir(dir.path().join("nested")).unwrap();
-            std::fs::write(dir.path().join("nested/new.txt"), "new\n").unwrap();
-            let path = dir.path().join(control);
-            let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
-            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            let dir = std::env::current_dir().unwrap();
+            let path = dir.join(control);
             eprintln!(
                 "FIFO child: unavailable scan started after {:?}",
                 start.elapsed()
             );
-            let info = projected_git(dir.path());
+            let info = projected_git(&dir);
             eprintln!(
                 "FIFO child: unavailable scan finished after {:?}; recommendation={}",
                 start.elapsed(),
@@ -241,7 +235,7 @@ mod tests {
                 "FIFO child: recovery scan started after {:?}",
                 start.elapsed()
             );
-            let recovered = projected_git(dir.path());
+            let recovered = projected_git(&dir);
             eprintln!(
                 "FIFO child: recovery scan finished after {:?}; dirty={}, lineChanges={}",
                 start.elapsed(),
@@ -261,6 +255,20 @@ mod tests {
             "nested/.gitignore",
             "nested/.gitattributes",
         ] {
+            // Prepare the fixture before starting the seven-second scan watchdog.
+            let setup_start = std::time::Instant::now();
+            eprintln!("FIFO parent: setup started");
+            let dir = tempfile::tempdir().unwrap();
+            init_repo(dir.path());
+            std::fs::create_dir(dir.path().join("nested")).unwrap();
+            std::fs::write(dir.path().join("nested/new.txt"), "new\n").unwrap();
+            let path = dir.path().join(control);
+            let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+            eprintln!(
+                "FIFO parent: setup finished after {:?}",
+                setup_start.elapsed()
+            );
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
@@ -268,6 +276,7 @@ mod tests {
                     "--nocapture",
                 ])
                 .env(CHILD, control)
+                .current_dir(dir.path())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::inherit())
                 .spawn()
