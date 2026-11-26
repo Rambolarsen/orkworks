@@ -149,9 +149,13 @@ for the live evidence and accepted missed/spoofed-frame limitations.
 The source includes a separate Antigravity OSC 7501 profile using the shared
 bounded live-PTY parser. Activation remains disabled: the source-owned version
 qualification table is empty. The [native evidence record](../validation/antigravity-native-status.md)
-retains a question/answer and working/done trace for CLI 1.5.15 on macOS arm64,
-plus startup auth/permission states; manual tool denial and question cancellation
-remain unverified. These partial traces do not qualify a shipping activation.
+retains question/answer and working/done traces for CLI 1.5.15, plus an
+agent-operated 1.5.16/macOS arm64 strict-session trial with permission cancellation
+and question cancellation. The literal Deny button, automatic-command behavior on
+1.5.16 and human-visible dialog confirmation remain unqualified. Root exit was
+confirmed despite a denied process-group cleanup signal; descendant cleanup is
+not proven. These partial traces do not qualify a shipping activation without
+explicit owner acceptance of their documented limits.
 
 The launch check admits only the built-in command templates, exact resume and
 source-owned initial-prompt argument. A future qualified activation requires a

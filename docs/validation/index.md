@@ -8,7 +8,7 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
-- [Antigravity native status qualification](antigravity-native-status.md) — Retained startup and question-answer OSC evidence; denial/cancellation qualification remains pending.
+- [Antigravity native status qualification](antigravity-native-status.md) — Retained startup, question-answer and cancellation OSC evidence; literal denial and automatic-execution qualification remain pending.
 
 - [Offline workflow evidence boundary replay](workflow-evidence-replay.md) — Explicit-input current Rust policy checks, synthetic controls and unqualified historical/usefulness boundaries.
 
