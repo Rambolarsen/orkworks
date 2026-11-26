@@ -806,3 +806,18 @@ current evidence does not support a replacement build yet. #1176 stays open and
 Gate1 stays Investigate; runtime/bootstrap, allocator/VFS/context, compatibility,
 source/cutoff/newness/catalog/initializer/recovery/durability and production
 activation remain gated.
+
+
+## SDK servicing follow-up proposal (2026-11-26)
+
+After #2088, the owner requested the suggested smaller evidence proposal. The
+[registry-only request](../superpowers/plans/2026-11-26-pair-sdk-servicing-inventory.md)
+removes installed PE, directory and default-text reads and proposes a new
+1,024-entry-per-pass bound for only the missing SDK product metadata. It uses
+fixed-buffer reads and retains a separate run/image identity; it cannot join a
+later SDK observation into the earlier compiler snapshot as co-availability proof.
+
+This is a proposal, with no tooling or dispatch authority until scoped acceptance.
+The old256-entry batch and all prior allowances stay spent. No replacement pin,
+build or runtime qualification follows. #1176 remains open and Gate1 remains
+Investigate.
