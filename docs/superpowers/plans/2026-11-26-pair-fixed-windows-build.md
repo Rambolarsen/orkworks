@@ -4,7 +4,7 @@ title: One fixed Windows sidecar candidate build
 description: Proposed finite locked sidecar build with named Rust, MSVC and SDK inputs, macro evidence and linked-artifact custody; no resulting binary execution or runtime qualification.
 tags: [orkworks, hierarchy, sqlite, windows, build, qualification]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: completed-unavailable
 ---
 
 # One fixed Windows sidecar candidate build
@@ -154,17 +154,17 @@ scratch after references/processes drain; failure/timeout gives no retry credit.
 ## Tooling, review and handoff
 
 - [x] Obtain this exact new scoped allowance; old batches remain spent.
-- [ ] Prepare a separate manual qualification workflow and owned script with
+- [x] Prepare a separate manual qualification workflow and owned script with
   offline behavioral tests. Freeze effective argv/manifest/oracle derivation and
   all invoked helper selections in its PR. Reuse the proven first-run, input-pin,
   minimal-environment, bounded-evidence and failure-retention patterns; do not
   reset or mutate the consumed metadata workflow's history.
-- [ ] Before dispatch, close source/helper/configuration inputs through the
+- [x] Before dispatch, close source/helper/configuration inputs through the
   reviewed tooling, verify the selected component selectors and record counters
   and frozen heads on #1176. Material recipe changes return to the owner; absent
   evidence is not permission to choose a different build. Tooling tests and normal
   repository CI are separate from dispatch; they must not launch this experiment.
-- [ ] Dispatch once, retain the terminal outcome and identities in the existing
+- [x] Dispatch once, retain the terminal outcome and identities in the existing
   coverage concept, and close the batch whether successful, unsupported or timed
   out. Independently read back artifact hashes/inputs and review actual linkage.
 
@@ -208,4 +208,24 @@ oracle. [#2066](https://github.com/Rambolarsen/orkworks/pull/2066) merged as
 `cd12001b37a661232195f68def753b51a0d21c61`. Prior batches remain spent, and no
 resulting-sidecar execution or runtime/bootstrap/source authority is granted.
 Tooling must still close and review the stated inputs before dispatch; this
-acceptance does not turn unknown provenance into evidence. Dispatch remains0/1.
+acceptance does not turn unknown provenance into evidence. At acceptance, dispatch stood0/1.
+
+## Terminal execution record — 2026-11-26
+
+Tooling [#2069](https://github.com/Rambolarsen/orkworks/pull/2069) merged as
+`b54c55ecf0b38681eabf5f16ecadf3d366ea796c` after current-head review and all
+applicable CI. The exact head and four unchanged source hashes were frozen on
+#1176 before [the sole run45876634487](https://github.com/Rambolarsen/orkworks/actions/runs/45876634487).
+It closed unavailable in toolchain preflight: the selected cl.exe existed but
+its bytes did not match the approved pin. Cargo/rustc and source pins matched.
+No fetch, Cargo build, preprocessing oracle or resulting-program execution ran.
+SDK inventory, compiler-version query and effective macro/linkage evidence were
+not reached. The dispatch consumes1/1, including all unexercised child slots;
+no retry, replacement pin or new runner query is authorized.
+
+The [canonical terminal record](../../validation/pair-resource-enforcement-coverage.md#fixed-windows-build-batch-closed-unavailable-2026-11-26)
+retains observed hashes, the bounded artifact identity/expiry, independent
+readback and cleanup. The finite task is complete with an unavailable outcome;
+Gate1 remains Investigate, #1176 stays open, and runtime/bootstrap/source/
+compatibility gates remain closed. Any follow-up evidence acquisition needs its own concrete
+selection and finite allowance.

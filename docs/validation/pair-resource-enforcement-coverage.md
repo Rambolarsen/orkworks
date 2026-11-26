@@ -461,7 +461,7 @@ production activation from this successful metadata result. #1176 stays open.
 ## Fixed-build input audit — 2026-11-26
 
 The owner accepted the [new fixed-build allowance](../superpowers/plans/2026-11-26-pair-fixed-windows-build.md#scoped-allowance-accepted--2026-11-26).
-Dispatch remains0/1 while its separate tooling is reviewed. The earlier metadata,
+At this audit, dispatch stood0/1 while its separate tooling was reviewed. The earlier metadata,
 compiler and native batches remain spent; no new metadata operation is selected.
 
 The tooling policy at scripts/qualification/pair-fixed-windows-build.inputs.json
@@ -500,7 +500,7 @@ evidence that those artifacts exist. No sidecar or SQLite runtime will execute.
 
 This audit does not close Gate1, qualify startup/allocator/VFS/context behavior or
 permit bootstrap implementation. #1176 remains open. The one manual45-minute job
-and its terminal evidence record are still pending; no dispatch or build has run.
+and its terminal evidence record were pending at that point; no dispatch or build had run.
 
 The compile-time inventory additionally pins all14 procedural-macro entrypoints
 from the retained graph. Their non-dev dependency closure comprises those14 plus
@@ -520,3 +520,78 @@ archive/member for SQLite symbols. The fixed lib.exe informational
 copies an existing member without recompilation or execution. Both SQLite
 archives and the custody receipt join the same bounded artifact; temporary
 extracted copies are removed. Unknown output formats leave custody unavailable.
+
+## Fixed Windows build batch closed unavailable (2026-11-26)
+
+The owner-accepted [fixed-build batch](../superpowers/plans/2026-11-26-pair-fixed-windows-build.md#scoped-allowance-accepted--2026-11-26)
+reached its terminal outcome. Tooling [#2069](https://github.com/Rambolarsen/orkworks/pull/2069),
+reviewed head `3cf93c33de083b4f86b95c3c6f953bc9ce8e171d`, merged as
+`b54c55ecf0b38681eabf5f16ecadf3d366ea796c`. All applicable normal CI passed;
+hosted Codex reviewed that head with no findings. Local policy/site tests72 and
+docs tests2583 passed. The single read-only review round's source-binding and
+archive-custody findings were addressed before merge; a final receipt regression
+ensures mismatched tool bytes remain visible. Copilot was quota-unavailable,
+without a blind retry. These tooling checks are separate from qualification.
+
+The [pre-dispatch freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7200560910)
+recorded the same source/tooling SHA and all four unchanged source hashes. The
+fixed input policy SHA-256 is
+`6870a4482dbec425369aceadeb79837496fe181924accc70362589b15b6d4dd0`.
+No production release workflow, dependency feature or global flag was changed.
+
+[Run45876634487](https://github.com/Rambolarsen/orkworks/actions/runs/45876634487)
+was created18:31:38 UTC and its one candidate job ran18:31:42–18:32:02 UTC,
+within the45-minute bound. It stopped in toolchain preflight with
+`tool-byte-mismatch`. The four source expected/observed hashes matched; installed
+Cargo and rustc bytes matched their approved pins. The selected cl.exe file
+existed, but its observed SHA-256 differed.
+
+| Selected tool | Expected SHA-256 | Observed SHA-256 |
+| --- | --- | --- |
+| Cargo1.100.0 pin | `f381bae27c59588eacf69208e115b2c001a2998afed83a2e9084ea93620737b1` | `f381bae27c59588eacf69208e115b2c001a2998afed83a2e9084ea93620737b1` |
+| rustc1.100.0 pin | `d4f8a0283de2dba0dc458cd13c333337d2b76c3649eb39e91c4acce618e661a1` | `d4f8a0283de2dba0dc458cd13c333337d2b76c3649eb39e91c4acce618e661a1` |
+| cl.exe in VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64 | `fe251ef50a1545b1b0835ee17b1e785459712b38d79e45b5c1d3d28970a36619` | `e87e78b3ef6580b75aebda843f8a22e874612d9f766344046551399f898eb226` |
+
+The runner reported ImageOS win22 and ImageVersion20261116.370.1. The compiler
+version query, SDK servicing inventory and complete toolset/SDK/source manifest
+were not reached. The directory name and runner image therefore do not establish
+the compiler's actual file version, why its bytes changed, or combined component
+availability. No Cargo/rustc version child command ran either; their byte matches
+refer to the accepted previously observed pins. No compiler substitution or
+updated hash was accepted automatically.
+
+### Terminal evidence and counters
+
+[Artifact15144269964](https://github.com/Rambolarsen/orkworks/actions/runs/45876634487/artifacts/15144269964)
+is the sole allowlisted artifact:1,216 compressed bytes and2,186 uncompressed
+bytes, below256MiB. It expires2026-12-10 at18:31:58 UTC under14-day retention.
+The two-file readback independently verified the frozen head, all four source
+pins, both matching Rust tool hashes, the cl mismatch and terminal counters.
+The raw receipt remains in the expiring artifact; this record preserves its
+observations and hashes without extending raw evidence retention.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| result.json | 2,186 | `741d44725037f435b26717892fe66495a63ffba537c8f113575d9bff76059ec6` |
+| diagnostics.txt | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+**Terminal: dispatch1/1 consumed; fetch0, Cargo build0, additional preprocessing
+oracle0 and resulting-program executions0. All child-operation slots close with
+that dispatch; they are not remaining execution credit.** Workflow history shows
+exactly one dispatch, run_attempt1 and the frozen head. The receipt records no
+selected-tool child commands and reports owned Cargo/target scratch removed. Its empty
+diagnostics file is expected because byte verification stopped before launching
+the selected Cargo/rustc/compiler tools. There is no candidate executable, SQLite object/archive,
+macro observation or link map from this batch. No artifact was executed.
+
+The fixed candidate is unavailable under the approved byte identities. This
+closes the finite acquisition task, not Gate1 or #1176. Earlier metadata/compiler/
+native batches remain spent; bootstrap implementation, allocator/VFS/context
+custody, ordinary compatibility, source/cutoff/newness/catalog/initializer/
+recovery/durability and production activation remain gated.
+
+A next task may review the retained compiler-byte mismatch and its provenance,
+then propose a named component-availability request or replacement candidate with
+a new finite allowance if further runner evidence is needed. That is a proposal,
+not permission to query a new runner, amend the fixed pin, retry this workflow or
+start the build. No new compiler/metadata/native allowance is created here.
