@@ -7788,7 +7788,12 @@ async fn create_session_workflow(
                     let _image_pins = match (&image_fixture, &image_bundle) {
                         (Some(fixture), Some(bundle)) => fixture
                             .observe_bundle(bundle)
-                            .map_err(|error| format!("Windows image qualification: {error}"))?,
+                            .map_err(|error| {
+                                crate::startup_failure::StartupError::classified(
+                                    crate::startup_failure::StartupFailureCode::ImageAttachmentUnavailable,
+                                    error,
+                                )
+                            })?,
                         _ => Vec::new(),
                     };
                     let result = runtime_future.await;

@@ -583,7 +583,7 @@ mod tests {
                 let mut last_output = String::new();
                 while tokio::time::Instant::now() < deadline {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let (output, status) = state
+                    let (output, status, failure) = state
                         .sessions
                         .lock()
                         .unwrap()
@@ -599,23 +599,19 @@ mod tests {
                                         .collect::<Vec<_>>(),
                                 )),
                                 h.info.status.clone(),
+                                h.info.startup_failure.clone(),
                             )
                         })
                         .unwrap_or_default();
                     let lower = output.to_lowercase();
                     if deny_reads {
-                        let image_error = lower.contains("image") || lower.contains("0.png");
-                        let read_error = [
-                            "os error 32",
-                            "sharing violation",
-                            "being used by another process",
-                            "access is denied",
-                        ]
-                        .iter()
-                        .any(|error| lower.contains(error));
-                        saw = image_error && read_error;
-                        last_output = output;
-                        if saw || status == "error" || status == "ended" {
+                        if status == "error" || status == "ended" {
+                            saw = status == "error"
+                                && failure.as_ref().is_some_and(|failure| {
+                                    failure.code == crate::startup_failure::StartupFailureCode::ImageAttachmentUnavailable
+                                })
+                                && !state.session_pids.lock().unwrap().contains_key(&info.id);
+                            last_output = format!("status={status} startup_failure={failure:?}");
                             break;
                         }
                         continue;

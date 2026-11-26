@@ -57,18 +57,15 @@ pub(crate) fn capture_fixture() -> Option<Arc<Fixture>> {
 
 impl Fixture {
     pub(crate) fn observe_bundle(&self, bundle: &ImageBundle) -> io::Result<Vec<File>> {
-        let pins = bundle.verify_dispatch_paths()?;
         if self.deny_reads {
-            drop(pins);
             let image = bundle
                 .paths()
                 .first()
                 .ok_or_else(|| io::Error::other("Missing fixture image"))?;
             let lock = OpenOptions::new().read(true).share_mode(0).open(image)?;
             *self.read_lock.lock().expect("qualification read lock") = Some(lock);
-            return Ok(Vec::new());
         }
-        Ok(pins)
+        bundle.verify_dispatch_paths()
     }
 }
 
@@ -112,4 +109,26 @@ pub(super) fn configure(state: &Arc<AppState>) -> String {
     let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
     *state.harness_catalog.write().unwrap() = Arc::new(registry);
     command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locked_image_is_rejected_by_preflight() {
+        let directory = tempfile::tempdir().unwrap();
+        let bundle = ImageBundle::publish(
+            directory.path(),
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            vec![crate::image_context::ValidatedImage {
+                bytes: b"synthetic image".to_vec(),
+                extension: "png",
+            }],
+        )
+        .unwrap();
+        let fixture = Fixture::new("unused".into(), true);
+        let error = fixture.observe_bundle(&bundle).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(32));
+    }
 }

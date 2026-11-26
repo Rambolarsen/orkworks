@@ -12,8 +12,8 @@ workflow_status: active
 [Issue #1674](https://github.com/Rambolarsen/orkworks/issues/1674) delivers the
 existing New session image flow on Windows. The [image-context contract](../../../specs/session-image-context.md)
 and [ADR 0089](../../adr/0089-new-session-image-context.md) govern this work.
-The sidecar currently restricts native Codex delivery to macOS arm64 and has no
-Windows bundle implementation. On 2026-11-26, the installed WinGet x64 Codex
+The production sidecar currently restricts native Codex image delivery to macOS
+arm64. On 2026-11-26, the installed WinGet x64 Codex
 binary returned `codex-cli 0.172.0` and advertised `-i, --image <FILE>...`.
 Both bounded probes exited successfully. This confirms the installed interface.
 
@@ -111,12 +111,12 @@ cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd 
 
 Use the absolute native executable path for the actual install if it differs.
 The fixture creates temporary NTFS storage with spaces and non-ASCII in its
-path. It makes at most three normal OrkWorks PTY starts: ordered multiple
-images with text, image-only, and an image-only start that encounters an
-exclusive Windows read lock. It checks the published volume/file identities
-at dispatch. Inspect the retained output for the version, actual model,
-expected visual results and one initial turn for each successful start,
-plus the visible denied image read.
+path. It attempts two normal OrkWorks PTY starts with readable files, one
+with multiple images and text and one with an image-only prompt. The third
+case holds an exclusive read lock before preflight and requires a typed
+startup error with no Codex session PID. The fixture checks the published
+volume and file IDs at dispatch. Inspect the retained output for the version,
+model, visual results, and one initial turn for each successful start.
 
 The focused Windows image suite passed 11 tests on Windows x64. The live
 fixture remains opt-in, and the separate recovery helper runs only as a
@@ -154,3 +154,57 @@ The total was three starts. No live case was repeated. The batch does not
 qualify the Windows route. The ACL review correction replaced direct reads
 of the returned ACL header with `GetAclInformation` and bounds the ACE bytes
 before comparing them. All 11 focused Windows image tests passed afterward.
+
+## Follow-up offline payload trace and preflight
+
+The disposable loopback provider captured native Codex 0.172.0 Responses
+requests for the requested GPT-5.4 model. An isolated Codex profile used an
+unauthenticated local endpoint. The harness saved only fixture PNG bytes and
+served fixed synthetic replies. This trace measures local preparation and
+serialization without making a real inference call.
+
+| Native startup case | Source PNG bytes | Request PNG bytes | Comparison |
+| --- | --- | --- | --- |
+| Multiple images, first attachment | 1123 | 1123 | Byte-identical, SHA-256 `962df75e9af659ec944fd5ab1731ce22a791efff947d893a35aff22ca29d5044` |
+| Multiple images, second attachment | 1122 | 1122 | Byte-identical, SHA-256 `4023e88fb0ee67c3642bfea7fae7b64985ffae15237d77b2b5f3003b421515e2` |
+| Image-only | 1123 | 1123 | Byte-identical to the first attachment above |
+
+The initial loopback attempt hit folder trust before it could send an image.
+The disposable profile then used the native Git common root Codex identified.
+The multiple-image request supplied both PNGs. A separate image-only run
+bound the inline image to its exact published path and completed successfully.
+These captures match the existing offline check of both shape colors. The
+trace establishes the client boundary for the synthetic provider. Hosted
+processing and model interpretation are outside that boundary.
+[Codex 0.172.0 image serialization](https://github.com/openai/codex/blob/rust-v0.172.0/codex-rs/protocol/src/models.rs#L1941-L1994)
+
+The locked-file regression failed when the lock was acquired after preflight.
+It passed after moving the lock before path verification. The qualification
+route now records `image_attachment_unavailable` using the existing startup
+failure path and the desktop's local message catalog. The offline denied case
+recorded `status=error`, the attachment-specific code, and no Codex session
+PID. This covers a read failure present at preflight. Acknowledgement from
+Codex for a later read failure remains unverified.
+
+The focused image suite passed 12 tests, the Rust diagnostic suite passed
+two, and the desktop diagnostic tests and type-check passed.
+
+## Follow-up live result (2026-11-26)
+
+The installed Codex 0.172.0 rejected GPT-5.4 as retired before either readable
+case submitted a turn. The denied-read case passed in that batch. OrkWorks
+reported `image_attachment_unavailable` with no Codex session PID.
+
+The two readable cases ran once each with the recommended replacement,
+`gpt-6-sol`, selected for only the fixture process.
+
+| Case | Observation | Qualification result |
+| --- | --- | --- |
+| Multiple images and prompt | Codex answered red, white, blue, white. The expected order was red, green, blue, orange. | Failed the color check. |
+| Image-only | Codex described the red circle on the left of a white rectangular background. It omitted the green rectangle. | Failed the color check. |
+
+The color errors repeat the earlier live results. The offline trace verifies
+the PNG bytes dispatched by the installed client to a synthetic endpoint.
+The cause of the live discrepancy remains open. Activation stays gated on
+native visual delivery, cross-user access denial, NTFS publication ordering,
+and ordinary-session retention on storage ineligible for images.
