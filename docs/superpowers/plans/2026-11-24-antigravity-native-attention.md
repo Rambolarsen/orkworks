@@ -125,3 +125,13 @@ activation. It does not add permission policy, broaden other platform/version
 eligibility or start another native model session. The original implementation
 and review evidence above is historical; current verification/review evidence
 is recorded in the activation PR.
+
+
+## Rejection and automatic-command evidence follow-up
+
+The owner-directed [2026-11-26 follow-up](../../validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
+retains explicit native rejection and one automatic-command negative case.
+Both are agent-operated captures, with failed startups and cleanup limitations
+retained. No source eligibility, parser, application, hook or production launch
+setting changed; the 1.5.16 profile remains limited. Verification for this
+documentation-only increment is recorded in its PR.

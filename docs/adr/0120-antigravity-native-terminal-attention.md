@@ -44,8 +44,10 @@ silence does not clear it; only recognized native updates or existing authorized
 lifecycle operations do. Missing/spoofed frames and nonaggregate displayed-thread
 state remain accepted presentation limits. Prose questions with no native wait
 are unsupported. The owner accepted limited activation for exactly macOS arm64
-1.5.16 on 2026-11-26 after the retained strict-session trial. Literal Deny-button
-and automatic-command behavior, human-visible confirmation and descendant
-cleanup remain unverified. See the [qualification record](../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
+1.5.16 on 2026-11-26 after the retained strict-session trial. A later
+[qualification follow-up](../validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
+retains explicit native rejection and one independently witnessed automatic
+command without a prompt block. Human-visible confirmation, installed OrkWorks
+UI behavior and complete descendant cleanup remain unverified.
 Other profiles retain the qualification gate. Reverting source and relaunching restores prior
 behavior without migrating stored attention or changing installed hooks.

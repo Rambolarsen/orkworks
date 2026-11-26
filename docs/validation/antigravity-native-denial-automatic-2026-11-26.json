@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "version_reported": "1.5.16",
+    "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+    "release_url": "https://github.com/google-antigravity/antigravity-cli/releases/tag/1.5.16",
+    "archive_sha256": "ba47202f712de4c4a78fd787d81ba206d73e11c97572fc69420f29a77efc8d95"
+  },
+  "native_starts": 4,
+  "fixture_prompts_submitted": 2,
+  "seconds_limit_each": 180,
+  "prompt_limit_each": 1,
+  "raw_output_retained": false,
+  "model_call_accounting_measured": false,
+  "startup_attempts": [
+    {
+      "trial": "denial",
+      "qualification_valid": false,
+      "reason": "exited_before_prompt",
+      "seconds": 0.394,
+      "events": [],
+      "root_exit_confirmed": true,
+      "root_exit_code": 1,
+      "binary_unchanged": true,
+      "fixture_prompts": 0
+    },
+    {
+      "trial": "automatic",
+      "qualification_valid": false,
+      "reason": "artifact_changed_during_startup",
+      "seconds": 25.154,
+      "events": [
+        {
+          "seconds": 0.285,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 0.337,
+          "state": "blocked",
+          "payload_bytes": 79,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "permission",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 24.825,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        }
+      ],
+      "root_exit_confirmed": true,
+      "root_exit_code": 0,
+      "binary_unchanged": false,
+      "fixture_prompts": 0
+    }
+  ],
+  "preflight_failure": {
+    "reason": "artifact_hash_changed",
+    "native_started": false,
+    "fixture_prompts": 0
+  },
+  "trials": {
+    "denial": {
+      "trial": "denial",
+      "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+      "version": "1.5.16",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 1,
+      "strict_session_override": true,
+      "events": [
+        {
+          "seconds": 2.209,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 3.046,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 21.913,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 31.979,
+          "state": "blocked",
+          "payload_bytes": 71,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "permission",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 52.53,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 52.601,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 28.665,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 31.98,
+          "fixed_marker": "permission_prompt"
+        },
+        {
+          "seconds": 31.98,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": true
+        },
+        {
+          "seconds": 31.981,
+          "label": "No",
+          "number": 2,
+          "selected_marker": false
+        },
+        {
+          "seconds": 52.512,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": false
+        },
+        {
+          "seconds": 52.512,
+          "label": "No",
+          "number": 2,
+          "selected_marker": true
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "existing_orkworks_with_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": false,
+      "execution_marker_exact": false,
+      "group_signal": "sent",
+      "root_signal": "sent",
+      "child_exit_confirmed": false,
+      "binary_unchanged": true,
+      "elapsed_seconds": 65.072,
+      "execution_marker_interpretation": "The initial denial fixture used a relative output path; absence at the monitored temporary path is not an independent nonexecution witness."
+    },
+    "automatic": {
+      "trial": "automatic",
+      "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+      "version": "1.5.16",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 1,
+      "strict_session_override": false,
+      "events": [
+        {
+          "seconds": 0.231,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 1.511,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 18.281,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 30.931,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 23.098,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 26.815,
+          "execution_marker_exact": true
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "existing_orkworks_with_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": true,
+      "execution_marker_exact": true,
+      "group_signal": "sent",
+      "child_exit_confirmed": true,
+      "child_exit_code": 0,
+      "binary_unchanged": true,
+      "elapsed_seconds": 40.403
+    }
+  },
+  "limits": [
+    "agent_operated_only",
+    "no_installed_orkworks_ui_e2e",
+    "all_descendant_exit_not_proven",
+    "denial_collector_root_exit_unconfirmed",
+    "other_versions_unqualified",
+    "denial_marker_absence_does_not_prove_nonexecution"
+  ]
+}

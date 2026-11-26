@@ -229,3 +229,15 @@ not apply the diagnostic strict-permission setting to production launches.
 Other versions, platforms and custom routes remain gated. Existing source
 priority, live-generation, no-replay and non-permission-authority contracts are
 unchanged. No additional native probe is authorized by this amendment.
+
+
+## Later explicit-rejection and automatic-command evidence
+
+The [2026-11-26 follow-up](../../validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
+retains agent-operated native No selection followed by Working/Idle, and one
+independently witnessed automatic command with Working/done and no prompt block.
+Human-visible confirmation, installed OrkWorks UI behavior and complete
+cleanup remain unqualified. This improves retained evidence for the existing
+1.5.16 profile without changing the approved architecture, permission policy or
+other-version gates. Historical qualifications and failed attempts above remain
+limited to their actual observations.
