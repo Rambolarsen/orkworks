@@ -625,3 +625,63 @@ The [proposed read-only component inventory](../superpowers/plans/2026-11-26-pai
 asks for the missing current metadata and co-availability evidence before any
 replacement build proposal. It does not reopen the spent batch, change its pin
 or grant a new allowance. Gate1 remains Investigate; #1176 stays open.
+
+## Read-only inventory tooling boundary (2026-11-26)
+
+The owner accepted the [exact inventory proposal](../superpowers/plans/2026-11-26-pair-toolchain-inventory.md#scoped-allowance-accepted-2026-11-26)
+after #2076. Dispatch remains0/1 while its separate tooling is verified. Earlier
+batches stay spent; there is no replacement build-pin or compiler/Cargo execution
+permission in this inventory.
+
+The new controller selects exactly13 fixed PE paths plus the bounded default
+toolset text and SDK registry/directory metadata. File data is streamed under
+per-file and aggregate hash limits, with reparse paths denied and identities
+checked again after collection. Both source-hash passes and the inventory hash
+are charged; the collector reserves evidence/controller headroom inside1GiB.
+Missing/drifting observations are retained before outcome classification.
+
+Version numbers come directly from the selected file's embedded
+VS_FIXEDFILEINFO data. The reader bounds section counts, three resource-directory
+levels, entry counts, resource offsets and fixed-info sizes. It does not consult
+localized MUI files, native version APIs, signatures or inspected DLL code.
+PE machine describes host-file metadata only. This avoids extending the target
+list through a convenience version reader; the [reference .NET implementation](https://raw.githubusercontent.com/dotnet/runtime/main/src/libraries/System.Diagnostics.FileVersionInfo/src/System/Diagnostics/FileVersionInfo.Windows.cs)
+uses localized/neutral version API flags. This inventory does not use that API.
+
+The SDK collector reads only the named local machine registry roots and fixed
+directory attributes. It checks the entry budget before enumeration and exports
+only bounded matching public SDK name/version fields. There is no Win32_Product,
+package-manager, default-toolset selection, recursive SDK walk or installer repair.
+
+The Node guard verifies manual attempt1, exact reviewed main checkout and sole
+first-run history before launching its one fixed PowerShell controller. A minimal
+child environment omits history credentials and inherited configuration. The
+controller has a six-minute internal deadline, bounded output and drained process
+references before owned working-scratch cleanup. The ten-minute workflow uploads
+only result.json, inventory.json and diagnostics.txt, with4MiB/14-day limits.
+
+Offline policy tests cover wrong-head/rerun denial, unknown paths, missing/drifting
+inputs, reported byte/entry/text/evidence limits, terminal failures and real
+controller timeout/output closure. The registry pre-enumeration guard is source-
+reviewed; its actual registry I/O path is not exercised by the synthetic tests.
+The embedded parser fixtures cover valid fixed-info data and an invalid RVA;
+other section/directory/length bound branches are source-reviewed, not exhaustively
+fixture-tested. Windows reader tests use hand-built data fixtures only;
+no installed compiler or SDK binary is inspected by those tests. Their observed
+missing-reader and missing-version-parser red runs precede implementation. Normal
+repository CI remains separate from the one authorized inventory experiment.
+
+Complete metadata would establish this limited observation/co-availability
+snapshot, not authenticity, full used-helper closure, historical root cause,
+macro/link custody or a replacement build selection. #1176 remains open and
+Gate1 stays Investigate; all runtime/bootstrap/source/compatibility gates persist.
+
+The independent review also identified a receipt boundary: dispatch/source/
+workspace admission and initial scratch creation precede controller collection.
+Denials there can have an Actions terminal result without an artifact receipt.
+No file receipt can be promised when checkout/runner/storage itself is unavailable.
+Record that provider-observed outcome as unavailable; do not infer completed
+inspection or fabricate operation counts from an absent receipt. Once the
+controller has established owned writable evidence scratch, ordinary collection
+failures retain the bounded JSON result and available observations. The first-run
+guard still closes the sole dispatch regardless of which evidence is available.

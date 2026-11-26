@@ -4,7 +4,7 @@ title: One read-only Windows component inventory
 description: Proposed finite file and SDK inventory to identify the changed compiler candidate without acquisition, compilation or execution of inspected tools.
 tags: [orkworks, hierarchy, windows, toolchain, provenance, qualification]
 status: draft
-workflow_status: proposed-awaiting-owner
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One read-only Windows component inventory
@@ -99,8 +99,8 @@ working scratch. Do not edit consumed workflows/history or the fixed-build pin.
 
 ## Deliverables, checks and authority boundary
 
-- [ ] Owner accepts this exact new inventory-only allowance.
-- [ ] Prepare a separate manual workflow/controller with offline behavioral tests
+- [x] Owner accepts this exact new inventory-only allowance.
+- [x] Prepare a separate manual workflow/controller with offline behavioral tests
   for non-dispatch/rerun denial, exact file allowlist, no inspected-tool launch,
   missing/drifting inputs, metadata retention, byte/entry/time/evidence limits
   and cleanup. Review the exact controller selectors before dispatch; reuse
@@ -132,3 +132,31 @@ co-availability unknown, historical cause cannot be recovered by this job).
 Total9 is a review aid, not approval. No architecture/resource-policy change is
 proposed. This proposal was written using repository/retained job records and
 official image manifests; no new runner or inspected-tool operation ran.
+
+## Scoped allowance accepted (2026-11-26)
+
+The owner answered “keep going” to the explicit #2076 question approving tooling
+plus this one10-minute inventory job. Proposal merge:
+d67135d00cb764fb23ac9126ecaff5152e4837f0. This accepts only the listed metadata
+surface, limits and terminal-record work. It grants no inspected-tool execution,
+replacement build pin or later build. Prior batches remain spent. Dispatch0/1;
+reviewed tooling and exact merged-head freeze are still required before dispatch.
+
+## Tooling review disposition (2026-11-26)
+
+One bounded independent read-only round reviewed correctness/allowance safety and
+acceptance/evidence coverage, with the owning agent as sole writer. No inspected-
+tool execution path or additional read allowance was identified. Review findings
+clarify delivery and verification: pre-controller admission or unavailable runner/
+checkout/storage can yield only an Actions terminal outcome, without a JSON
+artifact. Retain that outcome as unavailable and do not invent inspection counts.
+Ordinary failures after owned writable evidence setup retain the bounded receipt.
+This is not retry credit or a stronger artifact-delivery guarantee.
+
+Registry pre-enumeration and additional PE section/directory/length branches have
+source review rather than exhaustive behavioral fixtures. Tests cover output
+policy denials, valid embedded fixed-info, invalid RVA, byte/text limits and actual
+controller timeout/output closure. These limits prevent treating tooling tests
+as authenticity, full helper closure or profile qualification. Windows synthetic
+reader tests passed on the completed code; normal repository CI remains a
+separate pre-merge requirement. Dispatch is still0/1.

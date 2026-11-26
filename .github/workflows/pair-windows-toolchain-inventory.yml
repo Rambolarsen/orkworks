@@ -1,0 +1,40 @@
+name: Read-only Windows component inventory
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pair-toolchain-inventory-allowance-2026-11-26
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved data-only inventory
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/qualification/pair-windows-toolchain-inventory.ps1
+      - name: Retain bounded inventory evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-windows-toolchain-inventory
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-toolchain-inventory/evidence/result.json
+            ${{ runner.temp }}/ork-pair-toolchain-inventory/evidence/inventory.json
+            ${{ runner.temp }}/ork-pair-toolchain-inventory/evidence/diagnostics.txt
