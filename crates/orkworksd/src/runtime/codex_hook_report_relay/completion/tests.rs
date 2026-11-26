@@ -308,6 +308,7 @@ fn native_publisher_output(
     path: &Path,
     event: &str,
     invocation: Option<&str>,
+    capture_lock_timing: bool,
 ) -> std::process::Output {
     use std::process::{Command, Stdio};
     let mut child = Command::new("python3")
@@ -322,6 +323,10 @@ fn native_publisher_output(
         .arg("a".repeat(64))
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env(
+            "ORKWORKS_TEST_COMPLETION_LOCK_TIMING",
+            if capture_lock_timing { "1" } else { "0" },
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -349,7 +354,7 @@ fn native_publisher_output(
 }
 
 pub(crate) fn publish_native(path: &Path, event: &str, invocation: Option<&str>) {
-    let result = native_publisher_output(path, event, invocation);
+    let result = native_publisher_output(path, event, invocation, false);
     assert!(
         result.status.success(),
         "{}",
@@ -364,20 +369,73 @@ fn completion_publisher_probe_classifies_lock_timeout_without_payload() {
     let queue = CompletionQueue::create(&relay, 7, &"a".repeat(64)).unwrap();
     fs2::FileExt::lock_exclusive(&queue.lock).unwrap();
 
-    let result = native_publisher_output(queue.path(), "PreToolUse", Some("private-input"));
+    let result = native_publisher_output(queue.path(), "PreToolUse", Some("private-input"), true);
 
     assert_eq!(result.status.code(), Some(2));
     assert!(result.stdout.is_empty());
     let diagnostic = String::from_utf8(result.stderr).unwrap();
-    let line = diagnostic
+    let mut lines = diagnostic.lines();
+    let line = lines
+        .next()
+        .unwrap()
         .strip_prefix("completion report failed; stage=_lock; exception=Invalid; errno=none; line=")
-        .and_then(|text| text.strip_suffix('\n'))
-        .expect("only safe failure metadata is printed");
+        .expect("the failure starts with safe metadata");
     assert!(line.parse::<u32>().unwrap() > 0);
+    let timing = lines
+        .next()
+        .expect("expected lock timing after the failure");
+    let samples: Vec<serde_json::Value> = serde_json::from_str(
+        timing
+            .strip_prefix("completion lock timing (ns): ")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(samples.len(), 1);
+    let sample = &samples[0];
+    assert_eq!(sample["phase"], "marker");
+    assert!(
+        sample["wait_end"].as_u64().unwrap() - sample["wait_start"].as_u64().unwrap()
+            >= 2_000_000_000
+    );
+    assert!(sample["acquired"].is_null());
+    assert!(sample["release_start"].is_null());
+    assert!(sample["released"].is_null());
+    assert_eq!(sample["max_fsync"], 0);
+    assert!(lines.next().is_none());
+    assert!(!diagnostic.contains("private-input"));
     assert!(queue.path().join("poison").is_file());
     let state: QueueState =
         serde_json::from_slice(&std::fs::read(queue.path().join("queue.json")).unwrap()).unwrap();
     assert!(state.records.is_empty());
+}
+
+#[test]
+fn completion_publisher_probe_records_both_lock_phases() {
+    let relay = CodexHookReportRelay::new().unwrap();
+    let queue = CompletionQueue::create(&relay, 7, &"a".repeat(64)).unwrap();
+    let output = native_publisher_output(queue.path(), "PreToolUse", Some("private-input"), true);
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8(output.stderr).unwrap();
+    let timing = diagnostic
+        .trim_end()
+        .strip_prefix("completion lock timing (ns): ")
+        .unwrap();
+    let samples: Vec<serde_json::Value> = serde_json::from_str(timing).unwrap();
+    assert_eq!(samples.len(), 2);
+    for (sample, phase) in samples.iter().zip(["marker", "publication"]) {
+        assert_eq!(sample["phase"], phase);
+        let acquired = sample["acquired"].as_u64().unwrap();
+        let release_start = sample["release_start"].as_u64().unwrap();
+        let released = sample["released"].as_u64().unwrap();
+        assert!(sample["wait_start"].as_u64().unwrap() <= acquired);
+        assert!(acquired <= sample["wait_end"].as_u64().unwrap());
+        assert!(sample["wait_end"].as_u64().unwrap() <= release_start);
+        assert!(release_start <= released);
+        let max_fsync = sample["max_fsync"].as_u64().unwrap();
+        assert!(max_fsync > 0 && max_fsync <= release_start - acquired);
+    }
+    assert!(!diagnostic.contains("private-input"));
 }
 
 #[test]
@@ -388,47 +446,58 @@ fn completion_queue_accepts_real_parallel_publishers_without_receive_order_count
         .map(|i| {
             let path = queue.path().to_path_buf();
             std::thread::spawn(move || {
-                native_publisher_output(&path, "PreToolUse", Some(&format!("tool-{i}")))
+                native_publisher_output(&path, "PreToolUse", Some(&format!("tool-{i}")), true)
             })
         })
         .collect();
     // Keep the queue alive until every child exits, including on failure.
     // An early panic could delete it beneath the remaining publishers.
     let results: Vec<_> = threads.into_iter().map(|thread| thread.join()).collect();
-    let failures: Vec<_> = results
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, result)| match result {
-            Ok(output) if output.status.success() && output.stdout.is_empty() => None,
-            Ok(output) => Some(format!(
-                "publisher {index}: status={} stdout_bytes={} {}",
-                output.status,
-                output.stdout.len(),
-                String::from_utf8_lossy(&output.stderr)
-            )),
-            Err(_) => Some(format!("publisher {index}: worker panicked")),
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    let bytes = std::fs::read(queue.path().join("queue.json")).unwrap();
-    assert!(!String::from_utf8_lossy(&bytes).contains("must-not-be-retained"));
-    let mut seen = vec![];
-    assert_eq!(
-        queue
-            .consume("root", |e| {
-                seen.push(e.sequence);
-                Ok(())
+    let diagnostics = || {
+        results
+            .iter()
+            .enumerate()
+            .map(|(index, result)| match result {
+                Ok(output) => format!(
+                    "publisher {index}: status={} stdout_bytes={} {}",
+                    output.status,
+                    output.stdout.len(),
+                    String::from_utf8_lossy(&output.stderr)
+                ),
+                Err(_) => format!("publisher {index}: worker panicked"),
             })
-            .unwrap(),
-        Poll::Consumed(12)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert!(
+        results.iter().all(|result| result
+            .as_ref()
+            .is_ok_and(|output| output.status.success() && output.stdout.is_empty())),
+        "{}",
+        diagnostics()
     );
-    assert_eq!(seen, (1..=12).collect::<Vec<_>>());
-    assert_eq!(
-        queue
-            .consume("root", |_| panic!("publisher records replayed"))
-            .unwrap(),
-        Poll::Consumed(0)
+    let bytes = std::fs::read(queue.path().join("queue.json"))
+        .unwrap_or_else(|error| panic!("queue read failed: {error}\n{}", diagnostics()));
+    assert!(
+        !String::from_utf8_lossy(&bytes).contains("must-not-be-retained"),
+        "publisher payload was retained\n{}",
+        diagnostics()
     );
+    let mut seen = vec![];
+    let poll = queue
+        .consume("root", |event| {
+            seen.push(event.sequence);
+            Ok(())
+        })
+        .unwrap_or_else(|error| panic!("queue consume failed: {error}\n{}", diagnostics()));
+    assert_eq!(poll, Poll::Consumed(12), "{}", diagnostics());
+    assert_eq!(seen, (1..=12).collect::<Vec<_>>(), "{}", diagnostics());
+    let poll = queue
+        .consume("root", |_| {
+            panic!("publisher records replayed\n{}", diagnostics())
+        })
+        .unwrap_or_else(|error| panic!("queue replay check failed: {error}\n{}", diagnostics()));
+    assert_eq!(poll, Poll::Consumed(0), "{}", diagnostics());
 }
 
 #[test]
