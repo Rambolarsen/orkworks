@@ -411,3 +411,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Qualify the first Codex capture inventory and custody](2026-11-22-review-codex-capture-qualification.md) — Proposed staged physical observation and shared-owner evidence roadmap.
 
 - [Qualify a startup-sealed Codex custody owner](2026-11-22-review-codex-custody-owner-qualification.md) — Proposed bootstrap, worker lease and actual-boundary non-inheritance checks.
+
+- [Registry-only SDK servicing inventory](2026-11-26-pair-sdk-servicing-inventory.md) — Proposed one-job bounded registry observation after the consumed component inventory hit its entry cap.
