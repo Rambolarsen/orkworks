@@ -54,13 +54,27 @@ pub(crate) async fn discover_provider_models(
         Ok(axum::Json(payload)) => Some(payload.base_url),
         Err(_) => None,
     };
+    let catalog_harness = state
+        .harness_catalog
+        .read()
+        .expect("harness catalog lock poisoned")
+        .get(&provider_id)
+        .cloned();
+    if let Some(harness) = catalog_harness
+        .as_ref()
+        .filter(|harness| harness.definition.peon.is_none())
+    {
+        if let Some(models) = harness.session_model_catalog() {
+            let options = providers::simple_model_options(models);
+            return axum::Json(serde_json::json!({
+                "models": options.iter().map(|option| &option.id).collect::<Vec<_>>(),
+                "modelOptions": options,
+            }))
+            .into_response();
+        }
+    }
     let codex_executable = if provider_id == "codex" {
-        state
-            .harness_catalog
-            .read()
-            .expect("harness catalog lock poisoned")
-            .get("codex")
-            .map(|harness| harness.build_launch("/", None).program)
+        catalog_harness.map(|harness| harness.build_launch("/", None).program)
     } else {
         None
     };
@@ -265,5 +279,43 @@ mod tests {
                 .unwrap(),
             "application/json"
         );
+    }
+
+    #[tokio::test]
+    async fn discover_provider_models_serves_antigravity_static_session_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = discover_provider_models(
+            State(state),
+            axum::extract::Path("antigravity".into()),
+            Err(JsonRejection::MissingJsonContentType(Default::default())),
+        )
+        .await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let models = body["models"].as_array().expect("models array");
+        let options = body["modelOptions"].as_array().expect("modelOptions array");
+        assert!(!models.is_empty());
+        assert_eq!(models.len(), options.len());
+        assert_eq!(models[0], options[0]["id"]);
+        assert!(models.iter().any(|model| model == "gemini-4-neon-high"));
+    }
+
+    #[tokio::test]
+    async fn discover_provider_models_rejects_unknown_non_harness_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let response = discover_provider_models(
+            State(state),
+            axum::extract::Path("nonexistent-provider".into()),
+            Err(JsonRejection::MissingJsonContentType(Default::default())),
+        )
+        .await;
+
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 }

@@ -7165,8 +7165,10 @@ pub(crate) struct ResolvedSessionLaunch {
 impl ResolvedSessionLaunch {
     fn prepare_initial_prompt(&mut self, prompt: Option<String>) -> Option<String> {
         if self.session_harness_id.as_deref() == Some("antigravity")
-            && self.command.program == "agy"
-            && self.command.args.is_empty()
+            && crate::runtime::terminal_status_launch::is_stock_antigravity_launch_command(
+                &self.command,
+                self.model.as_deref(),
+            )
         {
             if let Some(prompt) = prompt.filter(|text| !text.trim().is_empty()) {
                 // Let Antigravity submit the first turn when its TUI is ready.
@@ -7919,6 +7921,29 @@ mod tests {
         assert_eq!(launch.prepare_initial_prompt(None), None);
         assert_eq!(launch.prepare_initial_prompt(Some("  ".into())), None);
         assert!(launch.command.args.is_empty());
+
+        let with_model = CreateSessionCommand {
+            reasoning_effort: None,
+            initial_images: vec![],
+            expected_workspace_path: None,
+            harness_id: Some("antigravity".into()),
+            model: Some("gemini-4-neon-high".into()),
+            initial_prompt: None,
+        };
+        let mut launch_with_model = resolve_session_launch(&registry, &with_model, "/repo".into());
+        assert_eq!(
+            launch_with_model.prepare_initial_prompt(Some(prompt.into())),
+            None
+        );
+        assert_eq!(launch_with_model.command.program, "agy");
+        assert_eq!(
+            launch_with_model.command.args,
+            [
+                "--model",
+                "gemini-4-neon-high",
+                "--prompt-interactive=--Explain why \"quoted text\" works.\nThen show an example.",
+            ]
+        );
 
         launch.command.args.push("--continue".into());
         assert_eq!(

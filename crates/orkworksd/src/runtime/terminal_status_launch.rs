@@ -11,6 +11,19 @@ use crate::harness::{
 // Other versions/platforms remain unqualified; see the native status record.
 const QUALIFIED_VERSIONS: &[&str] = &["1.5.16"];
 
+pub(crate) fn is_stock_antigravity_launch_command(
+    command: &CommandSpec,
+    model: Option<&str>,
+) -> bool {
+    if command.program != "agy" {
+        return false;
+    }
+    match model {
+        Some(model) => command.args == ["--model", model],
+        None => command.args.is_empty(),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LaunchRequest {
     command: CommandSpec,
@@ -48,7 +61,7 @@ impl LaunchRequest {
         };
         // Mirror the existing source-owned initial-prompt route, comparing the
         // exact submitted prompt rather than allowing an arbitrary argv suffix.
-        if native_id.is_none() && expected.program == "agy" && expected.args.is_empty() {
+        if native_id.is_none() && is_stock_antigravity_launch_command(&expected, model) {
             if let Some(prompt) = initial_prompt.filter(|text| !text.trim().is_empty()) {
                 expected.args.push(format!("--prompt-interactive={prompt}"));
             }
@@ -231,6 +244,35 @@ mod tests {
         );
         assert!(LaunchRequest::new(&original, &command, None, None, Some("other task")).is_none());
         assert!(LaunchRequest::new(&original, &command, None, None, None).is_none());
+
+        let mut command_with_model = original.build_launch("/repo", Some("fixture-model"));
+        command_with_model
+            .args
+            .push("--prompt-interactive=fixture task".into());
+        assert!(LaunchRequest::new(
+            &original,
+            &command_with_model,
+            Some("fixture-model"),
+            None,
+            Some("fixture task"),
+        )
+        .is_some());
+        assert!(LaunchRequest::new(
+            &original,
+            &command_with_model,
+            Some("fixture-model"),
+            None,
+            Some("other task"),
+        )
+        .is_none());
+        assert!(LaunchRequest::new(
+            &original,
+            &command_with_model,
+            Some("other-model"),
+            None,
+            Some("fixture task"),
+        )
+        .is_none());
     }
 
     #[test]
