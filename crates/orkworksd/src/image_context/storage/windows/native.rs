@@ -10,7 +10,7 @@ use std::{
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
     path::{Component, Path, Prefix},
-    ptr::{null, null_mut},
+    ptr::{null, null_mut, NonNull},
     slice,
 };
 use windows_sys::{
@@ -28,11 +28,11 @@ use windows_sys::{
             UNICODE_STRING, WIN32_ERROR,
         },
         Security::{
-            EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl,
-            GetSecurityDescriptorLength, GetSecurityDescriptorOwner, GetTokenInformation,
-            TokenUser, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION,
-            OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-            SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
+            AclSizeInformation, EqualSid, GetAce, GetAclInformation, GetLengthSid,
+            GetSecurityDescriptorControl, GetSecurityDescriptorLength, GetSecurityDescriptorOwner,
+            GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION,
+            DACL_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+            PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
         },
         Storage::FileSystem::{
             FileDispositionInfoEx, FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo,
@@ -219,42 +219,66 @@ impl PrivateAcl {
             )
         })?;
         check(unsafe { GetSecurityDescriptorControl(descriptor.0, &mut control, &mut revision) })?;
-        // SAFETY: GetSecurityInfo supplied valid owner and ACL pointers when nonnull.
+        // A successful query can still return a null DACL.
+        let acl = NonNull::new(acl).ok_or_else(|| invalid("Image object has no DACL"))?;
+        // SAFETY: the successful queries supplied live SIDs in the retained descriptors.
         if owner.is_null()
             || expected.is_null()
-            || acl.is_null()
             || control & SE_DACL_PROTECTED == 0
-            || unsafe { EqualSid(owner, expected) == 0 || (*acl).AceCount != 1 }
+            || unsafe { EqualSid(owner, expected) == 0 }
         {
             return Err(invalid(
                 "Image object does not have a protected owner-only ACL",
             ));
         }
+
+        let mut acl_info = ACL_SIZE_INFORMATION::default();
+        // SAFETY: the DACL resides in the retained descriptor and the output
+        // buffer has the exact size for AclSizeInformation.
+        check(unsafe {
+            GetAclInformation(
+                acl.as_ptr(),
+                std::ptr::from_mut(&mut acl_info).cast(),
+                size_of_val(&acl_info) as u32,
+                AclSizeInformation,
+            )
+        })?;
+        if acl_info.AceCount != 1 {
+            return Err(invalid(
+                "Image object has an unexpected number of ACL entries",
+            ));
+        }
         let mut ace = null_mut();
-        // SAFETY: a one-entry ACL was returned above, and ace is a writable output.
-        check(unsafe { GetAce(acl, 0, &mut ace) })?;
-        // SAFETY: expected is the valid owner SID from our own descriptor;
-        // GetAce returns an entry within the returned, kernel-validated ACL.
-        let valid = unsafe {
-            let expected_length = GetLengthSid(expected) as usize;
-            let sid_offset = offset_of!(ACCESS_ALLOWED_ACE, SidStart);
-            let acl_size = usize::from((*acl).AclSize);
-            let entry_start = (ace as usize).checked_sub(acl as usize);
-            if !entry_start.is_some_and(|start| {
-                start <= acl_size && sid_offset + expected_length <= acl_size - start
-            }) {
-                false
-            } else {
-                let entry = &*ace.cast::<ACCESS_ALLOWED_ACE>();
-                u32::from(entry.Header.AceType) == ACCESS_ALLOWED_ACE_TYPE
-                    && entry.Header.AceFlags == 0
-                    && usize::from(entry.Header.AceSize) == sid_offset + expected_length
-                    && entry.Mask == FILE_ALL_ACCESS
-                    && slice::from_raw_parts(ace.cast::<u8>().add(sid_offset), expected_length)
-                        == slice::from_raw_parts(expected.cast::<u8>(), expected_length)
-            }
+        // SAFETY: the DACL contains exactly one entry, and ace is a writable slot.
+        check(unsafe { GetAce(acl.as_ptr(), 0, &mut ace) })?;
+
+        // SAFETY: this SID came from the retained descriptor we created.
+        let expected_len = unsafe { GetLengthSid(expected) } as usize;
+        let sid_offset = offset_of!(ACCESS_ALLOWED_ACE, SidStart);
+        let ace_len = sid_offset + expected_len;
+        let acl_size = acl_info.AclBytesInUse as usize;
+        let Some(ace_offset) = (ace as usize).checked_sub(acl.as_ptr() as usize) else {
+            return Err(invalid("Invalid image ACL entry position"));
         };
-        if !valid {
+        if !(size_of::<ACL>()..=acl_size).contains(&ace_offset) || ace_len > acl_size - ace_offset {
+            return Err(invalid("Invalid image ACL entry length"));
+        }
+        // SAFETY: both ranges are within the retained, validated descriptors.
+        // The entry range above covers the fixed header, mask and exact SID.
+        let (entry, expected_sid) = unsafe {
+            (
+                slice::from_raw_parts(acl.as_ptr().cast::<u8>().add(ace_offset), ace_len),
+                slice::from_raw_parts(expected.cast::<u8>(), expected_len),
+            )
+        };
+        let entry_len = usize::from(u16::from_le_bytes([entry[2], entry[3]]));
+        let access = u32::from_le_bytes([entry[4], entry[5], entry[6], entry[7]]);
+        if u32::from(entry[0]) != ACCESS_ALLOWED_ACE_TYPE
+            || entry[1] != 0
+            || entry_len != ace_len
+            || access != FILE_ALL_ACCESS
+            || &entry[sid_offset..] != expected_sid
+        {
             return Err(invalid("Image object grants access outside the owner ACL"));
         }
         Ok(())

@@ -540,10 +540,29 @@ mod tests {
             }
         };
         #[cfg(all(windows, target_arch = "x86_64"))]
-        let cases = [(false, false), (true, false), (true, true)];
+        let cases = [
+            ("multiple", false, false),
+            ("image-only", true, false),
+            ("denied-read", true, true),
+        ];
         #[cfg(not(all(windows, target_arch = "x86_64")))]
-        let cases = [(false, false), (true, false)];
-        for (image_only, deny_reads) in cases {
+        let cases = [("multiple", false, false), ("image-only", true, false)];
+        let selected = std::env::var("ORKWORKS_IMAGE_FIXTURE_CASES").ok();
+        let selected = selected.as_deref().map(|value| {
+            let names = value.split(',').collect::<Vec<_>>();
+            assert!(names
+                .iter()
+                .all(|name| cases.iter().any(|case| case.0 == *name)));
+            names
+        });
+        let mut passed = true;
+        for (name, image_only, deny_reads) in cases {
+            if selected
+                .as_ref()
+                .is_some_and(|names| !names.contains(&name))
+            {
+                continue;
+            }
             let inputs = if image_only {
                 vec![make_image([255, 0, 0], [0, 180, 0])]
             } else {
@@ -639,11 +658,11 @@ mod tests {
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
-                println!("qualification {harness} model={model:?} image_only={image_only} denied_read={deny_reads} output:\n{last_output}");
-                assert!(saw, "Expected fixture outcome was not observed");
+                println!("qualification {harness} model={model:?} case={name} passed={saw} output:\n{last_output}");
+                saw
             };
             #[cfg(all(windows, target_arch = "x86_64"))]
-            windows_qualification::FIXTURE
+            let outcome = windows_qualification::FIXTURE
                 .scope(
                     std::sync::Arc::new(windows_qualification::Fixture::new(
                         executable.clone(),
@@ -653,7 +672,12 @@ mod tests {
                 )
                 .await;
             #[cfg(not(all(windows, target_arch = "x86_64")))]
-            run.await;
+            let outcome = run.await;
+            passed &= outcome;
         }
+        assert!(
+            passed,
+            "One or more expected fixture outcomes were not observed"
+        );
     }
 }
