@@ -629,7 +629,7 @@ or grant a new allowance. Gate1 remains Investigate; #1176 stays open.
 ## Read-only inventory tooling boundary (2026-11-26)
 
 The owner accepted the [exact inventory proposal](../superpowers/plans/2026-11-26-pair-toolchain-inventory.md#scoped-allowance-accepted-2026-11-26)
-after #2076. Dispatch remains0/1 while its separate tooling is verified. Earlier
+after #2076. At the tooling review stage, dispatch was0/1. Earlier
 batches stay spent; there is no replacement build-pin or compiler/Cargo execution
 permission in this inventory.
 
@@ -685,3 +685,124 @@ inspection or fabricate operation counts from an absent receipt. Once the
 controller has established owned writable evidence scratch, ordinary collection
 failures retain the bounded JSON result and available observations. The first-run
 guard still closes the sole dispatch regardless of which evidence is available.
+
+## Read-only inventory terminal result (2026-11-26)
+
+**Terminal unavailable: SDK registry budget.** The sole accepted read-only
+inventory retained the current compiler identity and all13 file observations,
+but did not establish the required SDK servicing co-availability. No inspected
+tool was executed. This closes the finite inventory task, not Gate1 or #1176.
+
+Tooling [#2083](https://github.com/Rambolarsen/orkworks/pull/2083) merged at
+2d9344ef09a17d6dba0ffdcf83fa5ef77c088e22. The
+[pre-dispatch issue freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7202395536)
+recorded that exact main head and dispatch0/1. The sole manual run
+[45889209265](https://github.com/Rambolarsen/orkworks/actions/runs/45889209265),
+job140147422534, attempt1, used that head and ended in failure. Job start/end:
+2026-11-26 at20:11:37–20:12:00 UTC; collection receipt:
+20:11:47.905–20:11:56.522 UTC. Public workflow history independently showed exactly
+one dispatch. The ten-minute job bound was not exhausted.
+
+The runner reported Windows/X64, ImageOS win22 and ImageVersion20261123.376.1.
+That image differs from the earlier fixed-build image20261116.370.1; it is context,
+not proof of historical change or permission to select another image. One own
+PowerShell controller ran at C:/Program Files/PowerShell/7/pwsh.exe and returned0.
+The Node policy then denied success with sdk-unavailable and sdk-service.
+
+### Current file observations
+
+Every selected file reported status ok, machine8664 and equal initial/final
+SHA-256 values. Paths are exactly the fixed selectors in the
+[accepted allowance](../superpowers/plans/2026-11-26-pair-toolchain-inventory.md#exact-metadata-surface),
+with Rust rooted at C:/Users/runneradmin. Hashes below identify this observation;
+they do not accept a replacement build pin or attest authenticity. Numeric
+versions come from embedded fixed-info resources, with language1033 when present.
+Cargo has no retained version resource; its existing release label remains tied
+to the previously observed byte pin.
+
+| File | Bytes | File version | Product version | SHA-256 |
+| --- | --- | --- | --- | --- |
+| cargo.exe | 27,367,424 | unavailable | unavailable | `f381bae27c59588eacf69208e115b2c001a2998afed83a2e9084ea93620737b1` |
+| rustc.exe | 110,592 | 1.100.0.0 | 1.100.0.0 | `d4f8a0283de2dba0dc458cd13c333337d2b76c3649eb39e91c4acce618e661a1` |
+| cl.exe | 677,736 | 19.44.35230.0 | 14.44.35230.0 | `e87e78b3ef6580b75aebda843f8a22e874612d9f766344046551399f898eb226` |
+| link.exe | 3,252,616 | 14.44.35230.0 | 14.44.35230.0 | `49a5df25c3182a22684375b1d62a025016deffccea247894fe5ca2c85610c6a6` |
+| lib.exe | 23,424 | 14.44.35230.0 | 14.44.35230.0 | `69317eda3d44fd723b959c87d5a3b0617e3b7be70b02ff3f51ec45288ec559d2` |
+| dumpbin.exe | 23,376 | 14.44.35230.0 | 14.44.35230.0 | `e2c0ec987bb904acfe88c0685cbc836e695cf22007cb17f3ce9f39e785dec980` |
+| c1.dll | 3,429,728 | 19.44.35230.0 | 14.44.35230.0 | `3b82d58d21354fdb611efdd5ab82ec0484acfa5f3de37ca6bea42c630ff2c24a` |
+| c1xx.dll | 12,330,336 | 19.44.35230.0 | 14.44.35230.0 | `a9348b973d399e7e042a79be7e22dc054e008381a2ef3d9f394300e41aa47470` |
+| c2.dll | 10,456,376 | 19.44.35230.0 | 14.44.35230.0 | `e2fdfd6505cd6e9b670922733a914fbf22cae5d226943290548f24eaf699267a` |
+| mspdbcore.dll | 1,321,824 | 14.44.35230.0 | 14.44.35230.0 | `a9fa44569d0555a92f53b56cb2b90cdca99bbb030fad2064f247cd03b2b406b1` |
+| rc.exe | 55,736 | 10.0.26100.9457 | 10.0.26100.9457 | `9e2ee68da28b3318f50a9f1008d64567a9b402bda384a007a9b71a3f16bd011b` |
+| mt.exe | 1,976,744 | 10.0.26100.9457 | 10.0.26100.9457 | `fa74dd31612c78de40169599640fb955ef9ccb9f2dfabf80f100022ff1b8bc22` |
+| devenv.exe | 1,065,824 | 17.14.37906.3 | 17.14.37906.3 | `a222735c7b9f4bb454ad5772b2f31a5029ae91691c76c6f2452891f040045fd4` |
+
+Cargo/rustc match their prior accepted byte identities. cl.exe matches the
+inspection candidate e87e…eb226 and now has observed file version19.44.35230.0
+and product version14.44.35230.0. The older observation was19.44.35229.0 with
+fe251…36619; the historical cause of the byte change remains unverified. This
+inventory does not transfer earlier macro/link/runtime results to this compiler.
+
+### SDK and bounded text observations
+
+KitsRoot10 was C:/Program Files (x86)/Windows Kits/10/. The fixed10.0.26100.0
+Include, Lib and bin directory checks all returned true. The two allowed uninstall
+registry roots reported688 subkeys in aggregate. The pre-enumeration256-entry
+guard returned registry-budget before collecting entry names/product fields:
+scanned_entries0 and products empty. This is unavailable SDK servicing evidence,
+not evidence that the required package is absent. The rc.exe/mt.exe resources
+report10.0.26100.9457, but those file versions do not replace the required matching
+SDK product record or establish complete SDK/helper closure.
+
+The fixed default-toolset text was13 bytes, value14.44.35207, initial/final hash
+030613df718548a88970e4c1844a8605d17aba9aa36bfea0b4359d8f28fd62bf.
+It remained context only; no default, alternate path or version was selected.
+
+### Receipt identity, limits and closure
+
+Independent literal readback checked the exact file/path allowlist, all13
+initial/final hash pairs, Rust and candidate compiler pins, embedded versions,
+SDK denial, counters, source identities and cleanup. It did not execute an
+inspected binary or merely rely on the production validator's outcome. The
+controller hashes match CRLF checkout forms of the committed source blobs at
+the frozen head; they are not the LF blob hashes.
+
+| Controller | Physical bytes | SHA-256 |
+| --- | --- | --- |
+| pair-windows-toolchain-inventory.mjs | 14,782 | `7d87e22d69ec189474cf4f6f4b6938fdb1501d61c0d71aa0ad0a5cdbeff6aa43` |
+| pair-windows-toolchain-inventory.ps1 | 14,615 | `636c8bc28effe537a473845425b2b41ebe94037a883a0d9bae7d01b973354885` |
+
+Selected PE files total62,091,736 bytes; the largest is27,367,424 bytes, below
+256MiB. The collector charged28 hash passes (13 PE files and the bounded text,
+each twice),124,183,498 bytes. Adding both controller-source passes and the
+6,733-byte inventory hash gives124,249,025 charged bytes, below1GiB. Available
+observations were retained before classification; all selected identities were
+stable across the final checks. Owned working scratch was removed after the
+controller closed. No inspected PE bytes were uploaded.
+
+[Artifact15150876725](https://github.com/Rambolarsen/orkworks/actions/runs/45889209265/artifacts/15150876725)
+contains only the three allowlisted files:2,540 compressed and8,169 uncompressed
+bytes, below4MiB. Its API archive digest is
+721859d335f7dd34c5a669de107b79e93bf50a9d10792bb73f478abbecf6ee52;
+individual file bytes were independently hashed below. It expires2026-12-10
+at20:11:56 UTC under14-day retention. This summary preserves observations without
+extending raw receipt retention.
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| diagnostics.txt | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| inventory.json | 6,733 | `e8095de901eb6383874686538e2fcb7aa0e1e68834c7f72cdee329f0fee728da` |
+| result.json | 1,436 | `777acb77c4617647a4925a39cce9ed47872d1f8c4b952faedaeb014d531e7462` |
+
+**Dispatch1/1 consumed; inspected-tool executions0, fetches0, builds0 and target
+executions0. All unused operation slots are closed.** The receipt records
+runtime_qualified false and replacement_pin_accepted false. No compiler/SDK
+substitution, registry-limit increase, retry, fallback query, Cargo metadata or
+new build is authorized. Earlier batches remain spent.
+
+A possible separate follow-up is to review a smaller SDK servicing-evidence
+method against the retained688-entry budget failure and propose an exact new
+allowance if live evidence is still necessary. This is a proposal only. The
+current evidence does not support a replacement build yet. #1176 stays open and
+Gate1 stays Investigate; runtime/bootstrap, allocator/VFS/context, compatibility,
+source/cutoff/newness/catalog/initializer/recovery/durability and production
+activation remain gated.

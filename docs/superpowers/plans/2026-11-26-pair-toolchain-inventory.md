@@ -1,10 +1,10 @@
 ---
 type: Evidence Acquisition Proposal
 title: One read-only Windows component inventory
-description: Proposed finite file and SDK inventory to identify the changed compiler candidate without acquisition, compilation or execution of inspected tools.
+description: Accepted finite read-only Windows inventory and terminal unavailable record, with current compiler identity retained and SDK registry budget exhausted.
 tags: [orkworks, hierarchy, windows, toolchain, provenance, qualification]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: completed-unavailable
 ---
 
 # One read-only Windows component inventory
@@ -14,7 +14,8 @@ co-availability metadata, or one terminal unavailable result. Tracking:
 [#1176](https://github.com/Rambolarsen/orkworks/issues/1176). Inspection base:
 `11faa78457d84ee4cb56c103d01f0de0f75cc7e4`.
 
-**New allowance proposed. This document and its merge authorize no runner job.**
+**Original proposal: this document and its initial merge authorized no runner job.**
+The later scoped acceptance and terminal execution record appear below.
 The [retained provenance review](../../validation/pair-resource-enforcement-coverage.md#compiler-provenance-review-2026-11-26)
 found an older default-selected compiler observation and a newer fixed-path hash
 mismatch. It cannot prove the historical reason for the byte change. The
@@ -105,7 +106,7 @@ working scratch. Do not edit consumed workflows/history or the fixed-build pin.
   missing/drifting inputs, metadata retention, byte/entry/time/evidence limits
   and cleanup. Review the exact controller selectors before dispatch; reuse
   existing guard patterns without changing the spent workflow.
-- [ ] Freeze reviewed merged heads/counters, dispatch once, independently verify
+- [x] Freeze reviewed merged heads/counters, dispatch once, independently verify
   the terminal JSON/file hashes and record the result in the existing coverage
   concept via PR. No inspected binary is uploaded or executed.
 
@@ -139,8 +140,8 @@ The owner answered “keep going” to the explicit #2076 question approving too
 plus this one10-minute inventory job. Proposal merge:
 d67135d00cb764fb23ac9126ecaff5152e4837f0. This accepts only the listed metadata
 surface, limits and terminal-record work. It grants no inspected-tool execution,
-replacement build pin or later build. Prior batches remain spent. Dispatch0/1;
-reviewed tooling and exact merged-head freeze are still required before dispatch.
+replacement build pin or later build. Prior batches remained spent. At acceptance, dispatch was0/1;
+reviewed tooling and exact merged-head freeze were required before dispatch.
 
 ## Tooling review disposition (2026-11-26)
 
@@ -159,4 +160,30 @@ policy denials, valid embedded fixed-info, invalid RVA, byte/text limits and act
 controller timeout/output closure. These limits prevent treating tooling tests
 as authenticity, full helper closure or profile qualification. Windows synthetic
 reader tests passed on the completed code; normal repository CI remains a
-separate pre-merge requirement. Dispatch is still0/1.
+separate pre-merge requirement. At tooling review, dispatch was still0/1.
+
+## Terminal execution record (2026-11-26)
+
+Tooling [#2083](https://github.com/Rambolarsen/orkworks/pull/2083) merged at
+2d9344ef09a17d6dba0ffdcf83fa5ef77c088e22. That exact main head and dispatch0/1
+were frozen on #1176 before the sole manual dispatch. Run
+[45889209265](https://github.com/Rambolarsen/orkworks/actions/runs/45889209265),
+attempt1, ended in failure after retaining the three-file receipt. Independent
+literal readback verified the exact13 selected file identities, source hashes
+against CRLF checkout forms of the committed blobs, budgets, terminal counters
+and cleanup. The [canonical result](../../validation/pair-resource-enforcement-coverage.md#read-only-inventory-terminal-result-2026-11-26)
+retains the metadata and receipt hashes.
+
+The observed compiler is19.44.35230.0, with the previously observed candidate hash
+unchanged. All13 selected PE files were available and stable across the recheck.
+SDK uninstall roots reported688 entries in aggregate, exceeding256 before entry
+names/products were enumerated; zero entries were scanned. SDK servicing
+co-availability is therefore unavailable. The rc/mt version resources do not
+substitute for the missing registry servicing identity.
+
+**Dispatch1/1 consumed; all unused slots closed.** Inspected-tool executions,
+fetches, builds and target executions were zero. The changed runner image is an
+observation, not retry credit. No replacement compiler pin was accepted and no
+runtime profile was qualified. This closes the acquisition task with a terminal
+unavailable result; #1176 remains open and Gate1 remains Investigate. Any further
+registry evidence or build needs a separately reviewed exact finite allowance.
