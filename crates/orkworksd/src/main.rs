@@ -37,6 +37,7 @@ mod probe_process;
 mod process_job;
 mod procfs;
 mod providers;
+mod resume_diagnostics;
 mod runtime;
 mod session_application;
 mod session_archive;

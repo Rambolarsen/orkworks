@@ -9186,6 +9186,162 @@ mod tests {
         assert_eq!(options[2]["available"], true);
     }
 
+    #[tokio::test]
+    async fn list_sessions_resume_options_match_resume_endpoint_diagnostics() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+
+        let mut codex_meta = test_session_metadata(
+            "codex-missing-rollout",
+            "Codex Missing Rollout",
+            dir.path().display().to_string(),
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        codex_meta.harness = "codex".into();
+        codex_meta.lifecycle_phase = "ended".into();
+        codex_meta.lifecycle = "dead".into();
+        codex_meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("orkworks-http-missing-codex-rollout".into()),
+            latest_fallback: false,
+            last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+        });
+
+        let mut archived_meta = test_session_metadata(
+            "archived-opencode",
+            "Archived OpenCode",
+            dir.path().display().to_string(),
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        archived_meta.harness = "opencode".into();
+        archived_meta.lifecycle_phase = "ended".into();
+        archived_meta.lifecycle = "dead".into();
+        archived_meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("ses_archived_http".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+        });
+
+        let mut claude_meta = test_session_metadata(
+            "claude-no-id",
+            "Claude No ID",
+            dir.path().display().to_string(),
+            "ended",
+            "2026-06-28T09:00:00Z",
+            "2026-06-28T09:05:00Z",
+        );
+        claude_meta.harness = "claude-code".into();
+        claude_meta.lifecycle_phase = "ended".into();
+        claude_meta.lifecycle = "dead".into();
+        claude_meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: None,
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+        });
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&codex_meta);
+            ws.metadata.write_session(&archived_meta);
+            ws.metadata.write_session(&claude_meta);
+            ws.metadata
+                .organization
+                .write(
+                    "archived-opencode",
+                    &archived_meta.created_at,
+                    crate::session_archive::SessionState::Archived,
+                )
+                .unwrap();
+        }
+
+        let response = list_sessions(State(state.clone())).await.into_response();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sessions: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+
+        for (case_id, expected_statuses) in [
+            (
+                "codex-missing-rollout",
+                &[
+                    ("exact", axum::http::StatusCode::BAD_REQUEST),
+                    ("latest_cwd", axum::http::StatusCode::CONFLICT),
+                    ("latest_repo", axum::http::StatusCode::CONFLICT),
+                ][..],
+            ),
+            (
+                "archived-opencode",
+                &[
+                    ("exact", axum::http::StatusCode::CONFLICT),
+                    ("latest_cwd", axum::http::StatusCode::CONFLICT),
+                    ("latest_repo", axum::http::StatusCode::CONFLICT),
+                ][..],
+            ),
+            (
+                "claude-no-id",
+                &[
+                    ("exact", axum::http::StatusCode::CONFLICT),
+                    ("latest_repo", axum::http::StatusCode::CONFLICT),
+                ][..],
+            ),
+        ] {
+            let session = sessions
+                .iter()
+                .find(|s| s["id"] == case_id)
+                .expect("projected session present");
+            let options = session["resumeOptions"].as_array().unwrap();
+            for &(strategy, expected_status) in expected_statuses {
+                let option = options
+                    .iter()
+                    .find(|opt| opt["strategy"] == strategy)
+                    .expect("strategy option present");
+                assert_eq!(option["available"], false, "{case_id}/{strategy}");
+                let expected_reason = option["reason"]
+                    .as_str()
+                    .expect("unavailable option must include reason");
+
+                let payload =
+                    serde_json::to_vec(&serde_json::json!({ "strategy": strategy })).unwrap();
+                let res = resume_session(
+                    State(state.clone()),
+                    Path(case_id.to_string()),
+                    axum::body::Bytes::from(payload),
+                )
+                .await;
+                assert_eq!(
+                    res.status(),
+                    expected_status,
+                    "{case_id}/{strategy} status mismatch"
+                );
+                let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+                assert_eq!(
+                    body, expected_reason,
+                    "{case_id}/{strategy} chooser reason must match launch rejection"
+                );
+            }
+        }
+
+        let archived = sessions
+            .iter()
+            .find(|s| s["id"] == "archived-opencode")
+            .unwrap();
+        assert_eq!(archived["resumeStrategy"], "none");
+        assert_eq!(archived["memoryState"], "unsupported");
+    }
+
     #[test]
     fn workspace_request_deserializes_path() {
         let json = r#"{"path": "/home/user/project", "workspaceIdentity": "/home/user/project"}"#;

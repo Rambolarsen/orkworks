@@ -215,13 +215,26 @@ pub(crate) fn project_session_info(
     harness: Option<&ResolvedHarness>,
     saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> SessionInfo {
-    let (memory_state, resume_strategy) = derive_memory_state(
-        is_live,
-        meta.and_then(|m| m.resume.as_ref())
-            .or(info.resume.as_ref()),
-        harness,
-        saved_codex_session_ids,
+    let raw_resume = meta
+        .and_then(|m| m.resume.as_ref())
+        .or(info.resume.as_ref());
+    let harness_id = meta
+        .and_then(|m| (!m.harness.is_empty()).then_some(m.harness.as_str()))
+        .or(info.harness_id.as_deref())
+        .or(info.harness.as_deref());
+    let assessment = crate::resume_diagnostics::derive_assessment(
+        &crate::resume_diagnostics::ResumeContext::for_projection(
+            is_live,
+            false,
+            harness,
+            harness_id,
+            raw_resume,
+            saved_codex_session_ids,
+        ),
     );
+    let memory_state = assessment.memory_state;
+    let resume_strategy = assessment.preferred_strategy;
+    let resume_options = assessment.options;
     let mut resume = meta.and_then(|m| m.resume.clone()).or(info.resume);
     if !is_live
         && memory_state == MemoryState::Unsupported
@@ -269,10 +282,6 @@ pub(crate) fn project_session_info(
         );
         provenance.attention_updated_at = snapshot.observed_at.clone();
     }
-
-    let (resume_exact, resume_latest_cwd, resume_latest_repo) = harness
-        .map(ResolvedHarness::resume_flags)
-        .unwrap_or_default();
 
     SessionInfo {
         organization: Default::default(),
@@ -394,15 +403,9 @@ pub(crate) fn project_session_info(
         conflict_warning: info.conflict_warning,
         recommendation: info.recommendation,
         memory_state,
-        resume_strategy: resume_strategy.clone(),
-        resume: resume.clone(),
-        resume_options: metadata::derive_resume_options(
-            &resume_strategy,
-            resume.as_ref(),
-            resume_exact,
-            resume_latest_cwd,
-            resume_latest_repo,
-        ),
+        resume_strategy,
+        resume,
+        resume_options,
         resumed_from: meta
             .and_then(|m| m.resumed_from.clone())
             .or(info.resumed_from),
@@ -420,39 +423,24 @@ pub(crate) fn project_session_info(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn derive_memory_state(
     is_live: bool,
     resume: Option<&harness::ResumeMemory>,
     harness: Option<&ResolvedHarness>,
     saved_codex_session_ids: &std::collections::HashSet<String>,
 ) -> (MemoryState, harness::ResumeStrategy) {
-    if is_live {
-        return (MemoryState::Live, harness::ResumeStrategy::None);
-    }
-    let Some(resume) = resume else {
-        return (MemoryState::Remembered, harness::ResumeStrategy::None);
-    };
-    if harness.is_some_and(|harness| harness.definition.id == "codex")
-        && resume.harness_session_id.is_none()
-    {
-        return (MemoryState::Unsupported, harness::ResumeStrategy::None);
-    }
-    if harness.is_some_and(|harness| harness.definition.id == "codex")
-        && resume
-            .harness_session_id
-            .as_deref()
-            .is_some_and(|native_session_id| !saved_codex_session_ids.contains(native_session_id))
-    {
-        return (MemoryState::Unsupported, harness::ResumeStrategy::None);
-    }
-    let strategy = harness
-        .map(|harness| harness.select_resume_strategy(resume))
-        .unwrap_or(harness::ResumeStrategy::None);
-    if strategy == harness::ResumeStrategy::None {
-        (MemoryState::Unsupported, strategy)
-    } else {
-        (MemoryState::Resumable, strategy)
-    }
+    let assessment = crate::resume_diagnostics::derive_assessment(
+        &crate::resume_diagnostics::ResumeContext::for_projection(
+            is_live,
+            false,
+            harness,
+            harness.map(|harness| harness.definition.id.as_str()),
+            resume,
+            saved_codex_session_ids,
+        ),
+    );
+    (assessment.memory_state, assessment.preferred_strategy)
 }
 
 #[cfg(test)]
@@ -1225,6 +1213,82 @@ mod tests {
             harness::ResumeState::Unavailable
         );
         assert!(!projected.resume_options[0].available);
+        assert_eq!(
+            projected.resume_options[0].reason.as_deref(),
+            Some("Codex has no saved local session for this ID"),
+        );
+    }
+
+    #[test]
+    fn live_session_marks_resume_options_unavailable_with_running_reason() {
+        let mut info = test_session_info(
+            "live-resume",
+            "Live Resume",
+            "/tmp/project",
+            "running",
+            "2026-06-28T09:00:00Z",
+        );
+        info.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("ses_live".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+        });
+        let harness = harness("opencode");
+
+        let projected = merge_live_session_info(
+            info,
+            None,
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
+
+        assert_eq!(projected.memory_state, MemoryState::Live);
+        assert_eq!(projected.resume_strategy, harness::ResumeStrategy::None);
+        assert!(projected.resume_options.iter().all(|o| !o.available));
+        assert!(projected
+            .resume_options
+            .iter()
+            .all(|o| o.reason.as_deref() == Some("Session is currently running")));
+    }
+
+    #[test]
+    fn blank_native_session_id_is_rejected_for_exact_resume_in_projection() {
+        let mut info = test_session_info(
+            "blank-id",
+            "Blank ID",
+            "/tmp/project",
+            "ended",
+            "2026-06-28T09:00:00Z",
+        );
+        info.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("   ".into()),
+            latest_fallback: true,
+            last_seen_at: Some("2026-06-28T09:05:00Z".into()),
+        });
+        let harness = harness("claude-code");
+
+        let projected = merge_live_session_info(
+            info,
+            None,
+            None,
+            Some(&harness),
+            &std::collections::HashSet::new(),
+        );
+
+        assert!(!projected.resume_options[0].available);
+        assert_eq!(
+            projected.resume_options[0].reason.as_deref(),
+            Some("No harness session id was captured"),
+        );
+        assert_eq!(
+            projected.resume_strategy,
+            harness::ResumeStrategy::LatestCwd
+        );
     }
 
     #[test]

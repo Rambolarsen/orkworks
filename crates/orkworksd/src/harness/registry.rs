@@ -202,7 +202,9 @@ impl ResolvedHarness {
         }
         let resume = self.definition.resume.as_ref()?;
         let harness_session_id = if strategy == crate::harness::ResumeStrategy::Exact {
-            harness_session_id
+            Some(crate::resume_diagnostics::valid_native_session_id(
+                harness_session_id,
+            )?)
         } else {
             None
         };
@@ -228,17 +230,19 @@ impl ResolvedHarness {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn select_resume_strategy(
         &self,
         memory: &crate::harness::ResumeMemory,
     ) -> crate::harness::ResumeStrategy {
+        let valid_id = crate::resume_diagnostics::valid_native_session_id(
+            memory.harness_session_id.as_deref(),
+        );
         if memory.state != crate::harness::ResumeState::Available {
             return crate::harness::ResumeStrategy::None;
         }
         if self.definition.id == "codex" {
-            return if memory.harness_session_id.is_some()
-                && self.codex_exact_resume_uses_native_id()
-            {
+            return if valid_id.is_some() && self.codex_exact_resume_uses_native_id() {
                 crate::harness::ResumeStrategy::Exact
             } else {
                 crate::harness::ResumeStrategy::None
@@ -247,7 +251,7 @@ impl ResolvedHarness {
         let Some(resume) = self.definition.resume.as_ref() else {
             return crate::harness::ResumeStrategy::None;
         };
-        if resume.exact.is_some() && memory.harness_session_id.is_some() {
+        if resume.exact.is_some() && valid_id.is_some() {
             crate::harness::ResumeStrategy::Exact
         } else if resume.latest_cwd.is_some() && memory.latest_fallback {
             crate::harness::ResumeStrategy::LatestCwd
