@@ -217,12 +217,42 @@ test("an over-limit default metadata file denies the inventory even though it ca
   assert.ok(api.problems(d, profile).includes("default-text-unavailable"));
 });
 
-test('a controller that never finishes is terminated and drained within its timeout',async()=>{
- const started=Date.now();
- const r=await api.runBounded(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:30,env:{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR},cwd:process.cwd()});
- assert.equal(r.code,-1);assert.equal(r.failure,'time-limit');assert.ok(Date.now()-started<5000);
+test("a controller that never finishes is terminated and drained within its timeout", async () => {
+  const started = Date.now();
+  const r = await api.runBounded(
+    process.execPath,
+    ["-e", "setTimeout(()=>{},10000)"],
+    {
+      timeout: 30,
+      env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR },
+      cwd: process.cwd(),
+    },
+  );
+  assert.equal(r.code, -1);
+  assert.equal(r.failure, "time-limit");
+  assert.ok(Date.now() - started < 5000);
 });
-test('controller output overflow cannot be returned as a truncated successful inventory',async()=>{
- const r=await api.runBounded(process.execPath,['-e',"process.stdout.write('x'.repeat(10000));setTimeout(()=>{},10000)"],{timeout:3000,stdoutLimit:1000,env:{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR},cwd:process.cwd()});
- assert.equal(r.code,-1);assert.equal(r.failure,'stdout-limit');assert.equal(r.stdout,'');
+test("controller output overflow cannot be returned as a truncated successful inventory", async () => {
+  const r = await api.runBounded(
+    process.execPath,
+    ["-e", "process.stdout.write('x'.repeat(10000));setTimeout(()=>{},10000)"],
+    {
+      timeout: 3000,
+      stdoutLimit: 1000,
+      env: { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR },
+      cwd: process.cwd(),
+    },
+  );
+  assert.equal(r.code, -1);
+  assert.equal(r.failure, "stdout-limit");
+  assert.equal(r.stdout, "");
+});
+
+test("a registry budget failure is retained without falsely reporting a changed SDK root", () => {
+  const d = complete();
+  d.sdk.status = "registry-budget";
+  d.sdk.scanned_entries = 0;
+  const errors = api.problems(d, profile);
+  assert.ok(errors.includes("sdk-unavailable"));
+  assert.ok(!errors.includes("sdk-root"));
 });

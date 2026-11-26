@@ -152,10 +152,10 @@ export function problems(data, profile) {
     "hash-recheck-incomplete",
   );
   const sdk = data?.sdk;
+  add(sdk?.status === "ok", "sdk-unavailable");
   add(
-    sdk?.status === "ok" &&
-      sdk.root?.replaceAll("/", "\\").replace(/\\$/, "").toLowerCase() ===
-        "c:\\program files (x86)\\windows kits\\10",
+    sdk?.root?.replaceAll("/", "\\").replace(/\\$/, "").toLowerCase() ===
+      "c:\\program files (x86)\\windows kits\\10",
     "sdk-root",
   );
   add(
@@ -252,19 +252,74 @@ export function publish(
   for (const [name, value] of Object.entries(files))
     fs.writeFileSync(path.join(directory, name), value);
 }
-export function runBounded(executable,args,{env,cwd,timeout=6*60*1000,stdoutLimit=3*1024*1024,stderrLimit=65536}){
- need(env&&typeof env==='object'&&typeof cwd==='string','controller-environment');
- need(Number.isInteger(timeout)&&timeout>0&&timeout<=6*60*1000&&Number.isInteger(stdoutLimit)&&stdoutLimit>0&&stdoutLimit<=3*1024*1024&&Number.isInteger(stderrLimit)&&stderrLimit>0&&stderrLimit<=65536,'controller-limit');
- return new Promise(resolve=>{
-  const child=spawn(executable,args,{cwd,env,windowsHide:true,stdio:['ignore','pipe','pipe']});
-  const out=[],err=[];let stdoutBytes=0,stderrBytes=0,failure;
-  const stop=reason=>{if(failure)return;failure=reason;child.kill('SIGKILL');};
-  const timer=setTimeout(()=>stop('time-limit'),timeout);
-  child.stdout.on('data',b=>{stdoutBytes+=b.length;if(stdoutBytes>stdoutLimit)stop('stdout-limit');else if(!failure)out.push(b);});
-  child.stderr.on('data',b=>{stderrBytes+=b.length;if(stderrBytes>stderrLimit)stop('stderr-limit');else if(!failure)err.push(b);});
-  child.on('error',()=>{failure??='spawn-failed';});
-  child.on('close',code=>{clearTimeout(timer);resolve({code:failure?-1:code,failure,stdout:failure?'':Buffer.concat(out).toString('utf8'),stderr:Buffer.concat(err).toString('utf8')});});
- });
+export function runBounded(
+  executable,
+  args,
+  {
+    env,
+    cwd,
+    timeout = 6 * 60 * 1000,
+    stdoutLimit = 3 * 1024 * 1024,
+    stderrLimit = 65536,
+  },
+) {
+  need(
+    env && typeof env === "object" && typeof cwd === "string",
+    "controller-environment",
+  );
+  need(
+    Number.isInteger(timeout) &&
+      timeout > 0 &&
+      timeout <= 6 * 60 * 1000 &&
+      Number.isInteger(stdoutLimit) &&
+      stdoutLimit > 0 &&
+      stdoutLimit <= 3 * 1024 * 1024 &&
+      Number.isInteger(stderrLimit) &&
+      stderrLimit > 0 &&
+      stderrLimit <= 65536,
+    "controller-limit",
+  );
+  return new Promise((resolve) => {
+    const child = spawn(executable, args, {
+      cwd,
+      env,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const out = [],
+      err = [];
+    let stdoutBytes = 0,
+      stderrBytes = 0,
+      failure;
+    const stop = (reason) => {
+      if (failure) return;
+      failure = reason;
+      child.kill("SIGKILL");
+    };
+    const timer = setTimeout(() => stop("time-limit"), timeout);
+    child.stdout.on("data", (b) => {
+      stdoutBytes += b.length;
+      if (stdoutBytes > stdoutLimit) stop("stdout-limit");
+      else if (!failure) out.push(b);
+    });
+    child.stderr.on("data", (b) => {
+      stderrBytes += b.length;
+      if (stderrBytes > stderrLimit) stop("stderr-limit");
+      else if (!failure) err.push(b);
+    });
+    child.on("error", () => {
+      failure ??= "spawn-failed";
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({
+        code: failure ? -1 : code,
+        failure,
+        stdout: failure ? "" : Buffer.concat(out).toString("utf8"),
+        stderr: Buffer.concat(err).toString("utf8"),
+      });
+    });
+  });
 }
 async function main() {
   assertDispatch(process.env, process.platform);
@@ -363,8 +418,18 @@ async function main() {
       () =>
         runBounded(
           ps,
-          ["-NoLogo","-NoProfile","-NonInteractive","-File",script,"-Inventory"],
-          {env:childEnvironment(process.env,maxHash-cap-2*sourceBytes),cwd:work},
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            script,
+            "-Inventory",
+          ],
+          {
+            env: childEnvironment(process.env, maxHash - cap - 2 * sourceBytes),
+            cwd: work,
+          },
         ),
       process.env.USERPROFILE,
     );

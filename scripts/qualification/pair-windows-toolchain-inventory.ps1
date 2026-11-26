@@ -169,7 +169,8 @@ function Read-InspectionFile([string]$Name, [string]$Path, [hashtable]$Budget) {
 function Read-DefaultToolset([string]$Path, [hashtable]$Budget) { Read-DataFingerprint 'default-toolset' $Path $Budget 'Text' }
 function Update-FileRecheck([hashtable]$Record, [hashtable]$Budget) {
     if ($null -eq $Record.sha256) { return }
-    $again = Read-DataFingerprint $Record.name $Record.path $Budget
+    $mode = if ($Record.name -ceq 'default-toolset') { 'Text' } else { 'Hash' }
+    $again = Read-DataFingerprint $Record.name $Record.path $Budget $mode
     $Record.final_sha256 = $again.sha256
     if ($again.status -ne 'ok') { $Record.status = $again.status }
     elseif ($again.sha256 -cne $Record.sha256) { $Record.status = 'drift' }
