@@ -1,0 +1,13 @@
+{
+  "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+  "version": "1.5.16",
+  "permission_trial": "session_only_strict_permission_trial",
+  "deadline_seconds": 180,
+  "workspace_mode": "existing_orkworks",
+  "events": [],
+  "child_exit_confirmed": true,
+  "fixture_prompts_submitted": 0,
+  "outcome": "early_exit_before_status_frames",
+  "cause": "not_retained",
+  "child_exit_code_evidence": "collector_did_not_retain_exit_code_in_this_attempt"
+}

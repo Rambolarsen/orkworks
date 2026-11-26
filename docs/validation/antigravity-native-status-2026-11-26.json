@@ -1,0 +1,219 @@
+{
+  "binary_sha256": "b746bd68eb150f594e53af1e5577c8b101eaf33bd44ca10ac683af90e0630cf3",
+  "version": "1.5.16",
+  "permission_trial": "session_only_strict_permission_trial",
+  "deadline_seconds": 180,
+  "workspace_mode": "existing_orkworks",
+  "events": [
+    {
+      "seconds": 0.424,
+      "state": "blocked",
+      "payload_bytes": 73,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "auth",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 1.478,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 26.44,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 30.958,
+      "state": "blocked",
+      "payload_bytes": 73,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "question",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 48.881,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 51.831,
+      "state": "done",
+      "payload_bytes": 56,
+      "field_names": [
+        "app",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 68.712,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 68.814,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 73.181,
+      "state": "blocked",
+      "payload_bytes": 71,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "permission",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 121.028,
+      "state": "idle",
+      "payload_bytes": 31,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 135.025,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 138.807,
+      "state": "blocked",
+      "payload_bytes": 73,
+      "field_names": [
+        "app",
+        "kind",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "kind": "question",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    },
+    {
+      "seconds": 155.584,
+      "state": "working",
+      "payload_bytes": 34,
+      "field_names": [
+        "app",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": false,
+      "has_title": false
+    },
+    {
+      "seconds": 158.299,
+      "state": "done",
+      "payload_bytes": 56,
+      "field_names": [
+        "app",
+        "msg",
+        "state"
+      ],
+      "app": "antigravity",
+      "child_record": false,
+      "has_message": true,
+      "has_title": false
+    }
+  ],
+  "termination_reason": "deadline",
+  "diagnostic_classes": [],
+  "group_cleanup": "permission_denied",
+  "child_exit_confirmed": true,
+  "child_exit_code": 0,
+  "operator": "agent_operated_redacted_pty_relay",
+  "fixture_prompts_submitted": 3,
+  "permission_resolution": "escape_cancel_without_approval",
+  "question_resolutions": [
+    "default_answer",
+    "escape_cancel"
+  ],
+  "native_model_call_accounting": "not_measured",
+  "human_visible_dialog_confirmation": "not_retained"
+}

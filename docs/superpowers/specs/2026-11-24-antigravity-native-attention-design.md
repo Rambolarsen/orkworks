@@ -202,3 +202,16 @@ approved for implementation.
 No other unanswered builder questions were reported in the one-round review.
 Implementation approval is recorded above. Retained live qualification remains
 outstanding; no activation is authorized by the design approval alone.
+
+
+## Later qualification evidence
+
+The [qualification record](../../validation/antigravity-native-status.md) now
+retains an agent-operated 1.5.16/macOS arm64 strict-session trial from 2026-11-26.
+It establishes native question answering and cancellation, plus permission
+cancellation without approval. Literal Deny-button behavior, automatic-command
+behavior on that version and human-visible dialog confirmation remain
+unqualified. Root exit was confirmed, but a denied group signal leaves
+possible-descendant cleanup unproven. No production profile is enabled by this
+record; the original gate or explicit owner acceptance of narrowed coverage
+still governs activation. This evidence pointer does not amend the gate.
