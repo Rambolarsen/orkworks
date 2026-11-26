@@ -120,6 +120,12 @@ file targets and how to verify the change. It is a suggestion for the
 receiving session to check, not evidence; paths that look sensitive are
 flagged.
 
+**Upgrade cost:** Moving from a build with the earlier rollup prompt changes
+the rollup evaluation cache key. Each affected workspace may need a one-time
+re-evaluation on its next eligible analysis, using your configured Taskmaster
+provider; a metered provider may charge for that run. Automatic analyses still
+count against the daily allowance.
+
 ## Assess one next improvement
 
 Current source builds offer **Review workflow** and **Run discovery** in the

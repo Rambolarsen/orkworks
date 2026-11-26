@@ -1,92 +1,92 @@
 ---
 name: cutting-release
-description: Use when the user asks to cut a release, ship a version, or publish the app. Guides through version bump, tag creation, CI monitoring, and release verification.
+description: Use when the user asks to prepare or publish a stable OrkWorks release, or operate its nightly release workflow.
 ---
 
 # Cutting a Release
 
-## Overview
+Use the current [release specification](../../specs/release-pipeline.md) and
+[signed release runbook](../../docs/agents/release-signing.md). The checked-in
+[workflow](../../.github/workflows/release.yml) owns the command sequence and
+artifact gates. Source tests establish wiring; only the credential-backed native
+run establishes the requested release's signing and artifact verification.
 
-Use this skill to publish a new release of the OrkWorks desktop app. The release pipeline is tag-driven: pushing a `vX.Y.Z` tag triggers a GitHub Actions workflow that builds, verifies, and publishes a draft GitHub Release with artifacts for macOS and Windows.
+Work within the requested version, channel and actions. Preparing source or
+release notes does not itself authorize tag creation, a nightly dispatch,
+protected-environment changes or publication. Reuse existing authorization for
+covered steps; resolve missing scope before a dependent external action.
 
-## When to use
+## Prepare the source
 
-- User says "cut a release", "ship it", "publish v0.2.0", "create a release"
-- A milestone is complete and the user wants to distribute artifacts
+Follow the repository's [branch and PR workflow](../../AGENTS.md#branch-and-pr-workflow),
+using `starting-work` before edits. For a stable release, update the desktop and
+sidecar version declarations and affected lock entries together. Use pnpm for
+Node package management and preserve unrelated dependencies. Run the relevant
+checks, complete the PR's review/CI gates, and identify the exact merged source
+SHA before tagging.
 
-## Prerequisites
+A canonical stable tag is `vMAJOR.MINOR.PATCH` and must match the desktop package
+version. Create the requested tag only at the authorized source commit. The
+stable path freezes that SHA, runs Main CI, then builds macOS arm64 and Windows
+x64 through the protected `release` environment.
 
-Before cutting a release, verify:
-- [ ] Working tree is clean (`git status` — no uncommitted changes)
-- [ ] On the branch that should be released (typically `main`)
-- [ ] All tests pass (`cargo test --manifest-path crates/orkworksd/Cargo.toml` and `cd apps/desktop && node --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs`)
-- [ ] Latest changes are pushed to GitHub (`git push`)
+Nightlies use the workflow's scheduled/manual path from `main`; their temporary
+versions are staged in CI. Follow the runbook for an authorized dispatch rather
+than creating a stable tag or changing source versions to imitate a nightly.
+The runbook distinguishes resuming the matching draft in the same publication
+job from starting a new immutable attempt. Reuse authorization that already
+covers the selected recovery path; resolve scope only when an additional
+attempt or retry falls outside it.
 
-## Process
+## Verify and publish
 
-### 1. Bump versions
+Record the exact run, source SHA, tag and release URL. Check that Main CI and
+both platform jobs passed. Missing credentials or environment approval must be
+resolved through the protected release process, without weakening its gates.
 
-Edit both files to the new version:
+Current source requires signed/notarized macOS output and Authenticode-signed
+Windows output, with native checks before upload. Verify the exact expected
+asset set, checksums, updater metadata, bundled sidecar/resources and native
+verification evidence as described in the runbook. A local package build is
+not a substitute for those release-run receipts.
 
-**`apps/desktop/package.json`** — update the `version` field:
-```json
-"version": "0.2.0"
-```
+The stable publisher creates a **draft**. Add and check the release notes before
+an authorized publication. The nightly publisher validates its exact draft and
+asset set before publishing the immutable prerelease. Do not count a skipped
+job, draft, or successful source-only check as a published, verified release.
 
-**`crates/orkworksd/Cargo.toml`** — update the `version` field:
-```toml
-version = "0.2.0"
-```
+### Rollup upgrade note for the first containing release
 
-### 2. Commit and push
+While [issue 717](https://github.com/Rambolarsen/orkworks/issues/717) remains open,
+include the following points in the first stable release containing the
+rollup-v2 change. Check the actual published GitHub Release body before marking
+that issue complete; source documentation alone does not satisfy publication.
+The [Taskmaster guide](../../docs/user/taskmaster.md#model-choices-and-analysis-status)
+carries the corresponding source-build warning.
 
-```bash
-git add apps/desktop/package.json crates/orkworksd/Cargo.toml
-git commit -m "chore: bump version to 0.2.0"
-git push
-```
+> Taskmaster rollup cards now include a model-written proposed change. An
+> unusable rollups section degrades gracefully while valid individual
+> recommendations still apply. Upgrading from an earlier rollup prompt changes
+> the rollup evaluation cache key: each affected workspace may need a one-time
+> re-evaluation on its next eligible analysis, using the configured Taskmaster
+> provider. Metered providers may charge for that run; automatic analyses still
+> count against the daily allowance.
 
-### 3. Create and push the tag
+Keep the warning scoped to affected rollup analyses. It does not mean every
+workspace starts inference at upgrade time, and it does not add a separate
+rollup provider call. Preserve the distinction between current source and the
+features verified in the release being published.
 
-```bash
-TAG="v0.2.0"
-git tag "$TAG"
-git push origin "$TAG"
-```
+## Failure and recovery
 
-The tag must exactly match `v` + the `version` in `apps/desktop/package.json` — the workflow's "Guard tag/version drift" step fails every build job if they differ.
+Inspect the failed stage and retain the run, source, tag and draft identities
+before selecting a correction or retry. Respect the existing authorization and
+any finite retry allowance; a failed build grants no additional release scope.
 
-### 4. Monitor the release workflow
-
-The tag push triggers `.github/workflows/release.yml`. Watch it:
-- Go to https://github.com/Rambolarsen/orkworks/actions
-- Find the "Release" workflow run for the tag
-- Wait for both build jobs to complete (`macos-latest` arm64 and `windows-latest` x64)
-- If any job fails, fix the issue, delete the tag (`git push --delete origin v0.2.0; git tag -d v0.2.0`), and retry after fixing
-
-### 5. Verify the draft release
-
-- Go to https://github.com/Rambolarsen/orkworks/releases
-- Find the draft release (named after the tag)
-- Confirm all expected artifacts are attached:
-  - macOS: `OrkWorks-0.2.0-mac-arm64.dmg`
-  - Windows: `OrkWorks-0.2.0-win-x64.exe`
-- Add release notes (describe what changed since the last release)
-
-### 6. Publish
-
-Click "Publish release" on the GitHub Releases page.
-
-## Aborting a bad release
-
-If the CI fails or you need to retract before publishing:
-```bash
-git push --delete origin v0.2.0   # delete remote tag
-git tag -d v0.2.0                 # delete local tag
-```
-Fix the issue, then re-tag and push.
-
-## Platform notes
-
-- **macOS artifacts are unsigned.** Alpha testers must right-click the DMG and select "Open" to bypass Gatekeeper.
-- **Windows artifacts are unsigned.** SmartScreen will show a warning; click "More info" → "Run anyway".
+For nightlies, retain immutable attempt tags, failed drafts and existing assets.
+Use the runbook's exact matching-draft/job-rerun behavior; never delete,
+retarget, overwrite or replace that retained history as a retry shortcut.
+For a stable failure, reconcile the requested version, exact source and
+publication state before selecting recovery. Do not treat a failed job as
+permission to rewrite a published tag or release. Report unresolved gates and
+the concrete handoff without claiming background monitoring.
