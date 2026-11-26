@@ -244,3 +244,59 @@ descendant cleanup remain unqualified. The source table stays exactly 1.5.16;
 this evidence does not enable 1.5.17, broaden production permission policy or
 claim the original full qualification gate passed. No native test remains
 running and no further native start is part of this evidence update.
+
+
+## Installed 1.5.17 qualification, 2026-11-26
+
+After the 1.5.16 [rejection/automatic evidence PR #2078](https://github.com/Rambolarsen/orkworks/pull/2078),
+the owner directed qualification of the installed 1.5.17 artifact. A disposable,
+read-only snapshot reported exactly 1.5.17, had no version-probe stderr, and
+retained the same hash before and after both interactive trials. The installed
+executable was not replaced. Both snapshots used the process-only
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`, forced OSC emission and brief status messages.
+This pins the experimental artifact, not production launches or every binary
+with the same version. The [derived 1.5.17 record](antigravity-native-1517-2026-11-26.json)
+retains its hash, frames and fixed control/marker observations.
+
+Exactly two interactive starts were used, each capped at 180 seconds. The
+strict session submitted three fixture prompts and lasted 137.264 seconds;
+the existing-policy automatic session submitted one and lasted 45.386 seconds.
+No approval input or persistent permission grant was sent. The strict session
+used `--mode default` and session-only `toolPermission: strict`; the automatic
+session used no mode or tool-permission override. Both used the previously
+working workspace, while their fixture scripts and absolute marker targets
+were confined to disposable directories. No repository files, settings, hooks
+or permission lists were edited. No inherited OrkWorks reporting capability
+or model/proxy credential was forwarded; native saved login and configuration
+still applied. Model-call accounting was not measured.
+
+| Case | Retained native sequence | Operator observation/action |
+| --- | --- | --- |
+| Question answered | Working 17.878s → blocked/question 23.679s → Working 39.661s → done 42.394s | Submitted the default response with Enter after a retained native blocked hold. Question/answer text was not retained. |
+| Command rejected | Working 61.063s → blocked/permission 67.497s → Idle 85.219s | Fixed native command-permission text and a numbered No control were observed. The operator selected that observed number; its selected marker appeared at 85.202s. No Escape or approval resolved this wait. The absolute command marker remained absent. |
+| Question canceled | Working 96.013s → blocked/question 99.964s → Working 120.765s → done 127.680s | Sent Escape without submitting an answer. |
+| Automatic command | Working 18.313s → done 34.843s | Fixed shell-activity text appeared at 28.111s and the exact independently inspected disposable marker at 31.112s. No permission/question block or approval input occurred during the command turn; startup auth had already cleared to Idle. This is one command under the existing policy, not universal automatic-command behavior. |
+
+The generic control extractor may see repeated/stale labels during terminal
+redraws; the rejection finding uses the observed No selection immediately
+followed by the recognized native Idle transition. It does not infer permission
+resolution from a control label, keypress or silence alone. The marker in the
+automatic trial uses an absolute disposable target, so prompt echo cannot prove
+its success. The strict fixture used the same absolute-target arrangement;
+its absent marker is an additional nonexecution observation for that fixture.
+
+All recorded frames use root `app=antigravity`, the existing app/state/kind/msg
+shape, no child ID/title and payloads within the current 256-byte parser bound.
+Message/title bodies, raw terminal output, prompts/answers and native IDs are
+omitted. Only generic fixed permission-control labels and marker-result booleans
+are retained beyond the restricted native status fields. Both collectors
+closed their PTYs before waiting, confirmed root exit code 0 and retained
+unchanged binary hashes. No process using the unique task executable remained
+in the follow-up inventory; complete descendant cleanup is not proven.
+
+These are agent-operated native terminal trials, not human-visible confirmation
+or installed OrkWorks UI end-to-end qualification. Windows, child aggregation,
+terminal negotiation, errors/unknown states and other artifacts remain outside
+this evidence. The source version table remains 1.5.16 pending explicit owner
+acceptance of the narrower 1.5.17 coverage; the original full qualification gate
+is not claimed passed. No additional native start is part of this update.
