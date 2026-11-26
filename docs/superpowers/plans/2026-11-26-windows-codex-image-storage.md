@@ -129,3 +129,28 @@ Before compiling the Windows backend into production, confirm publication
 ordering on the supported NTFS profile and denial to another ordinary user.
 Preserve ordinary text-only Forget and retention on storage ineligible for
 images. The current backend and the launch override are test-only.
+
+## Windows live fixture result (2026-11-26)
+
+The owner authorized the three disposable starts. The fixture used the native
+WinGet Codex 0.172.0 executable, the installed login, and the configured default
+model. The actual model identifier was not retained. The multiple-image case
+ran at `6455ca3b`. The remaining cases ran with the ACL verification and case
+selection changes committed as `86ce3b7f`.
+
+| Case | Observation | Qualification result |
+| --- | --- | --- |
+| Multiple images and prompt | Codex answered “Red, white, blue, white.” The expected order was red, green, blue, orange. | Failed the color check. |
+| Image-only | Codex described a solid red circle on white and omitted the green rectangle. | Failed the color check. |
+| Denied read | With the exclusive read lock held, Codex continued the text turn, tried local inspection, and reported that the file was locked by another process with no accessible image. | The terminal showed the lock explanation. The fixture did not observe its expected OS error and the launch continued. |
+
+An offline probe regenerated both PNGs using the unchanged fixture generator,
+decoded them, and verified the dimensions (256 × 128), the colored centers of
+both shapes, and the white background. This does not reveal the image bytes
+the provider consumed. The common omission of the right-hand shape remains
+unexplained.
+
+The total was three starts. No live case was repeated. The batch does not
+qualify the Windows route. The ACL review correction replaced direct reads
+of the returned ACL header with `GetAclInformation` and bounds the ACE bytes
+before comparing them. All 11 focused Windows image tests passed afterward.
