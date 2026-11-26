@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 const file = new URL('./pair-windows-metadata-evidence.mjs', import.meta.url);
 const api = await import(file);
 test('rerun or foreign workflow is rejected before acquisition', () => {
@@ -68,4 +70,16 @@ test('a complete but drifting graph is retained as failed evidence',async()=>{
   const graph=JSON.stringify({version:1,packages:[{id:'root',name:'orkworksd'},{id:'r',name:'rusqlite',version:'unexpected'}],resolve:{root:'root',nodes:[{id:'root'}]}});
   const out=await api.acquire(async args=>({code:0,stdout:args[0]==='fetch'?'':graph,stderr:''}));
   assert.equal(out.success,false);assert.equal(out.metadata,graph);
+});
+
+test('Windows Git filtering preserves the frozen input bytes',()=>{
+  for(const [name,digest] of Object.entries({
+    'crates/orkworksd/Cargo.toml':'0134c524d6e92d0f01f3cf3953f687c1ee0b570e54da879659061238aa615cc8',
+    'crates/orkworksd/Cargo.lock':'40845c5bdf0a4ed869e93af1de572220711f0d2fabf31f546488b1cdbab28ded',
+    'crates/orkworksd/build.rs':'1111ea2be9dfa3ddeb9402608723b50b01bd304a81d3de63d7d1427fe7915edf',
+    'rust-toolchain.toml':'d4d89c66d4e571b2f86ef1c5484191acca0465a101b6c46083eea9537e69fc25',
+  })) {
+    const filtered=spawnSync('git',['-c','core.autocrlf=true','cat-file','--filters','HEAD:'+name]);
+    assert.equal(filtered.status,0);assert.equal(crypto.createHash('sha256').update(filtered.stdout).digest('hex'),digest,name);
+  }
 });
