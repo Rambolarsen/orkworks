@@ -1055,26 +1055,19 @@ impl SessionApplication {
                 return false;
             }
             let existing_parent = current.get(&parent_id);
-            if existing_parent.is_some_and(|parent| {
-                parent.rollup_member_ids.is_empty()
-                    || !matches!(
-                        parent.status,
-                        RecommendationStatus::Proposed | RecommendationStatus::Executing
-                    )
-            }) {
-                return false;
-            }
-            if existing_parent.is_some_and(|parent| {
-                parent.status == RecommendationStatus::Executing
-                    && parent
-                        .rollup_member_ids
-                        .iter()
-                        .cloned()
-                        .collect::<BTreeSet<_>>()
-                        != member_ids
-            }) {
-                return false;
-            }
+            let parent_status =
+                match existing_parent.map(|parent| (parent.status, &parent.rollup_member_ids)) {
+                    None => RecommendationStatus::Proposed,
+                    Some((RecommendationStatus::Proposed, ids)) if !ids.is_empty() => {
+                        RecommendationStatus::Proposed
+                    }
+                    Some((RecommendationStatus::Executing, ids))
+                        if ids.iter().cloned().collect::<BTreeSet<_>>() == member_ids =>
+                    {
+                        RecommendationStatus::Executing
+                    }
+                    _ => return false,
+                };
             let superseded_parents = current
                 .values()
                 .filter(|item| {
@@ -1106,13 +1099,7 @@ impl SessionApplication {
                 })
                 .or_else(|| superseded_parents.first().map(|parent| parent.id.clone()));
             parent.id = parent_id.clone();
-            parent.status = if existing_parent
-                .is_some_and(|existing| existing.status == RecommendationStatus::Executing)
-            {
-                RecommendationStatus::Executing
-            } else {
-                RecommendationStatus::Proposed
-            };
+            parent.status = parent_status;
             parent.workspace_id = workspace.path.display().to_string();
             parent.chain_id = parent_id.clone();
             parent.chain_depth = members
@@ -1129,11 +1116,6 @@ impl SessionApplication {
             )];
             parent.repository_evidence.clear();
             parent.knowledge_evidence.clear();
-            if existing_parent
-                .is_none_or(|existing| existing.status != RecommendationStatus::Executing)
-            {
-                parent.target_session_id = None;
-            }
             parent.suggested_harness_id = None;
             parent.suggested_model = None;
             parent.suggested_working_directory = None;
@@ -1159,9 +1141,8 @@ impl SessionApplication {
             // The model's change proposal is presentation: refresh it while the
             // parent is still proposed (including backfilling a v1 parent);
             // executing parents keep what they had.
-            if existing_parent
-                .is_none_or(|existing| existing.status == RecommendationStatus::Proposed)
-            {
+            if parent_status == RecommendationStatus::Proposed {
+                parent.target_session_id = None;
                 parent.proposed_change = Some(cluster.proposed_change.clone());
             }
 
@@ -17080,14 +17061,19 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
     }
 
     #[test]
-    fn applying_an_unchanged_executing_rollup_preserves_its_target_session() {
+    fn rollup_parent_admission_preserves_executing_handoff_and_rejects_invalid_parents() {
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         let application = SessionApplication::new(state.clone());
         {
             let workspace = state.workspace.lock().unwrap();
             let workspace = workspace.as_ref().unwrap();
-            for key in ["first", "second"] {
+            for (key, description) in [
+                ("setup-first", "The setup blocks progress"),
+                ("setup-second", "The setup blocks progress"),
+                ("build-first", "The build blocks progress"),
+                ("build-second", "The build blocks progress"),
+            ] {
                 workspace
                     .workflow_observations
                     .record_observation(
@@ -17096,7 +17082,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                         key,
                         crate::workflow_observations::ObservationCandidate {
                             kind: crate::workflow_observations::ObservationKind::Obstacle,
-                            description: "The setup blocks progress".into(),
+                            description: description.into(),
                             evidence: "The same command failed twice".into(),
                             problem_area: None,
                             reported_impact: crate::workflow_observations::Impact::Medium,
@@ -17112,6 +17098,15 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .iter()
             .map(|recommendation| recommendation.id.clone())
             .collect::<Vec<_>>();
+        assert_eq!(member_ids.len(), 2);
+        let cluster = RollupCluster {
+            member_recommendation_ids: member_ids.clone(),
+            target_surface: crate::taskmaster::TargetSurface::Tooling,
+            title: "Combined setup problems".into(),
+            summary: "Keep the setup reliable".into(),
+            proposed_change: test_proposed_change(),
+        };
+        let clusters = std::slice::from_ref(&cluster);
         let snapshots =
             crate::taskmaster::rollup::build_rollup_family_snapshots_with_offset(&members, 0)
                 .unwrap();
@@ -17130,13 +17125,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 workspace,
                 instance_id,
                 &snapshots,
-                &[RollupCluster {
-                    member_recommendation_ids: member_ids.clone(),
-                    target_surface: crate::taskmaster::TargetSurface::Tooling,
-                    title: "Combined setup problems".into(),
-                    summary: "Keep the setup reliable".into(),
-                    proposed_change: test_proposed_change(),
-                }],
+                clusters,
                 1,
                 &[],
             ));
@@ -17153,41 +17142,67 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let mut executing = parent.clone();
         executing.status = RecommendationStatus::Executing;
         executing.target_session_id = Some("active-session".into());
-        state
-            .workspace
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .recommendation_store
-            .put(&executing)
-            .unwrap();
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let workspace = workspace.as_ref().unwrap();
-            assert!(!SessionApplication::apply_rollup_clusters_locked(
-                workspace,
-                instance_id,
-                &rollup_snapshots,
-                &[RollupCluster {
-                    member_recommendation_ids: member_ids,
-                    target_surface: crate::taskmaster::TargetSurface::Tooling,
-                    title: "Combined setup problems".into(),
-                    summary: "Keep the setup reliable".into(),
-                    proposed_change: test_proposed_change(),
-                }],
-                2,
-                &[],
-            ));
+        executing.proposed_change = None;
+        executing.rollup_member_ids.reverse();
+        executing.rollup_member_ids.push(member_ids[0].clone());
+
+        let workspace = state.workspace.lock().unwrap();
+        let workspace = workspace.as_ref().unwrap();
+        let store = &workspace.recommendation_store;
+        assert!(SessionApplication::rollup_inputs_match_locked(
+            workspace,
+            instance_id,
+            &rollup_snapshots,
+        ));
+        let original_graph = store.list().unwrap();
+        // Stage parent candidates through the existing legacy-update overlay so
+        // the persisted Proposed parent still matches the supplied snapshots.
+        for (status, members) in [
+            (RecommendationStatus::Proposed, Vec::new()),
+            (RecommendationStatus::Executing, vec![member_ids[0].clone()]),
+            (RecommendationStatus::Completed, member_ids),
+        ] {
+            let mut candidate = parent.clone();
+            candidate.status = status;
+            candidate.rollup_member_ids = members;
+            assert!(
+                !SessionApplication::apply_rollup_clusters_locked(
+                    workspace,
+                    instance_id,
+                    &rollup_snapshots,
+                    clusters,
+                    2,
+                    &[candidate],
+                ),
+                "invalid parent with status {status:?}"
+            );
+            assert_eq!(store.list().unwrap(), original_graph);
         }
-        assert_eq!(
-            application
-                .get_recommendation(&parent_id)
-                .unwrap()
-                .unwrap()
-                .target_session_id,
-            Some("active-session".into())
-        );
+        assert!(SessionApplication::apply_rollup_clusters_locked(
+            workspace,
+            instance_id,
+            &rollup_snapshots,
+            clusters,
+            2,
+            &[executing],
+        ));
+        let updated = store.get(&parent_id).unwrap().unwrap();
+        assert_eq!(updated.status, RecommendationStatus::Executing);
+        assert_eq!(updated.target_session_id.as_deref(), Some("active-session"));
+        assert!(updated.proposed_change.is_none());
+        assert_eq!(updated.rollup_generation, Some(2));
+        assert_eq!(updated.rollup_member_ids, parent.rollup_member_ids);
+
+        // The same snapshot is stale once the parent is durably Executing.
+        assert!(!SessionApplication::apply_rollup_clusters_locked(
+            workspace,
+            instance_id,
+            &rollup_snapshots,
+            clusters,
+            3,
+            &[],
+        ));
+        assert_eq!(store.get(&parent_id).unwrap(), Some(updated));
     }
 
     #[test]
