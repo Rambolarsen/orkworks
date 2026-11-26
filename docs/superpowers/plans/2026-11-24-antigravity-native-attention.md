@@ -135,3 +135,15 @@ Both are agent-operated captures, with failed startups and cleanup limitations
 retained. No source eligibility, parser, application, hook or production launch
 setting changed; the 1.5.16 profile remains limited. Verification for this
 documentation-only increment is recorded in its PR.
+
+
+## Installed 1.5.17 qualification follow-up
+
+The [1.5.17 native trials](../../validation/antigravity-native-status.md#installed-1517-qualification-2026-11-26)
+retain question answer/cancel, explicit command rejection and an independently
+witnessed automatic command. Two interactive starts and four fixture prompts
+were used; both root exits and unchanged hashes were confirmed. Human-visible
+and installed OrkWorks UI qualification and complete descendant cleanup remain
+open. This evidence alone does not expand the source version table; activation
+requires owner acceptance of the narrower coverage. Current checks are recorded
+in the follow-up PR.

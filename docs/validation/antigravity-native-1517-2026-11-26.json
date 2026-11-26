@@ -1,0 +1,378 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "version_reported": "1.5.17",
+    "binary_sha256": "e6cabc85878e5beaaac911993751abe314f6c1d89ebfd30a4fc578b7703638eb",
+    "origin": "read_only_snapshot_of_installed_executable",
+    "process_only_disable_auto_update": true
+  },
+  "interactive_native_starts": 2,
+  "fixture_prompts_submitted": 4,
+  "prompt_limits": {
+    "strict": 3,
+    "automatic": 1
+  },
+  "seconds_limit_each": 180,
+  "raw_output_retained": false,
+  "model_call_accounting_measured": false,
+  "trials": {
+    "strict": {
+      "trial": "strict",
+      "binary_sha256": "e6cabc85878e5beaaac911993751abe314f6c1d89ebfd30a4fc578b7703638eb",
+      "version": "1.5.17",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 3,
+      "strict_session_override": true,
+      "events": [
+        {
+          "seconds": 0.206,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 0.256,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 17.878,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 23.679,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "question",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 39.661,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 42.394,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 60.295,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 61.063,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 67.497,
+          "state": "blocked",
+          "payload_bytes": 71,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "permission",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 85.219,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 96.013,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 99.964,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "question",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 120.765,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 127.68,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 66.764,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 67.497,
+          "fixed_marker": "permission_prompt"
+        },
+        {
+          "seconds": 67.497,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": true
+        },
+        {
+          "seconds": 67.498,
+          "label": "No",
+          "number": 2,
+          "selected_marker": false
+        },
+        {
+          "seconds": 85.202,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": false
+        },
+        {
+          "seconds": 85.202,
+          "label": "No",
+          "number": 2,
+          "selected_marker": true
+        },
+        {
+          "seconds": 85.202,
+          "label": "No",
+          "number": 3,
+          "selected_marker": false
+        },
+        {
+          "seconds": 85.202,
+          "label": "No",
+          "number": 4,
+          "selected_marker": false
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "existing_orkworks_with_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": false,
+      "execution_marker_exact": false,
+      "group_signal": "sent",
+      "child_exit_confirmed": true,
+      "child_exit_code": 0,
+      "binary_unchanged": true,
+      "elapsed_seconds": 137.264
+    },
+    "automatic": {
+      "trial": "automatic",
+      "binary_sha256": "e6cabc85878e5beaaac911993751abe314f6c1d89ebfd30a4fc578b7703638eb",
+      "version": "1.5.17",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 1,
+      "strict_session_override": false,
+      "events": [
+        {
+          "seconds": 0.284,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        },
+        {
+          "seconds": 1.184,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 18.313,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false
+        },
+        {
+          "seconds": 34.843,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 28.111,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 31.112,
+          "execution_marker_exact": true
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "existing_orkworks_with_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": true,
+      "execution_marker_exact": true,
+      "group_signal": "sent",
+      "child_exit_confirmed": true,
+      "child_exit_code": 0,
+      "binary_unchanged": true,
+      "elapsed_seconds": 45.386
+    }
+  },
+  "qualification_limits": [
+    "agent_operated_only",
+    "human_visible_confirmation_unverified",
+    "installed_orkworks_ui_e2e_unverified",
+    "all_descendant_exit_not_proven",
+    "child_aggregation_unqualified",
+    "other_artifacts_and_platforms_unqualified"
+  ]
+}
