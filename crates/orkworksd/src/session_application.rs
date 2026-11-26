@@ -4868,18 +4868,15 @@ impl SessionApplication {
             tracing::error!(%error, "attention metadata task failed");
             SessionError::Internal("application operation failed")
         })??;
-        if result == metadata::AttentionMergeResult::Accepted && status == "working" {
-            if let Some(observed_at) = observed_at {
-                clear_claude_capacity_after_working(&self.state, &id, observed_at);
-            }
-        }
-        if result == metadata::AttentionMergeResult::Accepted {
-            note_accepted_attention_buffers(&self.state, &id, cwd);
-        }
         match result {
-            metadata::AttentionMergeResult::Accepted | metadata::AttentionMergeResult::Ignored => {
+            metadata::AttentionMergeResult::Accepted => {
+                if let ("working", Some(observed_at)) = (status.as_str(), observed_at) {
+                    clear_claude_capacity_after_working(&self.state, &id, observed_at);
+                }
+                note_accepted_attention_buffers(&self.state, &id, cwd);
                 Ok(())
             }
+            metadata::AttentionMergeResult::Ignored => Ok(()),
             metadata::AttentionMergeResult::NotFound => Err(SessionError::NotFound),
             metadata::AttentionMergeResult::PersistFailed => {
                 Err(SessionError::Internal("application operation failed"))
