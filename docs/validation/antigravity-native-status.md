@@ -10,7 +10,8 @@ status: draft
 
 Supports [the approved design](../superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
-No source profile is qualified or activated by this record.
+The owner accepted the limited 1.5.16/macOS arm64 profile below for source
+activation on 2026-11-26. The untested cases remain unqualified.
 
 ## Owner-authorized first run, 2026-11-24
 
@@ -155,3 +156,44 @@ profile is enabled by this evidence update. Enabling the exact 1.5.16 profile
 with these documented limits requires explicit owner acceptance; otherwise the
 original qualification gate remains in force. Both allowances are consumed;
 no further native session is authorized by unused time or this record.
+
+
+## Owner-accepted limited source activation, 2026-11-26
+
+After the evidence was merged in [PR #2062](https://github.com/Rambolarsen/orkworks/pull/2062),
+the owner directed continued work in direct response to the request to enable
+native Needs You for macOS arm64 **1.5.16** with these documented limits. This
+accepts narrowed empirical coverage for that exact source profile; it does not
+claim the original full qualification gate passed. Literal Deny-button behavior,
+automatic-command behavior on 1.5.16, human-visible dialog confirmation and
+possible-descendant cleanup remain unverified as described above.
+
+Source activation admits only built-in launches/exact resumes on macOS arm64
+whose canonical executable returns the exact successful bounded version probe
+`1.5.16`. Versions 1.5.15, 1.5.17 and prereleases, other platforms and custom
+commands remain unqualified. The runtime forces OSC emission and brief status
+messages for new qualified runtimes, without the experimental strict-permission
+setting or any persistent configuration change. Existing sessions are not
+mutated. This describes current source rather than a published installer or
+an independent installed end-to-end OrkWorks UI test.
+
+
+## Owner-accepted limited source activation, 2026-11-26
+
+After reviewing the request to enable macOS arm64 1.5.16 with the documented
+limits, the owner directed continued implementation. This accepts the narrowed
+coverage for exactly that source profile. Literal Deny-button behavior,
+automatic-command behavior on 1.5.16, human-visible dialog confirmation and
+all-descendant cleanup remain unverified; they are not retroactively marked
+passed. The retained structured state and cancellation sequences are sufficient
+for this owner-accepted best-effort UI activation, not permission authority.
+
+The source-owned version table admits only `1.5.16`, with the existing macOS
+arm64, built-in command, exact resume/initial-prompt and successful bounded
+version-probe checks. Fresh runtimes force OSC emission and brief messages;
+existing sessions are not changed. The diagnostic `toolPermission: strict`
+override is never added to production launches. Other versions/platforms and
+custom routes retain their prior hook fallback. Explicit user/separate-agent
+attention, generation fencing, no replay and whole-tuple Peon preservation stay
+unchanged. This updates source behavior, not a published-installer qualification.
+No further native probe is authorized by accepting activation.

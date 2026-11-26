@@ -146,26 +146,27 @@ for the live evidence and accepted missed/spoofed-frame limitations.
 
 ### Antigravity terminal status
 
-The source includes a separate Antigravity OSC 7501 profile using the shared
-bounded live-PTY parser. Activation remains disabled: the source-owned version
-qualification table is empty. The [native evidence record](../validation/antigravity-native-status.md)
-retains question/answer and working/done traces for CLI 1.5.15, plus an
-agent-operated 1.5.16/macOS arm64 strict-session trial with permission cancellation
-and question cancellation. The literal Deny button, automatic-command behavior on
-1.5.16 and human-visible dialog confirmation remain unqualified. Root exit was
-confirmed despite a denied process-group cleanup signal; descendant cleanup is
-not proven. These partial traces do not qualify a shipping activation without
-explicit owner acceptance of their documented limits.
+Current source enables a separate Antigravity OSC 7501 profile for exactly
+**CLI 1.5.16 on macOS arm64**, using the shared bounded live-PTY parser. The owner
+accepted narrowed coverage on 2026-11-26; the [native evidence record](../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26)
+retains question/answer and working/done traces, plus a strict-session trial with
+permission and question cancellation. Literal Deny-button behavior, automatic-
+command behavior on 1.5.16 and human-visible dialog confirmation remain
+unqualified. Root exit was confirmed despite a denied process-group cleanup
+signal; descendant cleanup is not proven. This is limited owner-accepted
+admission, not a claim of full qualification or a published-installer update.
 
-The launch check admits only the built-in command templates, exact resume and
-source-owned initial-prompt argument. A future qualified activation requires a
-canonical resolved executable and a successful bounded exact version probe,
-then forces `AGY_CLI_OSC7501=on` and `AGY_CLI_OSC7501_MESSAGES=brief` for that
-runtime. Custom commands, changed argv and unsupported versions remain legacy.
-No reporting capability or model request is sent by the version probe.
-Synthetic executable/PTY tests exercise successful qualification, nonzero/noisy/
-prerelease/timeout fallback, canonical executable selection, forced emission
-environment and live-frame ingestion without starting a coding tool.
+The launch check admits only built-in command templates, exact resume and the
+source-owned initial-prompt argument. A canonical resolved executable and a
+successful bounded exact-version probe qualify fresh runtimes, then force
+`AGY_CLI_OSC7501=on` and `AGY_CLI_OSC7501_MESSAGES=brief`. The diagnostic strict
+permission override is never applied to production launches. Existing sessions
+and user settings are not changed. Custom commands, changed argv, unsupported
+versions and other platforms remain legacy. No reporting capability or model
+request is sent by the version probe. Synthetic executable/PTY tests exercise
+successful qualification, nonzero/noisy/prerelease/timeout fallback, canonical
+executable selection, forced emission and live-frame ingestion without starting
+a coding tool.
 
 The profile accepts only root `app=antigravity` states, discards `msg` without
 interpretation, and rejects IDs, titles, foreign apps and unknown fields. Its
@@ -182,8 +183,7 @@ terminal evidence, with no permission authority. See [ADR 0120](../adr/0120-anti
 For all Antigravity sessions, including non-emitting runtimes, Peon continues
 summaries and descriptive metadata while preserving the complete attention
 tuple, including Peon’s separate idle-timeout path. Existing waits are not bulk-cleared; an ordinary authorized transition
-must resolve them. Until native qualification is enabled, hooks retain their
-legacy Working/Idle role.
+must resolve them. Non-emitting and unqualified runtimes retain their hooks’ legacy Working/Idle role.
 
 ### Prompt attention authority
 

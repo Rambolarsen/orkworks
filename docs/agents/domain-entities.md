@@ -262,9 +262,9 @@ native approval authority. A runtime-local activation flag prevents late hooks
 and competing inference from replacing it; a fresh runtime resets that flag.
 Explicit user/agent attention remains higher priority. See [ADR 0093](../adr/0093-codex-terminal-program-status.md).
 
-The gated Antigravity profile uses the same priority and ownership rules with
-`attentionOrigin: antigravity_terminal`. Its launch qualification table remains
-empty. Peon preserves the whole Antigravity attention tuple before and after
+The Antigravity profile uses the same priority and ownership rules with
+`attentionOrigin: antigravity_terminal`. Its limited launch profile admits
+exactly 1.5.16 on macOS arm64 following owner acceptance of the retained limits. Peon preserves the whole Antigravity attention tuple before and after
 native activation; descriptive metadata continues. See [ADR 0120](../adr/0120-antigravity-native-terminal-attention.md).
 
 Authenticated live-session metadata GET/PATCH operations expose the revision and

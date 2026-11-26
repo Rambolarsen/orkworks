@@ -1,4 +1,4 @@
-//! Source-owned Antigravity launch qualification. Native activation remains gated.
+//! Source-owned Antigravity launch qualification with owner-accepted limited coverage.
 
 use super::terminal_status::Profile;
 use crate::harness::{
@@ -7,9 +7,9 @@ use crate::harness::{
     CommandSpec,
 };
 
-// Qualification is source-owned. Partial native traces are retained, but manual
-// denial and question cancellation have not yet met the activation criteria.
-const QUALIFIED_VERSIONS: &[&str] = &[];
+// The owner accepted the retained 1.5.16/macOS arm64 trial's documented limits.
+// Other versions/platforms remain unqualified; see the native status record.
+const QUALIFIED_VERSIONS: &[&str] = &["1.5.16"];
 
 #[derive(Clone, Debug)]
 pub(crate) struct LaunchRequest {
@@ -137,7 +137,7 @@ pub(crate) async fn prepare_fixture(command: &mut CommandSpec) -> Option<Profile
         }),
         command,
         true,
-        &["1.5.15"],
+        QUALIFIED_VERSIONS,
     )
     .await
 }
@@ -235,12 +235,18 @@ mod tests {
 
     #[test]
     fn antigravity_terminal_version_evidence_requires_the_entire_exact_version() {
-        for version in ["1.5.15", "1.5.15\n"] {
-            assert!(qualified_version(version, &["1.5.15"]));
-            assert!(!qualified_version(version, &[]));
+        for version in ["1.5.16", "1.5.16\n"] {
+            assert!(qualified_version(version, QUALIFIED_VERSIONS));
         }
-        for version in ["1.5.16", "1.5.15-beta", "agy 1.5.15", "warning\n1.5.15", ""] {
-            assert!(!qualified_version(version, &["1.5.15"]));
+        for version in [
+            "1.5.15",
+            "1.5.17",
+            "1.5.16-beta",
+            "agy 1.5.16",
+            "warning\n1.5.16",
+            "",
+        ] {
+            assert!(!qualified_version(version, QUALIFIED_VERSIONS));
         }
     }
 
@@ -254,10 +260,12 @@ mod tests {
         let link = root.path().join("fake-link");
         symlink(&executable, &link).unwrap();
         for (body, accepted) in [
-            ("printf '1.5.15\\n'", true),
-            ("printf '1.5.15\\n'; exit 1", false),
-            ("printf '1.5.15-beta\\n'", false),
-            ("printf 'warning' >&2; printf '1.5.15\\n'", false),
+            ("printf '1.5.16\\n'", true),
+            ("printf '1.5.16\\n'; exit 1", false),
+            ("printf '1.5.16-beta\\n'", false),
+            ("printf 'warning' >&2; printf '1.5.16\\n'", false),
+            ("printf '1.5.15\\n'", false),
+            ("printf '1.5.17\\n'", false),
             ("sleep 4", false),
         ] {
             std::fs::write(&executable, format!("#!/bin/sh\n{body}\n")).unwrap();
@@ -278,6 +286,35 @@ mod tests {
                     std::path::Path::new(&command.program),
                     std::fs::canonicalize(&executable).unwrap()
                 );
+                for (proof, platform, changed_argv) in [
+                    (None, true, false),
+                    (
+                        Some(LaunchRequest {
+                            command: before.clone(),
+                        }),
+                        false,
+                        false,
+                    ),
+                    (
+                        Some(LaunchRequest {
+                            command: before.clone(),
+                        }),
+                        true,
+                        true,
+                    ),
+                ] {
+                    let mut rejected = before.clone();
+                    if changed_argv {
+                        rejected.args.push("--unqualified-flag".into());
+                    }
+                    let unchanged = rejected.clone();
+                    assert!(
+                        prepare_qualified(proof, &mut rejected, platform, QUALIFIED_VERSIONS)
+                            .await
+                            .is_none()
+                    );
+                    assert_eq!(rejected, unchanged);
+                }
             } else {
                 assert_eq!(command, before);
             }
@@ -285,12 +322,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn antigravity_native_gate_stays_closed_despite_candidate_version() {
+    async fn antigravity_native_profile_requires_source_proof() {
         let original = harness();
         let mut command = original.build_launch("/repo", None);
-        let request = LaunchRequest::new(&original, &command, None, None, None).unwrap();
         let before = command.clone();
-        assert!(prepare(Some(request), &mut command).await.is_none());
+        assert!(prepare(None, &mut command).await.is_none());
         assert_eq!(command, before);
     }
 }

@@ -384,15 +384,19 @@ authenticated channel and uncommon prompts may be missed. This accepted
 tradeoff requires no observer, producer migration, new hook trust or native
 approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-program-status.md).
 
-### Antigravity native terminal attention (approved; qualification pending)
+### Antigravity native terminal attention (limited 1.5.16 activation)
 
 For source-qualified built-in Antigravity launches, reuse live OSC 7501 UI
 status under the [accepted design](../docs/superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [ADR 0120](../docs/adr/0120-antigravity-native-terminal-attention.md).
-Only retained native evidence may populate the source-owned exact platform/
-version profile. No Antigravity profile is qualified by documentation or design
-approval alone. Force emission with source-owned launch environment only after
-that gate; do not modify existing sessions or user settings.
+The owner accepted narrowed empirical coverage on 2026-11-26 for exactly CLI
+1.5.16 on macOS arm64, based on the [retained native trial](../docs/validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
+Literal Deny-button and automatic-command behavior, human-visible confirmation
+and descendant cleanup remain unverified. This limited admission does not claim
+full qualification. Other platform/version profiles require retained evidence
+and approval. Force emission with source-owned launch environment only for the
+admitted profile; do not modify existing sessions, permission policy or user
+settings.
 
 Native blocked permission/question/auth maps to Needs You. Working, idle/done,
 error and clear/unknown use the existing terminal attention semantics. Preserve

@@ -7,7 +7,7 @@ tags: [orkworks, architecture, antigravity, attention]
 
 # Antigravity native terminal attention
 
-- Status: accepted; native activation gated on retained qualification
+- Status: accepted; limited 1.5.16/macOS arm64 source activation approved 2026-11-26
 - Deciders: Lars-Erik, Codex
 - Date: 2026-11-24
 - Extends: ADR 0093's terminal-status approach; Codex behavior remains unchanged.
@@ -18,7 +18,8 @@ Antigravity hooks report model-start and idle boundaries, not a qualified
 human-prompt lifecycle. The owner rejected Peon prompt inference as unstable.
 Antigravity documents native OSC 7501 UI state, but the installed artifact's
 question/answer and working/done sequence is retained. Manual tool denial and
-question cancellation remain unverified, so native activation stays gated.
+question cancellation were initially unverified. Later native traces and owner
+acceptance of narrowed coverage are recorded below.
 
 ## Decision
 
@@ -42,6 +43,9 @@ permissions or authentication, without reading conversational prose. Typing or
 silence does not clear it; only recognized native updates or existing authorized
 lifecycle operations do. Missing/spoofed frames and nonaggregate displayed-thread
 state remain accepted presentation limits. Prose questions with no native wait
-are unsupported. Activation remains disabled until retained evidence satisfies
-the design's qualification gate. Reverting source and relaunching restores prior
+are unsupported. The owner accepted limited activation for exactly macOS arm64
+1.5.16 on 2026-11-26 after the retained strict-session trial. Literal Deny-button
+and automatic-command behavior, human-visible confirmation and descendant
+cleanup remain unverified. See the [qualification record](../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
+Other profiles retain the qualification gate. Reverting source and relaunching restores prior
 behavior without migrating stored attention or changing installed hooks.
