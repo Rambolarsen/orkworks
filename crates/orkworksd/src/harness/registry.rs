@@ -107,6 +107,17 @@ impl ResolvedHarness {
         }
     }
 
+    /// Static launch models for harnesses that are not Peon providers, so the
+    /// New Session dialog can offer them without provider discovery.
+    pub(crate) fn session_model_catalog(&self) -> Option<Vec<String>> {
+        match &self.definition.models {
+            Some(ModelCapability::Static { models }) if !self.definition.retired => {
+                Some(models.clone())
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn augment_launch_for_integration(
         &self,
         command: &mut crate::harness::CommandSpec,
@@ -1477,7 +1488,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(launch.program, "agy");
-        assert!(launch.args.is_empty());
+        assert_eq!(launch.args, ["--model", "ignored-model"]);
+        assert!(harness.build_launch("/repo", None).args.is_empty());
+        assert!(matches!(
+            &harness.definition.models,
+            Some(ModelCapability::Static { models }) if !models.is_empty()
+        ));
+        assert!(harness
+            .session_model_catalog()
+            .is_some_and(|m| !m.is_empty()));
+        assert!(registry
+            .get("gemini")
+            .unwrap()
+            .session_model_catalog()
+            .is_none());
         assert_eq!(exact.program, "agy");
         assert_eq!(exact.args, ["--conversation=conversation-1"]);
         assert_eq!(latest.program, "agy");

@@ -566,7 +566,7 @@ pub(crate) fn supports_inference_definition(definition: &ProviderDefinition) -> 
     definition.id == "ollama" || inference::supports(definition)
 }
 
-fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOption> {
+pub(crate) fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOption> {
     models
         .into_iter()
         .map(|id| ProviderModelOption {
