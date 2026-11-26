@@ -28,6 +28,88 @@ function Convert-ResourceText($Value) {
     if ($text.Length -gt 128 -or $text -cnotmatch '\A[\x20-\x7e]+\z') { throw 'resource-limit' }
     return $text
 }
+# Read the neutral VS_FIXEDFILEINFO directly. No MUI lookup, DLL load or version API.
+function Get-EmbeddedVersion([IO.Stream]$Stream, [long]$PeOffset) {
+    $reader = [IO.BinaryReader]::new($Stream, [Text.Encoding]::UTF8, $true)
+    try {
+        function Word([long]$Offset) {
+            if ($Offset -lt 0 -or $Offset -gt $Stream.Length - 2) { throw 'version-bounds' }
+            $Stream.Position = $Offset; return $reader.ReadUInt16()
+        }
+        function Dword([long]$Offset) {
+            if ($Offset -lt 0 -or $Offset -gt $Stream.Length - 4) { throw 'version-bounds' }
+            $Stream.Position = $Offset; return $reader.ReadUInt32()
+        }
+        $count = Word ($PeOffset + 6)
+        $optionalSize = Word ($PeOffset + 20)
+        $optional = $PeOffset + 24
+        if ($count -lt 1 -or $count -gt 96 -or $optionalSize -lt 136 -or (Word $optional) -ne 0x20b -or (Dword ($optional + 108)) -lt 3) { return $null }
+        $rva = Dword ($optional + 128)
+        $resourceSize = Dword ($optional + 132)
+        if ($rva -eq 0 -or $resourceSize -lt 16) { return $null }
+        $sections = @()
+        for ($i = 0; $i -lt $count; $i++) {
+            $section = $optional + $optionalSize + 40 * $i
+            $sections += @{ rva = Dword ($section + 12); bytes = Dword ($section + 16); raw = Dword ($section + 20) }
+        }
+        function MapRva([long]$Value, [long]$Length) {
+            $locations = @()
+            foreach ($section in $sections) {
+                if ($Value -ge $section.rva -and $Value + $Length -le [long]$section.rva + $section.bytes) {
+                    $offset = [long]$section.raw + $Value - $section.rva
+                    if ($offset -ge 0 -and $offset + $Length -le $Stream.Length) { $locations += $offset }
+                }
+            }
+            if ($locations.Count -ne 1) { throw 'version-bounds' }
+            return $locations[0]
+        }
+        $resource = MapRva $rva $resourceSize
+        function ResourceOffset([long]$Relative, [long]$Length) {
+            if ($Relative -lt 0 -or $Length -lt 0 -or $Relative + $Length -gt $resourceSize) { throw 'version-bounds' }
+            return $resource + $Relative
+        }
+        $relative = 0L; $language = $null
+        for ($level = 0; $level -lt 3; $level++) {
+            $directory = ResourceOffset $relative 16
+            $entries = (Word ($directory + 12)) + (Word ($directory + 14))
+            if ($entries -lt 1 -or $entries -gt 128) { return $null }
+            $null = ResourceOffset ($relative + 16) (8 * $entries)
+            $found = $false
+            for ($i = 0; $i -lt $entries; $i++) {
+                $entry = $directory + 16 + 8 * $i
+                $name = Dword $entry
+                if (($name -band 2147483648L) -ne 0 -or ($level -eq 0 -and $name -ne 16)) { continue }
+                $target = Dword ($entry + 4)
+                $isDirectory = ($target -band 2147483648L) -ne 0
+                if ($isDirectory -ne ($level -lt 2)) { throw 'version-bounds' }
+                $relative = [long]($target -band 2147483647L)
+                if ($level -eq 2) { $language = $name }
+                $found = $true; break
+            }
+            if (-not $found) { return $null }
+        }
+        $dataEntry = ResourceOffset $relative 16
+        $length = Dword ($dataEntry + 4)
+        if ($length -lt 92 -or $length -gt 65536) { return $null }
+        $data = MapRva (Dword $dataEntry) $length
+        $structureLength = Word $data
+        if ($structureLength -lt 92 -or $structureLength -gt $length -or (Word ($data + 2)) -lt 52 -or (Word ($data + 4)) -ne 0) { return $null }
+        $Stream.Position = $data + 6
+        $key = [Text.Encoding]::Unicode.GetString($reader.ReadBytes(32))
+        if ($key -cne ("VS_VERSION_INFO" + [char]0)) { return $null }
+        $fixed = $data + 40
+        if ((Dword $fixed) -ne 4277077181L -or (Dword ($fixed + 4)) -ne 65536) { return $null }
+        $fileMS = Dword ($fixed + 8); $fileLS = Dword ($fixed + 12)
+        $productMS = Dword ($fixed + 16); $productLS = Dword ($fixed + 20)
+        return @{
+            file_version = '{0}.{1}.{2}.{3}' -f ($fileMS -shr 16), ($fileMS -band 65535), ($fileLS -shr 16), ($fileLS -band 65535)
+            product_version = '{0}.{1}.{2}.{3}' -f ($productMS -shr 16), ($productMS -band 65535), ($productLS -shr 16), ($productLS -band 65535)
+            language = $language
+        }
+    }
+    catch { return $null }
+    finally { $reader.Dispose() }
+}
 function Read-DataFingerprint([string]$Name, [string]$Path, [hashtable]$Budget, [string]$Mode = 'Hash') {
     $record = @{ name = $Name; path = $Path; status = 'unavailable'; bytes = $null; sha256 = $null; final_sha256 = $null; machine = $null; file_version = $null; product_version = $null; version_status = 'not-read' }
     $stream = $null; $algorithm = $null; $reader = $null
@@ -55,13 +137,14 @@ function Read-DataFingerprint([string]$Name, [string]$Path, [hashtable]$Budget, 
             $stream.Position = $offset
             if ($reader.ReadUInt32() -ne 0x00004550) { throw 'invalid-pe' }
             $record.machine = '{0:x4}' -f $reader.ReadUInt16()
-            try {
-                $version = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
-                $record.file_version = Convert-ResourceText $version.FileVersion
-                $record.product_version = Convert-ResourceText $version.ProductVersion
-                $record.version_status = 'observed'
+            $version = Get-EmbeddedVersion $stream $offset
+            if ($null -ne $version) {
+                $record.file_version = $version.file_version
+                $record.product_version = $version.product_version
+                $record.version_status = 'embedded-fixed-info'
+                $record.version_language = $version.language
             }
-            catch { $record.file_version = $null; $record.product_version = $null; $record.version_status = 'unavailable' }
+            else { $record.version_status = 'unavailable' }
         }
         elseif ($Mode -eq 'Text') {
             $textReader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8, $true, 1024, $true)

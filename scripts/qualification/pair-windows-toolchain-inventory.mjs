@@ -181,7 +181,10 @@ export function problems(data, profile) {
       ),
     "sdk-service",
   );
-  add(['ok','missing'].includes(data?.default_toolset?.status),'default-text-unavailable');
+  add(
+    ["ok", "missing"].includes(data?.default_toolset?.status),
+    "default-text-unavailable",
+  );
   if (data?.default_toolset?.status === "ok")
     add(
       data.default_toolset.sha256 === data.default_toolset.final_sha256,
@@ -192,6 +195,7 @@ export function problems(data, profile) {
 export async function collectOnce(run, profile) {
   const r = {
     success: false,
+    diagnostics: "",
     controller_invocations: 1,
     inspected_tool_executions: 0,
     fetch_invocations: 0,

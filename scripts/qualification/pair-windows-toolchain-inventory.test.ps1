@@ -59,6 +59,10 @@ try {
     try {
         $embedded = Get-EmbeddedVersion $memory 64
         Check ($embedded.file_version -ceq '19.44.35231.0' -and $embedded.product_version -ceq '14.44.35231.0') 'Version numbers must come from embedded fixed file info'
+        $versionFile = Join-Path $temp 'version-data.bin'
+        [IO.File]::WriteAllBytes($versionFile, $versioned)
+        $fromFile = Read-InspectionFile 'fixture' $versionFile $budget
+        Check ($fromFile.status -eq 'ok' -and $fromFile.file_version -ceq '19.44.35231.0') 'File reader must use embedded version data'
         Put32 584 4294967295
         $malformed = Get-EmbeddedVersion $memory 64
         Check ($null -eq $malformed) 'Out-of-range resource RVA must not be followed'
