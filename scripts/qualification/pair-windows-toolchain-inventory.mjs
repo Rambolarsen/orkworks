@@ -205,6 +205,7 @@ export async function collectOnce(run, profile) {
   try {
     const x = await run();
     r.controller_exit = x.code;
+    r.controller_failure = x.failure;
     r.diagnostics = x.stderr;
     r.inventory = JSON.parse(x.stdout);
     r.problems = problems(r.inventory, profile);
@@ -251,52 +252,19 @@ export function publish(
   for (const [name, value] of Object.entries(files))
     fs.writeFileSync(path.join(directory, name), value);
 }
-function controllerRun(executable, script, env, root) {
-  return new Promise((resolve) => {
-    const child = spawn(
-      executable,
-      [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        script,
-        "-Inventory",
-      ],
-      { cwd: root, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    const out = [],
-      err = [];
-    let stdoutBytes = 0,
-      stderrBytes = 0,
-      failed = false;
-    const stop = () => {
-      failed = true;
-      child.kill("SIGKILL");
-    };
-    const timer = setTimeout(stop, 6 * 60 * 1000);
-    child.stdout.on("data", (b) => {
-      stdoutBytes += b.length;
-      if (stdoutBytes > 3 * 1024 * 1024) stop();
-      else if (!failed) out.push(b);
-    });
-    child.stderr.on("data", (b) => {
-      stderrBytes += b.length;
-      if (stderrBytes > 65536) stop();
-      else if (!failed) err.push(b);
-    });
-    child.on("error", () => {
-      failed = true;
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        code: failed ? -1 : code,
-        stdout: failed ? "" : Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8"),
-      });
-    });
-  });
+export function runBounded(executable,args,{env,cwd,timeout=6*60*1000,stdoutLimit=3*1024*1024,stderrLimit=65536}){
+ need(env&&typeof env==='object'&&typeof cwd==='string','controller-environment');
+ need(Number.isInteger(timeout)&&timeout>0&&timeout<=6*60*1000&&Number.isInteger(stdoutLimit)&&stdoutLimit>0&&stdoutLimit<=3*1024*1024&&Number.isInteger(stderrLimit)&&stderrLimit>0&&stderrLimit<=65536,'controller-limit');
+ return new Promise(resolve=>{
+  const child=spawn(executable,args,{cwd,env,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const out=[],err=[];let stdoutBytes=0,stderrBytes=0,failure;
+  const stop=reason=>{if(failure)return;failure=reason;child.kill('SIGKILL');};
+  const timer=setTimeout(()=>stop('time-limit'),timeout);
+  child.stdout.on('data',b=>{stdoutBytes+=b.length;if(stdoutBytes>stdoutLimit)stop('stdout-limit');else if(!failure)out.push(b);});
+  child.stderr.on('data',b=>{stderrBytes+=b.length;if(stderrBytes>stderrLimit)stop('stderr-limit');else if(!failure)err.push(b);});
+  child.on('error',()=>{failure??='spawn-failed';});
+  child.on('close',code=>{clearTimeout(timer);resolve({code:failure?-1:code,failure,stdout:failure?'':Buffer.concat(out).toString('utf8'),stderr:Buffer.concat(err).toString('utf8')});});
+ });
 }
 async function main() {
   assertDispatch(process.env, process.platform);
@@ -393,11 +361,10 @@ async function main() {
     result.controller_invocations = 1;
     const out = await collectOnce(
       () =>
-        controllerRun(
+        runBounded(
           ps,
-          script,
-          childEnvironment(process.env, maxHash - cap - 2 * sourceBytes),
-          work,
+          ["-NoLogo","-NoProfile","-NonInteractive","-File",script,"-Inventory"],
+          {env:childEnvironment(process.env,maxHash-cap-2*sourceBytes),cwd:work},
         ),
       process.env.USERPROFILE,
     );

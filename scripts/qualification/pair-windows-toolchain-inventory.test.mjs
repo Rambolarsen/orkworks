@@ -40,18 +40,16 @@ const fixturePins = {
   "cl.exe": "e87e78b3ef6580b75aebda843f8a22e874612d9f766344046551399f898eb226",
 };
 const complete = () => ({
-  files: api
-    .targets(profile)
-    .map((t, i) => ({
-      ...t,
-      status: "ok",
-      bytes: 100,
-      sha256: fixturePins[t.name] ?? "a".repeat(64),
-      final_sha256: fixturePins[t.name] ?? "a".repeat(64),
-      machine: "8664",
-      file_version: "19.44.35229.0",
-      product_version: null,
-    })),
+  files: api.targets(profile).map((t, i) => ({
+    ...t,
+    status: "ok",
+    bytes: 100,
+    sha256: fixturePins[t.name] ?? "a".repeat(64),
+    final_sha256: fixturePins[t.name] ?? "a".repeat(64),
+    machine: "8664",
+    file_version: "19.44.35229.0",
+    product_version: null,
+  })),
   hashed_bytes: 2600,
   hash_passes: 26,
   sdk: {
@@ -182,18 +180,16 @@ test("a thrown controller launch remains one terminal attempt with zero target e
   assert.equal(r.target_executions, 0);
 });
 test("reported hash work cannot omit the required two file passes", () => {
-  const rows = api
-    .targets(profile)
-    .map((t) => ({
-      ...t,
-      status: "ok",
-      bytes: 100,
-      sha256: "a".repeat(64),
-      final_sha256: "a".repeat(64),
-      machine: "8664",
-      file_version: "19.44.35229.0",
-      product_version: null,
-    }));
+  const rows = api.targets(profile).map((t) => ({
+    ...t,
+    status: "ok",
+    bytes: 100,
+    sha256: "a".repeat(64),
+    final_sha256: "a".repeat(64),
+    machine: "8664",
+    file_version: "19.44.35229.0",
+    product_version: null,
+  }));
   assert.ok(
     api
       .problems(
@@ -215,7 +211,18 @@ test("reported hash work cannot omit the required two file passes", () => {
   );
 });
 
-test('an over-limit default metadata file denies the inventory even though it cannot select a compiler',()=>{
- const d=complete();d.default_toolset={status:'text-limit'};
- assert.ok(api.problems(d,profile).includes('default-text-unavailable'));
+test("an over-limit default metadata file denies the inventory even though it cannot select a compiler", () => {
+  const d = complete();
+  d.default_toolset = { status: "text-limit" };
+  assert.ok(api.problems(d, profile).includes("default-text-unavailable"));
+});
+
+test('a controller that never finishes is terminated and drained within its timeout',async()=>{
+ const started=Date.now();
+ const r=await api.runBounded(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:30,env:{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR},cwd:process.cwd()});
+ assert.equal(r.code,-1);assert.equal(r.failure,'time-limit');assert.ok(Date.now()-started<5000);
+});
+test('controller output overflow cannot be returned as a truncated successful inventory',async()=>{
+ const r=await api.runBounded(process.execPath,['-e',"process.stdout.write('x'.repeat(10000));setTimeout(()=>{},10000)"],{timeout:3000,stdoutLimit:1000,env:{SystemRoot:process.env.SystemRoot,WINDIR:process.env.WINDIR},cwd:process.cwd()});
+ assert.equal(r.code,-1);assert.equal(r.failure,'stdout-limit');assert.equal(r.stdout,'');
 });

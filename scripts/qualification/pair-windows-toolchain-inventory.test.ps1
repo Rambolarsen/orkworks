@@ -68,6 +68,12 @@ try {
         Check ($null -eq $malformed) 'Out-of-range resource RVA must not be followed'
     }
     finally { $memory.Dispose() }
+    $contextBudget = @{ maximum = 10000L; hashed_bytes = 0L; hash_passes = 0 }
+    [IO.File]::WriteAllText($text, '14.44.35207')
+    $context = Read-DefaultToolset $text $contextBudget
+    [IO.File]::WriteAllText($text, ('x' * 4097))
+    Update-FileRecheck $context $contextBudget
+    Check ($context.status -eq 'text-limit' -and $contextBudget.hashed_bytes -eq 11) 'Rechecks must preserve the four KiB text bound'
     $env:GITHUB_EVENT_NAME = 'pull_request'
     $denied = $false
     try { & $script } catch { $denied = $_.Exception.Message -eq 'Only the approved first Windows inventory attempt may run' }
