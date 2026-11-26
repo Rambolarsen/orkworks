@@ -239,3 +239,13 @@ Its dispatch/fetch/metadata allowances are spent; compiler/native batches are no
 renewed. Actual effective flags, linked artifact, MSVC/SDK and startup/adapter/
 source/compatibility evidence remain unqualified. Gate1 remains Investigate and
 no implementation is unlocked. Next is a separately scoped exact build proposal.
+
+## Fixed sidecar build allowance proposed — 2026-11-26
+
+The [candidate build proposal](2026-11-26-pair-fixed-windows-build.md) selects
+named Rust/MSVC/SDK inputs and proposes one finite offline Cargo build plus a
+preprocessing oracle for the accepted macro recipe. It distinguishes prior byte
+pins from unmeasured linker/SDK identities and requires reviewed input/helper
+closure before dispatch. The new allowance is owner-pending; no earlier batch
+is renewed. A built artifact would still not qualify startup, native/source or
+ordinary compatibility, and Gate1/bootstrap implementation remain gated.

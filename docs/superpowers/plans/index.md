@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [One fixed Windows sidecar candidate build](2026-11-26-pair-fixed-windows-build.md) — Proposed named-toolchain Cargo build/macro/linkage allowance; no execution granted.
+
 - [One Windows pair dependency metadata attempt](2026-11-25-pair-windows-metadata-evidence.md) — Proposed one-job locked acquisition/offline graph allowance; no compiler build or execution granted.
 
 - [Antigravity native terminal attention](2026-11-24-antigravity-native-attention.md) — Approved design delivery with retained native qualification before activation.
