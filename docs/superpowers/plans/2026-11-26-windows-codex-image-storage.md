@@ -63,16 +63,18 @@ Both bounded probes exited successfully. This confirms the installed interface.
    non-replacement, cleanup contention and retry, and failures on either side
    of session-record persistence. Verify that neither publishing nor recovery
    modifies a link target, an unrelated bundle, or retained metadata.
-2. With production capability still disabled, adapt the existing ignored
-   `qualify_installed_image_delivery` test for an owner-run disposable Windows
-   session. Exercise the actual storage, ordinary PTY, and resolved native
-   executable. Retain the four visual results in order for multiple images, the
-   image-only description, exactly one initial turn in each success case, paths
-   with spaces and non-ASCII, and a denied read with visible failure. Check the
-   path handed to Codex resolves to the same verified bundle at dispatch.
-   Record CLI version, platform, provider/model, and cleanup outcomes. This
-   coding session can run synthetic tests. The owner runs authenticated live
-   qualification in a separate disposable context.
+2. With production capability disabled, qualify attachment delivery through
+   actual storage, the ordinary PTY, and the resolved native Codex executable.
+   For multiple images, compare the inline payloads to the published files
+   byte-for-byte and in order. For an image-only prompt, verify its inline
+   payload in the same way. Capture the request with a disposable local
+   Responses endpoint. Confirm that each successful start submits one initial
+   user turn and that paths with spaces and non-ASCII resolve to the verified
+   bundle at dispatch. A locked image must report a typed error before Codex
+   starts. Retain the executable version, platform, provider/model, and cleanup
+   outcomes. Use the authenticated disposable run as evidence of native startup.
+   Record the model's visual answer for diagnosis. Evaluate delivery using the
+   captured payloads and startup evidence.
 3. Enable the qualified route through the existing handshake and enforce it
    again at session creation. Require the eligible storage backend as well as
    the executable probe. Cover unsupported versions, failing probes,
@@ -116,7 +118,9 @@ with multiple images and text and one with an image-only prompt. The third
 case holds an exclusive read lock before preflight and requires a typed
 startup error with no Codex session PID. The fixture checks the published
 volume and file IDs at dispatch. Inspect the retained output for the version,
-model, visual results, and one initial turn for each successful start.
+model, and one initial turn for each successful start. The current ignored
+test still checks historical visual answers. Use the payload comparison and
+startup evidence above to evaluate delivery.
 
 The focused Windows image suite passed 11 tests on Windows x64. The live
 fixture remains opt-in, and the separate recovery helper runs only as a
@@ -125,10 +129,26 @@ inherited ACL, reparse and hard-link refusal, no-replace publication, pinned
 dispatch identity, share-delete readers, rollback and process-exit recovery.
 Process exit does not establish power-loss or atomic-media flush ordering.
 
-Before compiling the Windows backend into production, confirm publication
-ordering on the supported NTFS profile and denial to another ordinary user.
-Preserve ordinary text-only Forget and retention on storage ineligible for
-images. The current backend and the launch override are test-only.
+Before compiling the Windows backend into production, confirm the remaining
+storage checks.
+
+- Have a second ordinary Windows account attempt to open an attachment by
+  its known path. Require denial and confirm that the owner can read it.
+- Confirm native NTFS rename and flush ordering through publication and
+  session-record persistence. Reuse the same-volume no-replace and
+  process-exit recovery evidence for those parts of the sequence.
+- Verify Forget and retention for a text-only session with a UUID on a root
+  that is ineligible for image storage. The current deletion flow attempts
+  to open the private image store for any UUID. An image-profile error can
+  stop ordinary deletion before metadata removal. Check that ambiguous
+  ownership still preserves any bundle and its metadata.
+
+The native storage tests passed on fixed local NTFS (five passed, with the
+subprocess helper ignored when run directly). The existing retention suite
+and Forget handler tests passed (25 and three). These tests exercise
+ordinary deletion and recovery on the current profile. The UUID case on an
+image-ineligible root still needs its own regression. The current backend
+and launch override are test-only.
 
 ## Windows live fixture result (2026-11-26)
 
@@ -205,9 +225,8 @@ The two readable cases ran once each with the recommended replacement,
 
 The color errors repeat the earlier live results. The offline trace verifies
 the PNG bytes dispatched by the installed client to a synthetic endpoint.
-The cause of the live discrepancy remains open. Activation stays gated on
-native visual delivery, cross-user access denial, NTFS publication ordering,
-and ordinary-session retention on storage ineligible for images.
+The cause of the live discrepancy remains open. This batch left the
+original visual check unmet.
 
 ## Direct Windows Codex control (2026-11-26)
 
