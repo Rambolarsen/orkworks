@@ -114,3 +114,8 @@ docs/validation/root-preparation-effects.json text eol=lf
 
 # Preserve independent offline post-rejection report oracle bytes.
 /docs/validation/research-post-report-components.json text eol=lf
+
+# Preserve the approved Windows metadata attempt's frozen input bytes.
+/crates/orkworksd/Cargo.toml text eol=lf
+/crates/orkworksd/Cargo.lock text eol=lf
+/crates/orkworksd/build.rs text eol=lf

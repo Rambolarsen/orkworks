@@ -58,6 +58,20 @@ jobs:
           ProducerTests.test_unrelated_and_capabilityless_starts_do_not_emit_worktree_context
           ProducerTests.test_powershell_session_start_uses_each_native_context_envelope
 
+      - name: Test metadata evidence policy without acquisition
+        run: node --test scripts/qualification/pair-windows-metadata-evidence.test.mjs
+      - name: Parse and reject non-dispatch metadata entry without acquisition
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$pwd/scripts/qualification/pair-windows-metadata-evidence.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw 'PowerShell parse failed' }
+          $env:GITHUB_EVENT_NAME = 'pull_request'
+          $denied = $false
+          try { & ./scripts/qualification/pair-windows-metadata-evidence.ps1 }
+          catch { $denied = $_.Exception.Message -eq 'Only the approved first Windows metadata attempt may run' }
+          if (-not $denied) { throw 'Non-dispatch acquisition was not denied' }
       - name: Test compile-only qualification guards without compiling SQLite
         if: runner.os == 'Windows'
         shell: pwsh

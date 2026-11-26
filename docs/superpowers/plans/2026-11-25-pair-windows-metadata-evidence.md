@@ -4,7 +4,7 @@ title: One Windows pair dependency metadata attempt
 description: Proposed finite dependency acquisition and offline Windows metadata run before selecting an exact compiler build; no compilation or pair qualification.
 tags: [orkworks, sqlite, hierarchy, windows, qualification, dependencies]
 status: draft
-workflow_status: proposed-owner-allowance-required
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One Windows pair dependency metadata attempt
@@ -158,3 +158,44 @@ Total 10 is a judgment aid, not authority. Approving this exact proposal would
 authorize the reviewed tooling and one bounded metadata attempt after its PR;
 it would not authorize compilation, target execution, retries or implementation.
 No acquisition, metadata retry, tool query or experiment ran to write this plan.
+
+## Scoped allowance accepted — 2026-11-26
+
+After reviewed [#2056](https://github.com/Rambolarsen/orkworks/pull/2056), merge
+`439767e1366b867634e5a38c7a929b5bac93bec6`, the owner answered “keep ging” to the
+explicit question approving this tooling and one 15-minute Windows metadata
+attempt. This accepts exactly the new allowance above, including one locked
+fetch, one offline metadata command and zero retries/compilation. Prior batches
+stay spent; no additional architecture, native or bootstrap authority is granted.
+
+The tooling uses a small Node helper for directly executable offline policy tests
+and a thin PowerShell entry point; no extra dependency installation is needed on
+the runner. This is an implementation choice within the same command/evidence
+boundary, not a new experiment. The reviewed tooling PR must merge before the
+single dispatch. Dispatch and acquisition counters are still 0/1 until recorded.
+
+Frozen source input SHA-256 values for this attempt:
+
+| Input | SHA-256 |
+| --- | --- |
+| crates/orkworksd/Cargo.toml | `0134c524d6e92d0f01f3cf3953f687c1ee0b570e54da879659061238aa615cc8` |
+| crates/orkworksd/Cargo.lock | `40845c5bdf0a4ed869e93af1de572220711f0d2fabf31f546488b1cdbab28ded` |
+| rust-toolchain.toml | `d4d89c66d4e571b2f86ef1c5484191acca0465a101b6c46083eea9537e69fc25` |
+| crates/orkworksd/build.rs | `1111ea2be9dfa3ddeb9402608723b50b01bd304a81d3de63d7d1427fe7915edf` |
+
+Applicable offline tooling/docs checks and CI validate the tooling. The full
+verify-repo.sh runs Rust builds/database tests and is excluded by this allowance;
+it must not be represented as passing or executed as a workaround. No product
+Rust/desktop code changes are part of the tooling diff. PowerShell is unavailable
+on the author's host; Windows CI parses and exercises the real entry rejection.
+
+Fresh-context read-only correctness and coverage reviews identified separate-run
+budget enforcement and retained drift evidence as required fixes. The tooling
+now serializes this allowance and checks read-only GitHub workflow-run history:
+only the sole first dispatch ID may acquire; missing/ambiguous history denies.
+This uses existing Actions control-plane history, not a product authority store.
+No run may be deleted to recover allowance, and no subsequent dispatch is allowed.
+Cargo children receive no GitHub token. Bounded raw metadata and observed source
+hashes survive drift as failed evidence; oversize output yields only a bounded
+failure receipt. Author verified these dispositions with behavioral red/green
+tests; no second independent review round is claimed.
