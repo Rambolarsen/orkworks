@@ -281,3 +281,28 @@ test("fixed-build entry denies reruns, a foreign head and a non-dispatch event",
     assert.throws(() => api.assertDispatch({ ...e, ...change }, "win32"));
   assert.throws(() => api.assertDispatch(e, "darwin"));
 });
+
+test("a mismatched installed tool retains its observed identity before denying execution", (t) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "fixed-build-tool-"));
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const f = path.join(d, "tool.exe");
+  fs.writeFileSync(f, "abc");
+  const observations = {};
+  assert.throws(() =>
+    api.requirePinnedTool("cl.exe", f, "wrong", observations),
+  );
+  assert.equal(
+    observations["cl.exe"].observed,
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  );
+  assert.equal(observations["cl.exe"].expected, "wrong");
+  assert.throws(() =>
+    api.requirePinnedTool(
+      "missing.exe",
+      path.join(d, "absent"),
+      "wrong",
+      observations,
+    ),
+  );
+  assert.equal(observations["missing.exe"].available, false);
+});

@@ -31,6 +31,18 @@ function fileHash(file) {
     fs.closeSync(fd);
   }
 }
+export function requirePinnedTool(name, file, expected, observations) {
+  const stat = fs.existsSync(file) ? fs.lstatSync(file) : undefined;
+  const available = Boolean(stat?.isFile() && !stat.isSymbolicLink());
+  observations[name] = {
+    path: file,
+    available,
+    expected,
+    observed: available ? fileHash(file) : undefined,
+  };
+  need(available, "installed-tool-unavailable");
+  need(observations[name].observed === expected, "tool-byte-mismatch");
+}
 const win = (v) => path.win32.normalize(v).toLowerCase();
 const isSqlite = (v) => v.replaceAll("\\", "/").endsWith("sqlite3/sqlite3.c");
 const names = [
@@ -384,9 +396,11 @@ export function publishEvidence(
   for (const [n, f] of entries) fs.copyFileSync(f, path.join(directory, n));
   fs.writeFileSync(path.join(directory, "result.json"), text);
 }
-function checkPins(root) {
-  for (const [f, h] of Object.entries(policy.source_pins))
-    need(fileHash(path.join(root, f)) === h, "source-input-drift");
+function checkPins(root, observations = {}) {
+  for (const [f, h] of Object.entries(policy.source_pins)) {
+    observations[f] = { expected: h, observed: fileHash(path.join(root, f)) };
+    need(observations[f].observed === h, "source-input-drift");
+  }
 }
 function readPackage(t) {
   const s = t.split(/^\[package\]\r?$/m)[1]?.split(/^\[/m)[0];
@@ -597,7 +611,8 @@ async function main() {
     return x;
   };
   try {
-    checkPins(root);
+    result.source_inputs = {};
+    checkPins(root, result.source_inputs);
     assertConfiguration(root);
     const lock = fs.readFileSync(
       path.join(root, "crates/orkworksd/Cargo.lock"),
@@ -625,6 +640,12 @@ async function main() {
       os: process.env.ImageOS,
       version: process.env.ImageVersion,
     };
+    need(
+      /^[a-zA-Z0-9_-]+$/.test(result.image.os ?? "") &&
+        /^[0-9]+(?:\.[0-9]+){1,3}$/.test(result.image.version ?? ""),
+      "image-identity",
+    );
+    result.tools = {};
     result.stage = "toolchain";
     const rust = path.join(
       process.env.USERPROFILE,
@@ -643,7 +664,7 @@ async function main() {
       ["rustc.exe", p.rustc],
       ["cl.exe", cl],
     ])
-      need(fileHash(f) === policy.tools[name], "tool-byte-mismatch");
+      requirePinnedTool(name, f, policy.tools[name], result.tools);
     fs.mkdirSync(path.join(scratch, "cargo-home"));
     env = buildEnvironment(process.env, p, scratch);
     const ps = process.env.ORK_PAIR_PWSH;
