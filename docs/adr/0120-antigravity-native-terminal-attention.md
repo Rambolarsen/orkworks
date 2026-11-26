@@ -7,7 +7,7 @@ tags: [orkworks, architecture, antigravity, attention]
 
 # Antigravity native terminal attention
 
-- Status: accepted; limited 1.5.16/macOS arm64 source activation approved 2026-11-26
+- Status: accepted; limited 1.5.16/1.5.17 macOS arm64 source activation approved 2026-11-26
 - Deciders: Lars-Erik, Codex
 - Date: 2026-11-24
 - Extends: ADR 0093's terminal-status approach; Codex behavior remains unchanged.
@@ -51,3 +51,18 @@ command without a prompt block. Human-visible confirmation, installed OrkWorks
 UI behavior and complete descendant cleanup remain unverified.
 Other profiles retain the qualification gate. Reverting source and relaunching restores prior
 behavior without migrating stored attention or changing installed hooks.
+
+
+## Amendment: additional 1.5.17 profile, 2026-11-26
+
+After [qualification PR #2081](https://github.com/Rambolarsen/orkworks/pull/2081),
+the owner directed continued implementation in response to the concrete request
+to admit exactly macOS arm64 CLI 1.5.17 alongside 1.5.16 with the retained limits.
+The 1.5.17 trials establish question answer/cancel, explicit No rejection and one
+independently witnessed automatic command without a prompt block. Both root
+exits and unchanged artifact hashes were confirmed. Human-visible/installed UI
+qualification and complete descendant cleanup remain unverified. This accepts
+limited best-effort UI coverage for the additional exact version; it changes no
+architecture, permission ownership or eligibility of other versions/platforms.
+The experimental strict setting and update-suppression override are not added
+to production launches. Existing sessions and installed hooks are unchanged.

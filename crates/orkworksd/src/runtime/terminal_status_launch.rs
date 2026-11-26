@@ -7,9 +7,9 @@ use crate::harness::{
     CommandSpec,
 };
 
-// The owner accepted the retained 1.5.16/macOS arm64 trial's documented limits.
+// The owner accepted the retained macOS arm64 1.5.16 and 1.5.17 trial limits.
 // Other versions/platforms remain unqualified; see the native status record.
-const QUALIFIED_VERSIONS: &[&str] = &["1.5.16"];
+const QUALIFIED_VERSIONS: &[&str] = &["1.5.16", "1.5.17"];
 
 #[derive(Clone, Debug)]
 pub(crate) struct LaunchRequest {
@@ -235,15 +235,18 @@ mod tests {
 
     #[test]
     fn antigravity_terminal_version_evidence_requires_the_entire_exact_version() {
-        for version in ["1.5.16", "1.5.16\n"] {
+        for version in ["1.5.16", "1.5.16\n", "1.5.17", "1.5.17\n"] {
             assert!(qualified_version(version, QUALIFIED_VERSIONS));
         }
         for version in [
             "1.5.15",
-            "1.5.17",
+            "1.5.18",
             "1.5.16-beta",
+            "1.5.17-beta",
             "agy 1.5.16",
             "warning\n1.5.16",
+            "agy 1.5.17",
+            "warning\n1.5.17",
             "",
         ] {
             assert!(!qualified_version(version, QUALIFIED_VERSIONS));
@@ -265,7 +268,11 @@ mod tests {
             ("printf '1.5.16-beta\\n'", false),
             ("printf 'warning' >&2; printf '1.5.16\\n'", false),
             ("printf '1.5.15\\n'", false),
-            ("printf '1.5.17\\n'", false),
+            ("printf '1.5.17\\n'", true),
+            ("printf '1.5.17\\n'; exit 1", false),
+            ("printf '1.5.17-beta\\n'", false),
+            ("printf 'warning' >&2; printf '1.5.17\\n'", false),
+            ("printf '1.5.18\\n'", false),
             ("sleep 4", false),
         ] {
             std::fs::write(&executable, format!("#!/bin/sh\n{body}\n")).unwrap();

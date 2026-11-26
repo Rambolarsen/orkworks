@@ -253,7 +253,7 @@ A status you set yourself, or one explicitly reported by an agent, remains
 protected. Peon still supplies summaries but does not infer **Needs You** from
 chat text for Codex and OpenCode.
 
-In current source builds, fresh built-in Antigravity CLI **1.5.16** sessions on
+In current source builds, fresh built-in Antigravity CLI **1.5.16 or 1.5.17** sessions on
 **macOS arm64** use the tool’s native terminal status for **Needs You**. Native
 question and permission waits clear when the tool reports working or idle;
 typing alone does not clear them. This has limited coverage: native question

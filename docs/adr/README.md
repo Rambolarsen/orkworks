@@ -171,4 +171,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Pair build and startup custody](0119-pair-build-startup-custody.md) — Accepted shared candidate flag and early bootstrap/failure recipe; actual build/startup and execution remain gated.
 
-- [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native-only attention with owner-accepted limited macOS arm64 1.5.16 activation.
+- [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native-only attention with owner-accepted limited macOS arm64 1.5.16/1.5.17 activation.
