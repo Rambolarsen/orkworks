@@ -117,7 +117,12 @@ cd ../orkworks-<branch-slug>
 
 Notes:
 
-- Install dependencies only for the surface being changed or validated. Docs-only work needs no desktop install; run `pnpm install --frozen-lockfile` in `docs/` when building docs. Desktop work uses `apps/desktop/`. `node_modules` is per-worktree, not shared.
+- Install dependencies in the new worktree. For scoped checks, install only
+  the dependencies those checks need. A docs build needs the `docs/` install.
+  If you plan to run `bash scripts/verify-repo.sh`, prepare both
+  `apps/desktop/` and `docs/` before verification, even for a desktop-only
+  change. Follow the [local verification prerequisites](../../docs/agents/project-context.md#local-repository-verification)
+  for the pinned Node version and install commands.
 - Run `node scripts/sync-repo-skills.mjs` inside the new worktree (fast, offline, no `apm install` required) so Claude Code (`.claude/skills/`), Codex/Antigravity (`.agents/skills/`), and Copilot (`.github/skills/`) auto-discover all committed repo-owned skills from `skills/`. Run `apm install` as well if you need external APM skills in the worktree.
 - Cargo manages its own `target/` per worktree automatically; no extra step.
 - If the branch already exists and its owner has explicitly authorized your work (for example, review fixes), drop `-b <branch-slug>` and use `git worktree add ../orkworks-<branch-slug> <branch-slug>`.
