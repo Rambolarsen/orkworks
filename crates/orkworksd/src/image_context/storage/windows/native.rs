@@ -24,17 +24,14 @@ use windows_sys::{
     },
     Win32::{
         Foundation::{
-            LocalFree, RtlNtStatusToDosError, ERROR_NO_MORE_FILES, OBJ_CASE_INSENSITIVE,
-            UNICODE_STRING,
+            LocalFree, RtlNtStatusToDosError, ERROR_NO_MORE_FILES, HANDLE, OBJ_CASE_INSENSITIVE,
+            UNICODE_STRING, WIN32_ERROR,
         },
         Security::{
-            Authorization::{
-                ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-                GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT,
-            },
             EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl,
             GetSecurityDescriptorLength, GetSecurityDescriptorOwner, GetTokenInformation,
-            TokenUser, ACCESS_ALLOWED_ACE, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
+            TokenUser, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION,
+            OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
             SE_DACL_PROTECTED, TOKEN_QUERY, TOKEN_USER,
         },
         Storage::FileSystem::{
@@ -55,6 +52,37 @@ use windows_sys::{
         },
     },
 };
+
+// These three declaration-only APIs are in the SDK's Authorization module.
+// The existing locked dependency enables the rest of the native bindings.
+const SDDL_REVISION_1: u32 = 1;
+const SE_FILE_OBJECT: i32 = 1;
+
+// https://learn.microsoft.com/windows/win32/api/sddl/
+// https://learn.microsoft.com/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo
+#[link(name = "advapi32")]
+extern "system" {
+    #[link_name = "ConvertSidToStringSidW"]
+    fn convert_sid_to_string(sid: PSID, string_sid: *mut *mut u16) -> i32;
+    #[link_name = "ConvertStringSecurityDescriptorToSecurityDescriptorW"]
+    fn convert_string_to_security_descriptor(
+        sddl: *const u16,
+        revision: u32,
+        descriptor: *mut PSECURITY_DESCRIPTOR,
+        descriptor_size: *mut u32,
+    ) -> i32;
+    #[link_name = "GetSecurityInfo"]
+    fn get_security_info(
+        object: HANDLE,
+        object_type: i32,
+        security_info: OBJECT_SECURITY_INFORMATION,
+        owner: *mut PSID,
+        group: *mut PSID,
+        dacl: *mut *mut ACL,
+        sacl: *mut *mut ACL,
+        descriptor: *mut PSECURITY_DESCRIPTOR,
+    ) -> WIN32_ERROR;
+}
 
 const SHARING: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE;
 
@@ -114,7 +142,7 @@ impl PrivateAcl {
         let mut sid_text = null_mut();
         // SAFETY: GetTokenInformation populated a TOKEN_USER with its SID in user.
         check(unsafe {
-            ConvertSidToStringSidW(
+            convert_sid_to_string(
                 (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid,
                 &mut sid_text,
             )
@@ -134,7 +162,7 @@ impl PrivateAcl {
         let mut descriptor = null_mut();
         // SAFETY: sddl is NUL-terminated; the API returns a descriptor owned by LocalFree.
         check(unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            convert_string_to_security_descriptor(
                 sddl.as_ptr(),
                 SDDL_REVISION_1,
                 &mut descriptor,
@@ -163,7 +191,7 @@ impl PrivateAcl {
         let mut descriptor = null_mut();
         // SAFETY: valid handle and output slots. Owner and ACL live inside descriptor.
         let status = unsafe {
-            GetSecurityInfo(
+            get_security_info(
                 file.as_raw_handle(),
                 SE_FILE_OBJECT,
                 OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
