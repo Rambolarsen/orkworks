@@ -4,7 +4,7 @@ title: Antigravity native terminal attention implementation
 description: Qualification-first delivery of native Antigravity attention with Codex compatibility and ownership fences.
 tags: [orkworks, antigravity, attention, plan]
 status: draft
-workflow_status: qualification-pending
+workflow_status: limited-activation
 ---
 
 # Antigravity native terminal attention implementation
@@ -12,7 +12,7 @@ workflow_status: qualification-pending
 Outcome: a qualified Antigravity native question/permission wait projects Needs
 You and resolves from native state, without Peon prompt inference or permission
 participation. Implements [the approved design](../specs/2026-11-24-antigravity-native-attention-design.md)
-and [MVP contract](../../../specs/orkworks-mvp.md#antigravity-native-terminal-attention-approved-qualification-pending),
+and [MVP contract](../../../specs/orkworks-mvp.md#antigravity-native-terminal-attention-limited-1516-activation),
 tracked in [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
 
 One owner implements inline in the owned worktree. No worker fan-out or new
@@ -113,3 +113,15 @@ review identity are recorded in the PR. Existing compiler and bundle/chunk
 warnings are outside the behavioral diff. Doc currency passes. The pre-commit
 worktree warning classified this new branch's unchanged base as merged; it did
 not cover the uncommitted implementation. Other owners' worktrees were untouched.
+
+
+## Limited activation follow-up, 2026-11-26
+
+The owner accepted the [documented coverage limits](../../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26)
+for exactly macOS arm64 CLI 1.5.16. This follow-up populates the existing
+source-owned gate and aligns hermetic executable/PTY fixtures with the shipping
+version table. The updated admission tests failed against the empty table before
+activation. It does not add permission policy, broaden other platform/version
+eligibility or start another native model session. The original implementation
+and review evidence above is historical; current verification/review evidence
+is recorded in the activation PR.

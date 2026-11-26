@@ -13299,7 +13299,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         let command = if antigravity {
             use std::os::unix::fs::PermissionsExt;
             let executable = root.path().join("fake-native-status");
-            let header = "#!/usr/bin/python3\nimport os, sys\nif '--version' in sys.argv:\n print('1.5.15'); sys.exit(0)\n";
+            let header = "#!/usr/bin/python3\nimport os, sys\nif '--version' in sys.argv:\n print('1.5.16'); sys.exit(0)\n";
             let env_check = if qualified {
                 "assert os.environ.get('AGY_CLI_OSC7501') == 'on'\nassert os.environ.get('AGY_CLI_OSC7501_MESSAGES') == 'brief'\n"
             } else {

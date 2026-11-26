@@ -215,3 +215,17 @@ unqualified. Root exit was confirmed, but a denied group signal leaves
 possible-descendant cleanup unproven. No production profile is enabled by this
 record; the original gate or explicit owner acceptance of narrowed coverage
 still governs activation. This evidence pointer does not amend the gate.
+
+
+## Owner-accepted activation amendment, 2026-11-26
+
+The owner directed continued work in direct response to the request to enable
+macOS arm64 1.5.16 with the [retained evidence and documented limits](../../validation/antigravity-native-status.md#owner-accepted-limited-source-activation-2026-11-26).
+This is explicit acceptance of narrowed coverage for that exact source profile,
+not evidence that the original human-operated, literal-denial or automatic-
+command criteria passed. Source activation may admit 1.5.16 on macOS arm64 using
+the existing built-in-route and bounded exact-version checks. The source must
+not apply the diagnostic strict-permission setting to production launches.
+Other versions, platforms and custom routes remain gated. Existing source
+priority, live-generation, no-replay and non-permission-authority contracts are
+unchanged. No additional native probe is authorized by this amendment.
