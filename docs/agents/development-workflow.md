@@ -409,11 +409,22 @@ Also run:
 bash .claude/hooks/worktree-check.sh
 ```
 
-This examines every worktree and branch, flagging merged branches and branches
-stale for more than seven days without an open pull request. It exists because
-parallel sessions cannot individually see the full worktree fleet. Only act on
-branches you own; report another owner's flags rather than changing their
-worktree.
+This examines checked-out branches across the worktree fleet. It flags branches
+whose tips are ancestors of local `main` and checks GitHub for open pull
+requests only on unmerged branches more than seven days old. If the lookup
+fails or `gh` is unavailable, it reports that the open PR status is unknown.
+Only act on branches you own. Report another owner's flags and leave their
+worktree in place.
+
+When GitHub is unavailable or blocked by the current sandbox, run the
+local-only check to keep the Git diagnostics without making a network request.
+
+```bash
+bash .claude/hooks/worktree-check.sh --local-only
+```
+
+Stale branches in this report have unknown PR status. Confirm that status
+through an authorized GitHub path before deciding how to handle them.
 
 Keep each canonical document current when its claims change. Update the root
 `AGENTS.md` for universal rules or routing changes, `README.md` for onboarding
