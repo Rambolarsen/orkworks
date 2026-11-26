@@ -60,6 +60,12 @@ jobs:
 
       - name: Test metadata evidence policy without acquisition
         run: node --test scripts/qualification/pair-windows-metadata-evidence.test.mjs
+      - name: Test data-only inventory policy
+        run: node --test scripts/qualification/pair-windows-toolchain-inventory.test.mjs
+      - name: Test Windows inventory reader with synthetic data only
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/qualification/pair-windows-toolchain-inventory.test.ps1
       - name: Test fixed-build policy without acquisition or compilation
         run: node --test scripts/qualification/pair-fixed-windows-build.test.mjs
       - name: Parse and reject non-dispatch fixed-build entry

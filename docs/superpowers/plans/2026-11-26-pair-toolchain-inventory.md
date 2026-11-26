@@ -4,7 +4,7 @@ title: One read-only Windows component inventory
 description: Proposed finite file and SDK inventory to identify the changed compiler candidate without acquisition, compilation or execution of inspected tools.
 tags: [orkworks, hierarchy, windows, toolchain, provenance, qualification]
 status: draft
-workflow_status: proposed-awaiting-owner
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One read-only Windows component inventory
@@ -99,7 +99,7 @@ working scratch. Do not edit consumed workflows/history or the fixed-build pin.
 
 ## Deliverables, checks and authority boundary
 
-- [ ] Owner accepts this exact new inventory-only allowance.
+- [x] Owner accepts this exact new inventory-only allowance.
 - [ ] Prepare a separate manual workflow/controller with offline behavioral tests
   for non-dispatch/rerun denial, exact file allowlist, no inspected-tool launch,
   missing/drifting inputs, metadata retention, byte/entry/time/evidence limits
@@ -132,3 +132,12 @@ co-availability unknown, historical cause cannot be recovered by this job).
 Total9 is a review aid, not approval. No architecture/resource-policy change is
 proposed. This proposal was written using repository/retained job records and
 official image manifests; no new runner or inspected-tool operation ran.
+
+## Scoped allowance accepted (2026-11-26)
+
+The owner answered “keep going” to the explicit #2076 question approving tooling
+plus this one10-minute inventory job. Proposal merge:
+d67135d00cb764fb23ac9126ecaff5152e4837f0. This accepts only the listed metadata
+surface, limits and terminal-record work. It grants no inspected-tool execution,
+replacement build pin or later build. Prior batches remain spent. Dispatch0/1;
+reviewed tooling and exact merged-head freeze are still required before dispatch.
