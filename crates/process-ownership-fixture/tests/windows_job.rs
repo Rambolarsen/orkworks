@@ -9,13 +9,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use process_ownership_fixture::observation::{is_complete, ExitState};
+use process_ownership_fixture::observation::{
+    is_complete, DescendantObservationFailure, ExitState,
+};
 use process_ownership_fixture::platform::{
     electron_parent_arguments, BreakawayResult, ForcedParentCompletion, ForcedParentReady,
     OwnerDomain,
 };
 use process_ownership_fixture::protocol::{NativeIdentity, Role};
-use process_ownership_fixture::supervisor::{LaunchSpec, SpawnError, Supervisor};
+use process_ownership_fixture::supervisor::{LaunchSpec, PlatformAdapter, SpawnError, Supervisor};
 use process_ownership_fixture::targets::TargetBehavior;
 use serde::de::DeserializeOwned;
 use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
@@ -323,6 +325,15 @@ fn sidecar_first_crash_leaves_pty_and_inference_descendants_owned() {
         .expect("completed job census should remain observable")
         .is_empty());
     wait_for_complete(&mut supervisor_and_domain.0);
+}
+
+#[test]
+fn descendant_observation_reports_an_expired_deadline() {
+    let (_supervisor, mut domain) = prepared_supervisor();
+    assert_eq!(
+        domain.observe_owned_descendants(&[], Instant::now()),
+        Err(DescendantObservationFailure::Deadline)
+    );
 }
 
 #[test]

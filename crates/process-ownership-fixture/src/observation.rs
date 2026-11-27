@@ -45,6 +45,31 @@ pub struct UnidentifiedProcessObservation {
     pub exit_state: ExitState,
 }
 
+/// Diagnostic from the existing bounded descendant observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescendantObservationFailure {
+    /// The observation budget expired.
+    Deadline,
+    /// The retained owner state could not be inspected.
+    OwnerState,
+    /// The Job Object process listing failed, with its Win32 code if available.
+    JobCensus(Option<i32>),
+    /// The Job Object process listing exceeded fixture bounds.
+    CensusOverflow,
+    /// A census entry could not be opened, with its Win32 code if available.
+    OpenProcess(Option<i32>),
+    /// The membership query failed, with its Win32 code if available.
+    JobMembership(Option<i32>),
+    /// The opened process was not in the retained Job Object.
+    NotInJob,
+    /// The nonblocking liveness check failed, with its Win32 code if available.
+    Wait(Option<i32>),
+    /// The liveness check did not report that the process was still running.
+    NotRunning,
+    /// Native identity capture failed, with its Win32 code if available.
+    CaptureIdentity(Option<i32>),
+}
+
 /// Complete observation attempt for one prepared supervisor generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservationSnapshot {
@@ -60,6 +85,8 @@ pub struct ObservationSnapshot {
     pub unresolved_survivors: Vec<NativeIdentity>,
     /// Whether the platform adapter could not complete its ownership census.
     pub observation_unresolved: bool,
+    /// Failure detail from this snapshot’s descendant census, when available.
+    pub descendant_observation_failure: Option<DescendantObservationFailure>,
 }
 
 /// Returns true only after identified processes exited and no unidentified root remains.
