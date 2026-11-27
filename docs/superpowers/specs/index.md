@@ -389,3 +389,5 @@ Dated design records; these do not establish current product behavior.
 - [Research profile initializer creation manifest](2026-11-23-research-initializer-manifest-design.md) — Proposed complete fresh-profile initializer manifest over the accepted catalog (workspace/run/assignment scope rows, registered empty families, original proof links); physical format selection remains gated.
 
 - [Research command effects and original proof closure](2026-11-23-research-command-proof-design.md) — Accepted for written logical closure: command-wide effects, captured header, coalesced versions, accounting and original proofs; executable/physical/runtime qualification remains gated.
+
+- [Synthetic reader progress and buffer reuse](2026-11-27-reader-diagnostic-contract-design.md) — Proposed bounded diagnostic framing, timeout retention and paired buffer evidence on owned fixtures only; implementation acceptance required, no qualification allowance.
