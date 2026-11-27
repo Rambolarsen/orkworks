@@ -1,0 +1,75 @@
+{
+  "date": "2026-11-27",
+  "sourceCommit": "1c70bdcf0f3016577f00ed83997ad0d1f72c3a27",
+  "surface": "isolated source-built desktop and sidecar",
+  "platform": "macOS arm64",
+  "operator": "agent through native UI automation",
+  "nativeVersion": "1.5.18",
+  "nativeSha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "workspace": "previously trusted disposable question fixture",
+  "scope": {
+    "nativeStarts": 1,
+    "maximumSeconds": 180,
+    "fixturePromptsSubmitted": 1,
+    "maximumFixturePrompts": 1,
+    "resumes": 0
+  },
+  "launch": "fresh built-in session with source-owned initial prompt argument",
+  "newTrustOrCommandApprovalSent": false,
+  "hookChanges": false,
+  "observations": [
+    {
+      "elapsedSecondsApprox": 8,
+      "nativeUi": "version 1.5.18 banner and generating turn",
+      "accessibilitySessionRow": "Working",
+      "attentionCount": 0
+    },
+    {
+      "elapsedSecondsApprox": 15,
+      "nativeUi": "structured question with numbered choices and Escape Skip control",
+      "accessibilitySessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "elapsedSecondsApprox": 23,
+      "phase": "question held before cancellation",
+      "accessibilitySessionRow": "Needs you"
+    },
+    {
+      "elapsedSecondsApprox": 31,
+      "operatorAction": "Escape selected native Skip control without submitting an answer",
+      "nativeUi": "question skipped and Working",
+      "immediateAccessibilityStillNeedsYou": true,
+      "attentionCount": 1
+    },
+    {
+      "elapsedSecondsApprox": 39,
+      "nativeUi": "cancellation acknowledgement and ordinary input prompt",
+      "accessibilitySessionRow": "Idle",
+      "attentionCount": 0
+    }
+  ],
+  "cleanup": {
+    "isolatedLauncherStoppedWithinBudget": true,
+    "noExecutableWithUniqueTaskPathsInFollowupInventory": true,
+    "nativeExitCodeRetained": false,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "native cancellation used the question Escape Skip control",
+    "observation times do not measure clearing latency",
+    "no human-operated confirmation",
+    "no published-installer qualification",
+    "no retained metadata-origin assertion"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "prompt and answer text",
+    "account data",
+    "reporting credentials"
+  ]
+}

@@ -594,3 +594,48 @@ Peon disabled. Observation times do not measure clearing latency. It does not
 qualify question cancellation in the desktop UI, human-operated confirmation,
 a published installer or retained metadata origin. No runtime behavior, source
 eligibility, launch checks or saved native policy changed.
+
+
+## Source-build desktop 1.5.18 question cancellation, 2026-11-27
+
+Following the command rejection check, the owner directed a bounded desktop
+question cancellation check. An isolated app and sidecar built at `1c70bdcf`
+used the pinned qualified macOS arm64 1.5.18 artifact, with Peon disabled. Its
+unique app identity and separate development port/profile kept the existing
+user desktop outside the trial. The app opened the previously trusted
+disposable workspace; earlier fixture rows were not resumed. No hooks, native
+trust, permissions or installed binary were changed.
+
+The trial allowed one fresh built-in start, one fixture prompt and 180 seconds.
+The initial prompt requested one structured question and no file or command
+work. The pinned copy reported exactly 1.5.18 through a successful bounded
+version probe with no stderr and matched the qualified digest. Updater
+suppression applied only to this test process. The launcher excluded inherited
+reporting capabilities and model/proxy credentials while retaining normal native
+saved login/configuration. Model-call accounting was not measured.
+
+| Observation time after Start | Native terminal | OrkWorks UI |
+| --- | --- | --- |
+| About 8 seconds | Version 1.5.18 banner and generating turn | Working; Attention 0 |
+| About 15 seconds | Structured question with choices and **esc Skip** control | Needs you; Attention 1 |
+| About 23 seconds | Question held without an answer | Accessibility still reports Needs you |
+| About 31 seconds | Escape skipped the question; native Working text appeared | Immediate accessibility still reports Needs you; Attention 1 |
+| About 39 seconds | Cancellation acknowledgement and ordinary input prompt | Idle; Attention 0 |
+
+The operator used the observed native **Escape/Skip** control without selecting
+or submitting an answer. These are observation times, not precise transition or
+clearing-latency measurements. The [sanitized cancellation UI record](antigravity-native-1518-cancel-ui-2026-11-27.json)
+retains derived observations without screenshots, account data, native IDs,
+raw terminal output, prompt text or reporting credentials.
+
+The isolated launcher stopped within the budget. A subsequent executable-path
+inventory found no processes using its unique task paths; the pinned hash was
+unchanged and the temporary native copy was removed. The UI launcher did not
+retain the native root exit code, and complete descendant cleanup is not proven.
+
+This adds agent-observed question cancellation and attention clearing in a fresh
+qualified 1.5.18 source-built desktop with Peon disabled. Together with the
+separate answer and command rejection trials, it covers those three UI paths;
+it does not qualify human-operated confirmation, published installers, retained
+metadata origin or other platform/version profiles. Runtime behavior, source
+eligibility and the broader #1996 coverage are unchanged.
