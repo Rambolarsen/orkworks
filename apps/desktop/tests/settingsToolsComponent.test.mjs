@@ -539,6 +539,47 @@ async function peonFixture(t) {
   return { ...view, button };
 }
 
+test("editing the Ollama URL invalidates verification before the debounce starts", async (t) => {
+  const view = await peonFixture(t);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const previous = deferred();
+  const replacement = deferred();
+  const calls = [];
+  const previousUrl = "http://localhost:11434";
+  const draftUrl = "http://127.0.0.1:11435/";
+  const canonicalUrl = "http://127.0.0.1:11435";
+  const urlInput = () => nodes(view.render()).find((node) => node.props?.placeholder === "http://127.0.0.1:11434");
+  const verification = (url, model) => ({
+    ok: true,
+    provider: "ollama",
+    models: [model],
+    capabilities: { connectivity: true, modelDiscovery: true },
+    ollamaBaseUrl: url,
+  });
+  window.orkworks.verifyPeonProvider = (_provider, url) => {
+    calls.push(url);
+    return calls.length === 1 ? previous.promise : replacement.promise;
+  };
+
+  view.button("Refresh models").props.onClick();
+  urlInput().props.onChange({ target: { value: draftUrl } });
+  previous.resolve(verification(previousUrl, "old-endpoint-model"));
+  await view.settle();
+  assert.deepEqual(calls, [previousUrl], "the replacement is still waiting for the debounce");
+  assert.equal(urlInput().props.value, draftUrl);
+  assert.doesNotMatch(text(view.render()), /old-endpoint-model|Provider verified/);
+  assert.equal(view.button("Refresh models").props.disabled, true);
+
+  t.mock.timers.tick(300);
+  assert.deepEqual(calls, [previousUrl, draftUrl]);
+  replacement.resolve(verification(canonicalUrl, "new-endpoint-model"));
+  await view.settle();
+  assert.equal(urlInput().props.value, canonicalUrl);
+  assert.match(text(view.render()), /new-endpoint-model/);
+  assert.match(text(view.render()), /Provider verified/);
+  assert.equal(view.button("Refresh models").props.disabled, false);
+});
+
 for (const operation of ["Apply", "Save"]) {
   for (const ending of ["close", "unmount"]) {
     for (const outcome of ["success", "rejection"]) {
