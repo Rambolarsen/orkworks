@@ -15,7 +15,7 @@ use crate::runtime::terminal_runtime::{
 use crate::startup_failure::{StartupError, StartupFailureCode as Code};
 use crate::{harness, peon, plan_handoff, AppState};
 use chrono::{DateTime, Utc};
-use portable_pty::{CommandBuilder, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, ExitStatus, PtySize, PtySystem};
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 #[cfg(windows)]
@@ -1112,8 +1112,10 @@ enum DriverEvent {
     ReaderClosed,
 }
 
+type ChildExitResult = Result<ExitStatus, String>;
+
 fn should_finalize_driver_exit(
-    child_exit: Option<&Result<(), String>>,
+    child_exit: Option<&ChildExitResult>,
     reader_drain_finished: bool,
     reader_events_pending: bool,
 ) -> bool {
@@ -1155,8 +1157,8 @@ fn make_driver_event_channel() -> (mpsc::Sender<DriverEvent>, mpsc::Receiver<Dri
 }
 
 fn make_child_exit_channel() -> (
-    mpsc::UnboundedSender<Result<(), String>>,
-    mpsc::UnboundedReceiver<Result<(), String>>,
+    mpsc::UnboundedSender<ChildExitResult>,
+    mpsc::UnboundedReceiver<ChildExitResult>,
 ) {
     mpsc::unbounded_channel()
 }
@@ -3019,7 +3021,7 @@ async fn run_session_runtime(
 
     let (child_exit_tx, mut child_exit_rx) = make_child_exit_channel();
     tokio::task::spawn_blocking(move || {
-        let result = child.wait().map(|_| ()).map_err(|e| e.to_string());
+        let result = child.wait().map_err(|e| e.to_string());
         let _ = child_exit_tx.send(result);
     });
 
@@ -3094,7 +3096,7 @@ async fn run_session_runtime(
         let mut reader_closed = false;
         let mut reader_drain_finished = false;
         let mut reader_drain_deadline = None;
-        let mut child_exit: Option<Result<(), String>> = None;
+        let mut child_exit: Option<ChildExitResult> = None;
 
         let mut initial_editor = None;
         if let Some(prompt) = initial_prompt {
@@ -3609,8 +3611,22 @@ async fn run_session_runtime(
                     final_persist_batches.push_back(vec![trailing]);
                 }
 
-                let is_error = exit.is_err();
-                let status = if is_error || native_server_failed || initial_prompt_failed {
+                let failure = match exit {
+                    Err(error) => Some(("pty_wait_failed", error)),
+                    Ok(_) if initial_prompt_failed => Some((
+                        "initial_prompt_delivery_failed",
+                        "Could not deliver the initial prompt to the terminal".into(),
+                    )),
+                    Ok(_) if native_server_failed => Some((
+                        "codex_native_server_exited",
+                        "Codex app-server exited unexpectedly".into(),
+                    )),
+                    Ok(status) if !kill_requested && !status.success() => {
+                        Some(("pty_child_exit_failed", status.to_string()))
+                    }
+                    Ok(_) => None,
+                };
+                let status = if failure.is_some() {
                     "error"
                 } else if kill_requested {
                     "killed"
@@ -3621,31 +3637,16 @@ async fn run_session_runtime(
                     drop(persist_tx);
                     break;
                 }
-                match exit {
-                    Ok(()) if initial_prompt_failed => {
-                        let _ = driver_output_tx.send(RuntimeEvent::Error {
-                            code: "initial_prompt_delivery_failed".into(),
-                            message: "Could not deliver the initial prompt to the terminal".into(),
-                        });
-                    }
-                    Ok(()) if native_server_failed => {
-                        let _ = driver_output_tx.send(RuntimeEvent::Error {
-                            code: "codex_native_server_exited".into(),
-                            message: "Codex app-server exited unexpectedly".into(),
-                        });
-                    }
-                    Ok(()) => {
-                        let _ = driver_output_tx.send(RuntimeEvent::Ended {
-                            status: status.to_string(),
-                        });
-                    }
-                    Err(error) => {
-                        let _ = driver_output_tx.send(RuntimeEvent::Error {
-                            code: "pty_wait_failed".into(),
-                            message: error,
-                        });
-                    }
-                }
+                let event = match failure {
+                    Some((code, message)) => RuntimeEvent::Error {
+                        code: code.into(),
+                        message,
+                    },
+                    None => RuntimeEvent::Ended {
+                        status: status.into(),
+                    },
+                };
+                let _ = driver_output_tx.send(event);
 
                 let trim_state = driver_state.clone();
                 let trim_id = driver_id.clone();
@@ -8734,6 +8735,100 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
             .any(|record| { record == &crate::metadata::TerminalOutputRecord::raw("three", "") }));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn runtime_exit_reports_nonzero_child_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "runtime-nonzero-exit";
+        let state = test_state_with_runtime_session(id);
+        ingestion_test_workspace(&state, &dir);
+        let cwd = dir.path().display().to_string();
+        let metadata = crate::test_support::test_session_metadata(
+            id,
+            "Runtime Test",
+            cwd.clone(),
+            "running",
+            "now",
+            "now",
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&metadata);
+
+        let (runtime, control_rx) =
+            SessionRuntime::live(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS);
+        let output_tx = runtime.output_tx.clone();
+        let mut events = output_tx.subscribe();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let (_kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+
+        start_session_runtime(
+            state.clone(),
+            id.into(),
+            harness::CommandSpec {
+                program: "/bin/sh".into(),
+                args: vec!["-c".into(), "exit 7".into()],
+                cwd,
+            },
+            None,
+            control_rx,
+            output_tx,
+            kill_rx,
+            PtySize {
+                rows: DEFAULT_TERMINAL_ROWS,
+                cols: DEFAULT_TERMINAL_COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = events.recv().await.expect("terminal output channel");
+                if !matches!(event, RuntimeEvent::Output { .. }) {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("nonzero exit must emit a terminal event");
+        assert_eq!(
+            event,
+            RuntimeEvent::Error {
+                code: "pty_child_exit_failed".into(),
+                message: "Exited with code 7".into(),
+            }
+        );
+
+        let outcome = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let metadata = state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .metadata
+                    .read_session(id)
+                    .unwrap();
+                if metadata.lifecycle_phase == "ended" {
+                    break metadata.terminal_outcome;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("failed child exit must finalize");
+        assert_eq!(outcome.as_deref(), Some("error"));
+    }
+
     #[tokio::test]
     async fn backpressure_flooding_runtime_still_exits_promptly_on_kill() {
         let dir = tempfile::tempdir().unwrap();
@@ -8839,7 +8934,7 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
     #[test]
     fn child_exit_drain_waits_for_queued_reader_output() {
         let (tx, mut rx) = make_driver_event_channel();
-        let child_exit = Ok(());
+        let child_exit = Ok(ExitStatus::with_exit_code(0));
 
         for _ in 0..DRIVER_EVENT_BUFFER_CAPACITY {
             tx.try_send(DriverEvent::Output(vec![1]))
@@ -8889,9 +8984,9 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
         }
 
         exit_tx
-            .send(Ok(()))
+            .send(Ok(ExitStatus::with_exit_code(7)))
             .expect("lifecycle channel is independent of output backpressure");
-        assert_eq!(exit_rx.try_recv(), Ok(Ok(())));
+        assert_eq!(exit_rx.try_recv().unwrap().unwrap().exit_code(), 7);
     }
 
     #[test]
