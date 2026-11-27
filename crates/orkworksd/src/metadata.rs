@@ -1351,7 +1351,7 @@ impl MetadataStore {
         path: &std::path::Path,
         quarantine: impl FnOnce(&str, serde_json::Error),
     ) -> Option<SessionMetadata> {
-        let data = match fs::read_to_string(path) {
+        let data = match crate::durable_file::read_metadata_string(path) {
             Ok(data) => data,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
             Err(e) => {
@@ -1663,8 +1663,12 @@ impl MetadataStore {
                 return Err(e);
             }
         }
-        self.summary_checkpoints.lock().unwrap().remove(id);
+        self.discard_session_event_cache(id);
         Ok(())
+    }
+
+    pub(crate) fn discard_session_event_cache(&self, id: &str) {
+        self.summary_checkpoints.lock().unwrap().remove(id);
     }
 
     pub fn clear_last_active_session_if_matches(&self, id: &str) -> std::io::Result<()> {

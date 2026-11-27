@@ -765,14 +765,16 @@ secret and a matching workspace identity. Electron's generation-bound
 `create-session-with-images` IPC validates bounds and positively negotiates
 `GET /session-image-context` version 1 before forwarding. The sidecar decodes
 supported images with bounded allocation, publishes private session-owned files
-before metadata admission, and retains them until Forget/retention. Unix storage
-operations are relative to retained directory handles. Native Codex image starts
+before metadata admission, and retains them until Forget/retention. Unix and
+Windows image stores use retained directory handles. The Windows sidecar binds
+publication and cleanup to the active workspace lease. Native Codex image starts
 pass both image paths and the text in argv, and skip PTY prompt submission because
 Codex automatically submits startup images. Other qualified image readers receive
 explicit file references through the existing readiness-gated prompt owner.
 The qualified macOS arm64 Codex route accepts stable versions 0.163.0 and newer
-when the installed CLI advertises native `--image` support; other unqualified
-tool/platform routes remain disabled. See
+when the installed CLI advertises native `--image` support. The Windows x64
+route also requires fixed local NTFS and a pinned native Codex 0.172.0
+executable. Unqualified tool and platform routes remain disabled. See
 [image context](../../specs/session-image-context.md) and
 [ADR 0089](../adr/0089-new-session-image-context.md).
 

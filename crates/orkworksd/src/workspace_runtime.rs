@@ -5,6 +5,13 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(all(windows, target_arch = "x86_64"))]
+mod cleanup_namespace;
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub(crate) use cleanup_namespace::{
+    pin_metadata_root, pin_sessions_for_create, pin_windows_directory_path, CleanupNamespace,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DirectoryIdentity {
     #[cfg(unix)]
@@ -49,7 +56,7 @@ impl WorkspaceIdentity {
         &self.canonical_path
     }
 
-    #[cfg(all(test, windows, target_arch = "x86_64"))]
+    #[cfg(all(windows, target_arch = "x86_64"))]
     pub(crate) fn directory(&self) -> &File {
         &self._directory
     }
@@ -117,19 +124,8 @@ fn native_directory_identity(
     }
     #[cfg(windows)]
     {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{
-            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
-        };
-
         let _ = metadata;
-        let mut information = BY_HANDLE_FILE_INFORMATION::default();
-        let success =
-            unsafe { GetFileInformationByHandle(directory.as_raw_handle(), &mut information) };
-        if success == 0 {
-            return Err(io::Error::last_os_error());
-        }
-
+        let information = windows_file_information(directory)?;
         let file_index =
             (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
         return windows_directory_identity(
@@ -145,6 +141,23 @@ fn native_directory_identity(
             "native workspace identity is unavailable",
         ))
     }
+}
+
+#[cfg(windows)]
+fn windows_file_information(
+    file: &File,
+) -> io::Result<windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: the file handle is live and the structure is writable for the call.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(information)
 }
 
 #[cfg(any(windows, test))]
@@ -170,6 +183,8 @@ fn require_identity_part<T>(value: Option<T>, message: &'static str) -> io::Resu
 /// crashed sidecar cannot leave a stale PID marker blocking the next owner.
 pub(crate) struct WorkspaceLease {
     file: File,
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    cleanup_directory: Option<DirectoryIdentity>,
 }
 
 impl WorkspaceLease {
@@ -205,15 +220,66 @@ impl WorkspaceLease {
         }
         Ok(())
     }
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    fn pin_cleanup_lock(&self, root: &Path) -> io::Result<File> {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+
+        let current_root = WorkspaceIdentity::resolve(root)?;
+        if self.cleanup_directory != Some(current_root.directory_identity) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cleanup metadata directory does not match the active workspace lease",
+            ));
+        }
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(root.join(".sidecar.lock"))?;
+        let actual = windows_file_information(&lock)?;
+        let expected = windows_file_information(&self.file)?;
+        if actual.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            || actual.nNumberOfLinks != 1
+            || expected.nNumberOfLinks != 1
+            || (
+                actual.dwVolumeSerialNumber,
+                actual.nFileIndexHigh,
+                actual.nFileIndexLow,
+            ) != (
+                expected.dwVolumeSerialNumber,
+                expected.nFileIndexHigh,
+                expected.nFileIndexLow,
+            )
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cleanup metadata directory does not match the active workspace lease",
+            ));
+        }
+        Ok(lock)
+    }
+
     pub(crate) fn acquire(global_dir: &std::path::Path) -> io::Result<Self> {
         std::fs::create_dir_all(global_dir)?;
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let captured = WorkspaceIdentity::resolve(global_dir).ok();
         let file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .open(global_dir.join(".sidecar.lock"))?;
         file.try_lock_exclusive()?;
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            cleanup_directory: captured
+                .filter(|directory| directory.revalidate().is_ok())
+                .map(|directory| directory.directory_identity),
+        })
     }
 }
 

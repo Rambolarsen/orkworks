@@ -32,7 +32,9 @@ the problem and keeps your tool, model, prompt and attachments. Check the tool
 settings or installation, then press **Start session** to retry.
 
 Current source builds can include images when starting Codex 0.163.0 or later
-on macOS arm64, provided the installed CLI passes the image-interface check.
+on macOS arm64. On Windows x64, image attachments require native Codex 0.172.0
+and a workspace metadata directory on fixed local NTFS. The installed CLI
+must pass the image-interface check on either platform.
 Paste a screenshot, drop image files
 into the composer, or choose **Attach images**. Review the thumbnails and use
 **Remove** before starting. PNG, JPEG, and WebP are supported, up to eight images,

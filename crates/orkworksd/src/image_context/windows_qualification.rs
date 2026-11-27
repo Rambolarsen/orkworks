@@ -1,9 +1,8 @@
 //! Opt-in Windows image qualification. Production builds do not include this module.
-use super::{has_codex_image_option, ImageBundle, ImageDelivery};
+use super::ImageBundle;
 use crate::{
     harness::{
         definition::{BuiltinDocument, HarnessUserDocument, LaunchCapability, EMBEDDED_BUILTINS},
-        detect::{probe_image_fixture_version, probe_tool_help},
         registry::resolve_document,
     },
     AppState,
@@ -12,7 +11,7 @@ use std::{
     fs::{File, OpenOptions},
     io,
     os::windows::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -21,34 +20,17 @@ tokio::task_local! {
 }
 
 pub(crate) struct Fixture {
-    command: String,
     deny_reads: bool,
     read_lock: Mutex<Option<File>>,
 }
 
 impl Fixture {
-    pub(super) fn new(command: String, deny_reads: bool) -> Self {
+    pub(super) fn new(deny_reads: bool) -> Self {
         Self {
-            command,
             deny_reads,
             read_lock: Mutex::new(None),
         }
     }
-}
-
-pub(super) async fn delivery(harness: &str, command: &str) -> Option<ImageDelivery> {
-    let active = FIXTURE
-        .try_with(|fixture| fixture.command == command)
-        .unwrap_or(false);
-    if !active || harness != "codex" {
-        return None;
-    }
-    let path = Path::new(command);
-    let version = probe_image_fixture_version(path).await?;
-    if version.trim() != "codex-cli 0.172.0" {
-        return None;
-    }
-    has_codex_image_option(&probe_tool_help(path).await?).then_some(ImageDelivery::NativeCodex)
 }
 
 pub(crate) fn capture_fixture() -> Option<Arc<Fixture>> {
@@ -79,7 +61,14 @@ pub(super) fn release_read_lock() {
     });
 }
 
-pub(super) fn configure(state: &Arc<AppState>) -> String {
+pub(super) fn configure(state: &Arc<AppState>) {
+    let mut workspace = state.workspace.lock().unwrap();
+    let workspace = workspace.as_mut().expect("qualification workspace");
+    workspace.lease = Some(Arc::new(
+        crate::workspace_runtime::WorkspaceLease::acquire(&workspace.metadata.root_path())
+            .expect("qualification workspace lease"),
+    ));
+
     let path = PathBuf::from(
         std::env::var_os("ORKWORKS_IMAGE_FIXTURE_CODEX")
             .expect("set ORKWORKS_IMAGE_FIXTURE_CODEX to the installed native Codex .exe"),
@@ -105,10 +94,9 @@ pub(super) fn configure(state: &Arc<AppState>) -> String {
     else {
         panic!("Codex fixture requires the built-in native launch template");
     };
-    *executable = command.clone();
+    *executable = command;
     let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
     *state.harness_catalog.write().unwrap() = Arc::new(registry);
-    command
 }
 
 #[cfg(test)]
@@ -127,7 +115,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let fixture = Fixture::new("unused".into(), true);
+        let fixture = Fixture::new(true);
         let error = fixture.observe_bundle(&bundle).unwrap_err();
         assert_eq!(error.raw_os_error(), Some(32));
     }

@@ -138,11 +138,43 @@ fn apply_plans(
     removed
 }
 
+#[derive(Debug)]
+pub(crate) struct SessionDeletionError {
+    message: String,
+    pub(crate) record_removed: bool,
+}
+
+impl From<String> for SessionDeletionError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            record_removed: false,
+        }
+    }
+}
+
+impl std::fmt::Display for SessionDeletionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
 pub(crate) fn delete_session_evidence(
     workspace: &crate::WorkspaceState,
     session_id: &str,
     mut delete_recommendations: impl FnMut(&str) -> Result<(), String>,
-) -> Result<(), String> {
+) -> Result<(), SessionDeletionError> {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let namespace = crate::workspace_runtime::CleanupNamespace::acquire(
+        &workspace.metadata.root_path(),
+        workspace.lease.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let (events_directory, state_directory) = (namespace.events, namespace.session_state);
+    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    let (events_directory, state_directory) = (true, true);
+
     // Acquire before any destructive effects. A concurrent publisher makes
     // this deletion retryable without losing the session that owns its files.
     let image_cleanup = if uuid::Uuid::parse_str(session_id).is_ok() {
@@ -155,10 +187,14 @@ pub(crate) fn delete_session_evidence(
         .workflow_observations
         .delete_session_observations(session_id)
         .map_err(|error| error.to_string())?;
-    workspace
-        .metadata
-        .delete_events(session_id)
-        .map_err(|error| error.to_string())?;
+    if events_directory {
+        workspace
+            .metadata
+            .delete_events(session_id)
+            .map_err(|error| error.to_string())?;
+    } else {
+        workspace.metadata.discard_session_event_cache(session_id);
+    }
     workspace
         .metadata
         .clear_last_active_session_if_matches(session_id)
@@ -167,7 +203,7 @@ pub(crate) fn delete_session_evidence(
     // partial removals and directory-sync failures. Retain the lease through
     // metadata deletion so recovery/publication cannot interleave this cleanup.
     let delete_record = || {
-        #[cfg(all(test, windows, target_arch = "x86_64"))]
+        #[cfg(all(windows, target_arch = "x86_64"))]
         if let Some(cleanup) = image_cleanup.as_ref() {
             return cleanup.remove_and_delete_record(&workspace.metadata, session_id);
         }
@@ -177,17 +213,31 @@ pub(crate) fn delete_session_evidence(
         workspace.metadata.delete_session(session_id)
     };
     delete_record().map_err(|error| error.to_string())?;
-    workspace
-        .metadata
-        .organization
-        .remove(session_id)
-        .map_err(|error| error.to_string())?;
+    let record_removed = |message| SessionDeletionError {
+        message,
+        record_removed: true,
+    };
+    if state_directory {
+        workspace
+            .metadata
+            .organization
+            .remove(session_id)
+            .map_err(|error| record_removed(error.to_string()))?;
+    }
     // Recommendation cleanup is last: if deleting the session metadata fails,
     // the session remains retryable and its evidence-backed recommendations
     // are preserved for that retry. Orphan cleanup handles the inverse case.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if !namespace.recommendations {
+        return Err(record_removed(
+            "Recommendation store directory is unavailable".into(),
+        ));
+    }
     if let Err(first_error) = delete_recommendations(session_id) {
         delete_recommendations(session_id).map_err(|retry_error| {
-            format!("{first_error}; recommendation cleanup retry failed: {retry_error}")
+            record_removed(format!(
+                "{first_error}; recommendation cleanup retry failed: {retry_error}"
+            ))
         })?;
     }
     Ok(())
@@ -280,24 +330,39 @@ pub(crate) async fn retention_cleanup_once(
     }
 
     let _projection = state.projection_lock.lock().unwrap();
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let _namespace;
     let all_sessions = {
         let ws_guard = state.workspace.lock().unwrap();
-        match &*ws_guard {
-            Some(ws) => ws
-                .metadata
-                .read_all_sessions()
-                .into_iter()
-                .filter(|meta| {
-                    matches!(
-                        ws.metadata
-                            .organization
-                            .state(&meta.id, &meta.created_at, true, false),
-                        Ok((crate::session_archive::SessionState::Closed, _))
-                    )
-                })
-                .collect::<Vec<_>>(),
-            None => return,
+        let Some(ws) = ws_guard.as_ref() else {
+            return;
+        };
+        // The candidate scan can quarantine corrupt session records.
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        {
+            _namespace = match crate::workspace_runtime::CleanupNamespace::acquire(
+                &ws.metadata.root_path(),
+                ws.lease.as_deref(),
+            ) {
+                Ok(namespace) => namespace,
+                Err(error) => {
+                    tracing::warn!(%error, "Retention metadata scan deferred");
+                    return;
+                }
+            };
         }
+        ws.metadata
+            .read_all_sessions()
+            .into_iter()
+            .filter(|meta| {
+                matches!(
+                    ws.metadata
+                        .organization
+                        .state(&meta.id, &meta.created_at, true, false),
+                    Ok((crate::session_archive::SessionState::Closed, _))
+                )
+            })
+            .collect::<Vec<_>>()
     };
 
     let mut candidates: Vec<_> = all_sessions.into_iter().collect();
@@ -339,7 +404,7 @@ pub(crate) async fn retention_cleanup_once(
                             .map_err(|error| error.to_string())
                     }) {
                         tracing::error!(session_id = %id, %error, "retention: failed to delete expired session");
-                        if !ws.metadata.session_file_exists(id) {
+                        if error.record_removed {
                             sessions.remove(id);
                             deleted_expired.push(id.clone());
                         }
@@ -394,7 +459,7 @@ pub(crate) async fn retention_cleanup_once(
                         .map_err(|error| error.to_string())
                 }) {
                     tracing::error!(session_id = %id, %error, "retention: failed to delete session");
-                    if !ws.metadata.session_file_exists(&id) {
+                    if error.record_removed {
                         sessions.remove(&id);
                         all_deleted.push(id);
                     }
@@ -1019,9 +1084,11 @@ mod tests {
     async fn forget_and_retention_remove_text_sessions_on_an_image_ineligible_root() {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("target");
-        let workspace_path = directory.path().join("workspace");
+        let nested = directory.path().join("nested");
+        let workspace_path = nested.join("workspace");
         fs::create_dir(&target).unwrap();
-        let link = std::os::windows::fs::symlink_dir(&target, &workspace_path);
+        fs::create_dir(&nested).unwrap();
+        let link = std::os::windows::fs::symlink_dir(r"..\target", &workspace_path);
         if link
             .as_ref()
             .is_err_and(|error| error.raw_os_error() == Some(1314))
@@ -1032,7 +1099,10 @@ mod tests {
         link.unwrap();
 
         let state = test_app_state_with_workspace(&workspace_path);
-        let forgotten = uuid::Uuid::new_v4().to_string();
+        let forgotten = uuid::Uuid::new_v4()
+            .simple()
+            .to_string()
+            .to_ascii_uppercase();
         let expired = uuid::Uuid::new_v4().to_string();
         {
             let workspace = state.workspace.lock().unwrap();
@@ -1074,6 +1144,127 @@ mod tests {
             forget.is_ok() && forgotten_removed && expired_removed,
             "Forget returned {forget:?}, Forget removed its record: {forgotten_removed}, age retention removed its record: {expired_removed}"
         );
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    async fn retention_ignores_linked_session_records() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        let sessions = {
+            let mut guard = state.workspace.lock().unwrap();
+            let ws = guard.as_mut().unwrap();
+            let root = ws.metadata.root_path();
+            ws.lease = Some(Arc::new(
+                crate::workspace_runtime::WorkspaceLease::acquire(&root).unwrap(),
+            ));
+            ws.metadata
+                .try_write_session(&retention_test_session("kept", "2024-03-01T00:00:00Z"))
+                .unwrap();
+            root.join("sessions")
+        };
+        let mut stale = retention_test_session("kept", "2024-03-01T00:00:00Z");
+        stale.last_activity = "2024-01-01T00:00:00Z".into();
+        let valid_target = outside.path().join("stale.json");
+        let valid_bytes = serde_json::to_vec(&stale).unwrap();
+        fs::write(&valid_target, &valid_bytes).unwrap();
+        let corrupt_target = outside.path().join("corrupt.json");
+        fs::write(&corrupt_target, b"invalid session fixture").unwrap();
+
+        let corrupt_link = sessions.join("corrupt.json");
+        for (source, link) in [
+            (&valid_target, &sessions.join("linked.json")),
+            (&corrupt_target, &corrupt_link),
+        ] {
+            match std::os::windows::fs::symlink_file(source, link) {
+                Ok(()) => (),
+                Err(error) if error.raw_os_error() == Some(1314) => {
+                    eprintln!("Symlink creation unavailable on this Windows host (1314)");
+                    return;
+                }
+                Err(error) => panic!("create linked session fixture: {error}"),
+            }
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 0;
+        }
+        let now = chrono::DateTime::parse_from_rfc3339("2024-03-01T01:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        retention_cleanup_once(&state, now).await;
+
+        let kept = sessions.join("kept.json").exists();
+        let linked = corrupt_link.is_symlink();
+        assert!(
+            kept && linked,
+            "ordinary record kept: {kept}, corrupt link intact: {linked}"
+        );
+        assert!(!sessions.join("corrupt.json.corrupt").exists());
+        assert_eq!(fs::read(&valid_target).unwrap(), valid_bytes);
+        assert_eq!(
+            fs::read(&corrupt_target).unwrap(),
+            b"invalid session fixture"
+        );
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    async fn cleanup_leaves_replacement_workspace_untouched_after_alias_redirect() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("original");
+        let replacement = dir.path().join("replacement");
+        let alias = dir.path().join("alias");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&replacement).unwrap();
+        let link = std::os::windows::fs::symlink_dir(&original, &alias);
+        if link
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(1314))
+        {
+            eprintln!("Symlink creation unavailable on this Windows host (1314)");
+            return;
+        }
+        link.unwrap();
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let state = test_app_state_with_workspace(&alias);
+        let mut workspace_guard = state.workspace.lock().unwrap();
+        let workspace = workspace_guard.as_mut().unwrap();
+        workspace.lease = Some(Arc::new(
+            crate::workspace_runtime::WorkspaceLease::acquire(&workspace.metadata.root_path())
+                .unwrap(),
+        ));
+
+        fs::remove_dir(&alias).unwrap();
+        std::os::windows::fs::symlink_dir(&replacement, &alias).unwrap();
+        let replacement_store = metadata::MetadataStore::new(&replacement.join(".orkworks-test"));
+        replacement_store
+            .try_write_session(&retention_test_session(&id, "2024-01-01T00:00:00Z"))
+            .unwrap();
+        let events = replacement_store.events_dir();
+        fs::create_dir_all(&events).unwrap();
+        let terminal = events.join(format!("{id}.terminal"));
+        fs::write(&terminal, b"replacement terminal").unwrap();
+
+        let result = delete_session_evidence(workspace, &id, |_| Ok(()));
+        let error = result.expect_err("redirected cleanup was accepted");
+        assert!(!error.record_removed);
+        assert!(replacement_store.session_file_exists(&id));
+        assert_eq!(fs::read(terminal).unwrap(), b"replacement terminal");
+        drop(workspace_guard);
+
+        let corrupt = replacement_store.root_path().join("sessions/corrupt.json");
+        fs::write(&corrupt, b"fixture: invalid session record").unwrap();
+        state.retention_config.write().await.max_age_days = 1;
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        assert_eq!(
+            fs::read(&corrupt).unwrap(),
+            b"fixture: invalid session record"
+        );
+        assert!(!corrupt.with_extension("json.corrupt").exists());
     }
 
     #[test]
@@ -1147,8 +1338,10 @@ mod tests {
         let result =
             delete_session_evidence(ws, "session-a", |_| Err("recommendations failed".into()));
 
+        let error = result.unwrap_err();
+        assert!(error.record_removed);
         assert_eq!(
-            result.unwrap_err(),
+            error.to_string(),
             "recommendations failed; recommendation cleanup retry failed: recommendations failed"
         );
         // The metadata deletion completed before the failing final cleanup;

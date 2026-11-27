@@ -48,6 +48,9 @@ mod session_types;
 mod session_view;
 mod startup_failure;
 mod taskmaster;
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[path = "image_context/storage/windows/native.rs"]
+mod windows_fs;
 mod workflow_observations;
 mod workspace_runtime;
 

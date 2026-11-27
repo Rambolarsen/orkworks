@@ -1,7 +1,10 @@
 //! Bounded image ingestion and private files owned by an ordinary session.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
-use std::{io::Cursor, path::PathBuf};
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+};
 
 pub(crate) const BODY_LIMIT: usize = 28 * 1024 * 1024;
 const PER_FILE: usize = 5 * 1024 * 1024;
@@ -82,32 +85,107 @@ pub(crate) use storage::recover;
 pub(crate) use storage::{bind_sql_cleanup, ImageCleanupGuard, SqlImageCleanup};
 pub(crate) use storage::{prepare_cleanup, ImageBundle};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageDelivery {
+    #[cfg(not(all(windows, target_arch = "x86_64")))]
     NativeCodex,
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    NativeWindowsCodex(WindowsCodex),
 }
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub(crate) struct WindowsCodex {
+    pub(crate) program: String,
+    _parents: Vec<std::fs::File>,
+    _file: std::fs::File,
+}
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+impl WindowsCodex {
+    fn pin(executable: &Path) -> Option<Self> {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        };
+
+        let parents =
+            crate::workspace_runtime::pin_windows_directory_path(executable.parent()?).ok()?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(executable)
+            .ok()?;
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return None;
+        }
+        Some(Self {
+            program: executable.to_str()?.to_owned(),
+            _parents: parents,
+            _file: file,
+        })
+    }
+}
+
 #[cfg(all(test, windows, target_arch = "x86_64"))]
 mod windows_qualification;
 #[cfg(all(test, windows, target_arch = "x86_64"))]
 pub(crate) use windows_qualification::capture_fixture as capture_windows_image_fixture;
 
-pub(crate) async fn delivery(harness: &str, command: &str) -> Option<ImageDelivery> {
-    #[cfg(all(test, windows, target_arch = "x86_64"))]
-    if cfg!(windows) {
-        return windows_qualification::delivery(harness, command).await;
-    }
-    // The native route is qualified on macOS arm64. Compatible CLI upgrades
-    // inherit that route when the installed image interface remains available.
-    if harness != "codex" || !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+pub(crate) async fn delivery(
+    harness: &str,
+    command: &str,
+    metadata_root: Option<&Path>,
+) -> Option<ImageDelivery> {
+    if harness != "codex" {
         return None;
     }
-    let tool = crate::harness::detect::probe_installed_tool(command)?;
-    let version = crate::harness::detect::probe_tool_version(&tool.executable).await?;
-    if crate::harness::detect::parse_version_token(&version)? < (0, 163, 0) {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    {
+        windows_delivery(command, metadata_root?).await
+    }
+    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    {
+        let _ = metadata_root;
+        // Compatible CLI upgrades inherit the qualified macOS arm64 route.
+        if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            return None;
+        }
+        let tool = crate::harness::detect::probe_installed_tool(command)?;
+        let version = crate::harness::detect::probe_tool_version(&tool.executable).await?;
+        if crate::harness::detect::parse_version_token(&version)? < (0, 163, 0) {
+            return None;
+        }
+        let help = crate::harness::detect::probe_tool_help(&tool.executable).await?;
+        has_codex_image_option(&help).then_some(ImageDelivery::NativeCodex)
+    }
+}
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+async fn windows_delivery(command: &str, metadata_root: &Path) -> Option<ImageDelivery> {
+    use crate::harness::detect::{probe_image_version, probe_installed_tool, probe_tool_help};
+
+    if !storage::supports_windows_images(metadata_root) {
         return None;
     }
-    let help = crate::harness::detect::probe_tool_help(&tool.executable).await?;
-    has_codex_image_option(&help).then_some(ImageDelivery::NativeCodex)
+    let tool = probe_installed_tool(command)?;
+    let is_exe = |path: &Path| {
+        path.extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    };
+    if !is_exe(&tool.executable) {
+        return None;
+    }
+    let executable = std::fs::canonicalize(tool.executable).ok()?;
+    if !is_exe(&executable) {
+        return None;
+    }
+    let qualified = WindowsCodex::pin(&executable)?;
+    let version = probe_image_version(&executable).await?;
+    if version.trim() != "codex-cli 0.172.0" {
+        return None;
+    }
+    let help = probe_tool_help(&executable).await?;
+    has_codex_image_option(&help).then_some(ImageDelivery::NativeWindowsCodex(qualified))
 }
 
 fn has_codex_image_option(help: &str) -> bool {
@@ -126,11 +204,19 @@ pub(crate) async fn capabilities(
         .read()
         .expect("harness catalog lock poisoned")
         .clone();
+    let metadata_root = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|workspace| workspace.metadata.root_path());
     let mut supported = Vec::new();
     for id in ["codex"] {
         if let Some(harness) = registry.get(id) {
             if !harness.definition.retired
-                && delivery(id, &harness.launch_command()).await.is_some()
+                && delivery(id, &harness.launch_command(), metadata_root.as_deref())
+                    .await
+                    .is_some()
             {
                 supported.push(id);
             }
@@ -139,7 +225,6 @@ pub(crate) async fn capabilities(
     axum::Json(serde_json::json!({"version":1, "supportedHarnesses":supported}))
 }
 pub(crate) fn apply_delivery(
-    route: ImageDelivery,
     command: &mut crate::harness::CommandSpec,
     prompt: &str,
     paths: &[PathBuf],
@@ -149,16 +234,12 @@ pub(crate) fn apply_delivery(
     } else {
         prompt
     };
-    match route {
-        ImageDelivery::NativeCodex => {
-            for path in paths {
-                command.args.push(format!("--image={}", path.display()));
-            }
-            command.args.push("--".into());
-            command.args.push(prompt.to_owned());
-            prompt.to_owned()
-        }
+    for path in paths {
+        command.args.push(format!("--image={}", path.display()));
     }
+    command.args.push("--".into());
+    command.args.push(prompt.to_owned());
+    prompt.to_owned()
 }
 #[cfg(test)]
 mod tests {
@@ -202,7 +283,11 @@ mod tests {
             .remove()
             .unwrap();
         assert!(!path.exists());
-        assert!(prepare_cleanup(root.path(), id).unwrap().is_none());
+        prepare_cleanup(root.path(), id)
+            .unwrap()
+            .unwrap()
+            .remove()
+            .unwrap();
     }
     #[tokio::test]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -227,15 +312,19 @@ mod tests {
             )).unwrap();
             crate::test_support::make_test_executable(&bin);
             assert_eq!(
-                delivery("codex", bin.to_str().unwrap()).await.is_some(),
+                delivery("codex", bin.to_str().unwrap(), None)
+                    .await
+                    .is_some(),
                 supported,
                 "version={version}, help={help}, exit={exit}"
             );
         }
-        assert!(delivery("generic-shell", bin.to_str().unwrap())
+        assert!(delivery("generic-shell", bin.to_str().unwrap(), None)
             .await
             .is_none());
-        assert!(delivery("codex", "/nonexistent/codex").await.is_none());
+        assert!(delivery("codex", "/nonexistent/codex", None)
+            .await
+            .is_none());
     }
     fn remove_bundle(root: &std::path::Path, id: &str) -> std::io::Result<()> {
         if let Some(cleanup) = prepare_cleanup(root, id)? {
@@ -400,12 +489,7 @@ mod tests {
         };
         let prompt = "--literal prompt; $(touch forbidden)";
         assert_eq!(
-            apply_delivery(
-                ImageDelivery::NativeCodex,
-                &mut command,
-                prompt,
-                &[PathBuf::from("/tmp/a b/é.png")]
-            ),
+            apply_delivery(&mut command, prompt, &[PathBuf::from("/tmp/a b/é.png")]),
             prompt
         );
         assert_eq!(
@@ -498,7 +582,55 @@ mod tests {
         assert!(!ws.metadata.session_file_exists(&id));
         assert!(!directory.exists());
     }
-    /// Explicitly opt in: uses the installed tool/account for a tiny visual task.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn windows_executable_pin_blocks_replacement_through_startup() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("install");
+        let program = parent.join("codex.exe");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::write(&program, b"disposable executable fixture").unwrap();
+
+        let pin = WindowsCodex::pin(&std::fs::canonicalize(&program).unwrap()).unwrap();
+        assert!(std::fs::write(&program, b"replacement").is_err());
+        assert!(std::fs::rename(&program, parent.join("renamed.exe")).is_err());
+        assert!(std::fs::rename(&parent, root.path().join("renamed-install")).is_err());
+        drop(pin);
+
+        std::fs::rename(&parent, root.path().join("renamed-install")).unwrap();
+    }
+
+    /// Opt in to version and help probes against the local native executable.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "requires the installed native Codex 0.172.0 executable"]
+    async fn qualify_windows_production_delivery_resolves_the_native_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = PathBuf::from(
+            std::env::var_os("ORKWORKS_IMAGE_FIXTURE_CODEX")
+                .expect("set ORKWORKS_IMAGE_FIXTURE_CODEX"),
+        );
+        let command = executable.to_str().unwrap();
+        let route = delivery("codex", command, Some(root.path())).await;
+        assert!(matches!(
+            route,
+            Some(ImageDelivery::NativeWindowsCodex(qualified))
+                if Path::new(&qualified.program) == std::fs::canonicalize(&executable).unwrap()
+        ));
+        assert!(delivery("codex", command, None).await.is_none());
+        assert!(
+            delivery("codex", command, Some(&root.path().join("absent")))
+                .await
+                .is_none()
+        );
+        let shim = root.path().join("codex.cmd");
+        std::fs::write(&shim, b"@echo codex-cli 0.172.0").unwrap();
+        assert!(delivery("codex", shim.to_str().unwrap(), Some(root.path()))
+            .await
+            .is_none());
+        assert!(!root.path().join("session-images").exists());
+    }
+
     #[cfg(all(windows, target_arch = "x86_64"))]
     #[tokio::test]
     #[ignore = "requires the installed Codex version/help probes"]
@@ -509,7 +641,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
-        let executable = windows_qualification::configure(&state);
+        windows_qualification::configure(&state);
         let input = png();
         let expected = STANDARD.decode(&input.data_base64).unwrap();
         let publication = Rc::new(RefCell::new(None));
@@ -537,7 +669,7 @@ mod tests {
         // Hold preflight closed even if the failure hook is bypassed.
         let result = windows_qualification::FIXTURE
             .scope(
-                Arc::new(windows_qualification::Fixture::new(executable, true)),
+                Arc::new(windows_qualification::Fixture::new(true)),
                 SessionApplication::new(state.clone()).create_session(CreateSessionCommand {
                     reasoning_effort: None,
                     harness_id: Some("codex".into()),
@@ -579,7 +711,7 @@ mod tests {
             .unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
         #[cfg(all(windows, target_arch = "x86_64"))]
-        let executable = windows_qualification::configure(&state);
+        windows_qualification::configure(&state);
         let model = std::env::var("ORKWORKS_IMAGE_FIXTURE_MODEL").ok();
         let make_image = |circle: [u8; 3], rectangle: [u8; 3]| {
             let mut image = image::RgbImage::from_pixel(256, 128, image::Rgb([255, 255, 255]));
@@ -724,10 +856,7 @@ mod tests {
             #[cfg(all(windows, target_arch = "x86_64"))]
             let outcome = windows_qualification::FIXTURE
                 .scope(
-                    std::sync::Arc::new(windows_qualification::Fixture::new(
-                        executable.clone(),
-                        deny_reads,
-                    )),
+                    std::sync::Arc::new(windows_qualification::Fixture::new(deny_reads)),
                     run,
                 )
                 .await;

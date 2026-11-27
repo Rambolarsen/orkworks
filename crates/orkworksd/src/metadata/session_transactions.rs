@@ -189,7 +189,7 @@ impl StagedOutputRecency {
 }
 
 fn read_revisioned_session_at(path: &Path, id: &str) -> io::Result<Option<RevisionedSession>> {
-    let bytes = match fs::read(path) {
+    let bytes = match crate::durable_file::read_metadata_file(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),

@@ -152,7 +152,7 @@ impl OrganizationStore {
         Ok(self.root.join(format!("{id}.json")))
     }
     fn read(&self, id: &str, created_at: &str) -> io::Result<Option<Record>> {
-        let file = match fs::File::open(self.path(id)?) {
+        let file = match crate::durable_file::open_metadata_file(&self.path(id)?) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e),

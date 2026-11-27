@@ -1,7 +1,48 @@
 //! Native durable publication primitives shared by the archive and metadata writers.
-#[cfg(not(windows))]
-use std::fs;
-use std::{io, path::Path};
+use std::{
+    fs::{self, File},
+    io::{self, Read},
+    path::Path,
+};
+
+pub(crate) fn open_metadata_file(path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+        };
+
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Metadata entry is not an ordinary file",
+            ));
+        }
+        Ok(file)
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)
+    }
+}
+
+pub(crate) fn read_metadata_file(path: &Path) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    open_metadata_file(path)?.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+pub(crate) fn read_metadata_string(path: &Path) -> io::Result<String> {
+    let mut contents = String::new();
+    open_metadata_file(path)?.read_to_string(&mut contents)?;
+    Ok(contents)
+}
 
 pub(crate) fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
