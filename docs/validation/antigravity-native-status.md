@@ -419,3 +419,65 @@ clearing latency, command-permission UI behavior, question cancellation in the
 UI, 1.5.18 support or a retained metadata-origin assertion. The exact source
 allowlist stays 1.5.16/1.5.17; the broader #1996 coverage remains open. Existing
 user sessions and their running desktop were not restarted or updated.
+
+
+## Installed 1.5.18 qualification, 2026-11-27
+
+After [the 1.5.17 desktop question evidence in PR #2103](https://github.com/Rambolarsen/orkworks/pull/2103),
+the owner directed qualification of the installed 1.5.18 artifact. A read-only
+snapshot reported exactly 1.5.18 with a successful bounded version probe and
+empty stderr. Its hash was unchanged after both trials. The installed CLI was
+not replaced, downgraded or reconfigured. Both trials forced OSC emission and
+brief messages, with process-only updater suppression to pin this experiment.
+No inherited OrkWorks reporting capability or model/proxy credential was
+forwarded; normal native saved login and configuration still applied.
+
+Exactly two agent-operated interactive starts were used, each capped at 180
+seconds. The strict trial submitted three fixture prompts and lasted 118.032
+seconds; the existing-policy automatic trial submitted one and lasted 56.136
+seconds. The strict trial used session-only `--mode default` and
+`toolPermission: strict`; the automatic trial used neither override. They ran
+in the previously trusted, empty disposable workspace from the UI fixture.
+Scripts and marker files were confined to temporary subdirectories inside it,
+then removed. No new workspace trust, command approval or persistent permission
+grant was sent. No repository files, native configuration, installed hooks or
+permission lists were changed. Model-call accounting was not measured.
+
+The [derived 1.5.18 record](antigravity-native-1518-2026-11-27.json) retains
+binary hash, safe frame fields, fixed control observations and cleanup results.
+Raw terminal output, prompt/answer text, native IDs, account information and
+message/title bodies are omitted.
+
+| Case | Retained native sequence | Operator observation/action |
+| --- | --- | --- |
+| Question answered | Working 8.352s → blocked/question 13.702s → Working 25.245s → done 28.361s | Enter submitted the default response after the blocked hold. This was not a human-visible confirmation. |
+| Command rejected | Working 53.229s → blocked/permission 60.930s → Idle 71.270s | Fixed native permission text and a numbered No option were observed. Selecting that observed number produced the selected No marker at 71.254s before Idle. No approval or Escape resolved this wait. The command's independent marker remained absent. |
+| Question canceled | Working 82.009s → blocked/question 85.827s → Working 99.726s → done 103.227s | Escape was sent without answering. |
+| Automatic command | Working 22.045s → done 32.964s | Shell-activity text appeared at 26.712s and the exact independently read disposable execution marker at 27.746s. No permission/question block or approval input occurred during this command turn; startup auth had cleared to Idle at 0.513s. This is one command under existing configuration, not universal automatic execution. |
+
+As in earlier trials, terminal redraws can produce repeated/stale control
+labels. The rejection finding uses the observed numbered No selection followed
+by native Idle, with marker absence as an additional fixture observation.
+Shell-activity text alone is not proof of execution: it also appeared before
+the rejected command's permission wait. Only the automatic trial's independent
+exact marker establishes execution, separate from echoed prompt text.
+
+All eighteen frames used root `app=antigravity`, the existing app/state/kind/msg
+field shape, no child ID/title, and payloads of at most 73 bytes. Each observed
+native frame ended in BEL. An offline split-boundary test checked both BEL and
+ST collector labeling; it does not establish native ST emission. Forced
+emission is observed, while support-query negotiation remains unqualified.
+Both collectors closed their PTYs before waiting, sent the process-group
+teardown signal, confirmed root exit code 0 and retained unchanged binary
+hashes. A subsequent executable-path inventory found no process using the
+unique pinned artifact. This does not prove complete descendant cleanup.
+
+This is native terminal qualification, not an OrkWorks UI or published-installer
+check for 1.5.18, nor a human-operated confirmation. Child aggregation,
+errors/unknown states, other artifacts/platforms and complete descendant
+cleanup remain unqualified. No source eligibility or production permission
+policy changes in this evidence update: the source table stays exactly
+1.5.16/1.5.17. Adding 1.5.18 requires explicit owner acceptance of these narrowed
+limits under the existing design gate; the original full gate is not claimed
+passed. No native trial remains running, and unused time authorizes no further
+start.

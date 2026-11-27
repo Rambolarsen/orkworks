@@ -1,0 +1,441 @@
+{
+  "date": "2026-11-27",
+  "platform": "macOS arm64",
+  "preflight": {
+    "version": "1.5.18",
+    "exit_code": 0,
+    "stderr_empty": true,
+    "sha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13"
+  },
+  "collector_self_test": "bounded chunk splits, BEL/ST labeling, private-text omission and fixed-label extraction passed",
+  "operator": "agent through redacting PTY relay",
+  "workspace": "previously trusted empty disposable UI fixture; script and marker files inside that workspace",
+  "native_starts": 2,
+  "fixture_prompt_counts": {
+    "strict": 3,
+    "automatic": 1
+  },
+  "permission_policy": {
+    "strict": "session-only --mode default and toolPermission strict",
+    "automatic": "existing native policy; no mode or tool-permission override"
+  },
+  "environment": "forced OSC emission and brief messages; process-only updater suppression; inherited reporting capabilities and model/proxy credentials excluded; saved native login/configuration still applied",
+  "operator_actions": [
+    {
+      "trial": "strict",
+      "case": "question answered",
+      "action": "Enter after blocked hold",
+      "following_working_seconds": 25.245
+    },
+    {
+      "trial": "strict",
+      "case": "command rejected",
+      "action": "selected observed No option number 2; no Escape or approval",
+      "selected_control_seconds": 71.254,
+      "following_idle_seconds": 71.27
+    },
+    {
+      "trial": "strict",
+      "case": "question canceled",
+      "action": "Escape without answer",
+      "following_working_seconds": 99.726
+    },
+    {
+      "trial": "automatic",
+      "case": "command",
+      "action": "no approval input or permission-policy change"
+    }
+  ],
+  "trials": {
+    "strict": {
+      "trial": "strict",
+      "binary_sha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+      "version": "1.5.18",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 3,
+      "strict_session_override": true,
+      "events": [
+        {
+          "seconds": 0.192,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 0.238,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 8.352,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 13.702,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "question",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 25.245,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 28.361,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 52.979,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 53.229,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 60.93,
+          "state": "blocked",
+          "payload_bytes": 71,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "permission",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 71.27,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 82.009,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 85.827,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "question",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 99.726,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 103.227,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 57.814,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 60.93,
+          "fixed_marker": "permission_prompt"
+        },
+        {
+          "seconds": 60.93,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": true
+        },
+        {
+          "seconds": 60.93,
+          "label": "No",
+          "number": 2,
+          "selected_marker": false
+        },
+        {
+          "seconds": 71.254,
+          "label": "Yes",
+          "number": 1,
+          "selected_marker": false
+        },
+        {
+          "seconds": 71.254,
+          "label": "No",
+          "number": 2,
+          "selected_marker": true
+        },
+        {
+          "seconds": 71.254,
+          "label": "No",
+          "number": 3,
+          "selected_marker": false
+        },
+        {
+          "seconds": 71.254,
+          "label": "No",
+          "number": 4,
+          "selected_marker": false
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "previously_trusted_empty_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": false,
+      "execution_marker_exact": false,
+      "group_signal": "sent",
+      "child_exit_confirmed": true,
+      "child_exit_code": 0,
+      "binary_unchanged": true,
+      "elapsed_seconds": 118.032
+    },
+    "automatic": {
+      "trial": "automatic",
+      "binary_sha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+      "version": "1.5.18",
+      "platform": "macos_arm64",
+      "seconds_limit": 180,
+      "prompt_limit": 1,
+      "strict_session_override": false,
+      "events": [
+        {
+          "seconds": 0.463,
+          "state": "blocked",
+          "payload_bytes": 73,
+          "field_names": [
+            "app",
+            "kind",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "kind": "auth",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 0.513,
+          "state": "idle",
+          "payload_bytes": 31,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 22.045,
+          "state": "working",
+          "payload_bytes": 34,
+          "field_names": [
+            "app",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": false,
+          "has_title": false,
+          "terminator": "BEL"
+        },
+        {
+          "seconds": 32.964,
+          "state": "done",
+          "payload_bytes": 56,
+          "field_names": [
+            "app",
+            "msg",
+            "state"
+          ],
+          "app": "antigravity",
+          "child_record": false,
+          "has_message": true,
+          "has_title": false,
+          "terminator": "BEL"
+        }
+      ],
+      "observations": [
+        {
+          "seconds": 26.712,
+          "fixed_marker": "shell_activity"
+        },
+        {
+          "seconds": 27.746,
+          "execution_marker_exact": true
+        }
+      ],
+      "human_visible_confirmation": false,
+      "workspace_mode": "previously_trusted_empty_disposable_fixture",
+      "termination_reason": "operator_stop",
+      "execution_marker_exists": true,
+      "execution_marker_exact": true,
+      "group_signal": "sent",
+      "child_exit_confirmed": true,
+      "child_exit_code": 0,
+      "binary_unchanged": true,
+      "elapsed_seconds": 56.136
+    }
+  },
+  "cleanup": {
+    "noProcessUsingUniquePinnedExecutableInFollowupInventory": true,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "agent-operated; no human-visible dialog confirmation",
+    "no OrkWorks UI test for 1.5.18",
+    "no published-installer qualification",
+    "strict policy is diagnostic only",
+    "one automatic command under existing configuration is not universal automatic behavior",
+    "native BEL observed; ST only exercised offline",
+    "no child aggregation, unknown/error state or support-query negotiation qualification",
+    "no activation authorized by evidence alone"
+  ],
+  "omitted": [
+    "raw PTY output",
+    "native IDs",
+    "message/title bodies",
+    "prompt and answer text",
+    "account data",
+    "reporting credentials"
+  ]
+}
