@@ -82,3 +82,14 @@ exact-version profile without changing architecture, permission ownership,
 launch checks or parser semantics. Diagnostic strict-permission and updater
 suppression are not applied in production. Other versions/platforms, existing
 sessions and installed hooks are unchanged.
+
+
+## Later desktop question evidence, 2026-11-27
+
+The [source-build 1.5.18 UI check](../validation/antigravity-native-status.md#source-build-desktop-1518-question-check-2026-11-27)
+observed Needs You during a structured question, then Working/Idle and no
+attention item after the answer, with Peon disabled. This adds agent-observed
+question UI evidence without changing eligibility or architecture. It does not
+qualify 1.5.18 command-permission UI, a published installer, human-operated
+confirmation or complete descendant cleanup. Historical approval limits above
+retain their original context.
