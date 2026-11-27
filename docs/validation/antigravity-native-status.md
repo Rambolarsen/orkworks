@@ -643,3 +643,62 @@ separate answer and command rejection trials, it covers those three UI paths;
 it does not qualify human-operated confirmation, published installers, retained
 metadata origin or other platform/version profiles. Runtime behavior, source
 eligibility and the broader #1996 coverage are unchanged.
+
+
+## Trusted-workspace exact-resume native status, 2026-11-27
+
+After the [new-workspace resume probe](antigravity-resume-identity.md) stopped at
+startup permission, the owner directed a check in the previously trusted
+disposable workspace. The runner pinned the same qualified macOS arm64 1.5.18
+artifact and used source `a4e317cc` for contract/test references. It added one
+silent diagnostic definition beside the fixture's existing hook definition,
+then restored the original hooks file byte-for-byte after checking that no
+concurrent edit had occurred. Existing global/user-workspace hooks and saved
+native trust/permissions were not edited.
+
+The budget was two native starts: one no-tool headless prompt to create a new
+fixture ID, capped at 75 seconds, then one interactive exact resume capped at
+180 seconds and one structured-question prompt. The exact argv was only
+`--conversation=<fresh-fixture-id>`. No earlier fixture or foreign session was
+resumed. The runner excluded inherited reporting capabilities and model/proxy
+credentials, retained normal native saved login/configuration, and requested
+brief OSC 7501 status with updates suppressed only for this process. No sidecar
+or Peon participated. Model-call accounting was not measured.
+
+Fresh creation exited zero in about 7.8 seconds and captured SessionStart,
+PreInvocation and fully idle Stop. Exact resume captured PreInvocation with
+`invocationNum: 0`, another with `invocationNum: 1` after Escape, then fully idle
+Stop. It emitted no SessionStart in this trial. Every captured hook ID and cwd
+matched the newly established fixture. Real IDs, paths and arbitrary payload
+values were omitted from the [derived record](antigravity-resume-attention-1518-2026-11-27.json).
+
+The exact-resume collector observed these native root frames:
+
+| Seconds after exact launch, approximate | State | Kind | Interpretation |
+| --- | --- | --- | --- |
+| 1.004 | blocked | auth | Transient startup wait under saved login |
+| 1.035 | idle | none | Startup wait cleared without an approval |
+| 3.278 | working | none | The single question turn started |
+| 7.959 | blocked | question | Native question wait |
+| 13.108 | working | none | Native work resumed after Escape |
+| 17.623 | done | none | Native turn completed |
+
+The runner sent its prompt only after native Idle and a fixed ready marker.
+It held the question for at least five seconds, then sent Escape without an
+answer. It sent no trust or command approval. The exact-resume collector
+completed in about 20 seconds and retained native root exit code zero. Both
+trial hashes were unchanged, follow-up executable-path inventory found no
+process using the unique task paths, and the temporary binary/private ID file
+were removed. Complete descendant cleanup remains unproven.
+
+The production `runtime/terminal_status.rs` module's seven standalone tests
+passed, including the Working, question Blocked, Working, Idle sequence and
+split-frame/message-omission cases. These tests use synthetic message bodies;
+they are not a full-crate build or authenticated runtime integration check.
+The source maps native question Blocked to Needs You and Working/Done to
+Working/Idle. This trial establishes the exact-resume native signal sequence;
+it does not establish a rendered resumed desktop row/count, metadata origin,
+installed-reporter delivery or precise attention-clearing latency. Resumed
+question answering, command rejection, continue-mode native attention, other
+platforms/versions, published installers and human-operated confirmation remain
+unqualified. Source eligibility and runtime behavior are unchanged.

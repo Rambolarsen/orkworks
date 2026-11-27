@@ -100,3 +100,15 @@ Remaining #1996 work includes Windows reporter execution and installed-hook
 live delivery. A resumed native attention check still needs a fixture that can
 reach a turn without expanding trust, with the target resolved explicitly before
 launch. Published installers and human-operated confirmation remain unverified.
+
+
+## Later trusted-workspace native check
+
+The [exact-resume native status trial](antigravity-native-status.md#trusted-workspace-exact-resume-native-status-2026-11-27)
+reached a structured question in the previously trusted disposable workspace,
+using a new fixture ID. Native Working, question Blocked, Working and Done frames
+were captured around Escape, and both roots exited zero. Interactive exact
+resume again used first PreInvocation identity rather than SessionStart.
+This adds native protocol evidence; it does not qualify resumed desktop display,
+metadata identity/origin or authenticated installed-hook delivery. The earlier
+new-workspace startup block and its limits remain recorded above.

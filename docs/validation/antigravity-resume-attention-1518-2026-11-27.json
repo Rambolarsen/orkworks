@@ -1,0 +1,337 @@
+{
+  "date": "2026-11-27",
+  "sourceCommit": "a4e317cce9aa6c1ca5b25ea780301d1f472bd79c",
+  "platform": "macOS arm64",
+  "nativeVersion": "1.5.18",
+  "nativeSha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+  "scope": {
+    "nativeStarts": 2,
+    "nativeStartsMax": 2,
+    "maximumPromptsPerStart": 1,
+    "fixturePromptsSubmitted": 2,
+    "freshHeadlessSecondsMax": 75,
+    "exactPtySecondsMax": 180,
+    "foreignOrEarlierFixtureSessionsResumed": false
+  },
+  "workspace": "previously trusted disposable fixture",
+  "launches": [
+    "fresh headless no-tool prompt",
+    "exact resume using only --conversation=<fresh-fixture-id>; prompt sent after native idle and ready marker"
+  ],
+  "noTrustOrCommandApprovalSent": true,
+  "noInheritedReportingOrModelProxyCredentials": true,
+  "noSidecarOrPeonInProbe": true,
+  "temporarySilentDiagnosticHookAdded": true,
+  "originalFixtureHooksRestoredByteForByte": true,
+  "phases": [
+    {
+      "result": {
+        "phase": "fresh",
+        "events": [],
+        "rootExitConfirmed": true,
+        "rootExitCode": 0,
+        "hashUnchanged": true,
+        "elapsedSeconds": 7.796
+      },
+      "hooks": [
+        {
+          "event": "SessionStart",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "cwd",
+            "hookEventName",
+            "lastUserInput",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "hookEventName": "SessionStart"
+          }
+        },
+        {
+          "event": "PreInvocation",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "cwd",
+            "hookEventName",
+            "initialNumSteps",
+            "invocationNum",
+            "lastUserInput",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "invocationNum": 0,
+            "hookEventName": "PreInvocation"
+          }
+        },
+        {
+          "event": "Stop",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "continuationActive",
+            "conversationId",
+            "cwd",
+            "error",
+            "executionNum",
+            "fullyIdle",
+            "hookEventName",
+            "lastUserInput",
+            "modelName",
+            "terminationReason",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "fullyIdle": true,
+            "terminationReason": "NO_TOOL_CALL",
+            "hookEventName": "Stop"
+          }
+        }
+      ]
+    },
+    {
+      "result": {
+        "phase": "exact",
+        "events": [
+          {
+            "seconds": 1.004,
+            "state": "blocked",
+            "payload_bytes": 73,
+            "field_names": [
+              "app",
+              "kind",
+              "msg",
+              "state"
+            ],
+            "app": "antigravity",
+            "kind": "auth",
+            "child_record": false,
+            "has_message": true,
+            "has_title": false
+          },
+          {
+            "seconds": 1.035,
+            "state": "idle",
+            "payload_bytes": 31,
+            "field_names": [
+              "app",
+              "state"
+            ],
+            "app": "antigravity",
+            "child_record": false,
+            "has_message": false,
+            "has_title": false
+          },
+          {
+            "seconds": 3.278,
+            "state": "working",
+            "payload_bytes": 34,
+            "field_names": [
+              "app",
+              "state"
+            ],
+            "app": "antigravity",
+            "child_record": false,
+            "has_message": false,
+            "has_title": false
+          },
+          {
+            "seconds": 7.959,
+            "state": "blocked",
+            "payload_bytes": 73,
+            "field_names": [
+              "app",
+              "kind",
+              "msg",
+              "state"
+            ],
+            "app": "antigravity",
+            "kind": "question",
+            "child_record": false,
+            "has_message": true,
+            "has_title": false
+          },
+          {
+            "seconds": 13.108,
+            "state": "working",
+            "payload_bytes": 34,
+            "field_names": [
+              "app",
+              "state"
+            ],
+            "app": "antigravity",
+            "child_record": false,
+            "has_message": false,
+            "has_title": false
+          },
+          {
+            "seconds": 17.623,
+            "state": "done",
+            "payload_bytes": 56,
+            "field_names": [
+              "app",
+              "msg",
+              "state"
+            ],
+            "app": "antigravity",
+            "child_record": false,
+            "has_message": true,
+            "has_title": false
+          }
+        ],
+        "rootExitConfirmed": true,
+        "elapsedSeconds": 20.049,
+        "promptSent": true,
+        "questionEscapeSent": true,
+        "rootExitCode": 0,
+        "hashUnchanged": true
+      },
+      "hooks": [
+        {
+          "event": "PreInvocation",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "cwd",
+            "hookEventName",
+            "initialNumSteps",
+            "invocationNum",
+            "lastUserInput",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "invocationNum": 0,
+            "hookEventName": "PreInvocation"
+          }
+        },
+        {
+          "event": "PreInvocation",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "conversationId",
+            "cwd",
+            "hookEventName",
+            "initialNumSteps",
+            "invocationNum",
+            "lastUserInput",
+            "modelName",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "invocationNum": 1,
+            "hookEventName": "PreInvocation"
+          }
+        },
+        {
+          "event": "Stop",
+          "keyNames": [
+            "artifactDirectoryPath",
+            "continuationActive",
+            "conversationId",
+            "cwd",
+            "error",
+            "executionNum",
+            "fullyIdle",
+            "hookEventName",
+            "lastUserInput",
+            "modelName",
+            "terminationReason",
+            "transcriptPath",
+            "workspacePaths"
+          ],
+          "conversationIdMatchesFresh": true,
+          "cwdMatchesFixture": true,
+          "workspacePathsContainFixture": true,
+          "payload": {
+            "conversationId": "fixture-conversation",
+            "cwd": "/fixture/workspace",
+            "workspacePaths": [
+              "/fixture/workspace"
+            ],
+            "fullyIdle": true,
+            "terminationReason": "NO_TOOL_CALL",
+            "hookEventName": "Stop"
+          }
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "productionTerminalStatusModuleStandaloneTestsPassed": 7,
+    "fullCrateTestsRun": false,
+    "testsUseSyntheticMessageBodies": true
+  },
+  "cleanup": {
+    "bothRootExitsConfirmedZero": true,
+    "pinnedHashUnchangedAfter": true,
+    "noUniqueTaskExecutablesInFollowupInventory": true,
+    "temporaryBinaryAndPrivateIdRemoved": true,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "native protocol evidence, not a resumed OrkWorks desktop UI check",
+    "no authenticated sidecar delivery or retained metadata identity/origin",
+    "one exact-resume question cancellation only; no resumed answer or command rejection",
+    "no continue-mode native attention trial",
+    "no Windows or other version qualification",
+    "no published-installer or human-operated confirmation",
+    "timestamps are collector observations, not precise attention clearing latency"
+  ],
+  "omitted": [
+    "actual native IDs",
+    "actual workspace paths",
+    "raw hook input",
+    "raw terminal output",
+    "prompt and response text",
+    "account data",
+    "reporting credentials"
+  ]
+}
