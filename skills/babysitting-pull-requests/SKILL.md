@@ -201,6 +201,11 @@ has been established. Before ending a check-in while the PR is still open:
 Never claim background monitoring without a scheduled continuation that the
 host actually accepted. A queued review request is not a continuation.
 
+If an optional GitHub event stream or another auxiliary request is blocked while
+verified PR/check snapshots still work, use the
+[auxiliary-request fallback](../troubleshooting-github-connectivity/SKILL.md#auxiliary-requests-blocked-during-pr-monitoring).
+The full inventory, head check and existing continuation budget still apply.
+
 ## Re-check loop and stopping conditions
 
 After opening the PR, after each push, and after CI or review activity settles,
