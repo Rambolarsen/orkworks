@@ -46,7 +46,8 @@ explicit session ID, exact runtime, and a sidecar-issued prompt-ready
 generation. The server supplies Keep going's text and owns the
 qualified literal-input and submit sequence. The Start new task payload is the instruction and reviewed title.
 The sidecar rejects other fields, empty or oversized text, controls, embedded
-line separators, and a slash-command prefix after trimming. Harness hooks and
+line separators, and leading slash or bang command prefixes after trimming.
+Qualification must also cover active popup and keymap behavior. Harness hooks and
 agent reporting credentials cannot invoke this operation.
 
 Reuse the bounded terminal delivery path and writer acknowledgement.
@@ -92,6 +93,35 @@ typing and existing Resume remain available when the new capability is
 unavailable. If the existing observations cannot establish readiness at the
 dispatch boundary, keep the live actions unshipped for that integration and
 record the missing signal before proposing any new observation source.
+
+### Source check for Codex CLI 0.172.0
+
+The currently installed CLI reports version 0.172.0. Its tagged
+[composer source](https://github.com/openai/codex/blob/3d86e43b075adeba2193ec5c22ac92f55afd82e6/codex-rs/tui/src/bottom_pane/chat_composer.rs#L1248)
+checks editor text, shell mode and attachments for emptiness. The
+[bottom-pane dispatcher](https://github.com/openai/codex/blob/3d86e43b075adeba2193ec5c22ac92f55afd82e6/codex-rs/tui/src/bottom_pane/mod.rs#L949-L1022)
+can route input to a modal view. These checks are local to the TUI. Leading
+bang can start shell mode in the normal composer. The literal input sequence
+must avoid that mode and other command or popup dispatch.
+
+[Codex's hook contract](https://learn.chatgpt.com/docs/hooks#stop) allows a
+Stop hook to request continuation. OrkWorks currently maps Stop to idle in
+its reporter and forwards turn/attention fields, with no empty-editor
+attestation. Its initial-editor handling is only constructed for launch
+with a supplied initial prompt. Neither mechanism grants live action
+readiness. An idle conversation with an unsent draft and one with an empty
+editor can expose the same accepted hook state.
+
+**Qualification result:** Existing Codex CLI signals are insufficient for
+either live action. This was a source check of the installed version.
+Live submission remains untested. A future CLI solution needs a supported,
+orderable editor signal or a native action that atomically validates the
+input target. A first-party client that already owns the same App Server
+connection can investigate a typed turn submission through the
+[App Server API](https://learn.chatgpt.com/docs/app-server#start-a-turn).
+That API does not establish readiness for an independently running CLI
+editor. Reopening or attaching another client to the live CLI thread is
+outside this proposal. Resume remains available via its existing route.
 
 ## Title ownership
 

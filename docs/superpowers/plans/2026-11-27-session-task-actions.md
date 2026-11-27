@@ -47,12 +47,15 @@ See [#2140](https://github.com/Rambolarsen/orkworks/issues/2140) and the
 
 ## Plan review
 
-**Disposition** — Ready for design review. Implementation needs owner approval
-and production activation needs prompt-readiness evidence.
+**Disposition** — The Codex CLI 0.172.0 source check found no supported
+readiness signal in the existing integration. See the
+[qualification record](../specs/2026-11-27-session-task-actions-design.md#source-check-for-codex-cli-01720).
+The live-action work remains blocked on an orderable editor signal or a
+native submission path. A change to runtime authority requires design review.
 
 - **Dependencies 3** — Desktop, sidecar and Codex behavior must agree.
-  Existing PTY acknowledgement is available. An empty-editor signal has
-  yet to be qualified.
+  Existing PTY acknowledgement is available. The existing Codex hook
+  integration does not expose the TUI's empty-editor state.
 - **Blast radius 3** — The additions share the terminal input owner.
   Scope the new authority to desktop actions, the selected session and a
   qualified owned runtime.
