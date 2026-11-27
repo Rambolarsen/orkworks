@@ -147,18 +147,20 @@ for the live evidence and accepted missed/spoofed-frame limitations.
 ### Antigravity terminal status
 
 Current source enables a separate Antigravity OSC 7501 profile for exactly
-**CLI 1.5.16 and 1.5.17 on macOS arm64**, using the shared bounded live-PTY parser.
-The owner accepted narrowed coverage for both versions on 2026-11-26. The
-[native evidence record](../validation/antigravity-native-status.md#owner-accepted-1517-source-activation-2026-11-26)
+**CLI 1.5.16, 1.5.17 and 1.5.18 on macOS arm64**, using the shared bounded live-PTY parser.
+The owner accepted narrowed coverage for 1.5.16/1.5.17 on 2026-11-26 and 1.5.18
+on 2026-11-27. The [native evidence and acceptance record](../validation/antigravity-native-status.md#owner-accepted-1518-source-activation-2026-11-27)
 retains question answering/cancellation, explicit native No rejection and one
 independently witnessed automatic command without a permission/question block
 for each artifact. Rejection trials used strict session-only permissions;
 automatic trials retained existing native policy. These are agent-operated
-trials, not human-visible or installed OrkWorks UI qualification. Both 1.5.17
-root exits were confirmed; the 1.5.16 rejection collector left root cleanup
-unconfirmed as documented. All-descendant cleanup remains unproven. This limited
-admission does not claim full qualification or a published-installer update.
-Other versions, including 1.5.18, remain outside the source profile.
+trials, not human-operated confirmation or published-installer qualification.
+Separate source-built desktop checks establish 1.5.17 startup permission and
+question attention/clearing; they do not qualify the 1.5.18 UI. Both 1.5.17 and
+1.5.18 root exits were confirmed; the 1.5.16 rejection collector left root
+cleanup unconfirmed as documented. All-descendant cleanup remains unproven.
+This limited admission does not claim full qualification or a published-installer
+update. Other versions, including 1.5.19, remain outside the source profile.
 
 The launch check admits only built-in command templates, exact resume and the
 source-owned initial-prompt argument. A canonical resolved executable and a

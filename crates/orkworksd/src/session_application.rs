@@ -13301,6 +13301,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         terminal_status_pty_fixture(true, true, "1.5.16").await;
         terminal_status_pty_fixture(true, true, "1.5.17").await;
         terminal_status_pty_fixture(true, false, "1.5.17").await;
+        terminal_status_pty_fixture(true, true, "1.5.18").await;
+        terminal_status_pty_fixture(true, false, "1.5.18").await;
     }
 
     #[cfg(unix)]

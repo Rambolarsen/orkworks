@@ -391,14 +391,16 @@ approval-control capability. See [ADR 0093](../docs/adr/0093-codex-terminal-prog
 For source-qualified built-in Antigravity launches, reuse live OSC 7501 UI
 status under the [accepted design](../docs/superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [ADR 0120](../docs/adr/0120-antigravity-native-terminal-attention.md).
-The owner accepted narrowed empirical coverage on 2026-11-26 for exactly CLI
-1.5.16 and 1.5.17 on macOS arm64, based on their [retained native trials and owner acceptance](../docs/validation/antigravity-native-status.md#owner-accepted-1517-source-activation-2026-11-26).
-The [follow-up trials](../docs/validation/antigravity-native-status.md#explicit-rejection-and-automatic-command-follow-up-2026-11-26)
-retain an explicit native rejection and one automatic command without a prompt
-block. Human-visible confirmation, installed OrkWorks UI behavior and complete
-descendant cleanup remain unverified. This limited admission does not claim
-full qualification. Other platform/version profiles require retained evidence
-and approval. Force emission with source-owned launch environment only for the
+The owner accepted narrowed empirical coverage for exactly CLI 1.5.16/1.5.17
+on 2026-11-26 and 1.5.18 on 2026-11-27, all on macOS arm64, based on their
+[retained native trials and owner acceptance](../docs/validation/antigravity-native-status.md#owner-accepted-1518-source-activation-2026-11-27).
+These retain question answer/cancel, explicit native rejection and one automatic
+command without a prompt block for each artifact. Separate source-built desktop
+checks establish 1.5.17 startup permission and question attention/clearing, not
+1.5.18 UI behavior. Human-operated confirmation, published-installer behavior
+and complete descendant cleanup remain unverified. This limited admission does
+not claim full qualification. Other platform/version profiles require retained
+evidence and approval. Force emission with source-owned launch environment only for the
 admitted profile; do not modify existing sessions, permission policy or user
 settings.
 
