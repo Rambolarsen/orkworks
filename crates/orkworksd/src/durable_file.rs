@@ -38,6 +38,12 @@ pub(crate) fn read_metadata_file(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+pub(crate) fn read_metadata_string(path: &Path) -> io::Result<String> {
+    let mut contents = String::new();
+    open_metadata_file(path)?.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
 pub(crate) fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {

@@ -277,6 +277,9 @@ The initial loopback attempt hit folder trust before it could send an image.
 The disposable profile then used the native Git common root Codex identified.
 The multiple-image request supplied both PNGs. A separate image-only run
 bound the inline image to its exact published path and completed successfully.
+Each retained rollout recorded one started and completed turn, with one
+image-bearing user message containing the expected images in order. Codex also
+recorded its generated environment context separately in each rollout.
 These captures match the existing offline check of both shape colors. The
 trace establishes the client boundary for the synthetic provider. Hosted
 processing and model interpretation are outside that boundary.

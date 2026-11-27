@@ -387,6 +387,15 @@ pub(crate) fn supports_windows_images(root: &Path) -> bool {
     store.is_ok() || (is_missing(&store) && Anchor::open(root).is_ok())
 }
 
+fn rollback_stage_entry(file: &File, acl: &PrivateAcl, directory: bool) {
+    let result = native::verify_kind(file, directory)
+        .and_then(|()| acl.verify(file))
+        .and_then(|()| mark_remove(file));
+    if let Err(error) = result {
+        tracing::warn!(%error, directory, "Image staging rollback deferred");
+    }
+}
+
 pub(crate) struct ImageBundle {
     directory: Option<File>,
     name: String,
@@ -399,6 +408,17 @@ pub(crate) struct ImageBundle {
 
 impl ImageBundle {
     pub(crate) fn publish(root: &Path, id: &str, images: Vec<ValidatedImage>) -> io::Result<Self> {
+        Self::publish_with_manifest_writer(root, id, images, |file, marker| {
+            Ok(serde_json::to_writer(file, marker)?)
+        })
+    }
+
+    fn publish_with_manifest_writer(
+        root: &Path,
+        id: &str,
+        images: Vec<ValidatedImage>,
+        write_manifest: impl FnOnce(&mut File, &Manifest) -> io::Result<()>,
+    ) -> io::Result<Self> {
         if !valid_id(id) {
             return Err(invalid("Invalid image bundle owner"));
         }
@@ -406,6 +426,36 @@ impl ImageBundle {
         let lock = store.lock()?;
         let stage = format!("{STAGE_PREFIX}{}", uuid::Uuid::new_v4());
         let directory = store.bundle(OsStr::new(&stage), true)?;
+        // Until the marker is durable, the only cleanup authority comes
+        // from the objects this publisher created exclusively.
+        let marker_result = (|| {
+            let mut marker = private_child(
+                &directory,
+                OsStr::new(MANIFEST),
+                false,
+                WRITE | DELETE,
+                &store.acl,
+                true,
+            )?;
+            let result = write_manifest(
+                &mut marker,
+                &Manifest {
+                    owner: MANIFEST_OWNER.into(),
+                    session: id.into(),
+                },
+            )
+            .and_then(|()| marker.sync_all());
+            if result.is_err() {
+                rollback_stage_entry(&marker, &store.acl, false);
+            }
+            result
+        })();
+        if let Err(error) = marker_result {
+            // The manifest handle is closed. NTFS refuses disposition of a
+            // nonempty directory, so any unexpected entry stays untouched.
+            rollback_stage_entry(&directory, &store.acl, true);
+            return Err(error);
+        }
         let mut bundle = Self {
             directory: Some(directory),
             name: stage,
@@ -416,24 +466,6 @@ impl ImageBundle {
             _lock: lock,
         };
         let directory = bundle.directory.as_ref().expect("new bundle directory");
-        {
-            let mut manifest = private_child(
-                directory,
-                OsStr::new(MANIFEST),
-                false,
-                WRITE,
-                &bundle.root.acl,
-                true,
-            )?;
-            serde_json::to_writer(
-                &mut manifest,
-                &Manifest {
-                    owner: MANIFEST_OWNER.into(),
-                    session: id.into(),
-                },
-            )?;
-            manifest.sync_all()?;
-        }
         for (index, image) in images.iter().enumerate() {
             let name = format!("{index}.{}", image.extension);
             let mut file = private_child(
@@ -942,6 +974,64 @@ mod tests {
         assert!(!orphan.exists() && !orphan_receipt.exists());
         assert!(unreadable.is_dir() && unreadable_receipt.is_file());
         assert!(committed.is_dir() && committed_receipt.is_file());
+    }
+
+    #[test]
+    fn live_rollback_removes_a_partial_manifest_and_its_stage() {
+        let root = tempfile::tempdir().unwrap();
+        let failure = ImageBundle::publish_with_manifest_writer(
+            root.path(),
+            SESSION,
+            fixture(),
+            |file, _| {
+                file.write_all(b"{")?;
+                Err(io::Error::other("injected manifest write failure"))
+            },
+        );
+        assert_eq!(
+            failure.err().unwrap().to_string(),
+            "injected manifest write failure"
+        );
+        let store = Root::open(root.path(), false).unwrap();
+        assert_eq!(names(&store.directory).unwrap(), [OsStr::new(".lock")]);
+    }
+
+    #[test]
+    fn live_rollback_preserves_unexpected_staging_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let store_path = root.path().join(DIRECTORY);
+        let find_stage = || {
+            fs::read_dir(&store_path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|path| {
+                    path.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .starts_with(STAGE_PREFIX)
+                })
+                .unwrap()
+        };
+        let result = ImageBundle::publish_with_manifest_writer(
+            root.path(),
+            SESSION,
+            fixture(),
+            |file, _| {
+                file.write_all(b"{")?;
+                fs::write(find_stage().join("foreign"), b"outside rollback authority")?;
+                Err(io::Error::other("injected manifest write failure"))
+            },
+        );
+        assert_eq!(
+            result.err().unwrap().to_string(),
+            "injected manifest write failure"
+        );
+        let stage = find_stage();
+        assert_eq!(
+            fs::read(stage.join("foreign")).unwrap(),
+            b"outside rollback authority"
+        );
+        assert!(!stage.join(MANIFEST).exists());
     }
 
     #[test]

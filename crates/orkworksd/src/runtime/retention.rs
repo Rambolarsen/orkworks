@@ -1084,9 +1084,11 @@ mod tests {
     async fn forget_and_retention_remove_text_sessions_on_an_image_ineligible_root() {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("target");
-        let workspace_path = directory.path().join("workspace");
+        let nested = directory.path().join("nested");
+        let workspace_path = nested.join("workspace");
         fs::create_dir(&target).unwrap();
-        let link = std::os::windows::fs::symlink_dir(&target, &workspace_path);
+        fs::create_dir(&nested).unwrap();
+        let link = std::os::windows::fs::symlink_dir(r"..\target", &workspace_path);
         if link
             .as_ref()
             .is_err_and(|error| error.raw_os_error() == Some(1314))
@@ -1141,6 +1143,70 @@ mod tests {
         assert!(
             forget.is_ok() && forgotten_removed && expired_removed,
             "Forget returned {forget:?}, Forget removed its record: {forgotten_removed}, age retention removed its record: {expired_removed}"
+        );
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    async fn retention_ignores_linked_session_records() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(workspace.path());
+        let sessions = {
+            let mut guard = state.workspace.lock().unwrap();
+            let ws = guard.as_mut().unwrap();
+            let root = ws.metadata.root_path();
+            ws.lease = Some(Arc::new(
+                crate::workspace_runtime::WorkspaceLease::acquire(&root).unwrap(),
+            ));
+            ws.metadata
+                .try_write_session(&retention_test_session("kept", "2024-03-01T00:00:00Z"))
+                .unwrap();
+            root.join("sessions")
+        };
+        let mut stale = retention_test_session("kept", "2024-03-01T00:00:00Z");
+        stale.last_activity = "2024-01-01T00:00:00Z".into();
+        let valid_target = outside.path().join("stale.json");
+        let valid_bytes = serde_json::to_vec(&stale).unwrap();
+        fs::write(&valid_target, &valid_bytes).unwrap();
+        let corrupt_target = outside.path().join("corrupt.json");
+        fs::write(&corrupt_target, b"invalid session fixture").unwrap();
+
+        let corrupt_link = sessions.join("corrupt.json");
+        for (source, link) in [
+            (&valid_target, &sessions.join("linked.json")),
+            (&corrupt_target, &corrupt_link),
+        ] {
+            match std::os::windows::fs::symlink_file(source, link) {
+                Ok(()) => (),
+                Err(error) if error.raw_os_error() == Some(1314) => {
+                    eprintln!("Symlink creation unavailable on this Windows host (1314)");
+                    return;
+                }
+                Err(error) => panic!("create linked session fixture: {error}"),
+            }
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 0;
+        }
+        let now = chrono::DateTime::parse_from_rfc3339("2024-03-01T01:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        retention_cleanup_once(&state, now).await;
+
+        let kept = sessions.join("kept.json").exists();
+        let linked = corrupt_link.is_symlink();
+        assert!(
+            kept && linked,
+            "ordinary record kept: {kept}, corrupt link intact: {linked}"
+        );
+        assert!(!sessions.join("corrupt.json.corrupt").exists());
+        assert_eq!(fs::read(&valid_target).unwrap(), valid_bytes);
+        assert_eq!(
+            fs::read(&corrupt_target).unwrap(),
+            b"invalid session fixture"
         );
     }
 

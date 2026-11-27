@@ -1351,7 +1351,7 @@ impl MetadataStore {
         path: &std::path::Path,
         quarantine: impl FnOnce(&str, serde_json::Error),
     ) -> Option<SessionMetadata> {
-        let data = match fs::read_to_string(path) {
+        let data = match crate::durable_file::read_metadata_string(path) {
             Ok(data) => data,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
             Err(e) => {

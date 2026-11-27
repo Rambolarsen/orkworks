@@ -36,7 +36,11 @@ impl SessionReader {
             // Quarantine is a mutation: share the existing transaction lane and
             // verify the bytes again so a repaired/replaced file is never moved.
             with_session_write_lock(&self.write_locks, &id, || {
-                if std::fs::read_to_string(path).ok().as_deref() != Some(data) {
+                if crate::durable_file::read_metadata_string(path)
+                    .ok()
+                    .as_deref()
+                    != Some(data)
+                {
                     return;
                 }
                 #[cfg(test)]

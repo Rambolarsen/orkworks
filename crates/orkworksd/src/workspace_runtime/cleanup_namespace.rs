@@ -50,17 +50,26 @@ fn pin_directory(path: &Path, handles: &mut Vec<File>, aliases: &mut usize) -> i
     let mut current = PathBuf::from(prefix.as_os_str());
     current.push(Path::new("\\"));
     pin_entry(&current, handles, aliases)?;
+    let mut ordinary = Vec::new();
     for component in components {
-        let Component::Normal(part) = component else {
-            return Err(invalid("Unexpected cleanup directory component"));
-        };
-        current.push(part);
-        pin_entry(&current, handles, aliases)?;
+        match component {
+            Component::Normal(part) => {
+                current.push(part);
+                ordinary.push(pin_entry(&current, handles, aliases)?);
+            }
+            // An ordinary directory and its parent are already pinned. A
+            // reparse target can have a different physical parent.
+            Component::ParentDir if ordinary.pop() == Some(true) => {
+                current.pop();
+            }
+            _ => return Err(invalid("Unexpected cleanup directory component")),
+        }
     }
     Ok(())
 }
 
-fn pin_entry(path: &Path, handles: &mut Vec<File>, aliases: &mut usize) -> io::Result<()> {
+/// Pin the entry and return whether it is an ordinary directory.
+fn pin_entry(path: &Path, handles: &mut Vec<File>, aliases: &mut usize) -> io::Result<bool> {
     let directory = open_entry(path, FILE_SHARE_READ | FILE_SHARE_WRITE)?;
     let attributes = directory.metadata()?.file_attributes();
     if attributes & FILE_ATTRIBUTE_DIRECTORY == 0 {
@@ -68,7 +77,7 @@ fn pin_entry(path: &Path, handles: &mut Vec<File>, aliases: &mut usize) -> io::R
     }
     if attributes & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
         handles.push(directory);
-        return Ok(());
+        return Ok(true);
     }
     *aliases = aliases
         .checked_sub(1)
@@ -84,12 +93,24 @@ fn pin_entry(path: &Path, handles: &mut Vec<File>, aliases: &mut usize) -> io::R
     let absolute = if target.is_absolute() {
         target
     } else {
-        path.parent()
-            .ok_or_else(|| invalid("Cleanup directory alias has no parent"))?
-            .join(target)
+        if target.has_root() || matches!(target.components().next(), Some(Component::Prefix(_))) {
+            return Err(invalid(
+                "Cleanup directory alias is not relative to its parent",
+            ));
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| invalid("Cleanup directory alias has no parent"))?;
+        // Preserve parent components even for a verbatim containing path so
+        // the guarded walk can check each component before stepping out of it.
+        let mut unresolved = parent.as_os_str().to_os_string();
+        unresolved.push(r"\");
+        unresolved.push(target);
+        PathBuf::from(unresolved)
     };
     handles.push(alias);
-    pin_directory(&absolute, handles, aliases)
+    pin_directory(&absolute, handles, aliases)?;
+    Ok(false)
 }
 
 pub(crate) fn pin_windows_directory_path(path: &Path) -> io::Result<Vec<File>> {
