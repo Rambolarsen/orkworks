@@ -322,23 +322,25 @@ async fn publish(
             status_dirty = true;
         }
         consumed_request = requested;
-        if current.watcher != consumed.watcher {
+        let now = tokio::time::Instant::now();
+        let reconcile_due = now >= reconcile;
+        if reconcile_due {
+            status_dirty = true;
+            reconcile = now + Duration::from_secs(30);
+        }
+        if reconcile_due || current.watcher != consumed.watcher {
             watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
         }
-        if display.recommendations != current.recommendations {
-            display.recommendations = current.recommendations;
+        if reconcile_due || current.recommendations != consumed.recommendations {
+            // Keep the published revision independent so a missed watcher
+            // notification still gives connected clients a chance to refresh.
+            display.recommendations = display.recommendations.wrapping_add(1);
             publish_dirty = true;
         }
         consumed = current;
         if display.captured_request.is_some() && publish_dirty {
             sender.send_replace(Some(Arc::new(display.clone())));
             publish_dirty = false;
-        }
-        let now = tokio::time::Instant::now();
-        if now >= reconcile {
-            status_dirty = true;
-            watcher = watch_metadata(&owner.root, &global, state.updates.clone()).ok();
-            reconcile = now + Duration::from_secs(30);
         }
         if status.is_none() && status_dirty && now >= next_status {
             status_epoch = current.enrichment;
@@ -628,6 +630,49 @@ mod tests {
         .await
         .expect("publisher made progress")
     }
+    #[tokio::test]
+    async fn periodic_reconciliation_invalidates_recommendations_without_a_watcher_event() {
+        let (dir, state, metadata) = fixture_with_layout(0, 1);
+        let (_, required, mut rx) = subscribe_shared(
+            state.clone(),
+            dir.path().to_string_lossy().into_owned(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        let initial = display_where(&mut rx, |display| {
+            display.captured_request == Some(required)
+        })
+        .await;
+        let producer_revision = state.updates.revisions.borrow().recommendations;
+
+        // Arm the publisher on real time, then advance its existing quiet
+        // workspace deadline without making any metadata changes.
+        tokio::time::pause();
+        tokio::time::advance(Duration::from_secs(30)).await;
+        tokio::time::resume();
+        let periodic = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let display = rx.borrow_and_update().clone().unwrap();
+                if display.recommendations != initial.recommendations {
+                    break display;
+                }
+                rx.changed().await.unwrap();
+            }
+        })
+        .await
+        .expect("periodic reconciliation should invalidate recommendations");
+        assert_eq!(
+            state.updates.revisions.borrow().recommendations,
+            producer_revision
+        );
+
+        state.updates.recommendations_changed();
+        display_where(&mut rx, |display| {
+            display.recommendations != periodic.recommendations
+        })
+        .await;
+    }
+
     #[test]
     fn a_mutation_after_status_capture_blocks_first_snapshot_admission() {
         let (_dir, state, _) = fixture();
