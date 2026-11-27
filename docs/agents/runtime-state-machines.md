@@ -89,7 +89,8 @@ prompt. An old capacity analysis cannot overwrite a newer control revision.
 ## Renderer synchronization, resume, and navigation
 
 Sources `apps/desktop/src/{workspaceUpdates,workspaceSessionController,sessionPolling,recommendationSource,shellNavigation}.ts`
-and `crates/orkworksd/src/workspace_updates/split.rs`.
+`apps/desktop/src/components/RecommendationsPanel.tsx`, and
+`crates/orkworksd/src/workspace_updates/split.rs`.
 See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 [fixed desktop shell](architecture.md#fixed-desktop-shell).
 
@@ -103,6 +104,9 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Recommendation refresh idle | First subscriber, invalidation, or fallback timer fires | One request in flight |
 | Recommendation refresh in flight | Invalidation arrives | Dirty until settle, then one follow-up refresh |
 | Recommendation refresh subscribed | Last subscriber leaves | Inactive; older result cannot publish |
+| Recommendation action pending | Same-workspace list refresh returns a pre-action snapshot | Action stays pending and retains ownership of its settlement |
+| Recommendation action pending | Dismiss or Run cleanup succeeds in the current workspace | Clear the acted-on audit notice and reconcile through a read started after the write |
+| Recommendation action pending | Workspace changes or admission closes | Clear local progress and ignore late completion |
 | Resume idle | Resume admitted for the row | Pending, with one operation per row |
 | Resume pending | Backend URL resolves while admission and the row reservation are current | Send the resume to the sidecar |
 | Resume pending | Backend URL resolves after admission or the reservation is invalidated | Skip the stale dispatch |
@@ -245,6 +249,17 @@ fixture, returning to the running session reused the same closed handle.
 The renderer now replaces a closed handle without a terminal end event when
 reattaching to a live session. The regression verifies that input reaches the
 replacement socket and that returning to a healthy session reuses its handle.
+
+### Recommendation actions left a stale proposed card after refreshing
+
+[#2182](https://github.com/Rambolarsen/orkworks/issues/2182) tracks a stale
+actionable card after a successful Dismiss or Run cleanup. The Electron shell
+scenarios defer the action reply and publish a same-workspace invalidation with
+the still-proposed row. Both actions formerly skipped their follow-up refresh
+because the read advanced the same generation. A third scenario delays the
+pre-action list reply until after cleanup succeeds. Action settlement now uses
+the workspace generation. It clears the notice for the affected card and waits
+for a fresh list when a pre-action read is still pending.
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

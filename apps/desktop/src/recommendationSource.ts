@@ -20,8 +20,17 @@ export function createRecommendationSource(options: { load(): Promise<Recommenda
     scheduler.clear(timer); timer = undefined;
     if (active && !healthy && !pending) timer = scheduler.set(() => { void refresh().catch(() => {}); }, 5000);
   }
-  function refresh(): Promise<RecommendationListResponse> {
-    if (pending) return pending;
+  function refresh(afterPending = false): Promise<RecommendationListResponse> {
+    if (pending) {
+      if (!afterPending) return pending;
+      // A completed action needs a read that starts after its write.
+      const current = generation;
+      const refreshIfActive = () => {
+        if (!active || current !== generation) throw new Error("Workspace recommendations unavailable");
+        return refresh();
+      };
+      return pending.then(refreshIfActive, refreshIfActive);
+    }
     scheduler.clear(timer); timer = undefined;
     const current = generation;
     // Establish the shared promise before notifying consumers that a refresh began.
