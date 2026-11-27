@@ -3542,14 +3542,16 @@ html, body, #root {
 .resume-menu-popover .resume-option { width: 100%; text-align: left; white-space: normal; padding: 10px; height: auto; }
 .resume-menu-popover .resume-option:disabled { opacity: .55; cursor: default; }
 .resume-option-label > svg { margin-left: 6px; vertical-align: middle; }
-.resume-warning { margin: auto; max-height: calc(100vh - 32px); overflow: auto; width: min(440px, calc(100vw - 32px)); box-sizing: border-box; padding: 22px; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: 10px; box-shadow: var(--shadow-modal); }
-.resume-warning::backdrop { background: #0008; }
-.resume-warning h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; font-size: 18px; }
+:is(.resume-warning, .start-task-dialog) { margin: auto; max-height: calc(100vh - 32px); overflow: auto; width: min(440px, calc(100vw - 32px)); box-sizing: border-box; padding: 22px; color: var(--text-primary); background: var(--surface-1); border: 1px solid var(--border-default); border-radius: 10px; box-shadow: var(--shadow-modal); }
+:is(.resume-warning, .start-task-dialog)::backdrop { background: #0008; }
+:is(.resume-warning, .start-task-dialog) h2 { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; font-size: 18px; }
 .resume-warning h2 svg { flex-shrink: 0; color: var(--attention-blocked); }
-.resume-warning p { line-height: 1.5; font-size: 14px; }
+:is(.resume-warning, .start-task-dialog) p { line-height: 1.5; font-size: 14px; }
 .resume-warning footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-.resume-warning button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 5px; color: var(--text-primary); background: var(--surface-2); cursor: pointer; }
+:is(.resume-warning, .start-task-dialog) button { padding: 8px 12px; border: 1px solid var(--border-default); border-radius: 5px; color: var(--text-primary); background: var(--surface-2); cursor: pointer; }
 .resume-warning [data-resume-confirm] { border-color: var(--attention-blocked); }
+.start-task-dialog input { width: 100%; box-sizing: border-box; }
+.start-task-dialog .session-title-actions { justify-content: flex-end; margin-top: 12px; }
 
 .resume-menu--details { min-width: 0; }
 .resume-menu--details .resume-menu-popover { position: static; width: 100%; box-sizing: border-box; margin-top: 6px; }

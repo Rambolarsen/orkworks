@@ -25,3 +25,22 @@ test("invalid title operations are rejected before transport", async () => {
     await assert.rejects(requestSessionTitle("http://127.0.0.1:7", input, "secret", fetchImpl, new AbortController().signal), /Invalid/);
   }
 });
+
+test("title transport combines a request deadline with backend cancellation", async (t) => {
+  const deadline = new AbortController();
+  const backend = new AbortController();
+  const timeout = t.mock.method(AbortSignal, "timeout", () => deadline.signal);
+  let requestSignal: AbortSignal | null | undefined;
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    requestSignal = init?.signal;
+    return new Response(JSON.stringify({ title: "Current task", automatic: false }));
+  };
+  await requestSessionTitle("http://127.0.0.1:7", {
+    sessionId: "session-1", workspaceIdentity: "/project", action: "read",
+  }, "desktop-secret", fetchImpl, backend.signal);
+  assert.equal(timeout.mock.callCount(), 1);
+  assert.equal(requestSignal?.aborted, false);
+  deadline.abort();
+  assert.equal(requestSignal?.aborted, true);
+  assert.equal(backend.signal.aborted, false);
+});

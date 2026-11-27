@@ -14,6 +14,11 @@ Keep the existing **Resume** behavior available for ended sessions.
 See [#2140](https://github.com/Rambolarsen/orkworks/issues/2140) and the
 [proposed design](../specs/2026-11-27-session-task-actions-design.md).
 
+The first release uses the existing title operation only. The desktop
+fixture covers save, cancel, focus return, selection changes, the exact title
+target, and zero terminal writes. The steps below cover the future prompt
+actions and remain gated on the editor qualification.
+
 1. **Approve and qualify.** After owner approval, record the authority
    decision in an ADR and update the MVP action and title rules. Inspect
    the existing Codex turn signals and runtime input owner. Retain

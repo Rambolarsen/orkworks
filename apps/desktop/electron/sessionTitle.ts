@@ -23,7 +23,7 @@ export async function requestSessionTitle(baseUrl: string, input: unknown, token
     method: "POST",
     headers: { "Content-Type": "application/json", "x-orkworks-open-plan-token": token },
     body: JSON.stringify({ workspaceIdentity: input.workspaceIdentity, action: input.action, ...(input.action === "set" ? { title: input.title } : {}) }),
-    signal,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
   });
   if (!response.ok) throw new Error((await response.text()).trim() || "Could not update session title.");
   const result: unknown = await response.json();

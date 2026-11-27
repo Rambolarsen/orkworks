@@ -14,7 +14,15 @@ Approval of this design is required before product implementation. The
 session titles. The two proposed live actions extend the approved terminal
 input boundary in [ADR 0034](../../adr/0034-user-approved-session-review-prompt.md).
 
-## User interaction
+## First release
+
+The owner chose to proceed with a title-only Start new task action after the
+Codex source check. It uses the existing desktop title operation to save an
+explicitly user-owned title and returns focus to the same live terminal.
+The user submits the instruction through ordinary terminal input. This sends
+no PTY data, adds no sidecar authority, and uses the existing Resume flow.
+
+## Proposed prompt actions
 
 Show the live actions in the selected session's Terminal header, with a compact
 menu where space is limited. Availability comes from the sidecar. Explain

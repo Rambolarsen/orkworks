@@ -20,6 +20,7 @@ import SessionAppMenu from "./SessionAppMenu";
 import ResumeChooser from "./ResumeChooser";
 import GitChangesPanel from "./GitChangesPanel";
 import SessionDetailPanel from "./SessionDetailPanel";
+import SessionTitleEditor from "./SessionTitleEditor";
 import TerminalPanel from "./TerminalPanel";
 import RecommendationsPanel from "./RecommendationsPanel";
 import SkillsSettings from "./SkillsSettings";
@@ -150,6 +151,7 @@ export default function ApplicationShell(props: Props) {
   const [sessionsPage, setSessionsPage] = useState(false);
   const [toolbarResumeWarningOpen, setToolbarResumeWarningOpen] = useState(false);
   const [detailsResumeWarningOpen, setDetailsResumeWarningOpen] = useState(false);
+  const [startTaskDialogOpen, setStartTaskDialogOpen] = useState(false);
   const [focusTick, setFocusTick] = useState(0);
   const [actionFocusRequest, setActionFocusRequest] = useState<{ scope: string; sequence: number }>({ scope: "", sequence: 0 });
   const [actionInspection, setActionInspection] = useState<{ scope: string; row: ActionRow | null }>({ scope: "", row: null });
@@ -310,7 +312,7 @@ export default function ApplicationShell(props: Props) {
     scope: sourcesReady && sessions.sourceStatus === "ready" ? actionsScope : null,
     sessions: sessions.items,
     visibleSessionId: showTerminal ? sessions.activeId : null,
-    dialogOpen: sessions.alertNavigationBlocked === true || toolbarResumeWarningOpen || detailsResumeWarningOpen,
+    dialogOpen: sessions.alertNavigationBlocked === true || toolbarResumeWarningOpen || detailsResumeWarningOpen || startTaskDialogOpen,
     desktopEnabled: preferences.desktopSessionNotifications === true,
     openSession: (id) => {
       selectSession(id);
@@ -569,6 +571,10 @@ export default function ApplicationShell(props: Props) {
           <div className="shell-session-controls" role="group" aria-label="Session controls">
           {!showComposer && session && workspace.info && <SessionAppMenu key={`${workspaceGeneration}:${session.id}:${sourcesReady}`}
             workspacePath={workspace.info.workspaceIdentity || workspace.info.path} session={session} disabled={!sourcesReady} compact={compact} />}
+          {showTerminal && sourcesReady && workspace.info && isSessionAlive(session) && <SessionTitleEditor
+            key={`${actionsScope}:${session.id}`} sessionId={session.id} title={session.label}
+            workspaceIdentity={workspace.info.workspaceIdentity || workspace.info.path} onUpdated={sessions.onTitleUpdated}
+            onTaskStarted={sessions.onFocusTerminal} onDialogOpenChange={setStartTaskDialogOpen} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${workspaceGeneration}:${session.id}`} header compact={compact}
             pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => sessions.onResume(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && review.onOpen && !showComposer && <button type="button" data-shell-command="review"
