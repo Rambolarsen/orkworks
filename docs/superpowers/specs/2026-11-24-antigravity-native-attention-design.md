@@ -254,3 +254,18 @@ launch, exact bounded version probe, parser and attention-ownership rules stand.
 No diagnostic strict-permission or update-suppression setting is added to
 production. Other versions/platforms retain their gates, and existing sessions
 are not modified. This approval authorizes no new native probe.
+
+
+## Owner-accepted 1.5.18 profile amendment, 2026-11-27
+
+The owner directed continued implementation after the concrete request to admit
+exactly macOS arm64 CLI 1.5.18 with the [retained qualification and remaining limits](../../validation/antigravity-native-status.md#owner-accepted-1518-source-activation-2026-11-27).
+This adds one exact version to the accepted best-effort UI attention profiles.
+The agent-operated trials establish question answer/cancel, explicit No rejection
+and an independently witnessed automatic command; they do not establish the
+original human-operated gate or OrkWorks UI/installer behavior for 1.5.18.
+Other documented qualification limits remain. Existing launch/version checks,
+parser bounds, ownership, generation fencing and no-replay contracts stand.
+No diagnostic strict-permission or update-suppression override is added to
+production. Other versions/platforms stay gated, existing sessions are not
+modified, and this approval authorizes no additional native probe.

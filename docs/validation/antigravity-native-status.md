@@ -481,3 +481,23 @@ policy changes in this evidence update: the source table stays exactly
 limits under the existing design gate; the original full gate is not claimed
 passed. No native trial remains running, and unused time authorizes no further
 start.
+
+
+## Owner-accepted 1.5.18 source activation, 2026-11-27
+
+After [the 1.5.18 qualification merged in PR #2121](https://github.com/Rambolarsen/orkworks/pull/2121),
+the owner directed continued implementation in response to the concrete request
+to enable exactly macOS arm64 CLI 1.5.18 with the retained agent-operated and UI
+coverage limits. This accepts narrowed empirical coverage for that additional
+profile. It does not claim the original human-operated gate passed or establish
+OrkWorks UI/installer behavior for 1.5.18, native ST emission, complete descendant
+cleanup, child aggregation, unknown/error states or terminal negotiation.
+
+The source table now admits exactly 1.5.16, 1.5.17 and 1.5.18. Built-in route,
+exact resume/initial-prompt, platform, canonical executable and successful
+bounded exact-version checks remain unchanged. Fresh qualified runtimes force
+native OSC emission and brief messages; existing sessions are not changed.
+The experimental strict-permission and update-suppression settings are not
+added to production launches. Other versions/platforms and custom commands
+retain their gates. This describes source behavior, not a published installer
+or a new 1.5.18 desktop UI test. No further native probe is part of this change.
