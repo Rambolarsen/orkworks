@@ -127,6 +127,14 @@ the coding tool or accept its work. Older installers may lack these actions.
 Downgrading to a binary without archive-aware retention removes the automatic
 cleanup protection, so keep a compatible build when relying on that protection.
 
+## Start another task in the same session
+
+In current source builds, choose **Start new task** in a live session's
+Terminal header, enter a task title, and choose **Save title**. Then enter
+your instructions in the same terminal. The title replaces the previous
+title and stays until you rename it or choose **Use automatic title** in
+Details. Published installers may not include this action yet.
+
 ## Resume an ended session
 
 In current source builds, select an ended session and use the Resume split

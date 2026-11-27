@@ -856,6 +856,12 @@ The first useful MVP should include:
   title editing, source/confidence, Git details and diagnostics. Resume and
   actionable recovery warnings remain directly available. Changing the visible
   subject resets the activity subpage and disclosure.
+- The selected live session's Terminal header offers **Start new task**.
+  Saving a task title uses the existing desktop-authorized title operation
+  and focuses the same terminal. The title is explicitly user-owned and
+  replaces the previous title. The user submits the task prompt in the
+  terminal. Cancel or change of session or workspace discards an unsaved
+  draft. This action sends no terminal input.
 - An ended session with an available resume option exposes a split Resume
   button in the selected-session header and Details. The main action resumes
   the preferred available strategy; its arrow exposes all existing options and
