@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {spawnSync} from "node:child_process";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath,pathToFileURL} from "node:url";
 let mod;
 try { mod = await import("./pair-windows-sdk-inventory.mjs"); } catch (e) { if (e.code !== "ERR_MODULE_NOT_FOUND") throw e; }
 const need = () => assert.ok(mod, "SDK guard is not implemented");
@@ -31,6 +31,6 @@ test("Windows orchestration failure retains a sanitized receipt and removes work
   // The only collector launched here is this owned Python fixture, never production registry code.
   fs.writeFileSync(path.join(scripts,"pair-windows-sdk-inventory.py"), `print('{"schema":1,"success":false,"reason":"runtime-denied","passes":[],"api_calls":0,"open_handles":0,"read_bytes_charged":0,"hashed_bytes":0,"unknown":"private-person"}')`);
   const hook=path.join(d,"history.mjs");fs.writeFileSync(hook,'globalThis.fetch=async()=>Response.json({total_count:1,workflow_runs:[{id:1,head_sha:"'+"a".repeat(40)+'",run_attempt:1}]});');
-  const result=spawnSync(process.execPath,["--import",hook,fileURLToPath(new URL("./pair-windows-sdk-inventory.mjs",import.meta.url))],{cwd:workspace,env:{...process.env,...env(),GITHUB_WORKSPACE:workspace,RUNNER_TEMP:temp,GITHUB_RUN_ID:"1",RUNNER_OS:"Windows",RUNNER_ARCH:"X64",ImageOS:"win22",ImageVersion:"20261123.376.1",GITHUB_TOKEN:"fixture-only"},encoding:"utf8",timeout:10000});
-  assert.equal(result.status,1,result.stderr);const evidence=path.join(temp,"ork-pair-sdk-inventory","evidence"),receipt=JSON.parse(fs.readFileSync(path.join(evidence,"result.json")));assert.equal(receipt.controller_invocations,1);assert.equal(receipt.success,false);assert.equal(receipt.cleanup,"owned-working-scratch-removed");assert.ok(!fs.existsSync(path.join(temp,"ork-pair-sdk-inventory","working")));for(const name of fs.readdirSync(evidence))assert.ok(!fs.readFileSync(path.join(evidence,name),"utf8").includes("private-person"));
+  const result=spawnSync(process.execPath,["--import",pathToFileURL(hook).href,fileURLToPath(new URL("./pair-windows-sdk-inventory.mjs",import.meta.url))],{cwd:workspace,env:{...process.env,...env(),GITHUB_WORKSPACE:workspace,RUNNER_TEMP:temp,GITHUB_RUN_ID:"1",RUNNER_OS:"Windows",RUNNER_ARCH:"X64",ImageOS:"win22",ImageVersion:"20261123.376.1",GITHUB_TOKEN:"fixture-only"},encoding:"utf8",timeout:10000});
+  assert.equal(result.status,1,result.stderr);const evidence=path.join(temp,"ork-pair-sdk-inventory","evidence");assert.ok(fs.existsSync(path.join(evidence,"result.json")),result.stderr);const receipt=JSON.parse(fs.readFileSync(path.join(evidence,"result.json")));assert.equal(receipt.controller_invocations,1);assert.equal(receipt.success,false);assert.equal(receipt.cleanup,"owned-working-scratch-removed");assert.ok(!fs.existsSync(path.join(temp,"ork-pair-sdk-inventory","working")));for(const name of fs.readdirSync(evidence))assert.ok(!fs.readFileSync(path.join(evidence,name),"utf8").includes("private-person"));
 }finally{fs.rmSync(d,{recursive:true,force:true});}});
