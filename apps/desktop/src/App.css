@@ -1397,7 +1397,7 @@ html, body, #root {
 
 .terminal-output-gap:not(:empty) {
   padding: var(--space-1) var(--space-2);
-  color: var(--attention-needs-you);
+  color: var(--term-blue);
   font-size: var(--text-sm);
 }
 

@@ -260,10 +260,10 @@ typing alone does not clear them. This has limited coverage: native question
 answering/cancellation, permission dismissal and explicit rejection were captured.
 One automatically executed command completed without a permission wait. These
 were agent-operated trials. Separate source-build checks exercised 1.5.17 startup
-attention and 1.5.17/1.5.18 question attention and clearing in the desktop UI.
-Command-permission UI for 1.5.18, published installers and human-operated
-confirmation remain unverified. Status is best effort and can miss or misread a
-wait. Explicit user/agent status stays protected.
+attention, 1.5.17/1.5.18 question attention and clearing, and 1.5.18 command
+permission attention and clearing after explicit rejection in the desktop UI.
+Published installers and human-operated confirmation remain unverified. Status is
+best effort and can miss or misread a wait. Explicit user/agent status stays protected.
 
 Other versions, platforms and custom commands retain hook **Working**/**Idle**.
 Peon continues summaries while preserving Antigravity attention, including during

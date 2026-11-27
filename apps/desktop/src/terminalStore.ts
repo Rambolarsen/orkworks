@@ -51,9 +51,16 @@ export function getTerminal(id: string): TerminalHandle | undefined {
   return terminals.get(id);
 }
 
+export function getReusableTerminal(id: string): TerminalHandle | undefined {
+  const handle = getTerminal(id);
+  if (handle && handle.ws.readyState === WebSocket.CLOSED && !handle.ended) return undefined;
+  return handle;
+}
+
 export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
-  const existing = terminals.get(id);
+  const existing = getReusableTerminal(id);
   if (existing) return existing;
+  disposeTerminal(id);
 
   const term = new Terminal({
     ...orkworksTerminalOptions,

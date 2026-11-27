@@ -124,13 +124,15 @@ resume. Inspecting a different subject does not itself select a terminal.
 ## Terminal attachments and replay
 
 Sources `apps/desktop/src/{terminalAttach,terminalStore}.ts`,
-`components/HistoricalTerminal.tsx`, and `crates/orkworksd/src/runtime/terminal_http.rs`.
+`components/{CenterPanel,HistoricalTerminal}.tsx`, and `crates/orkworksd/src/runtime/terminal_http.rs`.
 
 | Machine and current state | Event and guard | Next state |
 | --- | --- | --- |
 | Live terminal absent | Still-current renderer awaits backend and attaches | Socket connecting |
 | Socket connecting | Connection opens and the handle is current | Interactive, with bounded pending input |
 | Socket attached | Socket closes or the component is disposed | Input disabled or attachment removed; PTY lifecycle proceeds independently |
+| Closed socket without a terminal end event | Renderer returns to the still-live session | Replace the closed handle and attach with bounded replay |
+| Healthy socket | Renderer returns to the session | Reuse the existing handle |
 | Socket closed without live output | Historical fetch succeeds for a still-owned handle | Bounded replay, at the recorded grid when available |
 | Historical terminal loading | Replay query settles for the current session | Loaded, empty, or error |
 
@@ -234,6 +236,15 @@ the exit status through output drain. Its regression test
 with code 7 and checks both the error event and the finalized outcome.
 Successful exit and an explicit stop still record `ended` and `killed`.
 [Implementation and regression test](https://github.com/Rambolarsen/orkworks/pull/2145)
+
+### Closed terminal socket was reused on reselection
+
+[#2163](https://github.com/Rambolarsen/orkworks/issues/2163) tracks a live
+terminal that stayed read-only after its socket closed. In the Electron shell
+fixture, returning to the running session reused the same closed handle.
+The renderer now replaces a closed handle without a terminal end event when
+reattaching to a live session. The regression verifies that input reaches the
+replacement socket and that returning to a healthy session reuses its handle.
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

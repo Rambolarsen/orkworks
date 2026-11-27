@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { disposeTerminal, ensureTerminal, getTerminal } from "../terminalStore";
+import { disposeTerminal, ensureTerminal, getReusableTerminal, getTerminal } from "../terminalStore";
 import { computeTerminalInteractivity } from "../terminalPresentation";
 import { attachTerminalAfterBackendReady } from "../terminalAttach";
 import { createTerminalPlanLinkProvider } from "../terminalLinks";
@@ -94,7 +94,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       attachTerminal(sessionId);
     };
 
-    if (getTerminal(sessionId)) {
+    if (getReusableTerminal(sessionId)) {
       attach();
     } else {
       void attachTerminalAfterBackendReady(

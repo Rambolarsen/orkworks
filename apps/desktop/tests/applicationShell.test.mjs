@@ -2752,6 +2752,29 @@ if (process.versions.electron) {
           await evaluate('fixture.setBackendStatus("connected")');
           await waitFor('fixture.runtime()?.terminal.element?.isConnected');
           assert.equal(await evaluate(`document.querySelectorAll(${JSON.stringify(notice)}).length`), 0);
+        } else if (scenario === 'terminal-reattach') {
+          await win.setContentSize(1300,700);
+          await waitFor('fixture.runtime()?.terminal.element?.isConnected');
+          await evaluate('fixture.output("before drop");fixture.closedRuntime=fixture.runtime();const socket=fixture.closedRuntime.ws;socket.readyState=WebSocket.CLOSED;socket.onclose();void 0');
+          assert.equal(await evaluate('fixture.closedRuntime.terminal.options.disableStdin'), true);
+          assert.equal(await evaluate('fixture.closedRuntime.ended'), false);
+
+          await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+          await waitFor('fixture.activeSessionId==="other" && fixture.runtime()?.wrapper.style.visibility==="visible"');
+          await evaluate('fixture.otherRuntime=fixture.runtime();void 0');
+          await evaluate('document.querySelector("[data-session-id=coding] .session-row-select").click()');
+          await waitFor('fixture.activeSessionId==="coding" && fixture.runtime()?.wrapper.style.visibility==="visible"');
+          assert.equal(await evaluate('fixture.runtime()===fixture.closedRuntime'), false, 'returning to a live session must replace its closed transport');
+          assert.equal(await evaluate('fixture.closedRuntime.disposed'), true);
+          assert.equal(await evaluate('fixture.runtime().terminal.options.disableStdin'), false);
+          assert.equal(await evaluate('fixture.socketCount'), 3);
+          await evaluate('fixture.runtime().terminal.input("after-drop",true)');
+          assert.deepEqual(await evaluate('fixture.input'), ['after-drop']);
+
+          await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
+          await waitFor('fixture.activeSessionId==="other" && fixture.runtime()?.wrapper.style.visibility==="visible"');
+          assert.equal(await evaluate('fixture.runtime()===fixture.otherRuntime'), true, 'healthy transport is reused');
+          assert.equal(await evaluate('fixture.socketCount'), 3);
         } else if (scenario === 'backend-loss') {
           await win.setContentSize(1000,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="medium"');
@@ -2856,7 +2879,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','backend-loss','terminal-output-gap','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2904,7 +2927,7 @@ if (process.versions.electron) {
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
           fixture.socketCount=0;fixture.input=[];fixture.pins=0;fixture.workspaceOpens=0;
           window.WebSocket=class {
-            static OPEN=1; readyState=1; bufferedAmount=0;
+            static OPEN=1; static CLOSED=3; readyState=1; bufferedAmount=0;
             constructor(url){
               if(String(url).includes("/workspace/updates")){
                 if(${javascriptLiteral(scenario)}.startsWith('app-review-pending-enrichment')){
