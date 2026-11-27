@@ -1421,6 +1421,21 @@ dialog.modal-backdrop::backdrop { background: transparent; }
   background-color: var(--term-bg);
 }
 
+/* Keep xterm's own draggable thumb available after its idle fade on Windows. */
+[data-platform="win32"] .terminal-container .xterm.has-scrollback .xterm-scrollable-element > .scrollbar.vertical {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 11;
+}
+
+[data-platform="win32"] .terminal-container .xterm.has-scrollback .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  background: color-mix(in srgb, var(--term-fg) 46%, transparent);
+}
+
+[data-platform="win32"] .terminal-container .xterm.has-scrollback .xterm-scrollable-element > .scrollbar.vertical > .slider:is(:hover, .active) {
+  background: color-mix(in srgb, var(--term-fg) 66%, transparent);
+}
+
 .terminal-container .xterm {
   width: 100%;
   height: 100%;

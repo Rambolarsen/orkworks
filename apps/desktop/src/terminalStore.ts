@@ -5,6 +5,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { terminalPtySize } from "./terminalSize";
 import { installTerminalWheelHandler } from "./terminalWheel";
 import { orkworksTerminalOptions } from "./terminalTheme";
+import { markTerminalScrollback } from "./terminalScrollbar";
 import { getTerminalOutput } from "./api";
 import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
 import { terminalLinkHandler } from "./terminalLinks";
@@ -75,6 +76,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   });
 
   installTerminalWheelHandler(term);
+  markTerminalScrollback(term);
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
