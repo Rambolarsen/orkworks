@@ -107,7 +107,7 @@ The admin override is the documented recovery for the impossible self-approval c
 
 **Parallel work:** when more than one branch is in flight at once (multiple agents running concurrently, a hotfix on top of an in-progress feature), use `git worktree` so each branch has its own filesystem checkout — branch-switching in the main checkout will collide with other agents' uncommitted edits and build output. Also use a worktree whenever the active branch in the primary checkout is one you did not create, even if no other agent is running. See "Default to a worktree" above for when a worktree is the default rather than the exception. Invoke the `starting-work` skill before opening a worktree for the path convention, per-worktree setup, and cleanup steps.
 
-**Clean up your worktrees when done.** Remove the worktree and prune it as soon as the branch merges (or the task is abandoned). Leaving stale worktrees behind wastes disk space and confuses subsequent `git worktree list` output. The `starting-work` skill includes the exact cleanup commands.
+**Clean up your worktrees when done.** Remove your worktree as soon as its branch merges (or the task is abandoned). Leaving stale worktrees behind wastes disk space and confuses subsequent `git worktree list` output. The `starting-work` skill includes the exact cleanup commands.
 
 For a merged PR with a local branch/worktree, use the guarded repository
 helper with the concrete PR number or URL:

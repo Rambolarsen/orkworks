@@ -454,6 +454,9 @@ jobs:
             echo "$OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY" || true
           fi
 
+      - name: Test scoped merged-PR cleanup
+        run: bash scripts/finish-pr.test.sh
+
       - name: Check starting-work ownership guidance
         run: bash scripts/starting-work-skill.test.sh
 
