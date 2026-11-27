@@ -6,6 +6,7 @@ export const STARTUP_FAILURE_MESSAGES = {
   process_spawn_failed: "Could not start the coding tool. Check its configured executable and working directory, then retry.",
   terminal_io_failed: "Could not connect the session terminal. Check available system resources and retry.",
   instruction_setup_failed: "Could not prepare session instructions. Check workspace access and retry.",
+  image_attachment_unavailable: "Could not read an image attachment. Close any app using it, then reattach it and retry.",
   native_startup_failed: "Could not prepare the coding-tool integration. Check its integration status in Settings and retry.",
   startup_internal_failed: "Session startup failed. Check sidecar diagnostics before retrying.",
 } as const;

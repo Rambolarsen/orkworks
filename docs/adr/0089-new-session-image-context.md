@@ -49,3 +49,12 @@ establishes the delivery interface; subsequent compatible releases do not each
 need a new visual fixture. Other adapters/platforms still require real launch
 evidence. Bounded probes reject missing or unsuccessful evidence, and runtime
 errors remain observable. Storage, authentication and prompt ownership are unchanged.
+
+## Amendment — Windows private bundle approval (2026-11-26)
+
+The owner approved the [Windows storage design](../superpowers/plans/2026-11-26-windows-codex-image-storage.md)
+for #1674. The first Windows profile uses local NTFS, owner-only protected
+ACLs, and handle-relative storage operations. It preserves the existing
+bundle format, atomic publication before session persistence, and ordinary
+JSON-managed retention. Production support still requires the native storage
+checks and the disposable live Codex qualification in the plan.

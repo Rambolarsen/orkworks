@@ -110,8 +110,9 @@ shell default to unsupported. Installed-tool version/feature evidence must gate
 support; names alone are insufficient. Do not widen filesystem access, override
 permissions, alter global configuration, or automate trust/approval dialogs.
 
-Target these routes, enabling each only after an OrkWorks-launched fixture verifies
-that the model can distinguish the image content:
+Qualify each route with an OrkWorks-launched fixture before enabling it. The
+fixture checks that the model can distinguish the image content on routes
+without platform-specific criteria below.
 
 | Coding tool | Delivery route | Current evidence and remaining gate |
 | --- | --- | --- |
@@ -130,6 +131,14 @@ model fixtures. This is compatibility with a qualified delivery interface, not
 a claim that every release/model has been visually qualified. Other tools and
 platforms still require their own real launch qualification. Preserve visible
 provider/runtime errors and never silently omit images.
+
+For the first Windows x64 Codex route, use a disposable local Responses
+endpoint to verify byte-identical ordered image payloads and a single
+initial user turn for both multiple-image and image-only starts. Record
+native startup in a disposable authenticated session. Check that unreadable
+attachments produce a visible failure before launch. Record the model's
+visual answer for diagnosis. Follow the [Windows qualification plan](../docs/superpowers/plans/2026-11-26-windows-codex-image-storage.md)
+for the remaining native storage evidence.
 
 Any unverified route remains disabled with an honest reason. Record exact tool
 version, platform, fixture outcome, and provider/model with delivery evidence.

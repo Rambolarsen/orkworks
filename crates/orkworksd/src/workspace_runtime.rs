@@ -49,6 +49,11 @@ impl WorkspaceIdentity {
         &self.canonical_path
     }
 
+    #[cfg(all(test, windows, target_arch = "x86_64"))]
+    pub(crate) fn directory(&self) -> &File {
+        &self._directory
+    }
+
     pub(crate) fn revalidate(&self) -> io::Result<()> {
         let retained_metadata = self._directory.metadata()?;
         if !retained_metadata.is_dir()

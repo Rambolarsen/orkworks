@@ -11,6 +11,7 @@ pub(crate) enum StartupFailureCode {
     ProcessSpawnFailed,
     TerminalIoFailed,
     InstructionSetupFailed,
+    ImageAttachmentUnavailable,
     NativeStartupFailed,
     StartupInternalFailed,
 }
@@ -24,6 +25,7 @@ impl StartupFailureCode {
             Self::ProcessSpawnFailed => "Could not start the coding tool. Check its configured executable and working directory, then retry.",
             Self::TerminalIoFailed => "Could not connect the session terminal. Check available system resources and retry.",
             Self::InstructionSetupFailed => "Could not prepare session instructions. Check workspace access and retry.",
+            Self::ImageAttachmentUnavailable => "Could not read an image attachment. Close any app using it, then reattach it and retry.",
             Self::NativeStartupFailed => "Could not prepare the coding-tool integration. Check its integration status in Settings and retry.",
             Self::StartupInternalFailed => "Session startup failed. Check sidecar diagnostics before retrying.",
         }
@@ -148,6 +150,7 @@ mod tests {
             StartupFailureCode::ProcessSpawnFailed,
             StartupFailureCode::TerminalIoFailed,
             StartupFailureCode::InstructionSetupFailed,
+            StartupFailureCode::ImageAttachmentUnavailable,
             StartupFailureCode::NativeStartupFailed,
             StartupFailureCode::StartupInternalFailed,
         ] {

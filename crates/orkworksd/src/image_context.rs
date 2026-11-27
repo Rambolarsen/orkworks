@@ -86,7 +86,16 @@ pub(crate) use storage::{prepare_cleanup, ImageBundle};
 pub(crate) enum ImageDelivery {
     NativeCodex,
 }
+#[cfg(all(test, windows, target_arch = "x86_64"))]
+mod windows_qualification;
+#[cfg(all(test, windows, target_arch = "x86_64"))]
+pub(crate) use windows_qualification::capture_fixture as capture_windows_image_fixture;
+
 pub(crate) async fn delivery(harness: &str, command: &str) -> Option<ImageDelivery> {
+    #[cfg(all(test, windows, target_arch = "x86_64"))]
+    if cfg!(windows) {
+        return windows_qualification::delivery(harness, command).await;
+    }
     // The native route is qualified on macOS arm64. Compatible CLI upgrades
     // inherit that route when the installed image interface remains available.
     if harness != "codex" || !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
@@ -98,14 +107,16 @@ pub(crate) async fn delivery(harness: &str, command: &str) -> Option<ImageDelive
         return None;
     }
     let help = crate::harness::detect::probe_tool_help(&tool.executable).await?;
-    help.lines()
-        .any(|line| {
-            let mut words = line.split_whitespace();
-            matches!(words.next(), Some("-i," | "--image"))
-                && line.split_whitespace().any(|word| word == "--image")
-                && line.split_whitespace().any(|word| word == "<FILE>...")
-        })
-        .then_some(ImageDelivery::NativeCodex)
+    has_codex_image_option(&help).then_some(ImageDelivery::NativeCodex)
+}
+
+fn has_codex_image_option(help: &str) -> bool {
+    help.lines().any(|line| {
+        let mut words = line.split_whitespace();
+        matches!(words.next(), Some("-i," | "--image"))
+            && line.split_whitespace().any(|word| word == "--image")
+            && line.split_whitespace().any(|word| word == "<FILE>...")
+    })
 }
 pub(crate) async fn capabilities(
     axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::AppState>>,
@@ -153,6 +164,46 @@ pub(crate) fn apply_delivery(
 mod tests {
     use super::*;
     use base64::Engine;
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn windows_image_bundle_rolls_back_then_preserves_accepted_files_until_cleanup() {
+        let root = tempfile::Builder::new()
+            .prefix("image qualification é ")
+            .tempdir()
+            .unwrap();
+        let id = "11111111-1111-4111-8111-111111111111";
+        let publish = || {
+            ImageBundle::publish(
+                root.path(),
+                id,
+                vec![ValidatedImage {
+                    bytes: b"validated fixture".to_vec(),
+                    extension: "png",
+                }],
+            )
+        };
+        let bundle = publish().unwrap();
+        let path = bundle.paths()[0].clone();
+        assert_eq!(std::fs::read(&path).unwrap(), b"validated fixture");
+        assert!(prepare_cleanup(root.path(), id).is_err());
+        drop(bundle);
+        assert!(!path.exists());
+
+        let mut bundle = publish().unwrap();
+        bundle.accept();
+        drop(bundle);
+        assert!(path.exists());
+        assert!(publish().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"validated fixture");
+        prepare_cleanup(root.path(), id)
+            .unwrap()
+            .unwrap()
+            .remove()
+            .unwrap();
+        assert!(!path.exists());
+        assert!(prepare_cleanup(root.path(), id).unwrap().is_none());
+    }
     #[tokio::test]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     async fn codex_image_delivery_checks_minimum_version_and_installed_image_option() {
@@ -448,6 +499,70 @@ mod tests {
         assert!(!directory.exists());
     }
     /// Explicitly opt in: uses the installed tool/account for a tiny visual task.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "requires the installed Codex version/help probes"]
+    async fn qualify_windows_image_publication_before_session_record_flush() {
+        use crate::metadata::atomic_write::testing::{install, SyncPoint};
+        use crate::session_application::{CreateSessionCommand, SessionApplication, SessionError};
+        use std::{cell::RefCell, fs, io, rc::Rc, sync::Arc};
+
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let executable = windows_qualification::configure(&state);
+        let input = png();
+        let expected = STANDARD.decode(&input.data_base64).unwrap();
+        let publication = Rc::new(RefCell::new(None));
+        let observed = publication.clone();
+        let _hook = install(move |point, record| {
+            let sessions = record.parent().unwrap();
+            if !sessions.ends_with("sessions") {
+                return Ok(());
+            }
+            assert_eq!(point, SyncPoint::File);
+            assert!(!record.try_exists().unwrap());
+            let id = record.file_stem().unwrap();
+            let bundle = sessions.parent().unwrap().join("session-images").join(id);
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&fs::read(bundle.join("owner.json")).unwrap()).unwrap();
+            assert_eq!(manifest["session"], id.to_str().unwrap());
+            assert_eq!(fs::read(bundle.join("0.png")).unwrap(), expected);
+            assert!(observed
+                .borrow_mut()
+                .replace((record.to_path_buf(), bundle))
+                .is_none());
+            Err(io::Error::other("injected creating-record flush failure"))
+        });
+
+        // Hold preflight closed even if the failure hook is bypassed.
+        let result = windows_qualification::FIXTURE
+            .scope(
+                Arc::new(windows_qualification::Fixture::new(executable, true)),
+                SessionApplication::new(state.clone()).create_session(CreateSessionCommand {
+                    reasoning_effort: None,
+                    harness_id: Some("codex".into()),
+                    model: None,
+                    initial_prompt: None,
+                    initial_images: vec![input],
+                    expected_workspace_path: Some(root.path().display().to_string()),
+                }),
+            )
+            .await;
+        let (record, bundle) = publication
+            .borrow_mut()
+            .take()
+            .expect("creating-record flush reached after bundle publication");
+        assert!(matches!(
+            result,
+            Err(SessionError::Internal(
+                "Cannot save the new session. Check storage access and retry."
+            ))
+        ));
+        assert!(!record.try_exists().unwrap());
+        assert!(!bundle.try_exists().unwrap());
+        assert!(state.session_pids.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     #[ignore = "requires an installed, authenticated coding tool and a trusted checkout"]
     async fn qualify_installed_image_delivery() {
@@ -463,6 +578,9 @@ mod tests {
             .tempdir_in(target)
             .unwrap();
         let state = crate::test_support::test_app_state_with_workspace(root.path());
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let executable = windows_qualification::configure(&state);
+        let model = std::env::var("ORKWORKS_IMAGE_FIXTURE_MODEL").ok();
         let make_image = |circle: [u8; 3], rectangle: [u8; 3]| {
             let mut image = image::RgbImage::from_pixel(256, 128, image::Rgb([255, 255, 255]));
             for y in 0i32..128 {
@@ -485,7 +603,30 @@ mod tests {
                 data_base64: STANDARD.encode(bytes.into_inner()),
             }
         };
-        for image_only in [false, true] {
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let cases = [
+            ("multiple", false, false),
+            ("image-only", true, false),
+            ("denied-read", true, true),
+        ];
+        #[cfg(not(all(windows, target_arch = "x86_64")))]
+        let cases = [("multiple", false, false), ("image-only", true, false)];
+        let selected = std::env::var("ORKWORKS_IMAGE_FIXTURE_CASES").ok();
+        let selected = selected.as_deref().map(|value| {
+            let names = value.split(',').collect::<Vec<_>>();
+            assert!(names
+                .iter()
+                .all(|name| cases.iter().any(|case| case.0 == *name)));
+            names
+        });
+        let mut passed = true;
+        for (name, image_only, deny_reads) in cases {
+            if selected
+                .as_ref()
+                .is_some_and(|names| !names.contains(&name))
+            {
+                continue;
+            }
             let inputs = if image_only {
                 vec![make_image([255, 0, 0], [0, 180, 0])]
             } else {
@@ -494,70 +635,109 @@ mod tests {
                     make_image([0, 0, 255], [255, 160, 0]),
                 ]
             };
-            let info = crate::session_application::SessionApplication::new(state.clone()).create_session(crate::session_application::CreateSessionCommand {
+            let run = async {
+                let info = crate::session_application::SessionApplication::new(state.clone()).create_session(crate::session_application::CreateSessionCommand {
             reasoning_effort: None,
-                harness_id:Some(harness.clone()),model:None,
+                harness_id: Some(harness.clone()), model: model.clone(),
                 initial_prompt: if image_only {None} else {Some("For each image in order, give the circle color then rectangle color. Reply with only those four color names.".into())},
                 initial_images:inputs,expected_workspace_path:Some(root.path().display().to_string()),
             }).await.unwrap();
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(90);
-            let mut saw = false;
-            let mut last_output = String::new();
-            while tokio::time::Instant::now() < deadline {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let (output, status) = state
-                    .sessions
-                    .lock()
-                    .unwrap()
-                    .get(&info.id)
-                    .map(|h| {
-                        (
-                            crate::peon::strip_ansi(&String::from_utf8_lossy(
-                                &h.runtime
-                                    .replay
-                                    .snapshot()
-                                    .into_iter()
-                                    .flat_map(|(_, bytes)| bytes)
-                                    .collect::<Vec<_>>(),
-                            )),
-                            h.info.status.clone(),
-                        )
-                    })
-                    .unwrap_or_default();
-                if status == "error" || status == "ended" {
-                    last_output = format!("status={status}\n{output}");
-                    break;
-                }
-                let lower = output.to_lowercase();
-                let expected = if image_only {
-                    vec!["red", "green"]
-                } else {
-                    vec!["red", "green", "blue", "orange"]
-                };
-                if expected.iter().all(|color| lower.contains(color))
-                    && (image_only || !lower.contains("what would you like"))
-                {
-                    saw = true;
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(90);
+                let mut saw = false;
+                let mut last_output = String::new();
+                while tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let (output, status, failure) = state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .get(&info.id)
+                        .map(|h| {
+                            (
+                                crate::peon::strip_ansi(&String::from_utf8_lossy(
+                                    &h.runtime
+                                        .replay
+                                        .snapshot()
+                                        .into_iter()
+                                        .flat_map(|(_, bytes)| bytes)
+                                        .collect::<Vec<_>>(),
+                                )),
+                                h.info.status.clone(),
+                                h.info.startup_failure.clone(),
+                            )
+                        })
+                        .unwrap_or_default();
+                    let lower = output.to_lowercase();
+                    if deny_reads {
+                        if status == "error" || status == "ended" {
+                            saw = status == "error"
+                                && failure.as_ref().is_some_and(|failure| {
+                                    failure.code == crate::startup_failure::StartupFailureCode::ImageAttachmentUnavailable
+                                })
+                                && !state.session_pids.lock().unwrap().contains_key(&info.id);
+                            last_output = format!("status={status} startup_failure={failure:?}");
+                            break;
+                        }
+                        continue;
+                    }
+                    if status == "error" || status == "ended" {
+                        last_output = format!("status={status}\n{output}");
+                        break;
+                    }
+                    let expected = if image_only {
+                        vec!["red", "green"]
+                    } else {
+                        vec!["red", "green", "blue", "orange"]
+                    };
+                    let recognized = if image_only {
+                        expected.iter().all(|color| lower.contains(color))
+                    } else {
+                        expected
+                            .iter()
+                            .try_fold(lower.as_str(), |rest, color| {
+                                rest.split_once(*color).map(|(_, remaining)| remaining)
+                            })
+                            .is_some()
+                    };
+                    if recognized && (image_only || !lower.contains("what would you like")) {
+                        saw = true;
+                        last_output = output;
+                        break;
+                    }
                     last_output = output;
-                    break;
                 }
-                last_output = output;
-            }
-            crate::session_application::SessionApplication::new(state.clone())
-                .delete_session(&info.id)
-                .await
-                .unwrap();
-            for _ in 0..40 {
-                if !state.session_pids.lock().unwrap().contains_key(&info.id) {
-                    break;
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                windows_qualification::release_read_lock();
+                crate::session_application::SessionApplication::new(state.clone())
+                    .delete_session(&info.id)
+                    .await
+                    .unwrap();
+                for _ in 0..40 {
+                    if !state.session_pids.lock().unwrap().contains_key(&info.id) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-            println!("qualification {harness} image_only={image_only} output:\n{last_output}");
-            assert!(
-                saw,
-                "Model did not identify fixture colors; no qualification granted"
-            );
+                println!("qualification {harness} model={model:?} case={name} passed={saw} output:\n{last_output}");
+                saw
+            };
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            let outcome = windows_qualification::FIXTURE
+                .scope(
+                    std::sync::Arc::new(windows_qualification::Fixture::new(
+                        executable.clone(),
+                        deny_reads,
+                    )),
+                    run,
+                )
+                .await;
+            #[cfg(not(all(windows, target_arch = "x86_64")))]
+            let outcome = run.await;
+            passed &= outcome;
         }
+        assert!(
+            passed,
+            "One or more expected fixture outcomes were not observed"
+        );
     }
 }

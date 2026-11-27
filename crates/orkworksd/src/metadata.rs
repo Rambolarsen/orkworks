@@ -1612,6 +1612,23 @@ impl MetadataStore {
     }
 
     pub fn delete_session(&self, id: &str) -> std::io::Result<()> {
+        self.delete_session_using(id, |paths| {
+            for path in paths {
+                match fs::remove_file(path) {
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn delete_session_using(
+        &self,
+        id: &str,
+        remove_files: impl FnOnce([PathBuf; 2]) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
         self.with_session_write_lock(id, || {
             {
                 let mut revisions = self.session_writes.lock().unwrap();
@@ -1620,13 +1637,7 @@ impl MetadataStore {
                 }
             }
             let path = self.sessions_dir().join(format!("{}.json", id));
-            for target in [path.clone(), corrupt_session_path(&path)] {
-                match fs::remove_file(&target) {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(e),
-                }
-            }
+            remove_files([path.clone(), corrupt_session_path(&path)])?;
             self.session_writes.lock().unwrap().remove(id);
             Ok(())
         })

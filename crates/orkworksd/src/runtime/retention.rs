@@ -166,13 +166,17 @@ pub(crate) fn delete_session_evidence(
     // Keep durable ownership until private file removal succeeds, including
     // partial removals and directory-sync failures. Retain the lease through
     // metadata deletion so recovery/publication cannot interleave this cleanup.
-    if let Some(cleanup) = image_cleanup.as_ref() {
-        cleanup.remove().map_err(|error| error.to_string())?;
-    }
-    workspace
-        .metadata
-        .delete_session(session_id)
-        .map_err(|error| error.to_string())?;
+    let delete_record = || {
+        #[cfg(all(test, windows, target_arch = "x86_64"))]
+        if let Some(cleanup) = image_cleanup.as_ref() {
+            return cleanup.remove_and_delete_record(&workspace.metadata, session_id);
+        }
+        if let Some(cleanup) = image_cleanup.as_ref() {
+            cleanup.remove()?;
+        }
+        workspace.metadata.delete_session(session_id)
+    };
+    delete_record().map_err(|error| error.to_string())?;
     workspace
         .metadata
         .organization
@@ -1008,6 +1012,68 @@ mod tests {
                 },
             )
             .unwrap();
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    async fn forget_and_retention_remove_text_sessions_on_an_image_ineligible_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let workspace_path = directory.path().join("workspace");
+        fs::create_dir(&target).unwrap();
+        let link = std::os::windows::fs::symlink_dir(&target, &workspace_path);
+        if link
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(1314))
+        {
+            eprintln!("Symlink creation unavailable on this Windows host (1314)");
+            return;
+        }
+        link.unwrap();
+
+        let state = test_app_state_with_workspace(&workspace_path);
+        let forgotten = uuid::Uuid::new_v4().to_string();
+        let expired = uuid::Uuid::new_v4().to_string();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            for id in [&forgotten, &expired] {
+                store
+                    .try_write_session(&retention_test_session(id, "2024-01-01T00:00:00Z"))
+                    .unwrap();
+                assert!(store.session_file_exists(id));
+            }
+        }
+        {
+            let mut config = state.retention_config.write().await;
+            config.max_age_days = 1;
+            config.max_sessions = 0;
+        }
+
+        let application = crate::session_application::SessionApplication::new(state.clone());
+        let image_store = target.join(".orkworks-test").join("session-images");
+        fs::create_dir(&image_store).unwrap();
+        assert!(application.forget_session(&forgotten).await.is_err());
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            assert!(store.session_file_exists(&forgotten));
+            assert!(store.session_file_exists(&expired));
+        }
+        fs::remove_dir(image_store).unwrap();
+
+        let forget = application.forget_session(&forgotten).await;
+        retention_cleanup_once(&state, chrono::Utc::now()).await;
+
+        let workspace = state.workspace.lock().unwrap();
+        let store = &workspace.as_ref().unwrap().metadata;
+        let forgotten_removed = !store.session_file_exists(&forgotten);
+        let expired_removed = !store.session_file_exists(&expired);
+        assert!(
+            forget.is_ok() && forgotten_removed && expired_removed,
+            "Forget returned {forget:?}, Forget removed its record: {forgotten_removed}, age retention removed its record: {expired_removed}"
+        );
     }
 
     #[test]

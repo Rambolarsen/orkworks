@@ -292,6 +292,11 @@ pub(crate) async fn probe_tool_help(executable: &Path) -> Option<String> {
     probe_tool_output(executable, "--help", Duration::from_secs(3), true).await
 }
 
+#[cfg(all(test, windows, target_arch = "x86_64"))]
+pub(crate) async fn probe_image_fixture_version(executable: &Path) -> Option<String> {
+    probe_tool_output(executable, "--version", Duration::from_secs(3), true).await
+}
+
 async fn probe_tool_output(
     executable: &Path,
     argument: &str,
