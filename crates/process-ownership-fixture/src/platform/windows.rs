@@ -34,7 +34,9 @@ use windows_sys::Win32::System::Threading::{
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_SUSPEND_RESUME,
 };
 
-use crate::observation::{is_complete, ContainmentMembership, ExitState, ProcessObservation};
+use crate::observation::{
+    is_complete, ContainmentMembership, DescendantObservationFailure, ExitState, ProcessObservation,
+};
 use crate::protocol::{GenerationId, NativeIdentity, Role};
 use crate::supervisor::{
     ExecutableImage, LaunchSpec, OwnedProcessHandle, PausedRoot, PlatformAdapter, SpawnError,
@@ -849,21 +851,25 @@ impl PlatformAdapter for OwnerDomain {
         &mut self,
         registered_identities: &[NativeIdentity],
         deadline: Instant,
-    ) -> Result<Vec<ProcessObservation>, SpawnError> {
+    ) -> Result<Vec<ProcessObservation>, DescendantObservationFailure> {
         if Instant::now() >= deadline {
-            return Err(SpawnError::ObserverUnavailable);
+            return Err(DescendantObservationFailure::Deadline);
         }
         let process_ids = {
             let state = self
                 .lock_state()
-                .map_err(|_| SpawnError::ObserverUnavailable)?;
-            query_process_ids(state.job.as_raw_handle())
-                .map_err(|_| SpawnError::ObserverUnavailable)?
+                .map_err(|_| DescendantObservationFailure::OwnerState)?;
+            query_process_ids(state.job.as_raw_handle()).map_err(|error| match error {
+                PlatformError::ProcessCensusOverflow => {
+                    DescendantObservationFailure::CensusOverflow
+                }
+                _ => DescendantObservationFailure::JobCensus(win32_error(&error)),
+            })?
         };
         let mut descendants = Vec::new();
         for pid in process_ids {
             if Instant::now() >= deadline {
-                return Err(SpawnError::ObserverUnavailable);
+                return Err(DescendantObservationFailure::Deadline);
             }
             // SAFETY: the PID came from the live Job Object census and the
             // requested rights are limited to identity/liveness observation.
@@ -875,22 +881,25 @@ impl PlatformAdapter for OwnerDomain {
                 )
             };
             if raw_process.is_null() {
-                return Err(SpawnError::ObserverUnavailable);
+                return Err(DescendantObservationFailure::OpenProcess(
+                    io::Error::last_os_error().raw_os_error(),
+                ));
             }
             // SAFETY: OpenProcess returned one fresh owned handle.
             let process = unsafe { OwnedHandle::from_raw_handle(raw_process) };
             let state = self
                 .lock_state()
-                .map_err(|_| SpawnError::ObserverUnavailable)?;
+                .map_err(|_| DescendantObservationFailure::OwnerState)?;
             confirm_job_membership(process.as_raw_handle(), state.job.as_raw_handle())?;
             if wait_result(process.as_raw_handle(), 0)
-                .map_err(|_| SpawnError::ObserverUnavailable)?
+                .map_err(|error| DescendantObservationFailure::Wait(win32_error(&error)))?
                 != WAIT_TIMEOUT
             {
-                return Err(SpawnError::ObserverUnavailable);
+                return Err(DescendantObservationFailure::NotRunning);
             }
-            let identity = capture_identity(process.as_raw_handle(), pid)
-                .map_err(|_| SpawnError::ObserverUnavailable)?;
+            let identity = capture_identity(process.as_raw_handle(), pid).map_err(|error| {
+                DescendantObservationFailure::CaptureIdentity(win32_error(&error))
+            })?;
             if registered_identities
                 .iter()
                 .any(|registered| registered == &identity)
@@ -912,14 +921,29 @@ impl PlatformAdapter for OwnerDomain {
     }
 }
 
-fn confirm_job_membership(process: HANDLE, job: HANDLE) -> Result<(), SpawnError> {
+fn confirm_job_membership(
+    process: HANDLE,
+    job: HANDLE,
+) -> Result<(), DescendantObservationFailure> {
     let mut in_job = 0;
     // SAFETY: both handles are live for the duration of the call and `in_job`
     // is writable BOOL storage.
-    if unsafe { IsProcessInJob(process, job, &mut in_job) } == 0 || in_job == 0 {
-        return Err(SpawnError::ObserverUnavailable);
+    if unsafe { IsProcessInJob(process, job, &mut in_job) } == 0 {
+        return Err(DescendantObservationFailure::JobMembership(
+            io::Error::last_os_error().raw_os_error(),
+        ));
+    }
+    if in_job == 0 {
+        return Err(DescendantObservationFailure::NotInJob);
     }
     Ok(())
+}
+
+fn win32_error(error: &PlatformError) -> Option<i32> {
+    match error {
+        PlatformError::Windows { source, .. } => source.raw_os_error(),
+        _ => None,
+    }
 }
 
 #[repr(C)]
@@ -1152,6 +1176,6 @@ mod tests {
         // and this process was never assigned to the fresh test Job Object.
         let result = confirm_job_membership(unsafe { GetCurrentProcess() }, job.as_raw_handle());
 
-        assert!(matches!(result, Err(SpawnError::ObserverUnavailable)));
+        assert_eq!(result, Err(DescendantObservationFailure::NotInJob));
     }
 }

@@ -799,6 +799,7 @@ fn observe_roots(
         unidentified_roots: Vec::new(),
         unresolved_survivors,
         observation_unresolved: false,
+        descendant_observation_failure: None,
     })
 }
 

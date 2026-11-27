@@ -21,8 +21,8 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::observation::{
-    is_complete, ContainmentMembership, ExitState, ObservationSnapshot, ProcessObservation,
-    UnidentifiedProcessObservation,
+    is_complete, ContainmentMembership, DescendantObservationFailure, ExitState,
+    ObservationSnapshot, ProcessObservation, UnidentifiedProcessObservation,
 };
 use crate::protocol::{
     AdoptionRequest, AuthenticatedRendezvousReply, CleanupResult, CompleteExitReceipt,
@@ -730,7 +730,7 @@ pub trait PlatformAdapter {
         &mut self,
         _registered_identities: &[NativeIdentity],
         _deadline: Instant,
-    ) -> Result<Vec<ProcessObservation>, SpawnError> {
+    ) -> Result<Vec<ProcessObservation>, DescendantObservationFailure> {
         Ok(Vec::new())
     }
 
@@ -1438,7 +1438,7 @@ impl<A: PlatformAdapter> Supervisor<A> {
             retained_unidentified.push(root);
         }
         self.unidentified_roots = retained_unidentified;
-        let (descendants, observation_unresolved) = match self
+        let (descendants, descendant_observation_failure) = match self
             .adapter
             .observe_owned_descendants(&registered_identities, deadline)
         {
@@ -1451,14 +1451,17 @@ impl<A: PlatformAdapter> Supervisor<A> {
                         })
                         .map(|descendant| descendant.identity.clone()),
                 );
-                (descendants, false)
+                (descendants, None)
             }
             Err(error) => {
                 push_cleanup_diagnostic(
                     &mut diagnostics,
-                    format!("observe owned descendants failed: {error}"),
+                    format!(
+                        "observe owned descendants failed: {}",
+                        SpawnError::ObserverUnavailable
+                    ),
                 );
-                (Vec::new(), true)
+                (Vec::new(), Some(error))
             }
         };
         for diagnostic in diagnostics {
@@ -1471,7 +1474,8 @@ impl<A: PlatformAdapter> Supervisor<A> {
             descendants,
             unidentified_roots,
             unresolved_survivors,
-            observation_unresolved,
+            observation_unresolved: descendant_observation_failure.is_some(),
+            descendant_observation_failure,
         }
     }
 
