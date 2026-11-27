@@ -1,0 +1,94 @@
+{
+  "date": "2026-11-27",
+  "sourceCommit": "1d8df2e5a8bdbe36bce3492aa401719badd0ed1d",
+  "surface": "isolated source-built desktop and sidecar",
+  "platform": "macOS arm64",
+  "operator": "agent through native UI automation",
+  "nativeVersion": "1.5.18",
+  "nativeSha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "workspace": "previously trusted disposable fixture",
+  "scope": {
+    "nativeStarts": 1,
+    "maximumSeconds": 180,
+    "fixturePromptsSubmitted": 1,
+    "maximumFixturePrompts": 2,
+    "resumes": 0
+  },
+  "launch": "blank built-in fresh session; no diagnostic argv",
+  "sessionMode": "Shift+Tab from auto through plan to default before prompt",
+  "savedPermissionPolicyUnchanged": true,
+  "newTrustOrCommandApprovalSent": false,
+  "hookChanges": false,
+  "observations": [
+    {
+      "elapsedSecondsApprox": 9,
+      "nativeUi": "1.5.18 banner and auto mode",
+      "sessionRow": "Idle",
+      "attentionCount": 0
+    },
+    {
+      "elapsedSecondsApprox": 17,
+      "nativeUi": "plan mode after first Shift+Tab"
+    },
+    {
+      "elapsedSecondsApprox": 24,
+      "nativeUi": "default mode after second Shift+Tab"
+    },
+    {
+      "elapsedSecondsApprox": 41,
+      "operatorAction": "submitted one harmless command fixture"
+    },
+    {
+      "elapsedSecondsApprox": 48,
+      "sessionRow": "Working",
+      "attentionCount": 0
+    },
+    {
+      "elapsedSecondsApprox": 54,
+      "nativeUi": "command permission dialog with option 4 No, cancel",
+      "sessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "phase": "before rejection",
+      "executionMarkerAbsent": true
+    },
+    {
+      "elapsedSecondsApprox": 68,
+      "operatorAction": "selected observed option 4 No, cancel",
+      "nativeUi": "User declined the tool call; ordinary input prompt",
+      "immediateAccessibilityStillNeedsYou": true
+    },
+    {
+      "elapsedSecondsApprox": 76,
+      "nativeUi": "ordinary input prompt after command rejection",
+      "sessionRow": "Idle",
+      "attentionCount": 0
+    }
+  ],
+  "executionMarkerAbsentAfter": true,
+  "cleanup": {
+    "isolatedLauncherStoppedWithinBudget": true,
+    "noExecutableWithUniqueTaskPathsInFollowupInventory": true,
+    "nativeExitCodeRetained": false,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "observation times do not measure clearing latency",
+    "no question-cancellation UI qualification",
+    "no human-operated confirmation",
+    "no published-installer qualification",
+    "no retained metadata-origin assertion"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "prompt text",
+    "account data",
+    "reporting credentials",
+    "saved permission rules"
+  ]
+}
