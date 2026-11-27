@@ -224,7 +224,7 @@ export async function runSuite(ledger,{pureVectors}) {
  let marker,allDrained=true,initial;const used=new Set();const traces=[];
  const result={schema:1,evidence_kind:'synthetic-reader-diagnostic',tests_passed:false,
   candidate_evidence_complete:false,runtime_qualified:false,production_pin_accepted:false,target_executions:0,
-  node_version:process.versions.node,pure_vectors:pureVectors,native:{status:'skipped',reason:'non-windows'},traces};
+  node_version:process.versions.node,pure_vectors:pureVectors,native:process.platform==='win32'?{status:'not-run'}:{status:'skipped',reason:'non-windows'},traces};
  try {
   for(const dir of ['requests','outputs'])fs.mkdirSync(path.join(owned,dir));
   put(path.join(owned,'owner'),Buffer.from('synthetic-v1'),ledger);marker=fs.openSync(path.join(owned,'owner'),'r');
@@ -243,6 +243,7 @@ export async function runSuite(ledger,{pureVectors}) {
     const decoder=new Decoder({nonce,mode,grant,ledger});need(++ledger.nativeChildren<=3,'child-limit');
     const close=await runChild({command:'C:/Program Files/PowerShell/7/pwsh.exe',args:['-NoProfile','-NonInteractive','-File',path.join(here,'pair-reader-diagnostic.ps1'),'-Nonce',nonce],owned,decoder,ledger,timeout:30000});
     allDrained&&=close.drained;traces.push(decoder.trace);
+    result.native={status:'failed',mode,exit_code:Number.isInteger(close.code)&&close.code>=0&&close.code<=255?close.code:null};
     let checked;
     admitAndSettle(decoder,close,ledger,reservation,()=>{
      const out=heldRead(path.join(owned,'outputs',nonce+'.json'),mode==='guards'?4096:MiB,ledger);

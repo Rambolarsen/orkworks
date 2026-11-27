@@ -4,27 +4,33 @@ $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 # Only the nonce is caller supplied; all data paths are derived below owned cwd.
 # No legacy reader is imported or invoked.
-if (-not $IsWindows -or $env:ORK_READER_SYNTHETIC -cne 'synthetic-v1' -or $Nonce -cnotmatch '\A[a-f0-9]{32}\z') { exit 1 }
+if (-not $IsWindows -or $env:ORK_READER_SYNTHETIC -cne 'synthetic-v1' -or $Nonce -cnotmatch '\A[a-f0-9]{32}\z') { exit 64 }
 $owned=[IO.Path]::GetFullPath((Get-Location).Path)
-if ([IO.Path]::GetFileName($owned) -cnotmatch '\Aork-reader-diagnostic-[a-f0-9]{32}\z' -or $env:TEMP -cne $owned -or $env:TMP -cne $owned) {exit 1}
+if ([IO.Path]::GetFileName($owned) -cnotmatch '\Aork-reader-diagnostic-[a-f0-9]{32}\z' -or $env:TEMP -cne $owned -or $env:TMP -cne $owned) {exit 65}
 $bound=$false
+$failureCode=70
 try {
     $requestPath=Join-Path $owned ('requests/'+$Nonce+'.json')
     # Framing precedes native setup. Held-file identity admission follows ready.
     $prefile=[IO.FileStream]::new($requestPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    $failureCode=71
     try {
         if($prefile.Length -gt 4096) {throw 'bad-request'}
         $raw=[byte[]]::new([int]$prefile.Length)
-        $prefile.ReadExactly($raw)
+        $prefile.ReadExactly($raw,0,$raw.Length)
         if($prefile.Length -ne $raw.Length) {throw 'bad-request'}
         $requestText=[Text.UTF8Encoding]::new($false,$true).GetString($raw)
     } finally {$prefile.Dispose()}
+    $failureCode=72
     $request=ConvertFrom-Json -InputObject $requestText -NoEnumerate
+    $failureCode=73
     if ($request.Count -ne 5 -or $request[0] -ne 1 -or $request[1] -cne 'synthetic-v1' -or $request[2] -cnotin @('reference','reuse','guards') -or $request[3] -cne $Nonce -or $request[4] -isnot [long] -and $request[4] -isnot [int]) {throw 'bad-request'}
     $mode=[string]$request[2];$grant=[long]$request[4]
+    $failureCode=74
     if ($grant -le 0 -or $grant -gt 67108864 -or $requestText -cne ('[1,"synthetic-v1","'+$mode+'","'+$Nonce+'",'+$grant.ToString([Globalization.CultureInfo]::InvariantCulture)+']')) {throw 'bad-request'}
     $bound=$true
     [Console]::Out.Write('[1,"'+$Nonce+'",1,"start","",0,0,0,0]'+"`n");[Console]::Out.Flush()
+$failureCode=75
 Add-Type -TypeDefinition @'
 using System;
 using System.IO;
@@ -152,7 +158,7 @@ namespace OrkReaderDiagnostic {
   }
   string archiveDigest;
   static bool Hex(string s)=>s!=null&&s.Length==64&&s.All(c=>(c>='0'&&c<='9')||(c>='a'&&c<='f'));
-  string Root(string label)=>Path.Combine(root,"fixtures",label=="registry"?"registry/src":label);
+  string Root(string label)=>Path.GetFullPath(Path.Combine(root,"fixtures",label=="registry"?"registry/src":label));
   void AuditInputs(){
    int fc=0,dc=0;long total=0;var pending=new Stack<string>();pending.Push(Path.Combine(root,"fixtures"));
    while(pending.Count>0){string p=Owned(pending.Pop());if(++dc>256)Deny("input-limit");foreach(string x in Directory.EnumerateFileSystemEntries(p)){
@@ -282,6 +288,7 @@ namespace OrkReaderDiagnostic {
  }
 }
 '@
+    $failureCode=76
     $reader=[OrkReaderDiagnostic.Reader]::new($owned,$Nonce,$mode,$grant)
     try {
         $reader.Setup()
@@ -301,6 +308,6 @@ namespace OrkReaderDiagnostic {
         exit 1
     }
 } catch {
-    # Setup without known settled accounting emits no invented work report.
-    exit 1
+    # Fixed stage status only; no raw exception or invented work report.
+    exit $failureCode
 }

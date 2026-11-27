@@ -35,7 +35,7 @@ const bad = [
  start.replace(',0,0,0,0]', ',-0,0,0,0]'), start.replace(',0,0,0,0]', ',1e0,0,0,0]'),
  start.replace(',0,0,0,0]', ',0.5,0,0,0]'), start.replace(',0,0,0,0]', ',9007199254740992,0,0,0]'),
  start.replace('start', 'sta\\u0072t'), ' ' + start, '\n' + start,
- '\ufeff' + start, start.replace('start', 'stárt'), start.replace('\n','\r\n'),
+ '\ufeff' + start, start.replace('start', 'stárt'), start.replaceAll('\n','\r\n'),
  start.replace('"",0', '"msvc",0'), start.replace(',0,0,0,0]', ',1025,0,0,0]'),
  start.replace(',0,0,0,0]', ',0,2048,0,1]'), start.replace(',0,0,0,0]', ',0,0,255,1]'),
  start.replace(',0,0,0,0]', ',0,0,0,2]'), start.replace(',0,0,0,0]', ',0,1,0,0]'),

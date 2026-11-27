@@ -113,3 +113,23 @@ report keeps the entire grant unknown. Its regression failed with 9 versus
 Documentation metadata, index validation, 2,583 documentation tests and site
 build passed. Existing chunk warnings concern unchanged bundling. Full
 verify-repo is still running before publication; native results await normal CI.
+
+Windows CI at 8c255d64 failed before any start record (empty child streams),
+charged the full unknown grant, stopped later children and removed drained
+scratch. The pre-native PowerShell call selected the one-argument Span overload
+of ReadExactly; change to its explicit byte-array/offset/count overload. Fixed
+numeric pre-start stage exit statuses now distinguish request-open/read/decode/
+binding and native setup without raw exception text. Native failure status is
+reported as failed, never mislabeled as a non-Windows skip. Verification of this
+correction remains pending the new-head normal CI run. API overload reference:
+[Stream.ReadExactly](https://learn.microsoft.com/en-us/dotnet/api/system.io.stream.readexactly?view=net-10.0).
+Substantial review cycle 1/3 will request one fresh Codex review for the fix head;
+Copilot remains unavailable under the already observed quota.
+
+Current-head Codex review also found that the embedded registry/src slash could
+produce a dot root row on Windows. Root() now normalizes with GetFullPath before
+comparison; existing independent directory assertions cover the empty root row.
+CodeQL identified a single-occurrence newline replacement in a malformed-input
+fixture. Replace all LF bytes to express the intended full CRLF malformed record;
+the existing encoding-refusal vector remains the behavior check. Both inline
+items will receive explicit dispositions on the fix commit.
