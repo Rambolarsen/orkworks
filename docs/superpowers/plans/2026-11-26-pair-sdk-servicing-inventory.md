@@ -4,7 +4,7 @@ title: One registry-only Windows SDK servicing inventory
 description: Proposed finite registry-only observation of the missing SDK servicing identity after the consumed component inventory exceeded its entry budget.
 tags: [orkworks, hierarchy, windows, sdk, qualification]
 status: draft
-workflow_status: proposed-no-execution-authority
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One registry-only Windows SDK servicing inventory
@@ -110,8 +110,8 @@ Actions terminal outcome; absent JSON permits no invented inspection counts.
 
 ## Deliverables and checks
 
-- [ ] Owner accepts this exact new registry-only allowance and tooling work.
-- [ ] Add a separate workflow/controller and offline fake-registry tests. Reuse
+- [x] Owner accepts this exact new registry-only allowance and tooling work.
+- [x] Add a separate workflow/controller and offline fake-registry tests. Reuse
   existing guard tests without changing the consumed batch. Prove wrong-head/
   rerun denial,1024/1025 pre-enumeration boundary, fixed-buffer overflow and
   malformed/type/missing values,32/33 matching records, changed membership/value
@@ -146,3 +146,41 @@ reversibility1 (scratch removal, no installation); uncertainty3 (future runtime
 availability and SDK record shape unknown). Total9 is a review aid, not approval.
 The concrete next decision is acceptance of tooling plus this one job, not a
 replacement build or an increase to any earlier spent budget.
+
+## Scoped allowance accepted (2026-11-27)
+
+The owner answered “keep going” to the explicit #2092 tooling-plus-one-job
+question. Proposal merge20bac1523d09e4aa89d59a3f703475a36756dccd. This accepts only
+the exact registry-only surface, limits, tooling and terminal-result work above.
+The original proposal/no-execution statements describe the pre-acceptance stage.
+Dispatch0/1; reviewed merged tooling and a frozen source head are still required.
+No earlier batch is renewed and no replacement pin, build or runtime profile is
+accepted. The collector uses decimal strings for full-width registry write
+markers so the JSON/Node boundary cannot round them.
+
+## Tooling review disposition (2026-11-27)
+
+One bounded independent safety/correctness and coverage round reviewed tooling
+headfff78059fa22914326ab1696e660a5bf6797058a. The owning agent applied one tested
+fix pass: bounded source descriptor reads with pre-hash byte charging; whitelist
+projection on unavailable observations; parent-handle-relative child opens;
+name-length and value-length/type output charging; failed-close outstanding-handle
+accounting; and a sole failure receipt on stream/evidence overflow. These fixes
+preserve the accepted surface/limits rather than increase an allowance.
+
+Regression tests observed the missing collector/guard and the reviewed privacy,
+source, parent-binding and closure failures before the relevant fixes. A fake
+cross-root fixture reaches2,114 value reads across two passes with32 matches;
+the33rd match denies before its version is read. Registry timestamps use exact
+decimal strings. A Windows orchestration fixture uses mocked public history and
+an owned constant-output Python stub, never the real registry collector.
+
+The exact fixed interpreter, isolated flags, native read/overflow/type/missing/
+relative-open/failed-close handling and failure orchestration/working-scratch
+cleanup passed on windows-2022 in normal CI run45954970061, job140359313136,
+headdacfb9d9. The initial Windows orchestration fixture failed at963807d5 because
+its Node ESM import used a drive path instead of a file URL; this test-only path
+fix then passed. Windows-latest fixtures passed too. All these registry reads
+use a disposable HKCU fixture; no installed SDK/uninstall data is queried.
+Full current-head CI and hosted review remain separate pre-merge requirements.
+Dispatch remains0/1. No second local review round or deferred minor findings.

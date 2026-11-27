@@ -40,6 +40,19 @@ jobs:
           python-version: '3.9'
       - run: python scripts/sonar_test.py
 
+  sdk-controller-fixture:
+    name: SDK controller fixture (windows-2022)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify fixed runtime and registry ABI on isolated fixtures only
+        shell: pwsh
+        run: |
+          & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/qualification/pair-windows-sdk-inventory.test.mjs
+          exit $LASTEXITCODE
+
   workspace-reporting:
     name: Workspace reporting (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -62,6 +75,17 @@ jobs:
         run: node --test scripts/qualification/pair-windows-metadata-evidence.test.mjs
       - name: Test data-only inventory policy
         run: node --test scripts/qualification/pair-windows-toolchain-inventory.test.mjs
+      - name: Verify registry-only SDK policy
+        run: node --test scripts/qualification/pair-windows-sdk-inventory.test.mjs
+      - name: Verify bounded SDK collector without installed SDK reads
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
+          } else {
+            python3 -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
+          }
+          exit $LASTEXITCODE
       - name: Test Windows inventory reader with synthetic data only
         if: runner.os == 'Windows'
         shell: pwsh
