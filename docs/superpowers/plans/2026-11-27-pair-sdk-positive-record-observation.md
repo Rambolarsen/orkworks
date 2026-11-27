@@ -228,3 +228,12 @@ other coding harness. No concurrent writers.
 - Pending: final fixture checks, repository verification/review,
   tooling PR terminal state, frozen source identities, one dispatch, receipt
   readback and canonical terminal record.
+
+- Fresh review of cc6393e0: correctness/privacy reviewer found no actionable
+  defects; coverage/resource reviewer identified source charging after reads.
+  Root accepted and fixed that finding: source reservation now precedes buffer
+  allocation/read and remains charged on drift. Two regression assertions failed
+  before the fix and passed after it; all61 Windows-evidence Node policy tests
+  passed locally (58 pass,3 Windows-only skips). New collector:27 pass,1 skip;
+  existing collector:19 pass,1 skip. Site regressions:42 pass. No deferred minors
+  or changed evidence semantics. One review round, two read-only Luna reviewers.

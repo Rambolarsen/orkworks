@@ -40,6 +40,7 @@ export function sourceHash(file, expected, charge = () => {}) {
   try {
     const before = fs.fstatSync(fd);
     need(before.isFile() && before.size === expected, "source-length");
+    charge(expected); // Reserve before allocation/read, including failed read attempts.
     const data = Buffer.alloc(expected);
     let offset = 0;
     while (offset < expected) {
@@ -48,7 +49,6 @@ export function sourceHash(file, expected, charge = () => {}) {
     }
     const after = fs.fstatSync(fd), current = fs.lstatSync(file);
     need(after.size === expected && current.isFile() && !current.isSymbolicLink() && current.size === expected && before.dev === current.dev && before.ino === current.ino, "source-drift");
-    charge(data.length);
     return sha(data);
   } finally { fs.closeSync(fd); }
 }
