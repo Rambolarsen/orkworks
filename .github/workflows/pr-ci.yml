@@ -81,6 +81,10 @@ jobs:
           ProducerTests.test_unrelated_and_capabilityless_starts_do_not_emit_worktree_context
           ProducerTests.test_powershell_session_start_uses_each_native_context_envelope
 
+      - name: Replay retained Antigravity hooks through native Windows PowerShell
+        if: runner.os == 'Windows'
+        run: node --test scripts/antigravity-reporter-windows.test.mjs
+
       - name: Test metadata evidence policy without acquisition
         run: node --test scripts/qualification/pair-windows-metadata-evidence.test.mjs
       - name: Test data-only inventory policy

@@ -79,6 +79,26 @@ The existing `report-harness-event.test.sh` suite also passed. This is reporter
 replay with intercepted HTTP, not delivery to an authenticated live sidecar,
 metadata identity retention, or proof that installed hooks executed.
 
+## Windows PowerShell reporter fixture
+
+The repository test `scripts/antigravity-reporter-windows.test.mjs` replays the
+seven sanitized payloads above through the source PowerShell reporter using
+native `powershell.exe`. The Windows workspace-reporting CI job runs this
+fixture with intercepted `Invoke-RestMethod` calls and synthetic reporting
+credentials. It checks identity registration, the first-invocation fallback,
+Working/Idle bodies, authentication headers, timestamps and empty stdout/stderr.
+Five synthetic controls cover later invocation, busy Stop, an unknown event,
+an unsafe identity and a Windows-style cwd. Runtime diagnostics identify the
+PowerShell version used. Non-Windows runs skip this native fixture and provide
+no Windows execution evidence.
+
+This test exercises the Windows reporter against payload shapes captured on
+macOS. It does not establish payloads emitted by a native Windows Antigravity
+client, authenticated sidecar delivery, installed-hook execution or desktop
+attention. Integration coverage remains limited. Exact-head CI results in the
+fixture's PR record establish whether a particular replay completed; the
+original macOS observations and their limits remain unchanged.
+
 ## Native attention and cleanup limits
 
 The interactive exact-resume probe requested brief native OSC 7501 emission.
@@ -96,7 +116,7 @@ temporary binary/private ID file were removed. Complete descendant cleanup is
 not proven. Native history/cache created by the normal CLI remain under native
 ownership; no global history or saved permissions were edited by the operator.
 
-Remaining #1996 work includes Windows reporter execution and installed-hook
+For #1996, Windows reporter replay is tracked separately from installed-hook
 live delivery. A resumed native attention check still needs a fixture that can
 reach a turn without expanding trust, with the target resolved explicitly before
 launch. Published installers and human-operated confirmation remain unverified.
