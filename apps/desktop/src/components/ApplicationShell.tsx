@@ -534,7 +534,10 @@ export default function ApplicationShell(props: Props) {
       {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions"
         onKeyDown={event => {
           if (event.defaultPrevented || event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
-          if (!(event.target instanceof HTMLElement) || event.target.id !== "sessions-list") return;
+          if (!(event.target instanceof HTMLElement)) return;
+          const fromList = event.target.id === "sessions-list"
+            || (event.target.closest(".session-context-menu") && document.activeElement?.id === "sessions-list");
+          if (!fromList) return;
           const resume = rootRef.current?.querySelector<HTMLButtonElement>("[data-shell-resume]:enabled");
           if (!resume) return;
           resume.focus();

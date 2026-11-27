@@ -42,13 +42,13 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
 
   return createPortal(<div ref={ref} className="session-context-menu" role="menu" aria-label={`Actions for ${session.label}`} tabIndex={-1}
     style={{ position: "fixed", ...position }} onKeyDown={event => {
-      event.stopPropagation();
-      if (event.key === "Escape") { event.preventDefault(); onDismiss(); return; }
       if (event.key === "Tab") {
-        // Let Chromium advance from the invoker. Keep focus on the fallback if the invoker is gone.
+        // After restoring the invoker, let Sessions handle Tab or let Chromium advance.
         if (!onDismiss()) event.preventDefault();
         return;
       }
+      event.stopPropagation();
+      if (event.key === "Escape") { event.preventDefault(); onDismiss(); return; }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];

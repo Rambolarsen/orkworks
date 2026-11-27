@@ -2156,13 +2156,27 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'resume-session') {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
-          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
+          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",sessionState:"closed",sessionActionToken:"fixture-token",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
           await evaluate('document.querySelector("#sessions-list").focus()');
           win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
           win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
           await waitFor('document.activeElement.matches("button[data-shell-resume]")');
           assert.deepEqual(await evaluate('fixture.resumed'),[],'moving focus does not resume the session');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'F10',modifiers:['shift']});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'F10',modifiers:['shift']});
+          await waitFor('document.activeElement.matches("[role=menuitem]") && document.activeElement.textContent==="Resume"');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('!document.querySelector("[role=menu]") && document.activeElement.matches("button[data-shell-resume]")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'leaving the row menu moves focus without resuming');
+
+          await evaluate('document.querySelector("[data-session-id=coding] .session-row-more").click()');
+          await waitFor('document.activeElement.matches("[role=menuitem]")');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('!document.querySelector("[role=menu]") && document.activeElement.hasAttribute("data-shell-settings")');
           assert.ok(await evaluate(`(() => {
             const main = document.querySelector('[data-shell-resume]');
             const arrow = document.querySelector('.shell-toolbar [data-resume-toggle]');
