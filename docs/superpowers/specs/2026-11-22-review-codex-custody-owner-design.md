@@ -3,12 +3,12 @@ type: Design
 title: Keep Codex capture custody in a startup-sealed owner pool
 description: Proposed resolution of received-descriptor inheritance using presealed channels and a bounded pool of non-spawning resource owners.
 tags: [orkworks, review, codex, custody, processes]
-status: draft
+status: stable
 ---
 
 # Keep Codex capture custody in a startup-sealed owner pool
 
-**New architecture amendment for owner approval; no implementation or activation.**
+**The project owner accepted this architecture for bounded macOS qualification on 2026-11-27.** See [ADR 0122](../../adr/0122-startup-sealed-codex-custody.md).
 Track [#1981](https://github.com/Rambolarsen/orkworks/issues/1981), under
 #68/#66/#1899 and #738/#741. Source base: `5320f358`.
 Reuse the accepted [capture inventory/custody architecture](2026-11-22-review-codex-capture-design.md),
@@ -19,14 +19,14 @@ The [source audit and native witness](../../validation/ordinary-review-codex-spa
 explain the gap and their finite limits. The [bounded qualification plan](../plans/2026-11-22-review-codex-custody-owner-qualification.md)
 adds neither the shared mutation epoch nor a producer/Start consumer.
 
-## Problem and decision proposed
+## Problem and decision
 
 SCM_RIGHTS receipt into the multithreaded sidecar can create an inheritable file
 handle before a later close-on-exec call. Existing launch families have no common
 receive/spawn exclusion. Merely moving handles to a helper is insufficient if
 its newly created controller pipes/socket endpoints have the same bootstrap gap.
 
-Propose **up to four persistent, non-spawning custody workers, with all controller
+Use **up to four persistent, non-spawning custody workers, with all controller
 channels sealed before concurrent controlled sidecar launches are possible**.
 Resources move only from the sidecar into a worker. No resource descriptor returns
 to the multithreaded sidecar. A preview retains the exact live worker lease,
@@ -182,10 +182,7 @@ selection until later gates. Reverting that dormant slice rewrites no user file.
 Activation/downgrade and user-visible availability policy still require their
 own qualified rollout; rollback of a document is not a runtime recovery proof.
 
-Requested decision: approve the startup-sealed, four-worker persistent pool and
-its lease/quota/startup-failure semantics for bounded qualification. This is the
-material change from #1972. Native primitive evidence supports process separation
-only; the actual pool/bootstrap/lifecycle source boundary is still Investigate.
+The owner accepted the startup-sealed pool and its lease, quota, and startup-failure rules for bounded qualification. That decision changes the process lifetime and bootstrap from #1972. The actual pool, bootstrap, and lifecycle boundary still requires native proof.
 
 ## Fresh review — 2026-11-23
 
@@ -194,4 +191,4 @@ independent contract review confirmed the source-family/main claims and preserve
 bootstrap, exact lease, reuse, invalidation, quota and separate native/Start gates.
 Its required evidence-cleanup wording correction and optional descriptor-ledger
 clarification were applied. Actual source/bootstrap/cleanup qualification remains
-Investigate; new architecture approval remains pending.
+Investigate. The review preceded the 2026-11-27 owner decision.

@@ -176,8 +176,10 @@ first-profile resource set, retained read-only observation and shared checked
 owner. Initial native descriptor evidence leaves concurrent-spawn custody
 unqualified under #1981. No actual collector, mutation coverage, native role or
 prepared Start is enabled. A [startup-sealed custody-owner amendment](../docs/superpowers/specs/2026-11-22-review-codex-custody-owner-design.md)
-proposes a process-lifetime/bootstrap resolution under #1981; it is not approved
-or implemented, and its finite native evidence does not qualify a real observer.
+records the owner-approved process-lifetime and bootstrap design for bounded
+macOS qualification under #1981. [ADR 0122](../docs/adr/0122-startup-sealed-codex-custody.md)
+records the decision. The actual worker boundary and production activation
+require separate evidence and approval.
 
 ### Independence is valuable
 

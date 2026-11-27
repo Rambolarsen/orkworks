@@ -382,7 +382,7 @@ Dated design records; these do not establish current product behavior.
 
 - [Complete Codex capture inventory and custody](2026-11-22-review-codex-capture-design.md) — Proposed complete inventory, retained custody and shared owner prerequisites.
 
-- [Keep Codex capture custody in a startup-sealed owner pool](2026-11-22-review-codex-custody-owner-design.md) — Proposed non-spawning worker custody and startup channel-sealing amendment.
+- [Keep Codex capture custody in a startup-sealed owner pool](2026-11-22-review-codex-custody-owner-design.md) — Accepted macOS qualification scope for persistent worker custody and sealed startup channels.
 
 - [Closed research catalog enumeration and owner selection](2026-11-23-research-catalog-closure-design.md) — Proposed closed logical catalog for the retained-file research profile with mandatory empty families and admission-time source ownership; physical format selection remains gated.
 
