@@ -6,6 +6,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Evidence for atomic evaluation publication](2026-11-27-evaluation-publication-witness-design.md) — Proposed source-owned evidence for complete effects, bounds, recovery and retry under #1176.
+
 - [Task actions in an existing session](2026-11-27-session-task-actions-design.md) — Proposed prompt actions, readiness authority, and explicit title ownership.
 
 - [Pair build provenance and startup custody](2026-11-24-pair-build-startup-design.md) — Accepted shared candidate feature undefinition and early bootstrap custody; actual build/startup qualification and execution pending.
