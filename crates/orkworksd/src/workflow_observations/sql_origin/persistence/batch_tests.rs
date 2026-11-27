@@ -101,7 +101,15 @@ async fn batch_updates_own_pins_and_offsets_across_successive_rewrites() {
         .map(|i| seed(&source, i, &format!("old-{i}"), i == 1))
         .collect();
     seed_file(root.path(), &records, 1000);
-    let results = persist_batch_files(&directory, request(), &source, 7, inputs(3), now).unwrap();
+    let results = persist_batch_files(
+        &directory,
+        request().for_numeric_test(),
+        &source,
+        7,
+        inputs(3),
+        now,
+    )
+    .unwrap();
     for (index, result) in results {
         assert!(
             matches!(result.unwrap(),RecordOutcome::Accepted(v)if v.sequence==1001+index as u64)
@@ -134,6 +142,36 @@ async fn batch_updates_own_pins_and_offsets_across_successive_rewrites() {
     );
     store.close().await.unwrap();
 }
+#[tokio::test]
+async fn batch_expiring_after_inventory_leaves_no_file_effects() {
+    let (root, store, source, directory) = fixture().await;
+    let request = request();
+    let deadline = request.deadline();
+    AFTER_SCAN.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            std::thread::sleep(
+                deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
+            );
+        }));
+    });
+    let results = persist_batch_files(&directory, request, &source, 7, inputs(3), now).unwrap();
+    assert_eq!(results.len(), 3);
+    for (expected_index, (index, result)) in results.into_iter().enumerate() {
+        assert_eq!(index, expected_index);
+        assert!(matches!(
+            result,
+            Err(WriteError::Storage(StoreError::Expired))
+        ));
+    }
+    assert_eq!(
+        fs::read_dir(root.path().join("workflow-observations"))
+            .unwrap()
+            .count(),
+        0
+    );
+    store.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn admitted_batch_finishes_after_first_effect_crosses_original_deadline() {
     let (_root, store, source, directory) = fixture().await;
