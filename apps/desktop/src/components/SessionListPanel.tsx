@@ -144,7 +144,7 @@ const SessionListRow = memo(function SessionListRow({
       </span>
       </button>
       <div className="session-row-actions">
-        <button type="button" className="session-row-more" aria-label={`More actions for ${s.label}`} aria-haspopup="menu" aria-expanded={menuOpen}
+        <button type="button" className="session-row-more" tabIndex={-1} aria-label={`More actions for ${s.label}`} aria-haspopup="menu" aria-expanded={menuOpen}
           disabled={!!pendingAction}
           onClick={event => {
             event.stopPropagation();
@@ -313,6 +313,7 @@ function SessionListPanel({
           className="session-list"
           role="list"
           aria-label="Sessions"
+          aria-keyshortcuts="Shift+F10"
           tabIndex={0}
           onKeyDown={handleKeyDown}
         >

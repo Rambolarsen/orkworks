@@ -2158,6 +2158,11 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
           await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.matches("button[data-shell-resume]")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'moving focus does not resume the session');
           assert.ok(await evaluate(`(() => {
             const main = document.querySelector('[data-shell-resume]');
             const arrow = document.querySelector('.shell-toolbar [data-resume-toggle]');
@@ -2172,6 +2177,10 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'main button resumes the preferred exact session');
           await evaluate('fixture.setResuming(["coding"])');
           await waitFor('document.querySelector("[data-shell-resume]").disabled');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.hasAttribute("data-shell-settings")');
           assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resuming/);
           assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'),/Resuming/);
           assert.equal(await evaluate('document.querySelector("[data-resume-toggle]").disabled'),true);
@@ -2473,10 +2482,30 @@ if (process.versions.electron) {
           await waitFor('document.querySelector("[data-shell-region=terminal]")');
           assert.equal(await evaluate('document.activeElement.dataset.shellCommand'),'sessions','empty page returns to Sessions invoker');
         } else if (scenario === 'sessions-browse') {
+          const tab = (modifiers = []) => {
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers});
+          };
+          const assertSessionsTabOrder = async () => {
+            tab();
+            await waitFor('document.activeElement.hasAttribute("data-shell-settings")');
+            tab(['shift']);
+            await waitFor('document.activeElement.id==="sessions-list"');
+          };
+          await evaluate('fixture.setExtraActionCount(4);fixture.setSessionState({sessionState:"active",sessionActionToken:"fixture-token"})');
+          await waitFor('document.querySelectorAll(".session-row-more").length===6');
+          await evaluate('document.getElementById("sessions-list").focus()');
+          await assertSessionsTabOrder();
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'F10',modifiers:['shift']});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'F10',modifiers:['shift']});
+          await waitFor('document.activeElement.matches("[role=menuitem]") && document.activeElement.textContent==="Close"');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          await waitFor('document.activeElement.id==="sessions-list"');
           await win.setContentSize(640,700);
           await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact"');
           await click('sessions');
           await waitFor('document.getElementById("sessions-list")===document.activeElement');
+          await assertSessionsTabOrder();
           await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true}))');
           await waitFor('fixture.selections===1');
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=sessions]")'),true,'arrow selection keeps compact Sessions mounted');
@@ -3188,6 +3217,7 @@ if (process.versions.electron) {
                 resumingIds:resumingSessionIds,
                 onSelect:id=>{fixture.selections++;if(${javascriptLiteral(scenario)}.endsWith('-main'))setInspector(null);setActiveSessionId(id)},
                 onResume:(id,strategy)=>fixture.resumed.push({id,strategy}),
+                onAction:()=>{},
                 onApplyDebugAttention:()=>{},
                 onFocusTerminal:()=>fixture.runtime()?.terminal.focus(),
               }}

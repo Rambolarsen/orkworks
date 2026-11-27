@@ -531,7 +531,15 @@ export default function ApplicationShell(props: Props) {
           {backendStatus !== "picker" && <span className={`shell-connection ${backendStatus === "connected" ? "ok" : "warn"}`} role="img" aria-label={`Connection: ${backendStatus}`} title={`Connection: ${backendStatus}`}><span aria-hidden="true" /></span>}
         </footer>
       </aside>}
-      {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions">
+      {showSessions && <section className="shell-region shell-region--sessions" aria-label="Sessions region" data-shell-region="sessions"
+        onKeyDown={event => {
+          if (event.defaultPrevented || event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+          if (!(event.target instanceof HTMLElement) || event.target.id !== "sessions-list") return;
+          const resume = rootRef.current?.querySelector<HTMLButtonElement>("[data-shell-resume]:enabled");
+          if (!resume) return;
+          resume.focus();
+          if (document.activeElement === resume) event.preventDefault();
+        }}>
         <div className="shell-sidebar-top">{workspaceNavigation}</div>
         <header className="shell-region-header shell-sessions-header"><h2 data-shell-sessions-heading tabIndex={-1}>Sessions</h2>
           {showSessionsPage && <button type="button" data-shell-command="sessions" data-shell-return onClick={closePage}>{reviewing ? "Back to Review" : "Back to Terminal"}</button>}
