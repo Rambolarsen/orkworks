@@ -365,3 +365,57 @@ origin assertion, or an in-conversation question/command-permission UI test.
 The earlier native terminal trials remain the evidence for those other
 transitions. The existing user desktop was not restarted or updated, and the
 remaining coverage tracked by #1996 is still open.
+
+
+## Source-build desktop question check, 2026-11-27
+
+Following [the startup UI evidence in PR #2098](https://github.com/Rambolarsen/orkworks/pull/2098),
+the owner directed the in-conversation question check. An isolated development
+app and sidecar were built from source commit `7471775a`. A separate app identity,
+development profile and empty disposable Git workspace kept the existing app
+and live sessions outside this test. Only Antigravity was enabled; Settings
+installed its hook in the ignored `.agents/` directory of that fixture.
+
+The installed CLI now reported 1.5.18, outside the qualified source profiles.
+The official [1.5.17 macOS arm64 release](https://github.com/google-antigravity/antigravity-cli/releases/tag/1.5.17)
+was downloaded into the disposable test directory. Its archive matched GitHub's
+published asset digest, and its executable matched the previously qualified
+1.5.17 hash. The installed CLI was not replaced or downgraded. The test copy was
+read-only and used process-only updater suppression. No production eligibility
+or launch policy changed.
+
+Exactly one fresh built-in session was started, capped at 180 seconds and two
+fixture prompts. Only one prompt was submitted. Peon was disabled in the test
+app environment; inherited reporting capabilities and model/proxy credentials
+were excluded from its launcher. Normal native saved login/configuration still
+applied. Native workspace trust was granted for this empty disposable fixture
+through its visible control so the question turn could proceed. This differs
+from the earlier startup cancellation test: it does not claim that native trust
+state was left unchanged. No command approval or broader permission grant was
+sent. Model-call accounting was not measured.
+
+The agent observed the actual desktop via screenshots and native accessibility:
+
+| Observation | Native terminal | OrkWorks UI |
+| --- | --- | --- |
+| About 34 seconds after start | Structured Alpha/Beta question with numbered options and Enter selection control | Needs you in session row; Attention 1 |
+| About 44 seconds after start | Question still waiting before operator answer | Accessibility still reports Needs you |
+| Answer submitted | Enter selected the default option; terminal showed Working | Immediate screenshot still showed Needs you; it is not evidence of instantaneous clearing |
+| By about 73 seconds after start | Brief completion reply and ordinary input prompt | Accessibility reports Idle; screenshot shows Attention 0 and no Needs you badge |
+
+The [sanitized question UI record](antigravity-native-question-ui-2026-11-27.json)
+retains fixed observations, hashes and limits. It does not retain screenshots,
+raw terminal output, native IDs, account data or reporting credentials. The
+question was answered rather than canceled. No second question, native start or
+resume occurred. The isolated launcher was stopped within the three-minute
+budget; a subsequent executable-path inventory found no process using the
+unique task app/sidecar/native paths. The native executable hash was unchanged
+after the test. This is not complete descendant-reaping proof.
+
+This establishes agent-observed in-conversation question attention and clearing
+after an answer in the source-built macOS arm64 desktop with CLI 1.5.17. It does
+not establish a published installer, human-operated confirmation, instantaneous
+clearing latency, command-permission UI behavior, question cancellation in the
+UI, 1.5.18 support or a retained metadata-origin assertion. The exact source
+allowlist stays 1.5.16/1.5.17; the broader #1996 coverage remains open. Existing
+user sessions and their running desktop were not restarted or updated.
