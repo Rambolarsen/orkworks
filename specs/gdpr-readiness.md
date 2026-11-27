@@ -1,0 +1,54 @@
+# GDPR readiness for the local-first desktop release
+
+Status: proposed for owner review. Approval is required before implementing new privacy defaults, provider controls, or deletion behavior. The inventory and synthetic verification can start independently.
+
+## Outcome and scope
+
+A user can see what OrkWorks stores and sends, choose whether OrkWorks sends workspace content to a model, and inspect or remove OrkWorks-owned data using documented procedures. The maintainer can explain and demonstrate the processing covered by a named macOS and Windows release and its supported configurations.
+
+Scope covers the desktop app and sidecar, user-selected model providers and coding-tool integrations, the public site and downloads/updates, and OrkWorks support. Hosted inference, sync, accounts, organization-wide dashboards, and employee monitoring require their own assessment and product decision.
+
+The desktop app already keeps recent terminal replay and session information locally, supports session deletion and optional age/count retention, and excludes archived sessions from automatic cleanup. Fresh settings currently leave automatic age/count expiry disabled. Enabled Peon inference can use terminal context. Taskmaster can send permitted workflow or repository context to its selected model. See the [getting-started guide](../docs/user/getting-started.md), [session guide](../docs/user/sessions.md), and [Taskmaster knowledge contract](taskmaster-knowledge.md).
+
+## 1. Establish the processing inventory
+
+Trace fresh installs and upgrades on both platforms using synthetic data. Inventory session metadata, paths and native identifiers, raw replay, events and observations, prompts and images, generated reports and recommendations, settings and credentials, diagnostics, temporary files, backups, support, site hosting, and update/download traffic. Follow the handoffs through Peon, Taskmaster, and each coding tool or provider in the proposed release scope. Record source and packaged-build evidence separately.
+
+For each flow, identify purpose, data and people affected, trigger and default, owner, storage and retention, access, recipients and region, rights handling, and evidence. Record the applicable roles and lawful basis where OrkWorks determines the purpose and means, and review processor terms, subprocessors, and international transfers where applicable. Distinguish vendor-managed copies and customer-directed use in the inventory. Put sensitive vendor and operational records in a restricted location and publish a sanitized summary. Qualify the configurations with evidence and record exclusions and open decisions.
+
+## 2. Specify what content can leave the device
+
+A fresh installation keeps OrkWorks-controlled model dispatch with workspace content disabled until the user configures and enables the intended route. Existing configured routes keep their saved settings. An upgrade prompts for the new disclosure before the first affected dispatch. Show the destination, affected workspace scope, kinds of content and whether requests can run in the background, with a path to turn dispatch off. Apply this to model destinations reached through a native harness when OrkWorks initiates the inference. Disclose user-started coding tools and intentional native prompt/image handoffs where users choose them. The enablement action is a product setting. The applicable lawful basis is determined per processing purpose.
+
+Use existing sidecar provider and context boundaries. Enforce data restrictions at dispatch for each covered path, including retries and background work. Check the approved configuration and destination again after a provider, endpoint, or scope change. Treat custom or unresolved destinations as external or unknown until classified. A blocked or unavailable route reports its state without switching to another provider. Preserve deterministic observations and other local functionality. Review permitted fields for each feature, prefer less revealing inputs where they work, and keep raw content and credentials out of routine diagnostics. Use synthetic markers and local receivers to prove allowed and blocked flows without sending private data.
+
+## 3. Limit retention and verify removal
+
+Reuse [#1249](https://github.com/Rambolarsen/orkworks/issues/1249) for the separate replay retention design. Propose finite defaults with a purpose and expiry trigger per data class, with settings and understandable treatment for archived items. The inventory drives the periods and exceptions. Preserve existing history and preferences during upgrade. Preview the effect and require an explicit decision before applying a policy to existing history. Preserve current protection for active and finalizing sessions and honor existing ownership and evidence-custody rules.
+
+Verify the existing Delete/Forget and expiry paths against the approved inventory. Handle replay, metadata, events, attachments, observations, recommendations, reports, temporary artifacts, recoverable backups and restore behavior according to their ownership and retention. Identify outputs that have independent scope and retention so cleanup cannot remove another session's or workspace's data. Keep incomplete cleanup visible and retryable, and check that a restart, retry, or restore cannot silently republish data reported as erased. Define any backup expiry or suppression procedure separately in the inventory. Check across the shipped JSON path and the SQLite path if activated. Reuse [#1240](https://github.com/Rambolarsen/orkworks/issues/1240) and Windows attachment work [#1674](https://github.com/Rambolarsen/orkworks/issues/1674) and [PR #2136](https://github.com/Rambolarsen/orkworks/pull/2136) as evidence where qualified. Include local access controls, archive behavior, paths containing non-ASCII characters, failure and retry, and isolation between workspaces and OS accounts.
+
+## 4. Support individual rights
+
+Publish a supported local inspection and retrieval procedure with a documented machine-readable output where applicable. Begin with a safe documented local workflow or utility using existing readers. Add a dedicated interface only if the workflow cannot meet the verified requirements. Scope retrieval to the authorized dataset and avoid exposing credentials, unrelated workspaces, or other people's data. Use synthetic data to show that requests can be scoped and fulfilled without uploading the entire workspace.
+
+Provide a contact route and a restricted request record. Define verification, legal applicability and exceptions, deadlines, action and handoff for access, correction, erasure, restriction, objection and portability where applicable. An individual whose data appears in a session may be someone other than the app user. Document which requests OrkWorks can handle, when the customer's controller is responsible, and where native tools, providers, or customer-held copies require their own action. Drill a request across the local store and a simulated external recipient. [EDPB guidance on individual rights](https://www.edpb.europa.eu/sme/be-compliant/respect-individuals-rights_en)
+
+## 5. Publish the notice and operate the release
+
+Publish an accessible, versioned privacy notice linked from the site and desktop app. Use the verified inventory to describe roles, purposes, applicable bases, destinations/transfers, retention, choices, and rights and contact routes. Explain differences between supported configurations and customer-managed tools. Designate owners for privacy requests, incident assessment and notification, vendor review, and release evidence. Keep applicable processing records and review whether a data protection impact assessment is needed. Put notification thresholds, deadlines, escalation and evidence handling in the incident procedure, and exercise it with a synthetic incident. Reassess new processing and material changes before enabling them.
+
+A release can claim the specific controls verified for its named build and configurations after the maintainer reviews the evidence, operating procedures and applicable legal obligations. The verification packet covers fresh install and upgrade, outbound payloads and destinations, retention and recovery, access and erasure, isolation, and the request/incident drills. Record the build IDs, covered configurations and any unresolved scope. Use the [release pipeline](release-pipeline.md) for artifact identity. A Norwegian employer considering monitoring individual workers needs its own assessment of workplace rules and impact. [Datatilsynet workplace-monitoring guidance](https://www.datatilsynet.no/personvern-pa-ulike-omrader/personvern-pa-arbeidsplassen/overvaking-av-ansattes-bruk-av-elektronisk-utstyr/)
+
+## Delivery order and review
+
+Start the inventory and synthetic fixtures. Use its findings to confirm the release scope and propose specific retention defaults and permitted provider inputs. After owner approval, deliver provider controls and data lifecycle work in parallel where their boundaries allow it. Use both to finalize rights procedures and the notice, then qualify the packaged release. The tracking issue records dependencies and acceptance evidence.
+
+Planning review disposition: ready for owner review and inventory. Dependencies 4/5 (providers and pending platform/storage qualification). Blast radius 4/5 (shared inference and session lifecycle). State change 4/5 (new expiry can delete user data). Reversibility is unknown until deletion, backup restore and upgrade behavior are verified. Uncertainty 4/5 (provider terms, packaged behavior and actual operator processes require evidence). Block dependent rollout on the corresponding evidence and approval. A documentation-only approach would leave runtime guarantees unverified. A hosted service would add responsibilities outside this release.
+
+## References
+
+- [GDPR, including Articles 5–6, 12–22, 25, 28, 30, 32–35 and Chapter V](https://eur-lex.europa.eu/eli/reg/2016/679/)
+- [EDPB controller and processor guidance](https://www.edpb.europa.eu/sme/learn-the-basics/data-controller-or-data-processor_en)
+- [EDPB data protection by design and default guidance](https://www.edpb.europa.eu/system/files/documents/files/file1/edpb_guidelines_201904_dataprotection_by_design_and_by_default_v2.0_en.pdf)
+- [EDPB data breach guidance](https://www.edpb.europa.eu/sme/assess-the-risks/data-breaches_en)
