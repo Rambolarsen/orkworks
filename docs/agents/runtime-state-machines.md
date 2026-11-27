@@ -104,6 +104,8 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Recommendation refresh in flight | Invalidation arrives | Dirty until settle, then one follow-up refresh |
 | Recommendation refresh subscribed | Last subscriber leaves | Inactive; older result cannot publish |
 | Resume idle | Resume admitted for the row | Pending, with one operation per row |
+| Resume pending | Backend URL resolves while admission and the row reservation are current | Send the resume to the sidecar |
+| Resume pending | Backend URL resolves after admission or the reservation is invalidated | Skip the stale dispatch |
 | Resume pending | Duplicate request, or old operation finishes after replacement | Current pending operation is unchanged |
 | Resume pending | Current success | Update the row, fence older list reads, and select the resumed row if no newer session was selected |
 | Resume pending | Current failure or admission closes | Clear progress for the owned operation; recover current data on failure |
@@ -210,6 +212,17 @@ in `crates/orkworksd/src/workspace_updates/split.rs` advances that deadline
 without changing the producer revision, then checks that the publisher
 invalidates recommendations. The same test checks that a subsequent producer
 event still invalidates promptly.
+
+### Resume reached the backend after admission changed
+
+[#2152](https://github.com/Rambolarsen/orkworks/issues/2152) tracks the
+dispatch race. The controller awaited its backend URL, then sent the resume
+before checking whether the workspace still owned the operation. Tests delayed
+the URL result until admission closed and reopened, a replacement workspace was
+adopted, or the controller was disposed. Each ordering sent a request on the
+baseline. The current controller checks admission and the exact pending-resume
+reservation before dispatch. A separate test confirms that two valid resumes
+for different sessions can still dispatch in the same workspace.
 
 ### Nonzero PTY child exit was recorded as a successful end
 

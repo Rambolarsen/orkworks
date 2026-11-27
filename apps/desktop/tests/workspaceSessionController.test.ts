@@ -1117,6 +1117,64 @@ for (const outcome of ["success", "failure"] as const) {
   });
 }
 
+for (const invalidation of ["admission", "workspace", "disposal"] as const) {
+  test(`resume does not dispatch after ${invalidation} invalidates a pending backend lookup`, async () => {
+    const backend = deferred<string>();
+    const requests: Array<[string, string]> = [];
+    const errors: string[] = [];
+    let delayLookup = true;
+    const controller = createWorkspaceSessionController({
+      deps: deps({
+        getBackendUrl: () => delayLookup ? backend.promise : Promise.resolve("http://replacement"),
+        resumeSession: async (url, id) => {
+          requests.push([url, id]);
+          return session(id);
+        },
+      }),
+      onError: error => errors.push(error.key),
+    });
+
+    const pending = controller.resumeSession("remembered", "exact");
+    delayLookup = false;
+    if (invalidation === "admission") {
+      controller.setAdmissionEnabled(false);
+      controller.setAdmissionEnabled(true);
+    } else if (invalidation === "workspace") {
+      await controller.adoptRestoredWorkspace(workspace("/replacement"));
+    } else {
+      controller.dispose();
+    }
+    backend.resolve("http://original");
+    await pending;
+
+    assert.deepEqual(requests, []);
+    assert.deepEqual(errors, []);
+    controller.dispose();
+  });
+}
+
+test("resumes for separate sessions can both dispatch after a shared backend lookup", async () => {
+  const backend = deferred<string>();
+  const requests: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      getBackendUrl: () => backend.promise,
+      resumeSession: async (_url, id) => {
+        requests.push(id);
+        return session(id);
+      },
+    }),
+  });
+
+  const one = controller.resumeSession("one");
+  const two = controller.resumeSession("two");
+  backend.resolve("http://backend");
+  await Promise.all([one, two]);
+
+  assert.deepEqual(requests, ["one", "two"]);
+  controller.dispose();
+});
+
 test("workspace replacement clears resume progress and an old response cannot clear a new resume", async () => {
   const oldResponse = deferred<SessionInfo>();
   const newResponse = deferred<SessionInfo>();

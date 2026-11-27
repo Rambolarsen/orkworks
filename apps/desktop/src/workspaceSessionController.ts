@@ -340,6 +340,8 @@ export function createWorkspaceSessionController(
     try {
       deps.disposeTerminal(id);
       const baseUrl = await deps.getBackendUrl();
+      // Workspace replacement clears the reservation even if admission stays open.
+      if (!isCurrentAdmission(admissionToken) || pendingResumes.get(id) !== operation) return;
       const resumed = await deps.resumeSession(baseUrl, id, strategy);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
       // Reads begun during resume can still carry the previous runtime.
