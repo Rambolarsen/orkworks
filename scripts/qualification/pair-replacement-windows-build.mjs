@@ -1044,7 +1044,7 @@ async function main() {
             },
             python: {
               path: python,
-              version: "3.12.10",
+              required_version: "3.12.10",
               architecture: "x64",
               sha256: boundedHash(python, budget),
             },

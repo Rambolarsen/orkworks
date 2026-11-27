@@ -50,26 +50,26 @@ try {
     [IO.File]::Delete((Join-Path $src 'unlisted.rs'))
     [IO.File]::WriteAllText((Join-Path $src 'src/lib.rs'),'changed',[Text.UTF8Encoding]::new($false))
     $denied=$false;try{Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $policy|Out-Null}catch{$denied=$true};Assert $denied 'tampered extracted member'
-    # Malformed archives are owned synthetic bytes with fixture-specific lock hashes.
+    # Raw USTAR headers preserve unsafe bytes; TarWriter may normalize names.
+    function New-FixtureHeader([string]$Name,[long]$Length,[char]$Type='0') {
+        $header=[byte[]]::new(512)
+        function Field([int]$Offset,[string]$Value){[Text.Encoding]::ASCII.GetBytes($Value).CopyTo($header,$Offset)}
+        Field 0 $Name;Field 100 "0000644`0";Field 108 "0000000`0";Field 116 "0000000`0";Field 124 ([Convert]::ToString($Length,8).PadLeft(11,'0')+"`0");Field 136 "00000000000`0";Field 148 '        ';$header[156]=[byte]$Type;Field 257 "ustar`0";Field 263 '00'
+        if($Type -eq '2'){Field 157 'target'}
+        $sum=0;foreach($v in $header){$sum+=$v};Field 148 ([Convert]::ToString($sum,8).PadLeft(6,'0')+"`0 ")
+        return ,$header
+    }
     function Assert-ArchiveDenial($Names,[string]$Kind,[string]$Reason) {
         $archiveStream=[IO.File]::Create($archive);$gzip=[IO.Compression.GZipStream]::new($archiveStream,[IO.Compression.CompressionLevel]::Fastest)
-        $tar=[System.Formats.Tar.TarWriter]::new($gzip,$true)
-        try{foreach($n in $Names){$type=if($Kind -ceq 'link'){[System.Formats.Tar.TarEntryType]::SymbolicLink}else{[System.Formats.Tar.TarEntryType]::RegularFile};$entry=[System.Formats.Tar.PaxTarEntry]::new($type,$n);if($Kind -ceq 'link'){$entry.LinkName='target'}else{$entry.DataStream=[IO.MemoryStream]::new([byte[]]@(1))};try{$tar.WriteEntry($entry)}finally{if($null -ne $entry.DataStream){$entry.DataStream.Dispose()}}}}finally{$tar.Dispose();$gzip.Dispose();$archiveStream.Dispose()}
+        try{foreach($n in $Names){$type=if($Kind -ceq 'link'){'2'}else{'0'};$length=if($Kind -ceq 'large'){536870913}elseif($Kind -ceq 'link'){0}else{1};$header=New-FixtureHeader $n $length $type;$gzip.Write($header,0,512);if($Kind -ceq 'file'){$gzip.Write([byte[]]::new(512),0,512)}};$gzip.Write([byte[]]::new(1024),0,1024)}finally{$gzip.Dispose();$archiveStream.Dispose()}
         $badHash=(Read-SealedFile $archive (New-ReadBudget 1048576)).sha256
         $badPolicy=@{packages=@{'fixture@1.0.0'=$badHash};scripts=@{};proc_macros=@{}}
-        $denied=$false;try{Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $badPolicy|Out-Null}catch{$denied=$_.Exception.Message -ceq $Reason};Assert $denied ('archive refusal: '+$Reason)
+        $actual='accepted';try{Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $badPolicy|Out-Null}catch{$actual=$_.Exception.Message}
+        Assert ($actual -ceq $Reason) ('archive refusal '+($Names -join ',')+': expected '+$Reason+'; actual '+$actual)
     }
-    foreach($n in @($package+'/../escape',$package+'/a/./b',$package+'/a:b',$package+'/a\b','/absolute')){Assert-ArchiveDenial @($n) 'file' 'archive-path'}
-    Assert-ArchiveDenial @($package+'/same',$package+'/same') 'file' 'archive-path'
+    foreach($n in @(($package+'/../escape'),($package+'/a/./b'),($package+'/a:b'),($package+'/a\b'),'/absolute')){Assert-ArchiveDenial @($n) 'file' 'archive-path'}
+    Assert-ArchiveDenial @(($package+'/same'),($package+'/same')) 'file' 'archive-path'
     Assert-ArchiveDenial @($package+'/link') 'link' 'archive-entry-type'
-    # A USTAR header declares a 512 MiB+1 member without allocating its body.
-    $header=[byte[]]::new(512)
-    function Field([int]$Offset,[string]$Value){[Text.Encoding]::ASCII.GetBytes($Value).CopyTo($header,$Offset)}
-    Field 0 ($package+'/oversize');Field 100 "0000644`0";Field 108 "0000000`0";Field 116 "0000000`0";Field 124 "04000000001`0";Field 136 "00000000000`0";Field 148 '        ';$header[156]=48;Field 257 "ustar`0";Field 263 '00'
-    $sum=0;foreach($v in $header){$sum+=$v};Field 148 ([Convert]::ToString($sum,8).PadLeft(6,'0')+"`0 ")
-    $archiveStream=[IO.File]::Create($archive);$gzip=[IO.Compression.GZipStream]::new($archiveStream,[IO.Compression.CompressionLevel]::Fastest)
-    try{$gzip.Write($header,0,512);$gzip.Write([byte[]]::new(1024),0,1024)}finally{$gzip.Dispose();$archiveStream.Dispose()}
-    $badPolicy=@{packages=@{'fixture@1.0.0'=(Read-SealedFile $archive (New-ReadBudget 1048576)).sha256};scripts=@{};proc_macros=@{}}
-    $denied=$false;try{Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $badPolicy|Out-Null}catch{$denied=$_.Exception.Message -ceq 'archive-entry-limit'};Assert $denied 'oversize archive member before body read'
+    Assert-ArchiveDenial @($package+'/oversize') 'large' 'archive-entry-limit'
     Write-Output 'Bounded Windows reader fixtures passed' 
 } finally {Remove-Item -LiteralPath $dir -Recurse -Force}
