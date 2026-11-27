@@ -794,7 +794,7 @@ class StopReportingTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE", json.dumps(value))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
-    def _failed_run(self, fail_cleanup=False, native_events=None):
+    def _failed_run(self, fail_cleanup=False, native_events=None, native_stderr=b""):
         import shutil
         import subprocess
         directory = Path(__file__).parent
@@ -822,11 +822,13 @@ if sys.argv[2]:
     path = Path(sys.argv[1])
     path.parent.mkdir(parents=True)
     path.write_text(sys.argv[2])
+sys.stderr.buffer.write(bytes.fromhex(sys.argv[3]))
 sys.exit(1)
 """
             path = root/"settings/session-state"/PROPOSAL["nativeSessionId"]/"events.jsonl"
             rows = "".join(row + "\n" for row in native_events)
-            allowed_argv = [sys.executable, "-I", "-B", "-c", script, str(path), rows]
+            allowed_argv = [sys.executable, "-I", "-B", "-c", script, str(path), rows,
+                            native_stderr.hex()]
             return supervise(allowed_argv, cwd, {}, root, *args, **kwargs)
 
         def fail_discovery(*args, **kwargs):
@@ -872,6 +874,7 @@ sys.exit(1)
         self.assertEqual(result["nativePromptInvocations"], 0)
         self.assertEqual(result.get("failure", {}).get("stage"), "instruction-discovery")
         self.assertEqual(result.get("failure", {}).get("category"), "check-failed")
+        self.assertNotIn("startupDiagnostic", result["failure"])
         self.assertNotIn("PRIVATE", retained)
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
@@ -895,6 +898,58 @@ sys.exit(1)
                 self.assertEqual(result["failure"].get("promptProgress"), dict(
                     sessionStartObserved=expected[0], firstNativeMcpCallCompleted=expected[1]))
                 self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_pre_start_exit_keeps_only_a_fixed_stderr_diagnostic(self):
+        auth = b"Error: No authentication information found."
+        for stderr, expected in (
+                (auth + b" PRIVATE_TOKEN", "auth-missing"),
+                (b"Error: Authentication token found but could not be validated. PRIVATE_TOKEN",
+                 "auth-validation-failed"),
+                (b"Invalid --allow-tool value. PRIVATE_ARGUMENT", "permission-argument-rejected"),
+                (b"Invalid --deny-tool value. PRIVATE_ARGUMENT", "permission-argument-rejected"),
+                (b"PRIVATE_DIAGNOSTIC\n" + auth, "unclassified"),
+                (auth + bytes(16384), "unclassified"),
+                (b"", "unclassified")):
+            with self.subTest(expected=expected, size=len(stderr)):
+                result, retained = self._failed_run(native_events=[], native_stderr=stderr)
+                self.assertTrue(result["rawRootsRemoved"])
+                self.assertEqual(result["failure"]["supervisorCheckCode"], "supervisor-exit")
+                self.assertEqual(result["failure"].get("startupDiagnostic"), expected)
+                self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_startup_diagnostic_is_omitted_after_validated_start(self):
+        start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")
+        with patch.object(observer, "startup_diagnostic", side_effect=AssertionError("Stderr read after start")):
+            result, _ = self._failed_run(native_events=[start],
+                                         native_stderr=b"Error: No authentication information found.")
+        self.assertTrue(result["failure"]["promptProgress"]["sessionStartObserved"])
+        self.assertNotIn("startupDiagnostic", result["failure"])
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_unconfirmed_cleanup_skips_stderr_and_preserves_exit(self):
+        cleanup = observer._ProcessOwner.cleanup
+
+        def unconfirmed(owner, receipt):
+            cleanup(owner, receipt)
+            error = PermissionError(1, "PRIVATE_CLEANUP")
+            receipt.update(terminationStepsCompleted=False, cleanupDisposition="unconfirmed",
+                           cleanupFailure={"stage": "ownership", "category": "os-error", "osError": 1})
+            return error
+
+        with patch.object(observer._ProcessOwner, "cleanup", new=unconfirmed), \
+                patch.object(observer, "startup_diagnostic", side_effect=AssertionError("Stderr read before cleanup")):
+            result, retained = self._failed_run(native_events=[],
+                                                native_stderr=b"Error: No authentication information found.")
+        failure = result["failure"]
+        self.assertEqual(result["outcome"], "incomplete-cleanup")
+        self.assertTrue(result["rawRootsRemoved"])
+        self.assertEqual(failure["startupDiagnostic"], "unclassified")
+        self.assertEqual(failure["supervisorCheckCode"], "supervisor-exit")
+        self.assertEqual(failure["process"]["exitCode"], 1)
+        self.assertEqual(failure["process"]["cleanupFailure"]["osError"], 1)
+        self.assertNotIn("PRIVATE", retained)
 
     def test_raw_cleanup_failure_does_not_erase_primary_failure(self):
         result, retained = self._failed_run(fail_cleanup=True)

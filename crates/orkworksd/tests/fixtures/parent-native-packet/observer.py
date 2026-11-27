@@ -532,7 +532,8 @@ def read_bounded(path, cap=1048576):
     import stat
     path = Path(path)
     require(not any(p.is_symlink() for p in [path, *path.parents]), "Unexpected source symlink")
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
     try:
         require(stat.S_ISREG(os.fstat(fd).st_mode), "Regular file required")
         data = os.read(fd, cap+1)
@@ -540,6 +541,21 @@ def read_bounded(path, cap=1048576):
         return data
     finally:
         os.close(fd)
+
+
+def startup_diagnostic(path):
+    """Classify only the initial fixed Copilot 1.0.90 stderr prefix."""
+    try:
+        stderr = read_bounded(path, cap=16384)
+    except (OSError, ValueError):
+        return "unclassified"
+    if stderr.startswith(b"Error: No authentication information found."):
+        return "auth-missing"
+    if stderr.startswith(b"Error: Authentication token found but could not be validated."):
+        return "auth-validation-failed"
+    if stderr.startswith((b"Invalid --allow-tool value.", b"Invalid --deny-tool value.")):
+        return "permission-argument-rejected"
+    return "unclassified"
 
 
 def source_paths(directory):
@@ -795,6 +811,11 @@ def run_native(approval, output):
                 "sessionStartObserved": trace.started,
                 "firstNativeMcpCallCompleted": bool(trace.completed),
             }
+            if not trace.started:
+                failure["startupDiagnostic"] = (
+                    startup_diagnostic(case/"stderr.raw")
+                    if failure["process"]["terminationStepsCompleted"] else "unclassified"
+                )
     finally:
         try:
             subprocess.run([proposal["python"]["path"], "-I", "-B", "-c",
