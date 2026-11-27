@@ -42,11 +42,15 @@ confirmed headless `--continue` and `--conversation=<id>` retained the fresh
 fixture's conversation ID. Neither emitted SessionStart in these trials; the
 first PreInvocation carried `invocationNum: 0`, exercising the reporter's existing
 identity fallback. Subsequent fully idle Stop payloads and sanitized reporter
-replay established expected Working/Idle reports. The interactive exact-resume
-probe stopped at startup permission without a prompt. This does not qualify
-resumed native Needs You or desktop clearing, installed-hook live delivery,
-Windows, or other versions. The earlier 1.5.13 capture retains its own scope;
-integration coverage remains limited.
+replay established expected Working/Idle reports. The first interactive
+exact-resume probe stopped at startup permission without a prompt. A later
+[trusted-workspace exact-resume trial](../validation/antigravity-native-status.md#trusted-workspace-exact-resume-native-status-2026-11-27)
+captured native Working, question Blocked, Working and Done around Escape;
+its first PreInvocation retained the fresh fixture ID and both roots exited zero.
+This is native protocol evidence, not resumed desktop clearing or authenticated
+installed-hook live delivery. Windows and other versions remain unqualified.
+The earlier 1.5.13 capture retains its own scope; integration coverage remains
+limited.
 
 ### Short discovery probe ownership
 
