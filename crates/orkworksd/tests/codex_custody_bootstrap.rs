@@ -14,6 +14,7 @@ mod channels;
 mod bootstrap_frame;
 
 const FIXTURE_FDS: &str = "ORKWORKS_CUSTODY_FIXTURE_FDS";
+const CHILD_CHECKED: i32 = 42;
 
 #[test]
 fn four_empty_channels_are_sealed_before_child_exec() {
@@ -26,17 +27,29 @@ fn four_empty_channels_are_sealed_before_child_exec() {
         .collect();
     assert!(descriptors.iter().all(|fd| *fd > 2));
 
+    verify_closed_in_exec_child(&descriptors, "check_sealed_descriptors_after_exec");
+
+    for fd in descriptors {
+        // SAFETY: the parent still owns each of these descriptors.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
+    }
+}
+
+#[test]
+#[should_panic(expected = "fixture child did not confirm descriptor checks")]
+fn an_empty_child_test_selection_cannot_pass() {
+    verify_closed_in_exec_child(&[3; 8], "no_such_descriptor_check");
+}
+
+fn verify_closed_in_exec_child(descriptors: &[RawFd], filter: &str) {
     let expected_closed = descriptors
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
     let mut child = Command::new(std::env::current_exe().expect("fixture executable"))
-        .args([
-            "--exact",
-            "check_sealed_descriptors_after_exec",
-            "--ignored",
-        ])
+        .args(["--exact", filter, "--ignored"])
         .env_clear()
         .env(FIXTURE_FDS, expected_closed)
         .stdin(Stdio::null())
@@ -46,7 +59,12 @@ fn four_empty_channels_are_sealed_before_child_exec() {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                assert!(status.success(), "fixture child exited with {status}");
+                // Libtest returns success when its filter selects no tests.
+                assert_eq!(
+                    status.code(),
+                    Some(CHILD_CHECKED),
+                    "fixture child did not confirm descriptor checks: {status}"
+                );
                 break;
             }
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
@@ -56,12 +74,6 @@ fn four_empty_channels_are_sealed_before_child_exec() {
                 panic!("fixture child did not finish: {result:?}");
             }
         }
-    }
-
-    for fd in descriptors {
-        // SAFETY: the parent still owns each of these descriptors.
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-        assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
     }
 }
 
@@ -99,6 +111,7 @@ fn check_sealed_descriptors_after_exec() {
     for fd in descriptors {
         assert_closed(fd);
     }
+    std::process::exit(CHILD_CHECKED);
 }
 
 fn assert_closed(fd: RawFd) {

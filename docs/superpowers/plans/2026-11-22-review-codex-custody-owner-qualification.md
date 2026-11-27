@@ -74,7 +74,7 @@ source-bound qualification work. Lease operation framing follows under step 2.
 
 Native component evidence on macOS 26.6.2 arm64. The command
 `cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap`
-passed both parent checks and the isolated exec child check. The fixture
+passed the native checks, including explicit confirmation from the exec child. The fixture
 confirmed all eight endpoints were closed in the exec child and remained
 sealed in the parent. A synthetic third-pair allocation failure closed both
 earlier pairs. The codec covered both directions, changed individual fields,
