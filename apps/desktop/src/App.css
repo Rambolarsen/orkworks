@@ -1382,6 +1382,25 @@ html, body, #root {
   border-radius: 0;
 }
 
+.live-terminal {
+  position: absolute;
+  inset: var(--terminal-padding, 0);
+  display: flex;
+  flex-direction: column;
+}
+
+.live-terminal-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-output-gap:not(:empty) {
+  padding: var(--space-1) var(--space-2);
+  color: var(--term-blue);
+  font-size: var(--text-sm);
+}
+
 .terminal-container .xterm-viewport {
   /* xterm's stylesheet defaults this layer to black, including the remainder
      below the last complete row. Match the terminal canvas instead. */

@@ -960,6 +960,7 @@ The first useful MVP should include:
 - a renderer reload, crash, or a switched-away/disposed terminal detaches the WebSocket but does not kill the child process
 - detached session runtimes keep draining PTY output, persisting terminal history, and feeding Peon/metadata inference while `orkworksd` stays alive
 - one interactive terminal attachment per session; reattaching replays bounded recent history (ADR 0024) from the current cursor
+- a lagging live attachment catches up from the retained replay window. When output has already left the window, the terminal shows a notice and resets its live screen and scrollback before replaying the available output. Saved history remains available through historical replay ([ADR 0121](../docs/adr/0121-live-terminal-output-recovery.md))
 - explicit kill (or the process exiting on its own) is what ends a session — not losing the WebSocket
 - app-restart PTY persistence is out of scope for the initial implementation: after a sidecar restart, sessions reconcile through existing metadata/lifecycle rules rather than being treated as live detached PTYs
 

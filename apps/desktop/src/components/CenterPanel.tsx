@@ -36,7 +36,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       container.appendChild(handle.wrapper);
     }
     if (!handle.terminal.element) {
-      handle.terminal.open(handle.wrapper);
+      handle.terminal.open(handle.terminalHost);
     }
 
     for (const child of Array.from(container.children) as HTMLElement[]) {
@@ -44,7 +44,7 @@ function CenterPanel({ backendStatus, sessionId, starting, onBackendUnavailable,
       child.style.visibility = child === handle.wrapper ? "visible" : "hidden";
     }
 
-    handle.resizeObserver.observe(handle.wrapper);
+    handle.resizeObserver.observe(handle.terminalHost);
     activeIdRef.current = id;
 
     const { disableStdin, cursorBlink } = computeTerminalInteractivity({

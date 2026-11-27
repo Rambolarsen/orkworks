@@ -25,6 +25,7 @@ export interface TerminalHandle {
   ws: WebSocket;
   fitAddon: FitAddon;
   wrapper: HTMLDivElement;
+  terminalHost: HTMLDivElement;
   ended: boolean;
   /** Set once the server reports the terminal transport itself can't be attached (distinct from `ended`, which means the session's process is gone). Keeps later effects from re-enabling stdin on a handle whose socket is already dead. */
   unavailable: boolean;
@@ -95,7 +96,14 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
 
   const wrapper = document.createElement("div");
   wrapper.dataset.sessionId = id;
-  wrapper.style.cssText = "position:absolute;inset:var(--terminal-padding, 0);visibility:hidden;";
+  wrapper.className = "live-terminal";
+  wrapper.style.visibility = "hidden";
+  const outputStatus = document.createElement("div");
+  outputStatus.className = "terminal-output-gap";
+  outputStatus.setAttribute("role", "status");
+  const terminalHost = document.createElement("div");
+  terminalHost.className = "live-terminal-host";
+  wrapper.append(outputStatus, terminalHost);
 
   const wsUrl = baseUrl.replace("http", "ws") + `/sessions/${id}/terminal`;
   const ws = openBackendSocket(wsUrl);
@@ -106,7 +114,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     if (fitRaf !== null) cancelAnimationFrame(fitRaf);
     fitRaf = requestAnimationFrame(() => {
       fitRaf = null;
-      if (!wrapper.isConnected || wrapper.clientWidth === 0 || wrapper.clientHeight === 0) return;
+      if (!terminalHost.isConnected || terminalHost.clientWidth === 0 || terminalHost.clientHeight === 0) return;
       try {
         fitAddon.fit();
       } catch (err) {
@@ -121,6 +129,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     ws,
     fitAddon,
     wrapper,
+    terminalHost,
     ended: false,
     unavailable: false,
     disposed: false,
@@ -133,7 +142,7 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   let receivedData = false;
 
   ws.onopen = () => {
-    if (wrapper.isConnected && wrapper.clientWidth > 0 && wrapper.clientHeight > 0) {
+    if (terminalHost.isConnected && terminalHost.clientWidth > 0 && terminalHost.clientHeight > 0) {
       try {
         fitAddon.fit();
       } catch {
@@ -149,13 +158,14 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
   };
 
   ws.onmessage = (e) => {
+    if (handle.disposed) return;
     if (e.data instanceof ArrayBuffer) {
       receivedData = true;
       term.write(new Uint8Array(e.data));
       return;
     }
 
-    if (typeof e.data !== "string" || handle.disposed) {
+    if (typeof e.data !== "string") {
       return;
     }
 
@@ -163,6 +173,15 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     switch (message?.type) {
       case "replay-start":
       case "replay-end":
+        break;
+      case "terminal-output-gap":
+        receivedData = true;
+        if (!outputStatus.textContent) {
+          outputStatus.textContent = "Some terminal output could not be recovered.";
+        }
+        // Cancel any unfinished control sequence and reset in xterm's write
+        // queue before the checkpoint and the subsequent raw output.
+        term.write(Uint8Array.of(0x18, 0x1b, 0x63, ...message.checkpoint));
         break;
       case "ended":
         term.write(MOUSE_TRACKING_RESET_SEQUENCE);

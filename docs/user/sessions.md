@@ -404,6 +404,12 @@ nothing there, scroll with OpenCode's own keys — `PageUp` / `PageDown` by
 page, `Ctrl+Alt+Y` / `Ctrl+Alt+E` line by line, and `Ctrl+Alt+U` /
 `Ctrl+Alt+D` by half page.
 
+In current source builds, a lagging live terminal catches up from recent
+output. If some output has already left the replay window, the terminal shows
+**Some terminal output could not be recovered.** The live screen and
+scrollback are cleared before the remaining output is replayed. Saved output
+is still available through historical replay.
+
 ## Read a plan
 
 In current source builds, expand **Design & plan** in Details to see two ordered steps:

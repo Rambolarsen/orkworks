@@ -33,6 +33,21 @@ test("parseTerminalControlMessage parses typed input-dropped frames", () => {
   );
 });
 
+test("terminal-output-gap accepts a missing range and bounded checkpoint", () => {
+  const gap = { type: "terminal-output-gap", fromCursor: 0, toCursor: 2, checkpoint: [0, 27, 255] };
+  assert.deepEqual(parseTerminalControlMessage(JSON.stringify(gap)), gap);
+
+  for (const invalid of [
+    { fromCursor: -1 }, { fromCursor: 0.5 }, { fromCursor: "0" },
+    { toCursor: 0 }, { toCursor: Number.MAX_SAFE_INTEGER + 1 },
+    { checkpoint: null }, { checkpoint: "bytes" }, { checkpoint: [-1] },
+    { checkpoint: [256] }, { checkpoint: [0.5] }, { checkpoint: ["0"] },
+    { checkpoint: Array(513).fill(0) },
+  ]) {
+    assert.equal(parseTerminalControlMessage(JSON.stringify({ ...gap, ...invalid })), null);
+  }
+});
+
 test("shouldReplayTerminalOutputOnClose skips intentional detach", () => {
   assert.equal(
     shouldReplayTerminalOutputOnClose({ disposed: true, receivedData: false }),

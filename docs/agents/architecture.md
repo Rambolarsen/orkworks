@@ -1340,6 +1340,14 @@ retained mode changes and resets still execute in their original order. This
 does not reconstruct evicted screen contents or scrollback, and it does not
 persist PTYs or checkpoints across a sidecar restart.
 
+On a lag signal or a live cursor jump, the sidecar catches up from the same
+runtime's retained replay window before resuming live output. If the oldest
+retained cursor has passed the attachment's next expected cursor, the sidecar
+sends the missing range and checkpoint in a control frame before the retained
+bytes. The renderer displays a notice and resets xterm before applying the
+checkpoint. Saved history remains available through historical replay.
+[ADR 0121](../adr/0121-live-terminal-output-recovery.md) defines the ordering and write deadline.
+
 Delayed terminal-status transitions preserve durable `ended` metadata even
 while the same live runtime remains `ending`: finalization writes metadata
 before updating the live handle, so that interval must not reopen the record.
