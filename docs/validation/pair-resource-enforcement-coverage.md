@@ -821,3 +821,29 @@ This is a proposal, with no tooling or dispatch authority until scoped acceptanc
 The old256-entry batch and all prior allowances stay spent. No replacement pin,
 build or runtime qualification follows. #1176 remains open and Gate1 remains
 Investigate.
+
+
+## Accepted registry-only tooling boundary (2026-11-27)
+
+The owner accepted the [exact #2092 allowance](../superpowers/plans/2026-11-26-pair-sdk-servicing-inventory.md#scoped-allowance-accepted-2026-11-27)
+for separate tooling, one three-minute job and its terminal evidence record.
+Dispatch is0/1 while tooling is prepared and reviewed. Every earlier batch stays
+spent; no installed compiler/SDK PE, SDK directory or default-toolset read is
+part of this request.
+
+The new Node controller reuses existing first-run/process helpers read-only.
+The fixed isolated Python3.12.10 collector uses fixed-buffer registry reads with
+precharged API/buffer budgets and reserved handle-closure calls. It exports only
+matching SDK records, bounded statuses/counts and canonical observation digests;
+unrelated product strings stay out of receipts and diagnostics. Two planned
+observations compare root counts/write markers and sorted membership/value
+hashes; write markers cross JSON as decimal strings, not rounded numbers. This
+is limited observation stability, not an atomic snapshot or authenticity proof.
+
+Normal offline CI uses fakes and an isolated disposable HKCU fixture for the
+Win32 boundary; it never queries installed SDK/uninstall data. Full local
+verify-repo was invoked under pinned Node22 and stopped at missing desktop
+dependencies; this does not claim a passed local full suite. Repository CI,
+fixed interpreter selection and final code review remain pre-dispatch gates.
+Any later SDK result is tied to its own run/image and cannot retroactively seal
+the earlier compiler snapshot. Gate1 remains Investigate; #1176 stays open.

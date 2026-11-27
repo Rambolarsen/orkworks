@@ -4,7 +4,7 @@ title: One registry-only Windows SDK servicing inventory
 description: Proposed finite registry-only observation of the missing SDK servicing identity after the consumed component inventory exceeded its entry budget.
 tags: [orkworks, hierarchy, windows, sdk, qualification]
 status: draft
-workflow_status: proposed-no-execution-authority
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One registry-only Windows SDK servicing inventory
@@ -110,7 +110,7 @@ Actions terminal outcome; absent JSON permits no invented inspection counts.
 
 ## Deliverables and checks
 
-- [ ] Owner accepts this exact new registry-only allowance and tooling work.
+- [x] Owner accepts this exact new registry-only allowance and tooling work.
 - [ ] Add a separate workflow/controller and offline fake-registry tests. Reuse
   existing guard tests without changing the consumed batch. Prove wrong-head/
   rerun denial,1024/1025 pre-enumeration boundary, fixed-buffer overflow and
@@ -146,3 +146,14 @@ reversibility1 (scratch removal, no installation); uncertainty3 (future runtime
 availability and SDK record shape unknown). Total9 is a review aid, not approval.
 The concrete next decision is acceptance of tooling plus this one job, not a
 replacement build or an increase to any earlier spent budget.
+
+## Scoped allowance accepted (2026-11-27)
+
+The owner answered “keep going” to the explicit #2092 tooling-plus-one-job
+question. Proposal merge20bac1523d09e4aa89d59a3f703475a36756dccd. This accepts only
+the exact registry-only surface, limits, tooling and terminal-result work above.
+The original proposal/no-execution statements describe the pre-acceptance stage.
+Dispatch0/1; reviewed merged tooling and a frozen source head are still required.
+No earlier batch is renewed and no replacement pin, build or runtime profile is
+accepted. The collector uses decimal strings for full-width registry write
+markers so the JSON/Node boundary cannot round them.
