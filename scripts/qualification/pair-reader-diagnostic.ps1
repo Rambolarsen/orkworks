@@ -6,7 +6,9 @@ $ProgressPreference='SilentlyContinue'
 # No legacy reader is imported or invoked.
 if (-not $IsWindows -or $env:ORK_READER_SYNTHETIC -cne 'synthetic-v1' -or $Nonce -cnotmatch '\A[a-f0-9]{32}\z') { exit 64 }
 $owned=[IO.Path]::GetFullPath((Get-Location).Path)
-if ([IO.Path]::GetFileName($owned) -cnotmatch '\Aork-reader-diagnostic-[a-f0-9]{32}\z' -or $env:TEMP -cne $owned -or $env:TMP -cne $owned) {exit 65}
+if ([IO.Path]::GetFileName($owned) -cnotmatch '\Aork-reader-diagnostic-[a-f0-9]{32}\z') {exit 65}
+if (-not [string]::Equals([IO.Path]::GetFullPath($env:TEMP),$owned,[StringComparison]::OrdinalIgnoreCase)) {exit 66}
+if (-not [string]::Equals([IO.Path]::GetFullPath($env:TMP),$owned,[StringComparison]::OrdinalIgnoreCase)) {exit 67}
 $bound=$false
 $failureCode=70
 try {

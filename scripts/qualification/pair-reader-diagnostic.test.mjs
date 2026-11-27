@@ -182,6 +182,16 @@ for (const kind of ['clean','nonzero','spawn','stderr','overflow','timeout','und
  if(kind==='timeout'||kind==='undrained')assert.equal(p.trace.length,1);
 }
 
+ledger.beginVector();vectors++;
+{
+ // Deadline crossing during spawn must retain ownership and drain the child.
+ const late=Object.create(ledger);late.elapsed=()=>120000;late.active=()=>{throw Error('active-timeout');};late.stream=ledger.stream.bind(ledger);
+ const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();
+ const decoder=new Decoder({nonce,mode:'guards',grant:1024,ledger:late,source:'injected'});
+ let terminated=0;
+ const close=await controller.watchChild(child,{decoder,ledger:late,timeout:1,terminate:async()=>{terminated++;return true;}});
+ assert.equal(close.drained,true);assert.equal(terminated,1);assert.equal(decoder.failure,'active-timeout');
+}
 assert.ok(vectors<=64);console.log(`Pure diagnostic vectors passed: ${vectors}`);
 const result=await controller.runSuite(ledger,{pureVectors:vectors});
 assert.equal(result.tests_passed,true,JSON.stringify(result));

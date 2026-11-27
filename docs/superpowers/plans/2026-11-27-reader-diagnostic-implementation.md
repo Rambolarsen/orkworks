@@ -91,7 +91,7 @@ volume/directory identities, premature reservation settlement, incomplete guard
 summary matching and allocation arithmetic. Added failed-output regression,
 exact 32 dispositions, 4,123 reference allocations, modeled boundary checks,
 real event-observer fake transport cases and finalization failure checks.
-Sixty-three vectors pass locally; native claims remain pending Windows CI. No second
+Sixty-four vectors pass locally; native claims remain pending Windows CI. No second
 subagent review round was started. Two local setup failures were diagnosed:
 temporary-root alias was canonicalized; Cargo was restored to verification PATH.
 
@@ -109,15 +109,16 @@ close while its reservation is still held, including cooperative errors; every
 repeated read remains in the existing pool. Always perform the final source
 seal after the last drained child on failure paths too. An unverified source
 report keeps the entire grant unknown. Its regression failed with 9 versus
-1,024 charged bytes before the correction, then the 63-vector suite passed.
+1,024 charged bytes before the correction, then the 64-vector suite passed.
 Documentation metadata, index validation, 2,583 documentation tests and site
 build passed. Existing chunk warnings concern unchanged bundling. Full
 verify-repo is still running before publication; native results await normal CI.
 
 Windows CI at 8c255d64 failed before any start record (empty child streams),
 charged the full unknown grant, stopped later children and removed drained
-scratch. The pre-native PowerShell call selected the one-argument Span overload
-of ReadExactly; change to its explicit byte-array/offset/count overload. Fixed
+scratch. Source inspection found a one-argument Span overload call to ReadExactly; it
+was changed to the explicit byte-array/offset/count overload, without claiming
+that it was the observed failure cause. Fixed
 numeric pre-start stage exit statuses now distinguish request-open/read/decode/
 binding and native setup without raw exception text. Native failure status is
 reported as failed, never mislabeled as a non-Windows skip. Verification of this
@@ -133,3 +134,18 @@ CodeQL identified a single-occurrence newline replacement in a malformed-input
 fixture. Replace all LF bytes to express the intended full CRLF malformed record;
 the existing encoding-refusal vector remains the behavior check. Both inline
 items will receive explicit dispositions on the fix commit.
+
+Final pure vector (64/64) reproduced a deadline crossing between spawn and
+observer setup: throwing before event ownership could skip drain. The observer
+now installs handlers and latches active-timeout, then drains the owned child.
+The regression failed before this correction. No new process/vector allowance
+was added; the existing last pure slot is consumed.
+
+At f843728f, current-head hosted review completed with no findings, but Windows
+still failed before start with fixed exit 65: the owned-directory binding,
+before request-read code. Pass PowerShell's documented WorkingDirectory using
+only the already-owned cwd; normalize TEMP/TMP path comparisons with the same
+Windows ordinal-insensitive semantics as native final-path checks. Each failed
+binding now has its own fixed status. No path/root/profile request field or
+live input switch is introduced. Cycle 2/3 will request one new current-head
+Codex review after native CI provides a meaningful result; no extra subagents.

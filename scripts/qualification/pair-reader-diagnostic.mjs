@@ -105,13 +105,14 @@ function childEnv(owned) {
  return env;
 }
 export async function watchChild(child,{decoder,ledger,timeout,terminate}) {
- ledger.active();let closed=false,code=null,stopped=false,spawnFailed=false,timer;
+ let closed=false,code=null,stopped=false,spawnFailed=false,timer;
  let resolve;const done=new Promise(r=>{resolve=r;});
  const fail=why=>{decoder.fail(why);if(stopped)return;stopped=true;child.stdout?.destroy();child.stderr?.destroy();resolve();};
  child.on('error',()=>{spawnFailed=!child.pid;fail('spawn-error');});
  child.on('close',c=>{closed=true;code=c;resolve();});
  child.stdout.on('data',b=>{decoder.feed(b);if(decoder.failure)fail(decoder.failure);});
  child.stderr.on('data',b=>{try{ledger.stream(b.length,decoder.source);}catch{}fail('stderr');});
+ if(ledger.elapsed()>=120000)fail('active-timeout');
  timer=setTimeout(()=>fail('timeout'),Math.max(1,Math.min(timeout,120000-ledger.elapsed())));
  await done;clearTimeout(timer);
  let drained=closed||spawnFailed;
@@ -241,7 +242,7 @@ export async function runSuite(ledger,{pureVectors}) {
     // Conservatively precharge the maximum output; no post-write capacity rescue.
     ledger.scratch(mode==='guards'?4096:MiB);
     const decoder=new Decoder({nonce,mode,grant,ledger});need(++ledger.nativeChildren<=3,'child-limit');
-    const close=await runChild({command:'C:/Program Files/PowerShell/7/pwsh.exe',args:['-NoProfile','-NonInteractive','-File',path.join(here,'pair-reader-diagnostic.ps1'),'-Nonce',nonce],owned,decoder,ledger,timeout:30000});
+    const close=await runChild({command:'C:/Program Files/PowerShell/7/pwsh.exe',args:['-NoProfile','-NonInteractive','-WorkingDirectory',owned,'-File',path.join(here,'pair-reader-diagnostic.ps1'),'-Nonce',nonce],owned,decoder,ledger,timeout:30000});
     allDrained&&=close.drained;traces.push(decoder.trace);
     result.native={status:'failed',mode,exit_code:Number.isInteger(close.code)&&close.code>=0&&close.code<=255?close.code:null};
     let checked;

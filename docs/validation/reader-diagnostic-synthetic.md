@@ -21,13 +21,13 @@ qualification allowance is part of this change.
 
 Run directly with the repository's Node version:
 node scripts/qualification/pair-reader-diagnostic.test.mjs. No Node test-runner
-worker is added. Sixty-three pure/model/event-transport vectors share one ledger and
+worker is added. Sixty-four pure/model/event-transport vectors share one ledger and
 clock, followed by at most three fixed PowerShell fixture workers on Windows
 and the one final zero-hash Node timeout child. Other hosts explicitly skip the
 native portion. Failed subjects remain incomplete even when their expected
 refusal assertions pass. No result is imported into candidate admission.
 
-Local macOS arm64 / Node 22.23.5 verification passed the 63 vectors and real
+Local macOS arm64 / Node 22.23.5 verification passed the 64 vectors and real
 owned timeout: one retained start record, failed/incomplete transport subject,
 zero transport hash grant, owned termination/drain and scratch removal. Modeled
 cap-boundary counters are arithmetic-only fake transport state, not newly
