@@ -110,9 +110,16 @@ That is it. The primary checkout's `node_modules` and Cargo `target/` are reused
 
 ## Create a worktree
 
+For a new task, fetch the remote base and name it explicitly. The caller's
+`HEAD` may be an old local `main` or another owner's feature branch; creating
+from `origin/main` leaves that checkout and local `main` in place. If the fetch
+fails, stop and resolve access rather than silently using a stale base. Use a
+different start point only when the task explicitly calls for it.
+
 ```bash
-git worktree add ../orkworks-<branch-slug> -b <branch-slug>
-cd ../orkworks-<branch-slug>
+git fetch origin main &&
+  git worktree add ../orkworks-<branch-slug> -b <branch-slug> origin/main &&
+  cd ../orkworks-<branch-slug>
 ```
 
 Notes:
@@ -197,8 +204,9 @@ Stranded worktrees follow the 7-day stranded-branch rule. If a worktree has gone
 git worktree list
 
 # create a new worktree on a new branch and expose repo-owned skills offline
-git worktree add ../orkworks-my-feature -b my-feature
-node ../orkworks-my-feature/scripts/sync-repo-skills.mjs --root ../orkworks-my-feature
+git fetch origin main &&
+  git worktree add ../orkworks-my-feature -b my-feature origin/main &&
+  node ../orkworks-my-feature/scripts/sync-repo-skills.mjs --root ../orkworks-my-feature
 
 # create a worktree on an existing branch
 git worktree add ../orkworks-my-feature my-feature
