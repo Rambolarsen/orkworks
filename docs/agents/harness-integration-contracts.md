@@ -560,6 +560,12 @@ each newer CLI or provider/model. Missing image support, failed help probes and
 unparseable/prerelease/old versions remain disabled. CLI upgrades with the same
 interface no longer need a source allowlist update.
 
+The Windows x64 source route is qualified for native Codex 0.172.0 with fixed
+local NTFS storage. It requires successful native version and image-option
+probes and uses the same pinned executable for PTY launch. The sidecar retains
+verified image handles through launch and reports a startup error if an
+attachment is unreadable. See the [Windows qualification plan](../superpowers/plans/2026-11-26-windows-codex-image-storage.md).
+
 Native Codex `--image` auto-submits startup content. Supplying only image argv and
 then using the queued PTY text creates two turns. The qualified route passes image
 paths and literal text together in argv and disables the queued prompt for that
@@ -567,8 +573,8 @@ start. No shell interpolation or permission changes are used.
 
 Claude Code 2.1.292 reached its external CLAUDE.md-import approval chooser and did
 not qualify; the fixture did not automate that approval. Claude, OpenCode, Copilot,
-custom tools and other platforms remain unsupported for
-new-session image context. Existing text-only startup is unchanged. A capability
+custom tools and platforms outside the qualified profiles remain unsupported
+for new-session image context. Existing text-only startup is unchanged. A capability
 response or synthetic argv test alone cannot qualify another delivery route.
 
 ## Ordinary storage reporting preparation

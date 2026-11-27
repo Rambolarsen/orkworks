@@ -1,13 +1,13 @@
 //! Private image storage and platform-specific cleanup.
 use super::ValidatedImage;
 use std::path::Path;
-#[cfg(not(all(test, windows, target_arch = "x86_64")))]
+#[cfg(not(all(windows, target_arch = "x86_64")))]
 use std::path::PathBuf;
 
-#[cfg(all(test, windows, target_arch = "x86_64"))]
+#[cfg(all(windows, target_arch = "x86_64"))]
 mod windows;
-#[cfg(all(test, windows, target_arch = "x86_64"))]
-pub(crate) use windows::{prepare_cleanup, recover, ImageBundle};
+#[cfg(all(windows, target_arch = "x86_64"))]
+pub(crate) use windows::{prepare_cleanup, recover, supports_windows_images, ImageBundle};
 
 #[cfg(unix)]
 mod unix {
@@ -332,9 +332,9 @@ mod unix {
 }
 #[cfg(unix)]
 pub(crate) use unix::{prepare_cleanup, recover, ImageBundle};
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 pub(crate) struct ImageBundle;
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 impl ImageBundle {
     pub(crate) fn publish(_: &Path, _: &str, _: Vec<ValidatedImage>) -> std::io::Result<Self> {
         Err(std::io::Error::other(
@@ -346,21 +346,21 @@ impl ImageBundle {
     }
     pub(crate) fn accept(&mut self) {}
 }
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 pub(crate) struct ImageCleanup;
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 impl ImageCleanup {
     pub(crate) fn remove(&self) -> std::io::Result<()> {
         Ok(())
     }
 }
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 pub(crate) fn prepare_cleanup(_: &Path, id: &str) -> std::io::Result<Option<ImageCleanup>> {
     uuid::Uuid::parse_str(id)
         .map(|_| None)
         .map_err(|_| std::io::Error::other("Invalid image bundle owner"))
 }
-#[cfg(not(any(unix, all(test, windows, target_arch = "x86_64"))))]
+#[cfg(not(any(unix, all(windows, target_arch = "x86_64"))))]
 pub(crate) fn recover(_: &Path, _: &crate::metadata::MetadataStore) -> std::io::Result<()> {
     Ok(())
 }

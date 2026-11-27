@@ -1663,8 +1663,12 @@ impl MetadataStore {
                 return Err(e);
             }
         }
-        self.summary_checkpoints.lock().unwrap().remove(id);
+        self.discard_session_event_cache(id);
         Ok(())
+    }
+
+    pub(crate) fn discard_session_event_cache(&self, id: &str) {
+        self.summary_checkpoints.lock().unwrap().remove(id);
     }
 
     pub fn clear_last_active_session_if_matches(&self, id: &str) -> std::io::Result<()> {

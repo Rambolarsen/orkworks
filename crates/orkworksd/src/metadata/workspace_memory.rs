@@ -42,7 +42,9 @@ pub(crate) struct Edit {
 }
 impl Edit {
     pub(crate) fn read(&self) -> io::Result<Option<WorkspaceMemory>> {
-        let data = match fs::read(self.owner.root.join("workspace.json")) {
+        let data = match crate::durable_file::read_metadata_file(
+            &self.owner.root.join("workspace.json"),
+        ) {
             Ok(data) => data,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),

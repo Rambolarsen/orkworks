@@ -83,6 +83,43 @@ Both bounded probes exited successfully. This confirms the installed interface.
    regressions, full repository verification, and current-diff code review
    before merging the activation.
 
+## Production follow-up
+
+The owner approved the production cleanup design recorded in
+[PR #2089](https://github.com/Rambolarsen/orkworks/pull/2089).
+That PR supplies the qualification baseline at `9fd205d6`. The follow-up
+adds the two cleanup safeguards before making Windows image support
+available through the existing capability and creation checks.
+
+1. Bind Windows Forget and retention to the active workspace lease and the
+   verified metadata namespace before the first effect. Retain the guard
+   through observations, terminal and session records, workspace memory,
+   organization, and recommendation cleanup. Bind nested recommendation
+   journal reads, publication, and recovery to verified directory handles.
+   Preserve binding for text-only and legacy sessions. Derive in-memory eviction from the guarded outcome.
+   Bind retention before its scan can quarantine corrupt records and bind
+   startup image recovery before orphan deletion. Verify ordinary and aliased
+   paths and reject an unresolved or changed target before any effect.
+2. Under the image-store lock, verify and remove owned image leaves while
+   the manifest stays present. Flush a private sibling draft with the exact
+   session and native directory identity, then atomically publish the
+   cleanup record before removing the manifest. Retry may remove an empty, matching directory. Preserve other
+   entries, replaced directories, and malformed ownership records. Keep the
+   cleanup record until a no-follow lookup proves the directory name absent.
+   Cover process interruption across the deletion steps, and preserve valid
+   and unreadable session records during ordinary startup recovery.
+3. Enable Windows x64 only with a qualified fixed local NTFS metadata
+   directory and the resolved native Codex 0.172.0 executable. Share the
+   capability and admission checks, and retain the verified executable and
+   attachment handles through startup. Keep the existing macOS policy and ordinary text-only
+   behavior. Verify negative capability and startup paths, locked images,
+   and the Windows text-only cleanup regression. Update the source-build
+   user documentation and complete the repository review and CI gates.
+
+The new cleanup record affects only Windows deletion retries. The public
+API and the accepted bundle and session-record formats remain in use.
+Release capability can be disabled while retaining ownership-aware cleanup.
+
 ## Review and recovery
 
 The owner approved the Windows custody boundary on 2026-11-26. Implementation and native qualification are in progress.

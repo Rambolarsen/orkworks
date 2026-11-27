@@ -1,7 +1,7 @@
 //! Owner-only Windows image bundles. The first profile is qualified separately.
-mod native;
+use crate::windows_fs as native;
 
-use self::native::{child, mark_remove, names, rename, Anchor, PrivateAcl};
+use self::native::{child, file_identity, mark_remove, names, rename, Anchor, PrivateAcl};
 use super::ValidatedImage;
 use crate::workspace_runtime::WorkspaceIdentity;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,10 @@ const DIRECTORY: &str = "session-images";
 const MANIFEST: &str = "owner.json";
 const MANIFEST_OWNER: &str = "orkworks-image-context-v1";
 const STAGE_PREFIX: &str = ".staging-";
-const MANIFEST_LIMIT: usize = 1024;
+const CLEANUP_PREFIX: &str = ".cleanup-";
+const CLEANUP_DRAFT_PREFIX: &str = ".cleanup-draft-";
+const CLEANUP_OWNER: &str = "orkworks-image-cleanup-v1";
+const RECORD_LIMIT: usize = 1024;
 const READ: u32 = FILE_GENERIC_READ;
 const WRITE: u32 = FILE_GENERIC_READ | FILE_GENERIC_WRITE;
 
@@ -31,6 +34,10 @@ fn invalid(message: &'static str) -> io::Error {
 
 fn valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|parsed| parsed.to_string() == id)
+}
+
+fn bundle_name(name: &str) -> bool {
+    valid_id(name) || name.strip_prefix(STAGE_PREFIX).is_some_and(valid_id)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -134,6 +141,13 @@ fn is_missing<T>(result: &io::Result<T>) -> bool {
     matches!(result, Err(error) if error.kind() == io::ErrorKind::NotFound)
 }
 
+fn optional_child<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Err(error) if error.raw_os_error() == Some(ERROR_FILE_NOT_FOUND as i32) => Ok(None),
+        result => result.map(Some),
+    }
+}
+
 fn private_child(
     parent: &File,
     name: &OsStr,
@@ -147,19 +161,18 @@ fn private_child(
     Ok(file)
 }
 
-fn read_manifest(directory: &File, acl: &PrivateAcl) -> io::Result<Manifest> {
-    let file = private_child(directory, OsStr::new(MANIFEST), false, READ, acl, false)?;
-    parse_manifest(&file)
+fn read_record<T: serde::de::DeserializeOwned>(file: &File) -> io::Result<T> {
+    let mut contents = Vec::new();
+    file.take((RECORD_LIMIT + 1) as u64)
+        .read_to_end(&mut contents)?;
+    if contents.len() > RECORD_LIMIT {
+        return Err(invalid("Image ownership record is oversized"));
+    }
+    Ok(serde_json::from_slice(&contents)?)
 }
 
 fn parse_manifest(file: &File) -> io::Result<Manifest> {
-    let mut contents = Vec::new();
-    file.take((MANIFEST_LIMIT + 1) as u64)
-        .read_to_end(&mut contents)?;
-    if contents.len() > MANIFEST_LIMIT {
-        return Err(invalid("Image ownership manifest is oversized"));
-    }
-    let manifest: Manifest = serde_json::from_slice(&contents)?;
+    let manifest: Manifest = read_record(file)?;
     if manifest.owner != MANIFEST_OWNER || !valid_id(&manifest.session) {
         return Err(invalid("Invalid image ownership manifest"));
     }
@@ -176,41 +189,208 @@ fn image_name(name: &OsStr) -> bool {
         && matches!(extension, "png" | "jpg" | "webp")
 }
 
-fn remove_bundle(directory: &File, acl: &PrivateAcl, expected: Option<&str>) -> io::Result<()> {
-    // Verify every entry and the retained marker handle before removing any name.
-    let mut files = Vec::new();
-    let mut manifest = None;
-    for name in names(directory)? {
-        let marker = name == MANIFEST;
-        if !marker && !image_name(&name) {
-            return Err(invalid("Unexpected entry in private image bundle"));
-        }
-        let file = private_child(directory, &name, false, READ | DELETE, acl, false)?;
-        if marker {
-            manifest = Some(file);
-        } else {
-            files.push(file);
-        }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CleanupReceipt {
+    owner: String,
+    bundle: String,
+    session: String,
+    volume: u32,
+    file: u64,
+}
+
+fn read_receipt(
+    root: &Root,
+    name: &str,
+    receipt_name: &OsStr,
+) -> io::Result<Option<(File, CleanupReceipt)>> {
+    let Some(file) = optional_child(private_child(
+        &root.directory,
+        receipt_name,
+        false,
+        WRITE | DELETE,
+        &root.acl,
+        false,
+    ))?
+    else {
+        return Ok(None);
+    };
+    let receipt: CleanupReceipt = read_record(&file)?;
+    if receipt.owner != CLEANUP_OWNER
+        || receipt.bundle != name
+        || !valid_id(&receipt.session)
+        || (valid_id(name) && receipt.session != name)
+    {
+        return Err(invalid("Invalid image cleanup receipt"));
     }
-    if let Some(expected) = expected {
-        let marker = manifest
-            .as_ref()
-            .ok_or_else(|| invalid("Missing image ownership manifest"))?;
-        if parse_manifest(marker)?.session != expected {
+    Ok(Some((file, receipt)))
+}
+
+fn create_receipt(root: &Root, receipt_name: &OsStr, receipt: &CleanupReceipt) -> io::Result<File> {
+    // Only called under the store lock while the matching owner marker still
+    // exists. A previous partial draft never grants deletion authority.
+    let draft_name = format!("{CLEANUP_DRAFT_PREFIX}{}", receipt.bundle);
+    let draft_name = OsStr::new(&draft_name);
+    if let Some(interrupted) = optional_child(private_child(
+        &root.directory,
+        draft_name,
+        false,
+        WRITE | DELETE,
+        &root.acl,
+        false,
+    ))? {
+        mark_remove(&interrupted)?;
+    }
+    let mut file = private_child(
+        &root.directory,
+        draft_name,
+        false,
+        WRITE | DELETE,
+        &root.acl,
+        true,
+    )?;
+    serde_json::to_writer(&mut file, receipt)?;
+    file.sync_all()?;
+    rename(&file, receipt_name)?;
+    Ok(file)
+}
+
+fn remove_bundle(
+    root: &Root,
+    name: &str,
+    directory: &mut Option<File>,
+    requested: Option<&str>,
+) -> io::Result<()> {
+    if !bundle_name(name) {
+        return Err(invalid("Invalid image cleanup bundle name"));
+    }
+    let receipt_name = format!("{CLEANUP_PREFIX}{name}");
+    let receipt_name = OsStr::new(&receipt_name);
+    let mut receipt = read_receipt(root, name, receipt_name)?;
+    let marker = match directory {
+        Some(directory) => optional_child(private_child(
+            directory,
+            OsStr::new(MANIFEST),
+            false,
+            READ | DELETE,
+            &root.acl,
+            false,
+        ))?,
+        None => None,
+    };
+    let manifest = marker.as_ref().map(parse_manifest).transpose()?;
+    let session = manifest
+        .as_ref()
+        .map(|manifest| manifest.session.as_str())
+        .or_else(|| {
+            receipt
+                .as_ref()
+                .map(|(_, receipt)| receipt.session.as_str())
+        });
+    if let Some(session) = session {
+        if requested.is_some_and(|expected| expected != session)
+            || (valid_id(name) && name != session)
+            || receipt
+                .as_ref()
+                .is_some_and(|(_, receipt)| receipt.session != session)
+        {
             return Err(invalid("Image bundle belongs to a different session"));
         }
+        if requested.is_none() && !root.metadata_absent(session) {
+            return Ok(());
+        }
     }
-    for file in files {
+    if let Some(handle) = directory.as_ref() {
+        if session.is_none() {
+            return Err(invalid(
+                "Missing image ownership manifest and cleanup receipt",
+            ));
+        }
+        let (volume, file) = file_identity(handle)?;
+        if receipt
+            .as_ref()
+            .is_some_and(|(_, receipt)| (receipt.volume, receipt.file) != (volume, file))
+        {
+            return Err(invalid(
+                "Image cleanup receipt refers to a different directory",
+            ));
+        }
+        if let (Some(marker), Some(manifest)) = (marker, manifest) {
+            // Verify every leaf before removing any of them. The manifest stays
+            // present until the final leaf is gone and the receipt is flushed.
+            let mut files = Vec::new();
+            for entry in names(handle)? {
+                if entry == MANIFEST {
+                    continue;
+                }
+                if !image_name(&entry) {
+                    return Err(invalid("Unexpected entry in private image bundle"));
+                }
+                files.push(private_child(
+                    handle,
+                    &entry,
+                    false,
+                    READ | DELETE,
+                    &root.acl,
+                    false,
+                )?);
+            }
+            for file in files {
+                mark_remove(&file)?;
+            }
+            let remaining = names(handle)?;
+            if remaining.len() != 1 || remaining[0] != MANIFEST {
+                return Err(invalid("Private image bundle changed during cleanup"));
+            }
+            match &receipt {
+                Some((file, _)) => file.sync_all()?,
+                None => {
+                    let data = CleanupReceipt {
+                        owner: CLEANUP_OWNER.into(),
+                        bundle: name.into(),
+                        session: manifest.session,
+                        volume,
+                        file,
+                    };
+                    receipt = Some((create_receipt(root, receipt_name, &data)?, data));
+                }
+            }
+            mark_remove(&marker)?;
+            drop(marker);
+        }
+        // A receipt alone only authorizes removal of an empty directory.
+        // Windows checks emptiness again when setting the disposition.
+        if !names(handle)?.is_empty() {
+            return Err(invalid("Image cleanup requires an empty directory"));
+        }
+        mark_remove(handle)?;
+        drop(directory.take());
+    }
+    let lookup = child(
+        &root.directory,
+        OsStr::new(name),
+        true,
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        None,
+    );
+    if optional_child(lookup)?.is_some() {
+        return Err(invalid("Image bundle remains after cleanup"));
+    }
+    if let Some((file, _)) = receipt {
         mark_remove(&file)?;
     }
-    if let Some(marker) = manifest {
-        mark_remove(&marker)?;
-    }
-    mark_remove(directory)
+    Ok(())
+}
+
+pub(crate) fn supports_windows_images(root: &Path) -> bool {
+    let store = Root::open(root, false);
+    store.is_ok() || (is_missing(&store) && Anchor::open(root).is_ok())
 }
 
 pub(crate) struct ImageBundle {
-    directory: File,
+    directory: Option<File>,
+    name: String,
+    session: String,
     accepted: bool,
     root: Root,
     paths: Vec<PathBuf>,
@@ -227,13 +407,15 @@ impl ImageBundle {
         let stage = format!("{STAGE_PREFIX}{}", uuid::Uuid::new_v4());
         let directory = store.bundle(OsStr::new(&stage), true)?;
         let mut bundle = Self {
-            directory,
+            directory: Some(directory),
+            name: stage,
+            session: id.into(),
             accepted: false,
             root: store,
             paths: Vec::with_capacity(images.len()),
             _lock: lock,
         };
-        let directory = &bundle.directory;
+        let directory = bundle.directory.as_ref().expect("new bundle directory");
         {
             let mut manifest = private_child(
                 directory,
@@ -269,6 +451,7 @@ impl ImageBundle {
         // The staging handle was opened write-through. The rename is within
         // the same verified NTFS directory and cannot replace another bundle.
         rename(directory, OsStr::new(id))?;
+        bundle.name = id.into();
         Ok(bundle)
     }
 
@@ -277,12 +460,13 @@ impl ImageBundle {
     }
 
     pub(crate) fn verify_dispatch_paths(&self) -> io::Result<Vec<File>> {
+        let directory = self.directory.as_ref().expect("published bundle directory");
         let mut pins = Vec::with_capacity(self.paths.len());
         for path in &self.paths {
             let name = path
                 .file_name()
                 .ok_or_else(|| invalid("Missing image file name"))?;
-            let owned = private_child(&self.directory, name, false, READ, &self.root.acl, false)?;
+            let owned = private_child(directory, name, false, READ, &self.root.acl, false)?;
             pins.push(native::verify_dispatch_path(path, &owned)?);
         }
         Ok(pins)
@@ -296,7 +480,12 @@ impl ImageBundle {
 impl Drop for ImageBundle {
     fn drop(&mut self) {
         if !self.accepted {
-            if let Err(error) = remove_bundle(&self.directory, &self.root.acl, None) {
+            if let Err(error) = remove_bundle(
+                &self.root,
+                &self.name,
+                &mut self.directory,
+                Some(&self.session),
+            ) {
                 tracing::warn!(%error, "Image bundle rollback deferred");
             }
         }
@@ -308,6 +497,7 @@ pub(crate) struct ImageCleanup(CleanupTarget);
 enum CleanupTarget {
     Bundle {
         root: Root,
+        name: String,
         session: String,
         directory: RefCell<Option<File>>,
         _lock: File,
@@ -340,17 +530,11 @@ impl ImageCleanup {
         match &self.0 {
             CleanupTarget::Bundle {
                 root,
+                name,
                 session,
                 directory,
                 ..
-            } => {
-                let mut directory = directory.borrow_mut();
-                if let Some(handle) = directory.as_ref() {
-                    remove_bundle(handle, &root.acl, Some(session))?;
-                    directory.take();
-                }
-                Ok(())
-            }
+            } => remove_bundle(root, name, &mut directory.borrow_mut(), Some(session)),
             CleanupTarget::AbsentStore(metadata) => verify_store_absent(metadata),
         }
     }
@@ -400,9 +584,11 @@ impl ImageCleanup {
 }
 
 pub(crate) fn prepare_cleanup(root: &Path, id: &str) -> io::Result<Option<ImageCleanup>> {
-    if !valid_id(id) {
-        return Err(invalid("Invalid image bundle owner"));
-    }
+    // Old text sessions can use another UUID spelling. Check the canonical
+    // image name for collisions, then keep the original for owner comparison.
+    let name = uuid::Uuid::parse_str(id)
+        .map_err(|_| invalid("Invalid image bundle owner"))?
+        .to_string();
     let root = match Root::open(root, false) {
         Ok(root) => root,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -417,16 +603,19 @@ pub(crate) fn prepare_cleanup(root: &Path, id: &str) -> io::Result<Option<ImageC
             };
         }
     };
-    let directory = root.bundle(OsStr::new(id), false);
-    if is_missing(&directory) {
-        return Ok(None);
-    }
-    let directory = directory?;
     let lock = root.lock()?;
+    let directory = optional_child(root.bundle(OsStr::new(&name), false))?;
+    if name != id {
+        let receipt_name = format!("{CLEANUP_PREFIX}{name}");
+        if directory.is_some() || read_receipt(&root, &name, OsStr::new(&receipt_name))?.is_some() {
+            return Err(invalid("Image bundle belongs to a different session"));
+        }
+    }
     Ok(Some(ImageCleanup(CleanupTarget::Bundle {
         root,
+        name,
         session: id.into(),
-        directory: RefCell::new(Some(directory)),
+        directory: RefCell::new(directory),
         _lock: lock,
     })))
 }
@@ -441,26 +630,21 @@ pub(crate) fn recover(root: &Path, metadata: &crate::metadata::MetadataStore) ->
     }
     let root = root?;
     let _lock = root.lock()?;
-    for name in names(&root.directory)? {
-        let Some(text) = name.to_str() else {
-            continue;
-        };
-        let staging = text.strip_prefix(STAGE_PREFIX).is_some_and(valid_id);
-        if !staging && !valid_id(text) {
-            continue;
-        }
-        let Ok(directory) = root.bundle(&name, false) else {
-            continue;
-        };
-        let Ok(manifest) = read_manifest(&directory, &root.acl) else {
-            continue;
-        };
-        if (staging || manifest.session == text) && root.metadata_absent(&manifest.session) {
-            if let Err(error) = remove_bundle(&directory, &root.acl, Some(&manifest.session)) {
-                tracing::warn!(%error, "Image recovery left an ambiguous bundle intact");
-            }
+    let entries = names(&root.directory)?;
+    let candidates: std::collections::BTreeSet<_> = entries
+        .iter()
+        .filter_map(|name| name.to_str())
+        .map(|name| name.strip_prefix(CLEANUP_PREFIX).unwrap_or(name))
+        .filter(|name| bundle_name(name))
+        .collect();
+    for name in candidates {
+        let result = optional_child(root.bundle(OsStr::new(name), false))
+            .and_then(|mut directory| remove_bundle(&root, name, &mut directory, None));
+        if let Err(error) = result {
+            tracing::warn!(%error, "Image recovery left an ambiguous bundle intact");
         }
     }
+
     Ok(())
 }
 
@@ -486,7 +670,10 @@ mod tests {
     fn refuses_an_inherited_acl_and_a_reparse_root() {
         let root = tempfile::tempdir().unwrap();
         let image_root = root.path().join(DIRECTORY);
+        assert!(supports_windows_images(root.path()));
+        assert!(!image_root.exists());
         fs::create_dir(&image_root).unwrap();
+        assert!(!supports_windows_images(root.path()));
         assert!(ImageBundle::publish(root.path(), SESSION, fixture()).is_err());
         assert_eq!(fs::read_dir(&image_root).unwrap().count(), 0);
         fs::remove_dir(&image_root).unwrap();
@@ -545,6 +732,230 @@ mod tests {
             .is_err());
         assert!(original.join(&record).is_file());
         assert!(other.join(&record).is_file());
+    }
+
+    fn interrupt_cleanup(root: &Path, session: &str) -> (PathBuf, PathBuf) {
+        let mut bundle = ImageBundle::publish(root, session, fixture()).unwrap();
+        let image = bundle.paths()[0].clone();
+        let directory = image.parent().unwrap().to_path_buf();
+        bundle.accept();
+        drop(bundle);
+        let store = Root::open(root, false).unwrap();
+        let _lock = store.lock().unwrap();
+        let handle = store.bundle(OsStr::new(session), false).unwrap();
+        let (volume, file) = file_identity(&handle).unwrap();
+        let record_name = format!("{CLEANUP_PREFIX}{session}");
+        fs::remove_file(image).unwrap();
+        let _record = create_receipt(
+            &store,
+            OsStr::new(&record_name),
+            &CleanupReceipt {
+                owner: CLEANUP_OWNER.into(),
+                bundle: session.into(),
+                session: session.into(),
+                volume,
+                file,
+            },
+        )
+        .unwrap();
+        fs::remove_file(directory.join(MANIFEST)).unwrap();
+        (directory, root.join(DIRECTORY).join(record_name))
+    }
+
+    #[test]
+    fn cleanup_retries_after_the_manifest_was_unlinked() {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, record) = interrupt_cleanup(root.path(), SESSION);
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        cleanup.remove().unwrap();
+        assert!(!directory.exists());
+        assert!(!record.exists());
+    }
+
+    #[test]
+    fn cleanup_checks_absence_under_the_store_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let mut writer = ImageBundle::publish(root.path(), SESSION, fixture()).unwrap();
+        assert!(prepare_cleanup(root.path(), RETAINED).is_err());
+        writer.accept();
+        drop(writer);
+        let cleanup = prepare_cleanup(root.path(), RETAINED).unwrap().unwrap();
+        assert!(ImageBundle::publish(root.path(), RETAINED, fixture()).is_err());
+        cleanup.remove().unwrap();
+    }
+
+    #[test]
+    fn legacy_uuid_can_be_cleaned_without_claiming_a_canonical_bundle() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = SESSION.replace('-', "");
+        let mut bundle = ImageBundle::publish(root.path(), SESSION, fixture()).unwrap();
+        let image = bundle.paths()[0].clone();
+        bundle.accept();
+        drop(bundle);
+
+        assert!(prepare_cleanup(root.path(), &legacy).is_err());
+        assert!(image.is_file());
+
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        cleanup.remove().unwrap();
+        drop(cleanup);
+
+        let cleanup = prepare_cleanup(root.path(), &legacy).unwrap().unwrap();
+        cleanup.remove().unwrap();
+    }
+
+    #[test]
+    fn cleanup_retries_an_interrupted_receipt_draft() {
+        let root = tempfile::tempdir().unwrap();
+        let mut bundle = ImageBundle::publish(root.path(), SESSION, fixture()).unwrap();
+        let image = bundle.paths()[0].clone();
+        bundle.accept();
+        drop(bundle);
+
+        let store = Root::open(root.path(), false).unwrap();
+        let draft_name = format!("{CLEANUP_DRAFT_PREFIX}{SESSION}");
+        let mut draft = private_child(
+            &store.directory,
+            OsStr::new(&draft_name),
+            false,
+            WRITE | DELETE,
+            &store.acl,
+            true,
+        )
+        .unwrap();
+        draft.write_all(b"{").unwrap();
+        draft.sync_all().unwrap();
+        drop(draft);
+        drop(store);
+
+        let draft_path = root.path().join(DIRECTORY).join(draft_name);
+        let metadata = crate::metadata::MetadataStore::new(root.path());
+        recover(root.path(), &metadata).unwrap();
+        assert!(!draft_path.exists());
+        assert!(!image.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn cleanup_flushes_the_receipt_before_attempting_manifest_removal() {
+        let root = tempfile::tempdir().unwrap();
+        let mut bundle = ImageBundle::publish(root.path(), SESSION, fixture()).unwrap();
+        let image = bundle.paths()[0].clone();
+        let marker = image.with_file_name(MANIFEST);
+        let receipt = root
+            .path()
+            .join(DIRECTORY)
+            .join(format!("{CLEANUP_PREFIX}{SESSION}"));
+        bundle.accept();
+        drop(bundle);
+
+        let mut permissions = fs::metadata(&marker).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&marker, permissions.clone()).unwrap();
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        let result = cleanup.remove();
+        permissions.set_readonly(false);
+        fs::set_permissions(&marker, permissions).unwrap();
+        assert!(result.is_err());
+        assert!(marker.is_file() && receipt.is_file());
+        assert!(!image.exists());
+
+        cleanup.remove().unwrap();
+        assert!(!marker.exists() && !receipt.exists());
+    }
+
+    #[test]
+    fn cleanup_keeps_the_receipt_and_late_entry_until_the_directory_is_empty() {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, record) = interrupt_cleanup(root.path(), SESSION);
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        let late = directory.join("late-entry");
+        fs::write(&late, b"keep").unwrap();
+        assert!(cleanup.remove().is_err());
+        assert_eq!(fs::read(&late).unwrap(), b"keep");
+        assert!(record.is_file());
+        fs::remove_file(late).unwrap();
+        cleanup.remove().unwrap();
+        assert!(!directory.exists());
+        assert!(!record.exists());
+    }
+
+    #[test]
+    fn cleanup_refuses_a_receipt_for_a_replaced_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, record) = interrupt_cleanup(root.path(), SESSION);
+        let moved = directory.with_file_name("moved");
+        fs::rename(&directory, &moved).unwrap();
+        let store = Root::open(root.path(), false).unwrap();
+        drop(store.bundle(OsStr::new(SESSION), true).unwrap());
+        drop(store);
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        assert!(cleanup.remove().is_err());
+        assert!(directory.is_dir() && moved.is_dir() && record.is_file());
+    }
+
+    #[test]
+    fn cleanup_refuses_an_oversized_receipt() {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, record) = interrupt_cleanup(root.path(), SESSION);
+        fs::write(&record, vec![b' '; RECORD_LIMIT + 1]).unwrap();
+        let cleanup = prepare_cleanup(root.path(), SESSION).unwrap().unwrap();
+        assert!(cleanup.remove().is_err());
+        assert!(directory.is_dir() && record.is_file());
+    }
+
+    #[test]
+    fn recovery_clears_a_receipt_after_directory_removal() {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, record) = interrupt_cleanup(root.path(), SESSION);
+        fs::remove_dir(directory).unwrap();
+        let metadata = crate::metadata::MetadataStore::new(root.path());
+        recover(root.path(), &metadata).unwrap();
+        assert!(!record.exists());
+    }
+
+    #[test]
+    fn recovery_retries_receipt_only_orphans_and_keeps_retained_sessions() {
+        let root = tempfile::tempdir().unwrap();
+        let (orphan, orphan_receipt) = interrupt_cleanup(root.path(), SESSION);
+        let (unreadable, unreadable_receipt) = interrupt_cleanup(root.path(), RETAINED);
+        let (committed, committed_receipt) = interrupt_cleanup(root.path(), COMMITTED);
+        let metadata = crate::metadata::MetadataStore::new(root.path());
+        fs::create_dir_all(metadata.sessions_dir()).unwrap();
+        fs::write(
+            metadata
+                .sessions_dir()
+                .join(format!("{RETAINED}.json.corrupt")),
+            b"retained",
+        )
+        .unwrap();
+        let record = crate::test_support::test_session_metadata(
+            COMMITTED,
+            "Image publication fixture",
+            root.path().to_str().unwrap(),
+            "ended",
+            "2026-11-27T00:00:00Z",
+            "2026-11-27T00:00:00Z",
+        );
+        metadata.try_write_session(&record).unwrap();
+
+        recover(root.path(), &metadata).unwrap();
+        assert!(!orphan.exists() && !orphan_receipt.exists());
+        assert!(unreadable.is_dir() && unreadable_receipt.is_file());
+        assert!(committed.is_dir() && committed_receipt.is_file());
+    }
+
+    #[test]
+    fn rollback_retires_a_valid_staged_bundle_after_a_rename_collision() {
+        let root = tempfile::tempdir().unwrap();
+        let mut bundle = ImageBundle::publish(root.path(), SESSION, fixture()).unwrap();
+        bundle.accept();
+        drop(bundle);
+        assert!(ImageBundle::publish(root.path(), SESSION, fixture()).is_err());
+        let store = Root::open(root.path(), false).unwrap();
+        let children = names(&store.directory).unwrap();
+        assert_eq!(children.len(), 2);
+        assert!(children.iter().any(|name| name == SESSION));
+        assert!(children.iter().any(|name| name == ".lock"));
     }
 
     #[test]

@@ -3897,9 +3897,14 @@ impl SessionApplication {
         {
             let workspace = self.state.workspace.lock().unwrap();
             if let Some(ws) = workspace.as_ref() {
-                if let Err(error) =
-                    crate::image_context::recover(&ws.metadata.root_path(), &ws.metadata)
-                {
+                let recover = || {
+                    let root = ws.metadata.root_path();
+                    #[cfg(all(windows, target_arch = "x86_64"))]
+                    let _namespace =
+                        crate::workspace_runtime::pin_metadata_root(&root, ws.lease.as_deref())?;
+                    crate::image_context::recover(&root, &ws.metadata)
+                };
+                if let Err(error) = recover() {
                     tracing::warn!(%error, "Image context recovery deferred");
                 }
             }
@@ -5292,6 +5297,17 @@ impl SessionApplication {
         let _projection = self.state.projection_lock.lock().unwrap();
         let workspace_guard = self.state.workspace.lock().unwrap();
         let workspace = workspace_guard.as_ref().ok_or(SessionError::Conflict)?;
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let _namespace = crate::workspace_runtime::CleanupNamespace::acquire(
+            &workspace.metadata.root_path(),
+            workspace.lease.as_deref(),
+        )
+        .map_err(|error| {
+            tracing::warn!(%error, "Forget metadata binding failed");
+            SessionError::ConflictWithMessage(
+                "Session metadata unavailable; deletion was not performed",
+            )
+        })?;
         let _reservation = workspace
             .metadata
             .organization
@@ -5339,7 +5355,7 @@ impl SessionApplication {
             })
         {
             tracing::error!(session_id = %id, %error, "failed to delete session evidence");
-            if !workspace.metadata.session_file_exists(id) {
+            if error.record_removed {
                 drop(workspace_guard);
                 self.state.sessions.lock().unwrap().remove(id);
                 self.clear_forgotten_session_tracking(id);
@@ -7213,8 +7229,18 @@ async fn create_session_workflow(
         Some(crate::image_context::delivery(
             resolved_launch.session_harness_id.as_deref().unwrap_or_default(),
             &resolved_launch.command.program,
+            workspace_metadata_root.as_deref(),
         ).await.ok_or(SessionError::BadRequest("Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images."))?)
     };
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    if let Some(crate::image_context::ImageDelivery::NativeWindowsCodex(qualified)) =
+        image_route.as_ref()
+    {
+        resolved_launch
+            .command
+            .program
+            .clone_from(&qualified.program);
+    }
     let image_inputs = req.initial_images.clone();
     let image_prompt = req.initial_prompt.clone().unwrap_or_default();
     let validated_images = if image_route.is_some() {
@@ -7369,29 +7395,66 @@ async fn create_session_workflow(
         provider_state: None,
     };
 
-    let mut image_bundle = if image_route.is_some() {
+    // Bind Windows image publication to the same leased directory used for
+    // its creating record, even if the metadata path changed on disk.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let image_namespace = if image_route.is_some() {
+        let workspace = state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        let root = ws.metadata.root_path();
+        if workspace_metadata_root.as_deref() != Some(root.as_path()) {
+            return Err(SessionError::Conflict);
+        }
+        let lease = ws.lease.clone();
+        let namespace = crate::workspace_runtime::pin_metadata_root(&root, lease.as_deref())
+            .map_err(|error| {
+                tracing::warn!(%error, "Image context admission lost its workspace binding");
+                SessionError::Conflict
+            })?;
+        Some((namespace, lease))
+    } else {
+        None
+    };
+
+    #[cfg(not(all(windows, target_arch = "x86_64")))]
+    let image_namespace = ();
+    let (bundle, _image_namespace) = if image_route.is_some() {
         let root = workspace_metadata_root
             .clone()
             .ok_or(SessionError::BadRequest(
                 "Open a workspace before attaching images.",
             ))?;
         let image_id = id.clone();
+        let (bundle, namespace) = tokio::task::spawn_blocking(move || {
+            let bundle =
+                crate::image_context::ImageBundle::publish(&root, &image_id, validated_images)?;
+            // A canceled request drops the unaccepted bundle before its lease.
+            Ok::<_, std::io::Error>((bundle, image_namespace))
+        })
+        .await
+        .map_err(|_| SessionError::Internal("Image storage failed"))?
+        .map_err(|_| SessionError::Internal("Cannot store private image context. Please retry."))?;
+        (Some(bundle), namespace)
+    } else {
+        (None, image_namespace)
+    };
+    let mut image_bundle = bundle;
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let image_record_directory = if image_bundle.is_some() {
+        let root = workspace_metadata_root
+            .as_deref()
+            .ok_or(SessionError::Conflict)?;
         Some(
-            tokio::task::spawn_blocking(move || {
-                crate::image_context::ImageBundle::publish(&root, &image_id, validated_images)
-            })
-            .await
-            .map_err(|_| SessionError::Internal("Image storage failed"))?
-            .map_err(|_| {
-                SessionError::Internal("Cannot store private image context. Please retry.")
+            crate::workspace_runtime::pin_sessions_for_create(root).map_err(|error| {
+                tracing::warn!(%error, "Image context session record directory unavailable");
+                SessionError::Conflict
             })?,
         )
     } else {
         None
     };
-    let initial_prompt = match (image_route, image_bundle.as_ref()) {
-        (Some(route), Some(bundle)) => Some(crate::image_context::apply_delivery(
-            route,
+    let initial_prompt = match image_bundle.as_ref() {
+        Some(bundle) => Some(crate::image_context::apply_delivery(
             &mut resolved_launch.command,
             req.initial_prompt.as_deref().unwrap_or_default(),
             bundle.paths(),
@@ -7399,12 +7462,11 @@ async fn create_session_workflow(
         _ => req.initial_prompt.clone(),
     };
     // A prompt delivered through argv already has a native submission owner.
-    let runtime_initial_prompt =
-        if image_route == Some(crate::image_context::ImageDelivery::NativeCodex) {
-            None
-        } else {
-            resolved_launch.prepare_initial_prompt(initial_prompt.clone())
-        };
+    let runtime_initial_prompt = if image_route.is_some() {
+        None
+    } else {
+        resolved_launch.prepare_initial_prompt(initial_prompt.clone())
+    };
     let command = resolved_launch.command.clone();
     let initial_prompt_label = initial_prompt
         .as_deref()
@@ -7469,6 +7531,16 @@ async fn create_session_workflow(
     let creation_workspace = loop {
         let next_cwd = {
             let workspace = state.workspace.lock().unwrap();
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            if let Some((_, lease)) = _image_namespace.as_ref() {
+                if workspace.as_ref().is_none_or(|ws| {
+                    ws.lease.as_ref().map(Arc::as_ptr) != lease.as_ref().map(Arc::as_ptr)
+                        || workspace_metadata_root.as_deref()
+                            != Some(ws.metadata.root_path().as_path())
+                }) {
+                    return Err(SessionError::Conflict);
+                }
+            }
             match workspace.as_ref() {
                 Some(ws) if ws.path != metadata_git_cwd => {
                     if image_bundle.is_some() {
@@ -7613,12 +7685,12 @@ async fn create_session_workflow(
     }
     #[cfg(all(test, windows, target_arch = "x86_64"))]
     let image_fixture = crate::image_context::capture_windows_image_fixture();
-    #[cfg(all(test, windows, target_arch = "x86_64"))]
-    let image_bundle = image_bundle.filter(|_| image_fixture.is_some());
-    #[cfg(not(all(test, windows, target_arch = "x86_64")))]
+    #[cfg(not(all(windows, target_arch = "x86_64")))]
     drop(image_bundle);
 
     drop(creation_workspace);
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    drop((image_record_directory, _image_namespace));
     crate::session_projection::SessionProjection::new(state.clone())
         .project_organization(std::slice::from_mut(&mut info));
     if let (Some(prompt), Some(_)) = (initial_prompt.as_deref(), initial_prompt_label.as_ref()) {
@@ -7666,21 +7738,27 @@ async fn create_session_workflow(
                 None,
             ) {
                 Ok(()) => {
-                    #[cfg(all(test, windows, target_arch = "x86_64"))]
-                    let _image_pins = match (&image_fixture, &image_bundle) {
-                        (Some(fixture), Some(bundle)) => fixture
-                            .observe_bundle(bundle)
-                            .map_err(|error| {
-                                crate::startup_failure::StartupError::classified(
-                                    crate::startup_failure::StartupFailureCode::ImageAttachmentUnavailable,
-                                    error,
-                                )
-                            })?,
-                        _ => Vec::new(),
+                    #[cfg(all(windows, target_arch = "x86_64"))]
+                    let _image_pins = if let Some(bundle) = &image_bundle {
+                        #[cfg(test)]
+                        let pins = match &image_fixture {
+                            Some(fixture) => fixture.observe_bundle(bundle),
+                            None => bundle.verify_dispatch_paths(),
+                        };
+                        #[cfg(not(test))]
+                        let pins = bundle.verify_dispatch_paths();
+                        pins.map_err(|error| {
+                            crate::startup_failure::StartupError::classified(
+                                crate::startup_failure::StartupFailureCode::ImageAttachmentUnavailable,
+                                error,
+                            )
+                        })?
+                    } else {
+                        Vec::new()
                     };
                     let result = runtime_future.await;
-                    #[cfg(all(test, windows, target_arch = "x86_64"))]
-                    drop(image_bundle);
+                    #[cfg(all(windows, target_arch = "x86_64"))]
+                    drop((image_bundle, image_route));
                     result
                 }
                 Err(error) => {

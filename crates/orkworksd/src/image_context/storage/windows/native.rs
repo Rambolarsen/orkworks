@@ -44,7 +44,7 @@ use windows_sys::{
             FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX,
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO,
             FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
-            VOLUME_NAME_GUID,
+            SYNCHRONIZE, VOLUME_NAME_GUID,
         },
         System::{
             SystemServices::{ACCESS_ALLOWED_ACE_TYPE, FILE_PERSISTENT_ACLS},
@@ -118,10 +118,10 @@ impl Drop for LocalMemory {
 
 // Use aligned, owned self-relative descriptor bytes so the bundle can move
 // from the storage blocking task back to session admission.
-pub(super) struct PrivateAcl(Vec<usize>);
+pub(crate) struct PrivateAcl(Vec<usize>);
 
 impl PrivateAcl {
-    pub(super) fn current_user() -> io::Result<Self> {
+    pub(crate) fn current_user() -> io::Result<Self> {
         let mut token = null_mut();
         // SAFETY: token is a writable HANDLE slot; the process pseudohandle is borrowed.
         check(unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) })?;
@@ -186,7 +186,7 @@ impl PrivateAcl {
         Ok(Self(bytes))
     }
 
-    pub(super) fn verify(&self, file: &File) -> io::Result<()> {
+    pub(crate) fn verify(&self, file: &File) -> io::Result<()> {
         let mut owner = null_mut();
         let mut acl = null_mut();
         let mut descriptor = null_mut();
@@ -305,7 +305,13 @@ fn file_info(file: &File) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
     Ok(info)
 }
 
-fn verify_kind(file: &File, directory: bool) -> io::Result<()> {
+pub(crate) fn file_identity(file: &File) -> io::Result<(u32, u64)> {
+    let info = file_info(file)?;
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((info.dwVolumeSerialNumber, index))
+}
+
+pub(crate) fn verify_kind(file: &File, directory: bool) -> io::Result<()> {
     let info = file_info(file)?;
     let flags = info.dwFileAttributes;
     if flags & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE) != 0
@@ -319,12 +325,79 @@ fn verify_kind(file: &File, directory: bool) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn child(
+pub(crate) fn child(
     parent: &File,
     name: &OsStr,
     directory: bool,
     access: u32,
     create: Option<&PrivateAcl>,
+) -> io::Result<File> {
+    let disposition = if create.is_some() {
+        FILE_CREATE
+    } else {
+        FILE_OPEN
+    };
+    let file = open_child(
+        parent,
+        name,
+        directory,
+        access,
+        disposition,
+        create,
+        SHARING,
+    )?;
+    verify_kind(&file, directory)?;
+    Ok(file)
+}
+
+pub(crate) fn child_inherited(
+    parent: &File,
+    name: &OsStr,
+    directory: bool,
+    access: u32,
+    create: bool,
+    sharing: u32,
+) -> io::Result<File> {
+    let file = open_child(
+        parent,
+        name,
+        directory,
+        access,
+        if create { FILE_CREATE } else { FILE_OPEN },
+        None,
+        sharing,
+    )?;
+    verify_kind(&file, directory)?;
+    Ok(file)
+}
+
+pub(crate) fn inspect_directory_entry(parent: &File, name: &OsStr) -> io::Result<Option<File>> {
+    let file = open_child(
+        parent,
+        name,
+        false,
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_OPEN,
+        None,
+        SHARING,
+    )?;
+    let flags = file_info(&file)?.dwFileAttributes;
+    if flags & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DEVICE) != 0 {
+        return Err(invalid(
+            "Invalid reparse point or device in journal directory",
+        ));
+    }
+    Ok((flags & FILE_ATTRIBUTE_DIRECTORY != 0).then_some(file))
+}
+
+fn open_child(
+    parent: &File,
+    name: &OsStr,
+    directory: bool,
+    access: u32,
+    disposition: u32,
+    acl: Option<&PrivateAcl>,
+    sharing: u32,
 ) -> io::Result<File> {
     let name = component(name)?;
     let length = size_of_val(name.as_slice()) as u16;
@@ -338,14 +411,14 @@ pub(super) fn child(
         RootDirectory: parent.as_raw_handle(),
         ObjectName: &name,
         Attributes: OBJ_CASE_INSENSITIVE,
-        SecurityDescriptor: create.map_or(null(), |acl| acl.0.as_ptr().cast()),
+        SecurityDescriptor: acl.map_or(null(), |acl| acl.0.as_ptr().cast()),
         SecurityQualityOfService: null(),
     };
     // Always suppress final-component reparsing, including exclusive creation
     // against a pre-existing dangling link. Check the returned kind on reopen.
     let options = FILE_OPEN_REPARSE_POINT
         | FILE_WRITE_THROUGH
-        | if create.is_some() && directory {
+        | if disposition == FILE_CREATE && directory {
             FILE_DIRECTORY_FILE
         } else {
             0
@@ -362,12 +435,8 @@ pub(super) fn child(
             &mut result,
             null(),
             if directory { 0 } else { FILE_ATTRIBUTE_NORMAL },
-            SHARING,
-            if create.is_some() {
-                FILE_CREATE
-            } else {
-                FILE_OPEN
-            },
+            sharing,
+            disposition,
             options | FILE_SYNCHRONOUS_IO_NONALERT,
             null(),
             0,
@@ -375,17 +444,15 @@ pub(super) fn child(
     };
     nt_result(status)?;
     // SAFETY: a synchronous success transfers the uniquely owned file handle.
-    let file = unsafe { File::from_raw_handle(handle) };
-    verify_kind(&file, directory)?;
-    Ok(file)
+    Ok(unsafe { File::from_raw_handle(handle) })
 }
 
-pub(super) struct Anchor {
+pub(crate) struct Anchor {
     handles: Vec<File>,
 }
 
 impl Anchor {
-    pub(super) fn open(path: &Path) -> io::Result<Self> {
+    pub(crate) fn open(path: &Path) -> io::Result<Self> {
         let mut components = path.components();
         let drive = match components.next() {
             Some(Component::Prefix(prefix)) => match prefix.kind() {
@@ -483,12 +550,16 @@ impl Anchor {
         Ok(Self { handles })
     }
 
-    pub(super) fn directory(&self) -> &File {
+    pub(crate) fn directory(&self) -> &File {
         self.handles.last().expect("volume handle is retained")
     }
 }
 
-pub(super) fn names(directory: &File) -> io::Result<Vec<OsString>> {
+pub(crate) fn names(directory: &File) -> io::Result<Vec<OsString>> {
+    names_up_to(directory, usize::MAX)
+}
+
+pub(crate) fn names_up_to(directory: &File, limit: usize) -> io::Result<Vec<OsString>> {
     const HEADER: usize = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
     let mut entries = Vec::new();
     let mut info_class = FileIdBothDirectoryRestartInfo;
@@ -550,6 +621,9 @@ pub(super) fn names(directory: &File) -> io::Result<Vec<OsString>> {
                 OsString::from_wide(slice::from_raw_parts(start, name_len / 2))
             };
             if name != "." && name != ".." {
+                if entries.len() == limit {
+                    return Err(invalid("Too many entries in private storage directory"));
+                }
                 entries.push(name);
             }
             if next == 0 {
@@ -560,7 +634,16 @@ pub(super) fn names(directory: &File) -> io::Result<Vec<OsString>> {
     }
 }
 
-pub(super) fn rename(directory: &File, name: &OsStr) -> io::Result<()> {
+pub(crate) fn rename(file: &File, name: &OsStr) -> io::Result<()> {
+    rename_entry(file, None, name, false)
+}
+
+pub(crate) fn rename_entry(
+    file: &File,
+    parent: Option<&File>,
+    name: &OsStr,
+    replace_existing: bool,
+) -> io::Result<()> {
     let name = component(name)?;
     let name_bytes = size_of_val(name.as_slice());
     let offset = offset_of!(FILE_RENAME_INFORMATION, FileName);
@@ -568,17 +651,17 @@ pub(super) fn rename(directory: &File, name: &OsStr) -> io::Result<()> {
     let mut info = vec![0usize; bytes.div_ceil(size_of::<usize>())];
     let mut result = IO_STATUS_BLOCK::default();
     // SAFETY: buffer has the required alignment and capacity for the native
-    // header and inline UTF-16 name. Null RootDirectory and a single name
-    // rename the held directory within its current parent.
+    // header and inline UTF-16 name. The relative destination uses a live
+    // parent handle or stays in the source parent when none is supplied.
     let status = unsafe {
         let record = info.as_mut_ptr().cast::<FILE_RENAME_INFORMATION>();
-        (*record).Anonymous.ReplaceIfExists = false;
-        (*record).RootDirectory = null_mut();
+        (*record).Anonymous.ReplaceIfExists = replace_existing;
+        (*record).RootDirectory = parent.map_or(null_mut(), AsRawHandle::as_raw_handle);
         (*record).FileNameLength = name_bytes as u32;
         let name_out = info.as_mut_ptr().cast::<u8>().add(offset).cast::<u16>();
         std::ptr::copy_nonoverlapping(name.as_ptr(), name_out, name.len());
         NtSetInformationFile(
-            directory.as_raw_handle(),
+            file.as_raw_handle(),
             &mut result,
             info.as_ptr().cast(),
             bytes as u32,
@@ -588,7 +671,7 @@ pub(super) fn rename(directory: &File, name: &OsStr) -> io::Result<()> {
     nt_result(status)
 }
 
-pub(super) fn mark_remove(file: &File) -> io::Result<()> {
+pub(crate) fn mark_remove(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO_EX {
         Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
     };
@@ -604,7 +687,7 @@ pub(super) fn mark_remove(file: &File) -> io::Result<()> {
     })
 }
 
-pub(super) fn mark_record_remove(file: &File) -> io::Result<()> {
+pub(crate) fn mark_record_remove(file: &File) -> io::Result<()> {
     let info = FILE_DISPOSITION_INFO { DeleteFile: true };
     // SAFETY: the verified record handle has DELETE access and the native
     // information buffer remains live through the call.
@@ -618,18 +701,14 @@ pub(super) fn mark_record_remove(file: &File) -> io::Result<()> {
     })
 }
 
-pub(super) fn verify_dispatch_path(path: &Path, owned: &File) -> io::Result<File> {
+pub(crate) fn verify_dispatch_path(path: &Path, owned: &File) -> io::Result<File> {
     let launch_file = OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
     verify_kind(&launch_file, false)?;
-    let a = file_info(&launch_file)?;
-    let b = file_info(owned)?;
-    if (a.dwVolumeSerialNumber, a.nFileIndexHigh, a.nFileIndexLow)
-        != (b.dwVolumeSerialNumber, b.nFileIndexHigh, b.nFileIndexLow)
-    {
+    if file_identity(&launch_file)? != file_identity(owned)? {
         return Err(invalid(
             "Image launch path no longer names the published file",
         ));

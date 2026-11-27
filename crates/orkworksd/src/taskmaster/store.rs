@@ -1,4 +1,8 @@
 mod deletion_journal;
+#[cfg(all(windows, target_arch = "x86_64"))]
+mod rollup_windows;
+#[cfg(all(windows, target_arch = "x86_64"))]
+use rollup_windows::{Directory as RollupDirectory, Leaf as RollupLeaf};
 #[cfg(test)]
 mod reopen_tests;
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
@@ -13,6 +17,7 @@ use super::{DismissalWatermark, Recommendation, RecommendationStatus, Recommenda
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -106,6 +111,215 @@ pub(crate) fn dismissed_record(
 pub(crate) struct RecommendationStore {
     dir: PathBuf,
     owner: std::sync::Arc<operation::Owner>,
+}
+
+// These path-based operations retain the legacy implementation on other hosts.
+#[cfg(not(all(windows, target_arch = "x86_64")))]
+struct RollupDirectory {
+    path: PathBuf,
+}
+
+#[cfg(not(all(windows, target_arch = "x86_64")))]
+struct RollupLeaf(PathBuf);
+
+#[cfg(not(all(windows, target_arch = "x86_64")))]
+impl RollupDirectory {
+    fn open(path: &Path) -> io::Result<Self> {
+        Ok(Self { path: path.into() })
+    }
+
+    fn open_dir(&self, name: &OsStr) -> io::Result<Self> {
+        let path = self.path.join(name);
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid recommendation journal directory",
+            ));
+        }
+        Ok(Self { path })
+    }
+
+    fn create_dir(&self, name: &OsStr) -> io::Result<Self> {
+        let path = self.path.join(name);
+        fs::create_dir(&path)?;
+        Ok(Self { path })
+    }
+
+    fn names(&self) -> io::Result<Vec<OsString>> {
+        fs::read_dir(&self.path)?
+            .take(deletion_journal::MAX_DIRECTORY_ENTRIES + 1)
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect()
+    }
+
+    fn open_candidate(&self, name: &OsStr) -> io::Result<Option<Self>> {
+        let path = self.path.join(name);
+        Ok(path.is_dir().then_some(Self { path }))
+    }
+
+    fn read(&self, name: &OsStr) -> io::Result<Vec<u8>> {
+        fs::read(self.path.join(name))
+    }
+
+    fn file_exists(&self, name: &OsStr) -> io::Result<bool> {
+        Ok(self.path.join(name).exists())
+    }
+
+    fn movable(&self, name: &OsStr) -> io::Result<RollupLeaf> {
+        Ok(RollupLeaf(self.path.join(name)))
+    }
+
+    fn write(&self, name: &OsStr, bytes: &[u8]) -> io::Result<RollupLeaf> {
+        use std::io::Write;
+        let path = self.path.join(name);
+        let mut file = fs::File::create(&path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(RollupLeaf(path))
+    }
+
+    fn remove_file(&self, name: &OsStr) -> io::Result<()> {
+        match fs::remove_file(self.path.join(name)) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            result => result,
+        }
+    }
+
+    fn remove(self) -> io::Result<()> {
+        fs::remove_dir(self.path)
+    }
+}
+
+#[cfg(not(all(windows, target_arch = "x86_64")))]
+impl RollupLeaf {
+    fn read(&self) -> io::Result<Vec<u8>> {
+        fs::read(&self.0)
+    }
+
+    fn publish(self, directory: &RollupDirectory, name: &OsStr, replace: bool) -> io::Result<()> {
+        crate::harness::integration::atomic_replace(&self.0, &directory.path.join(name), replace)
+    }
+
+    fn publish_scratch(
+        self,
+        directory: &RollupDirectory,
+        name: &OsStr,
+        replace: bool,
+    ) -> io::Result<()> {
+        self.publish(directory, name, replace)
+    }
+}
+
+fn optional_rollup<T>(result: io::Result<T>) -> Result<Option<T>, StoreError> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        result => result.map(Some).map_err(StoreError::Io),
+    }
+}
+
+struct RollupTransaction {
+    directory: RollupDirectory,
+    staged: Option<RollupDirectory>,
+    backups: Option<RollupDirectory>,
+}
+
+impl RollupTransaction {
+    fn open(directory: RollupDirectory, create: bool) -> Result<Self, StoreError> {
+        let child = |name| {
+            let name = OsStr::new(name);
+            if create {
+                directory.create_dir(name).map(Some).map_err(StoreError::Io)
+            } else {
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                {
+                    optional_rollup(directory.open_dir(name))
+                }
+                #[cfg(not(all(windows, target_arch = "x86_64")))]
+                {
+                    Ok(Some(RollupDirectory {
+                        path: directory.path.join(name),
+                    }))
+                }
+            }
+        };
+        let staged = child("staged")?;
+        let backups = child("backups")?;
+        Ok(Self {
+            directory,
+            staged,
+            backups,
+        })
+    }
+
+    fn relative<'a>(&self, path: &'a str) -> Result<(&RollupDirectory, &'a OsStr), StoreError> {
+        let (directory, name) = match path.split_once('/') {
+            Some(("staged", name)) => (self.staged.as_ref(), name),
+            Some(("backups", name)) => (self.backups.as_ref(), name),
+            Some(_) => {
+                return Err(StoreError::Recovery(
+                    "unknown rollup journal directory".into(),
+                ))
+            }
+            None => (Some(&self.directory), path),
+        };
+        let directory = directory
+            .ok_or_else(|| StoreError::Recovery("rollup journal directory is missing".into()))?;
+        Ok((directory, OsStr::new(name)))
+    }
+
+    fn write(&self, path: &str, bytes: &[u8]) -> Result<RollupLeaf, StoreError> {
+        let (directory, name) = self.relative(path)?;
+        directory.write(name, bytes).map_err(StoreError::Io)
+    }
+
+    fn movable(&self, path: &str) -> Result<RollupLeaf, StoreError> {
+        let (directory, name) = self.relative(path)?;
+        directory.movable(name).map_err(StoreError::Io)
+    }
+
+    fn read(&self, path: &str) -> Result<Vec<u8>, StoreError> {
+        let (directory, name) = self.relative(path)?;
+        directory.read(name).map_err(StoreError::Io)
+    }
+
+    fn write_manifest(&self, manifest: &RollupTransactionManifest) -> Result<(), StoreError> {
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let temporary = format!("manifest-{}.tmp", Uuid::new_v4());
+        #[cfg(not(all(windows, target_arch = "x86_64")))]
+        let temporary = String::from("manifest.json.tmp");
+        let bytes = serde_json::to_vec_pretty(manifest).map_err(StoreError::Json)?;
+        let target = OsStr::new(ROLLUP_TRANSACTION_MANIFEST);
+        let replace = self.directory.file_exists(target).map_err(StoreError::Io)?;
+        let leaf = self.write(&temporary, &bytes)?;
+        leaf.publish_scratch(&self.directory, target, replace)
+            .map_err(StoreError::Io)?;
+        sync_directory(&self.directory.path)?;
+        if let Some(parent) = self.directory.path.parent() {
+            sync_directory(parent)?;
+        }
+        Ok(())
+    }
+
+    fn cleanup(self, manifest: bool) -> Result<(), StoreError> {
+        if manifest {
+            self.directory
+                .remove_file(OsStr::new(ROLLUP_TRANSACTION_MANIFEST))
+                .map_err(StoreError::Io)?;
+            sync_directory(&self.directory.path)?;
+        }
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        {
+            for directory in [self.staged, self.backups].into_iter().flatten() {
+                directory.remove_leaves().map_err(StoreError::Io)?;
+                directory.remove().map_err(StoreError::Io)?;
+            }
+            self.directory.remove_leaves().map_err(StoreError::Io)?;
+            self.directory.remove().map_err(StoreError::Io)
+        }
+        #[cfg(not(all(windows, target_arch = "x86_64")))]
+        fs::remove_dir_all(self.directory.path).map_err(StoreError::Io)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -209,7 +423,7 @@ impl RecommendationStore {
         fs::create_dir_all(&dir).map_err(StoreError::Io)?;
         let store = Self { dir, owner };
         // A reserved SQL transaction must be refused even before migration.
-        let _ = store.transaction_entries()?;
+        store.preflight_transactions()?;
         store.migrate_legacy_rollup_filenames()?;
         store.recover_transactions()?;
         store.validate_graph()?;
@@ -846,14 +1060,16 @@ impl RecommendationStore {
     }
 
     fn read_path(&self, path: &Path) -> Result<Recommendation, StoreError> {
-        let json = fs::read_to_string(path).map_err(StoreError::Io)?;
-        let recommendation = serde_json::from_str(&json).map_err(StoreError::Json)?;
+        let bytes = crate::durable_file::read_metadata_file(path).map_err(StoreError::Io)?;
+        let json = std::str::from_utf8(&bytes)
+            .map_err(|error| StoreError::Io(io::Error::new(io::ErrorKind::InvalidData, error)))?;
+        let recommendation = serde_json::from_str(json).map_err(StoreError::Json)?;
         validate_recommendation(&recommendation)?;
         Ok(recommendation)
     }
 
     fn read_stored_path(&self, path: &Path) -> Result<StoredRecommendation, StoreError> {
-        let bytes = fs::read(path).map_err(StoreError::Io)?;
+        let bytes = crate::durable_file::read_metadata_file(path).map_err(StoreError::Io)?;
         let recommendation = serde_json::from_slice(&bytes).map_err(StoreError::Json)?;
         validate_recommendation(&recommendation)?;
         Ok(StoredRecommendation {
@@ -975,10 +1191,15 @@ impl RecommendationStore {
         expected: &BTreeMap<String, Option<String>>,
         replacements: BTreeMap<String, Replacement>,
     ) -> Result<(), StoreError> {
+        let recommendations = RollupDirectory::open(&self.dir).map_err(StoreError::Io)?;
         let current = self.read_all_by_id()?;
         self.verify_expected(expected, &current)?;
         for (id, replacement) in &replacements {
-            let actual = fs::read(self.path_for(id)).ok();
+            let name = recommendation_filename(id);
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            let actual = optional_rollup(recommendations.read(OsStr::new(&name)))?;
+            #[cfg(not(all(windows, target_arch = "x86_64")))]
+            let actual = recommendations.read(OsStr::new(&name)).ok();
             if actual != replacement.old {
                 return Err(StoreError::StaleExpectedHash { id: id.clone() });
             }
@@ -987,12 +1208,18 @@ impl RecommendationStore {
             return Ok(());
         }
 
-        let transaction_root = self
-            .dir
-            .join(ROLLUP_TRANSACTION_DIR)
-            .join(format!("tx-{}", Uuid::new_v4()));
-        fs::create_dir_all(transaction_root.join("staged")).map_err(StoreError::Io)?;
-        fs::create_dir_all(transaction_root.join("backups")).map_err(StoreError::Io)?;
+        let journal_name = OsStr::new(ROLLUP_TRANSACTION_DIR);
+        let journal = match optional_rollup(recommendations.open_dir(journal_name))? {
+            Some(journal) => journal,
+            None => recommendations
+                .create_dir(journal_name)
+                .map_err(StoreError::Io)?,
+        };
+        let transaction_name = format!("tx-{}", Uuid::new_v4());
+        let transaction = journal
+            .create_dir(OsStr::new(&transaction_name))
+            .map_err(StoreError::Io)?;
+        let transaction = RollupTransaction::open(transaction, true)?;
         let mut entries = Vec::with_capacity(replacements.len());
         #[cfg(test)]
         let mut staging_fault_pending = true;
@@ -1007,7 +1234,7 @@ impl RecommendationStore {
             let old_exists = old.is_some();
             let backup = if let Some(old) = old {
                 let relative = transaction_backup_path(&id);
-                write_sync(&transaction_root.join(&relative), &old)?;
+                transaction.write(&relative, &old)?;
                 Some(relative)
             } else {
                 None
@@ -1015,7 +1242,7 @@ impl RecommendationStore {
             let new_exists = new.is_some();
             let (staged, new_sha256) = if let Some(new) = new {
                 let relative = transaction_staged_path(&id);
-                write_sync(&transaction_root.join(&relative), &new)?;
+                transaction.write(&relative, &new)?;
                 (Some(relative), Some(hash_bytes(&new)))
             } else {
                 (None, None)
@@ -1038,29 +1265,28 @@ impl RecommendationStore {
             entry.target = recommendation_filename(&entry.id);
         }
 
-        let manifest_path = transaction_root.join(ROLLUP_TRANSACTION_MANIFEST);
         let manifest = RollupTransactionManifest {
             version: ROLLUP_TRANSACTION_VERSION,
             committed: false,
             entries,
         };
-        write_manifest_atomic(&manifest_path, &manifest)?;
-        sync_directory(&transaction_root)?;
+        transaction.write_manifest(&manifest)?;
+        sync_directory(&transaction.directory.path)?;
 
         let mut committed_manifest = manifest;
         committed_manifest.committed = true;
         #[cfg(test)]
         take_fault_point(|point| matches!(point, FaultPoint::ManifestCommit))?;
-        write_manifest_atomic(&manifest_path, &committed_manifest)?;
-        sync_directory(&transaction_root)?;
-        if let Some(parent) = transaction_root.parent() {
+        transaction.write_manifest(&committed_manifest)?;
+        sync_directory(&transaction.directory.path)?;
+        if let Some(parent) = transaction.directory.path.parent() {
             sync_directory(parent)?;
         }
 
         #[cfg(test)]
         let mut publication_index = 0;
         for entry in &committed_manifest.entries {
-            self.publish_entry(&transaction_root, entry)?;
+            self.publish_entry(&recommendations, &transaction, entry)?;
             #[cfg(test)]
             {
                 publication_index += 1;
@@ -1071,8 +1297,11 @@ impl RecommendationStore {
         }
         sync_directory(&self.dir)?;
         if let Err(error) = self.validate_graph() {
-            let rollback =
-                self.rollback_transaction(&transaction_root, &committed_manifest.entries);
+            let rollback = self.rollback_transaction(
+                &recommendations,
+                &transaction,
+                &committed_manifest.entries,
+            );
             if let Err(rollback_error) = rollback {
                 return Err(StoreError::Recovery(format!(
                     "published graph invalid ({error}); rollback failed: {rollback_error}"
@@ -1087,30 +1316,26 @@ impl RecommendationStore {
         }
         #[cfg(test)]
         take_fault_point(|point| matches!(point, FaultPoint::Cleanup))?;
-        fs::remove_file(&manifest_path).map_err(StoreError::Io)?;
-        sync_directory(&transaction_root)?;
-        fs::remove_dir_all(&transaction_root).map_err(StoreError::Io)?;
+        transaction.cleanup(true)?;
         sync_directory(&self.dir)?;
         Ok(())
     }
 
     fn publish_entry(
         &self,
-        transaction_root: &Path,
+        recommendations: &RollupDirectory,
+        transaction: &RollupTransaction,
         entry: &RollupTransactionEntry,
     ) -> Result<(), StoreError> {
-        let target = self.dir.join(&entry.target);
+        let target = OsStr::new(&entry.target);
         if !entry.new_exists {
-            match fs::remove_file(&target) {
-                Ok(()) => return Ok(()),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-                Err(error) => return Err(StoreError::Io(error)),
-            }
+            return recommendations.remove_file(target).map_err(StoreError::Io);
         }
-        if fs::read(&target)
-            .ok()
-            .is_some_and(|bytes| Some(hash_bytes(&bytes)) == entry.new_sha256)
-        {
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let current = optional_rollup(recommendations.read(target))?;
+        #[cfg(not(all(windows, target_arch = "x86_64")))]
+        let current = recommendations.read(target).ok();
+        if current.is_some_and(|bytes| Some(hash_bytes(&bytes)) == entry.new_sha256) {
             return Ok(());
         }
         let Some(staged) = entry.staged.as_deref() else {
@@ -1119,84 +1344,68 @@ impl RecommendationStore {
                 entry.id
             )));
         };
-        let staged_path = transaction_root.join(staged);
-        let staged_bytes = fs::read(&staged_path).map_err(StoreError::Io)?;
+        let leaf = transaction.movable(staged)?;
+        let staged_bytes = leaf.read().map_err(StoreError::Io)?;
         if Some(hash_bytes(&staged_bytes)) != entry.new_sha256 {
             return Err(StoreError::Recovery(format!(
                 "staged replacement hash mismatch for {}",
                 entry.id
             )));
         }
-        crate::harness::integration::atomic_replace(&staged_path, &target, target.exists())
+        let replace = recommendations
+            .file_exists(target)
+            .map_err(StoreError::Io)?;
+        leaf.publish(recommendations, target, replace)
             .map_err(StoreError::Io)
     }
 
-    // Complete bounded name preflight before any legacy recovery effect. A SQL
-    // directory without a manifest is still owned by its exact SQL job.
-    fn transaction_entries(&self) -> Result<Option<Vec<fs::DirEntry>>, StoreError> {
-        let root = self.dir.join(ROLLUP_TRANSACTION_DIR);
-        match fs::symlink_metadata(&root) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(StoreError::Io(e)),
-            Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() => {
-                return Err(StoreError::Recovery(
-                    "invalid recommendation journal parent".into(),
-                ));
-            }
-            Ok(_) => (),
+    fn preflight_transactions(&self) -> Result<(), StoreError> {
+        let recommendations = RollupDirectory::open(&self.dir).map_err(StoreError::Io)?;
+        if let Some(journal) =
+            optional_rollup(recommendations.open_dir(OsStr::new(ROLLUP_TRANSACTION_DIR)))?
+        {
+            transaction_entries(&journal)?;
         }
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(&root).map_err(StoreError::Io)? {
-            let entry = entry.map_err(StoreError::Io)?;
-            if entries.len() == deletion_journal::MAX_DIRECTORY_ENTRIES
-                || entry
-                    .file_name()
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .starts_with("sql-delete-v1-")
-            {
-                return Err(StoreError::Recovery(
-                    "SQL-bound or over-limit recommendation journals require qualified recovery"
-                        .into(),
-                ));
-            }
-            entries.push(entry);
-        }
-        Ok(Some(entries))
+        Ok(())
     }
+
     fn recover_transactions(&self) -> Result<(), StoreError> {
-        let root = self.dir.join(ROLLUP_TRANSACTION_DIR);
-        let Some(entries) = self.transaction_entries()? else {
+        let recommendations = RollupDirectory::open(&self.dir).map_err(StoreError::Io)?;
+        let Some(journal) =
+            optional_rollup(recommendations.open_dir(OsStr::new(ROLLUP_TRANSACTION_DIR)))?
+        else {
             return Ok(());
         };
-        for entry in entries {
-            let transaction_root = entry.path();
-            if !transaction_root.is_dir() {
+        for name in transaction_entries(&journal)? {
+            let Some(directory) = journal.open_candidate(&name).map_err(StoreError::Io)? else {
                 continue;
+            };
+            let transaction = RollupTransaction::open(directory, false)?;
+            let manifest = optional_rollup(
+                transaction
+                    .directory
+                    .read(OsStr::new(ROLLUP_TRANSACTION_MANIFEST)),
+            )?;
+            if let Some(manifest) = manifest {
+                self.recover_transaction(&recommendations, transaction, &manifest)?;
+            } else {
+                transaction.cleanup(false)?;
             }
-            if !transaction_root.join(ROLLUP_TRANSACTION_MANIFEST).exists() {
-                fs::remove_dir_all(&transaction_root).map_err(StoreError::Io)?;
-                continue;
-            }
-            self.recover_transaction(&transaction_root)?;
         }
-        if fs::read_dir(&root)
-            .map_err(StoreError::Io)?
-            .next()
-            .is_none()
-        {
-            fs::remove_dir(&root).map_err(StoreError::Io)?;
+        if journal.names().map_err(StoreError::Io)?.is_empty() {
+            journal.remove().map_err(StoreError::Io)?;
             sync_directory(&self.dir)?;
         }
         Ok(())
     }
 
-    fn recover_transaction(&self, transaction_root: &Path) -> Result<(), StoreError> {
-        let manifest_path = transaction_root.join(ROLLUP_TRANSACTION_MANIFEST);
-        let manifest_json = fs::read_to_string(&manifest_path).map_err(|error| {
-            StoreError::Recovery(format!("cannot read {}: {error}", manifest_path.display()))
-        })?;
-        let mut manifest: RollupTransactionManifest = serde_json::from_str(&manifest_json)
+    fn recover_transaction(
+        &self,
+        recommendations: &RollupDirectory,
+        transaction: RollupTransaction,
+        manifest: &[u8],
+    ) -> Result<(), StoreError> {
+        let mut manifest: RollupTransactionManifest = serde_json::from_slice(manifest)
             .map_err(|error| StoreError::Recovery(format!("invalid rollup manifest: {error}")))?;
         if !matches!(
             manifest.version,
@@ -1208,39 +1417,45 @@ impl RecommendationStore {
             )));
         }
         if manifest.version == LEGACY_ROLLUP_TRANSACTION_VERSION {
-            self.migrate_legacy_transaction_paths(transaction_root, &mut manifest.entries)?;
+            self.migrate_legacy_transaction_paths(
+                recommendations,
+                &transaction,
+                &mut manifest.entries,
+            )?;
         }
         validate_manifest_entries(&manifest.entries)?;
         if manifest.committed {
             let publish_result = manifest
                 .entries
                 .iter()
-                .try_for_each(|entry| self.publish_entry(transaction_root, entry));
+                .try_for_each(|entry| self.publish_entry(recommendations, &transaction, entry));
             if publish_result.is_ok() {
                 sync_directory(&self.dir)?;
                 if self.validate_graph().is_ok() {
-                    self.finish_transaction_cleanup(transaction_root, &manifest_path)?;
-                    return Ok(());
+                    transaction.cleanup(true)?;
+                    return sync_directory(&self.dir);
                 }
             }
         }
 
-        self.rollback_transaction(transaction_root, &manifest.entries)?;
+        self.rollback_transaction(recommendations, &transaction, &manifest.entries)?;
         self.validate_graph().map_err(|error| {
             StoreError::Recovery(format!(
                 "neither old nor new recommendation graph is valid: {error}"
             ))
         })?;
-        self.finish_transaction_cleanup(transaction_root, &manifest_path)
+        transaction.cleanup(true)?;
+        sync_directory(&self.dir)
     }
 
     fn rollback_transaction(
         &self,
-        transaction_root: &Path,
+        recommendations: &RollupDirectory,
+        transaction: &RollupTransaction,
         entries: &[RollupTransactionEntry],
     ) -> Result<(), StoreError> {
         for entry in entries {
-            let target = self.dir.join(&entry.target);
+            let target = OsStr::new(&entry.target);
             if entry.old_exists {
                 let Some(backup) = entry.backup.as_deref() else {
                     return Err(StoreError::Recovery(format!(
@@ -1248,49 +1463,37 @@ impl RecommendationStore {
                         entry.id
                     )));
                 };
-                let backup_path = transaction_root.join(backup);
-                let bytes = fs::read(&backup_path).map_err(StoreError::Io)?;
+                let bytes = transaction.read(backup)?;
                 if Some(hash_bytes(&bytes)) != entry.old_sha256 {
                     return Err(StoreError::Recovery(format!(
                         "old-content backup hash mismatch for {}",
                         entry.id
                     )));
                 }
-                let restore_path = transaction_root.join(transaction_restore_path(&entry.id));
-                write_sync(&restore_path, &bytes)?;
-                crate::harness::integration::atomic_replace(
-                    &restore_path,
-                    &target,
-                    target.exists(),
-                )
-                .map_err(StoreError::Io)?;
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                let restore = format!("restore-{}.json", Uuid::new_v4());
+                #[cfg(not(all(windows, target_arch = "x86_64")))]
+                let restore = transaction_restore_path(&entry.id);
+                let replace = recommendations
+                    .file_exists(target)
+                    .map_err(StoreError::Io)?;
+                let leaf = transaction.write(&restore, &bytes)?;
+                leaf.publish_scratch(recommendations, target, replace)
+                    .map_err(StoreError::Io)?;
             } else {
-                match fs::remove_file(&target) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(StoreError::Io(error)),
-                }
+                recommendations
+                    .remove_file(target)
+                    .map_err(StoreError::Io)?;
             }
         }
         sync_directory(&self.dir)?;
         Ok(())
     }
 
-    fn finish_transaction_cleanup(
-        &self,
-        transaction_root: &Path,
-        manifest_path: &Path,
-    ) -> Result<(), StoreError> {
-        fs::remove_file(manifest_path).map_err(StoreError::Io)?;
-        sync_directory(transaction_root)?;
-        fs::remove_dir_all(transaction_root).map_err(StoreError::Io)?;
-        sync_directory(&self.dir)?;
-        Ok(())
-    }
-
     fn migrate_legacy_transaction_paths(
         &self,
-        transaction_root: &Path,
+        recommendations: &RollupDirectory,
+        transaction: &RollupTransaction,
         entries: &mut [RollupTransactionEntry],
     ) -> Result<(), StoreError> {
         let mut migrated = false;
@@ -1302,15 +1505,16 @@ impl RecommendationStore {
             let current_target = recommendation_filename(&entry.id);
             if entry.target == legacy_target {
                 migrate_transaction_path(
-                    &self.dir.join(&legacy_target),
-                    &self.dir.join(&current_target),
+                    recommendations,
+                    OsStr::new(&legacy_target),
+                    OsStr::new(&current_target),
                     &entry.id,
                 )?;
                 entry.target = current_target;
                 migrated = true;
             }
             migrate_optional_transaction_path(
-                transaction_root,
+                transaction,
                 &mut entry.staged,
                 &format!("staged/{}.json", entry.id),
                 &transaction_staged_path(&entry.id),
@@ -1318,7 +1522,7 @@ impl RecommendationStore {
                 &mut migrated,
             )?;
             migrate_optional_transaction_path(
-                transaction_root,
+                transaction,
                 &mut entry.backup,
                 &format!("backups/{}.json", entry.id),
                 &transaction_backup_path(&entry.id),
@@ -1328,14 +1532,32 @@ impl RecommendationStore {
         }
         if migrated {
             sync_directory(&self.dir)?;
-            sync_directory(transaction_root)?;
+            sync_directory(&transaction.directory.path)?;
         }
         Ok(())
     }
 }
 
+// Complete enough of the bounded name preflight to refuse SQL journals
+// before the first legacy recovery effect.
+fn transaction_entries(directory: &RollupDirectory) -> Result<Vec<OsString>, StoreError> {
+    let entries = directory.names().map_err(StoreError::Io)?;
+    if entries.len() > deletion_journal::MAX_DIRECTORY_ENTRIES
+        || entries.iter().any(|name| {
+            name.to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with("sql-delete-v1-")
+        })
+    {
+        return Err(StoreError::Recovery(
+            "SQL-bound or over-limit recommendation journals require qualified recovery".into(),
+        ));
+    }
+    Ok(entries)
+}
+
 fn migrate_optional_transaction_path(
-    transaction_root: &Path,
+    transaction: &RollupTransaction,
     path: &mut Option<String>,
     legacy: &str,
     current: &str,
@@ -1345,26 +1567,33 @@ fn migrate_optional_transaction_path(
     if path.as_deref() != Some(legacy) {
         return Ok(());
     }
-    migrate_transaction_path(
-        &transaction_root.join(legacy),
-        &transaction_root.join(current),
-        id,
-    )?;
+    let (directory, source) = transaction.relative(legacy)?;
+    let (_, destination) = transaction.relative(current)?;
+    migrate_transaction_path(directory, source, destination, id)?;
     *path = Some(current.to_string());
     *migrated = true;
     Ok(())
 }
 
-fn migrate_transaction_path(source: &Path, destination: &Path, id: &str) -> Result<(), StoreError> {
-    if source == destination || !source.exists() {
+fn migrate_transaction_path(
+    directory: &RollupDirectory,
+    source: &OsStr,
+    destination: &OsStr,
+    id: &str,
+) -> Result<(), StoreError> {
+    if source == destination || !directory.file_exists(source).map_err(StoreError::Io)? {
         return Ok(());
     }
-    if destination.exists() {
+    if directory.file_exists(destination).map_err(StoreError::Io)? {
         return Err(StoreError::Recovery(format!(
             "both legacy and encoded transaction paths exist for {id}"
         )));
     }
-    fs::rename(source, destination).map_err(StoreError::Io)
+    directory
+        .movable(source)
+        .map_err(StoreError::Io)?
+        .publish(directory, destination, false)
+        .map_err(StoreError::Io)
 }
 
 // Resolve missing suffixes without creating them: a retained SQL owner must
@@ -1400,43 +1629,13 @@ fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn write_sync(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
-    use std::io::Write;
-    let mut file = fs::File::create(path).map_err(StoreError::Io)?;
-    file.write_all(bytes).map_err(StoreError::Io)?;
-    file.sync_all().map_err(StoreError::Io)
-}
-
-fn write_json_sync<T: Serialize>(path: &Path, value: &T) -> Result<(), StoreError> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(StoreError::Json)?;
-    write_sync(path, &bytes)
-}
-
-fn write_manifest_atomic(
-    manifest_path: &Path,
-    manifest: &RollupTransactionManifest,
-) -> Result<(), StoreError> {
-    let temporary = manifest_path.with_extension("json.tmp");
-    write_json_sync(&temporary, manifest)?;
-    crate::harness::integration::atomic_replace(&temporary, manifest_path, manifest_path.exists())
-        .map_err(StoreError::Io)?;
-    if let Some(transaction_root) = manifest_path.parent() {
-        sync_directory(transaction_root)?;
-        if let Some(transaction_parent) = transaction_root.parent() {
-            sync_directory(transaction_parent)?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(windows)]
 fn sync_directory(path: &Path) -> Result<(), StoreError> {
     let _ = path;
     // Rust's standard File::open does not request the Win32 directory-handle
-    // semantics needed for Unix-style directory fsync. File contents are
-    // still synced before publication; new-file publication uses
-    // MOVEFILE_WRITE_THROUGH. ReplaceFileW has no write-through flag, so
-    // Windows cannot provide equivalent directory-entry crash durability here.
+    // semantics needed for Unix-style directory fsync. The prepared file
+    // is synced before renaming. The resulting directory entry has no
+    // equivalent crash-durability guarantee here.
     Ok(())
 }
 
@@ -1572,6 +1771,7 @@ fn transaction_backup_path(id: &str) -> String {
     format!("backups/{}.json", filename_component(id))
 }
 
+#[cfg(any(test, not(all(windows, target_arch = "x86_64"))))]
 fn transaction_restore_path(id: &str) -> String {
     format!("restore-{}.json", filename_component(id))
 }
@@ -3204,6 +3404,144 @@ mod tests {
             }
             assert!(recovered.list().is_ok());
         }
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn rollup_recovery_rejects_a_redirected_transaction() {
+        let metadata = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(metadata.path().to_path_buf()).unwrap();
+        let record = recommendation("redirect-test", "session-1");
+        store.put(&record).unwrap();
+        write_transaction_fixture(metadata.path(), false, &[(&record, None)], &[]);
+        let transaction = metadata
+            .path()
+            .join("recommendations/.rollup-transactions/fixture");
+        let redirect = outside.path().join("redirect");
+        fs::rename(&transaction, &redirect).unwrap();
+        let restore = redirect.join(transaction_restore_path(&record.id));
+        fs::write(&restore, b"outside sentinel").unwrap();
+        match std::os::windows::fs::symlink_dir(&redirect, &transaction) {
+            Ok(()) => {}
+            Err(error) if error.raw_os_error() == Some(1314) => {
+                eprintln!("Symlink creation unavailable on this Windows host (1314)");
+                return;
+            }
+            Err(error) => panic!("cannot create transaction redirection fixture: {error}"),
+        }
+        assert!(store.recover_transactions().is_err());
+        assert_eq!(fs::read(&restore).unwrap(), b"outside sentinel");
+        assert!(redirect.join(ROLLUP_TRANSACTION_MANIFEST).exists());
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn rollup_publication_rejects_a_redirected_journal_parent() {
+        let metadata = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(metadata.path().to_path_buf()).unwrap();
+        let record = recommendation("redirect-test", "session-1");
+        store.put(&record).unwrap();
+        let target = store.path_for(&record.id);
+        let old = fs::read(&target).unwrap();
+        let journal = store.dir.join(ROLLUP_TRANSACTION_DIR);
+        match std::os::windows::fs::symlink_dir(outside.path(), &journal) {
+            Ok(()) => {}
+            Err(error) if error.raw_os_error() == Some(1314) => {
+                eprintln!("Symlink creation unavailable on this Windows host (1314)");
+                return;
+            }
+            Err(error) => panic!("cannot create journal redirection fixture: {error}"),
+        }
+        let expected = BTreeMap::from([(record.id.clone(), Some(hash_bytes(&old)))]);
+        let replacement = BTreeMap::from([(
+            record.id,
+            Replacement {
+                old: Some(old.clone()),
+                new: None,
+            },
+        )]);
+        assert!(store.commit_replacements(&expected, replacement).is_err());
+        assert_eq!(fs::read(&target).unwrap(), old);
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn rollup_recovery_rejects_redirected_backups() {
+        let metadata = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(metadata.path().to_path_buf()).unwrap();
+        let record = recommendation("redirect-test", "session-1");
+        store.put(&record).unwrap();
+        write_transaction_fixture(metadata.path(), false, &[(&record, None)], &[]);
+        let transaction = store.dir.join(ROLLUP_TRANSACTION_DIR).join("fixture");
+        let backups = transaction.join("backups");
+        let redirect = outside.path().join("redirect");
+        fs::rename(&backups, &redirect).unwrap();
+        match std::os::windows::fs::symlink_dir(&redirect, &backups) {
+            Ok(()) => {}
+            Err(error) if error.raw_os_error() == Some(1314) => {
+                eprintln!("Symlink creation unavailable on this Windows host (1314)");
+                return;
+            }
+            Err(error) => panic!("cannot create backup redirection fixture: {error}"),
+        }
+        assert!(store.recover_transactions().is_err());
+        assert!(transaction.join(ROLLUP_TRANSACTION_MANIFEST).exists());
+        let source = redirect.join(recommendation_filename(&record.id));
+        assert_eq!(
+            fs::read(source).unwrap(),
+            fs::read(store.path_for(&record.id)).unwrap()
+        );
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn rollup_recovery_preserves_ordinary_journal_siblings() {
+        let metadata = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(metadata.path().to_path_buf()).unwrap();
+        let record = recommendation("journal-test", "session-1");
+        store.put(&record).unwrap();
+        write_transaction_fixture(metadata.path(), false, &[(&record, None)], &[]);
+        let journal = store.dir.join(ROLLUP_TRANSACTION_DIR);
+        let unrelated = journal.join("notes.txt");
+        fs::write(&unrelated, b"keep").unwrap();
+
+        store.recover_transactions().unwrap();
+
+        assert_eq!(fs::read(unrelated).unwrap(), b"keep");
+        assert!(!journal.join("fixture").exists());
+        assert_eq!(store.get(&record.id).unwrap().unwrap().id, record.id);
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn rollup_rollback_does_not_accumulate_unpublished_scratch_on_retry() {
+        let metadata = tempfile::tempdir().unwrap();
+        let store = RecommendationStore::open(metadata.path().to_path_buf()).unwrap();
+        let record = recommendation("journal-test", "session-1");
+        store.put(&record).unwrap();
+        write_transaction_fixture(metadata.path(), false, &[(&record, None)], &[]);
+        let journal = store.dir.join(ROLLUP_TRANSACTION_DIR);
+        let transaction = journal.join("fixture");
+        let target = store.path_for(&record.id);
+        let original = fs::read(&target).unwrap();
+        let mut permissions = fs::metadata(&target).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&target, permissions.clone()).unwrap();
+
+        let attempts = [store.recover_transactions(), store.recover_transactions()];
+        permissions.set_readonly(false);
+        fs::set_permissions(&target, permissions).unwrap();
+        assert!(attempts.iter().all(Result::is_err));
+        assert_eq!(fs::read_dir(&transaction).unwrap().count(), 3);
+        assert_eq!(fs::read(&target).unwrap(), original);
+
+        store.recover_transactions().unwrap();
+        assert!(!journal.exists());
+        assert_eq!(fs::read(&target).unwrap(), original);
     }
 
     fn write_transaction_fixture(

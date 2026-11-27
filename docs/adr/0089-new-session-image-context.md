@@ -58,3 +58,12 @@ ACLs, and handle-relative storage operations. It preserves the existing
 bundle format, atomic publication before session persistence, and ordinary
 JSON-managed retention. Production support still requires the native storage
 checks and the disposable live Codex qualification in the plan.
+
+## Amendment for Windows cleanup (2026-11-27)
+
+Windows Forget, retention, and startup image recovery bind filesystem effects
+to the active workspace lease. A flushed private cleanup receipt identifies
+the exact bundle directory while its manifest is retired. Recovery can use the
+receipt to remove only an empty matching directory. This preserves retryability
+without an existing-session format migration. The initial Windows x64 route
+pins native Codex 0.172.0 through launch and requires fixed local NTFS.
