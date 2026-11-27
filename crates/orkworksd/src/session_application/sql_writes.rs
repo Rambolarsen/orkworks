@@ -342,17 +342,13 @@ impl SessionWrites {
                 let scope = completion.outcome.decision.scope;
                 let published = owner
                     .current_async(&attempt, &output, Some(capture.clone()), Some(completion), move |_, h, _| {
-                        if scope.is_some_and(|scope| scope.attention) {
-                            h.runtime.attention_owner.accepted_write();
-                        }
-                        h.info.observed_status = stored.observed_status;
-                        h.info.attention = stored.attention;
-                        h.info.needs_user_input = stored.needs_user_input;
-                        h.info.detected_question = stored.detected_question;
-                        h.info.suggested_options = stored.suggested_options;
-                        h.info.provenance = stored.provenance;
-                        h.info.metadata_source = Some(stored.metadata_source);
-                        h.info.metadata_confidence = Some(stored.metadata_confidence);
+                        crate::runtime::observed_status::mirror_committed_attention(
+                            h,
+                            &stored,
+                            crate::runtime::observed_status::AttentionMirrorOptions::peon(
+                                scope.is_some_and(|scope| scope.attention),
+                            ),
+                        );
                     })
                     .await;
                 let published = match published {

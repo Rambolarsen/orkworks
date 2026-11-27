@@ -1942,17 +1942,13 @@ impl SessionApplication {
                     sessions_guard.get_mut(session_id),
                     workspace.metadata.read_session(session_id),
                 ) {
-                    if attention_written {
-                        handle.runtime.attention_owner.accepted_write();
-                    }
-                    handle.info.observed_status = stored.observed_status;
-                    handle.info.attention = stored.attention;
-                    handle.info.needs_user_input = stored.needs_user_input;
-                    handle.info.detected_question = stored.detected_question;
-                    handle.info.suggested_options = stored.suggested_options;
-                    handle.info.provenance = stored.provenance;
-                    handle.info.metadata_source = Some(stored.metadata_source);
-                    handle.info.metadata_confidence = Some(stored.metadata_confidence);
+                    crate::runtime::observed_status::mirror_committed_attention(
+                        handle,
+                        &stored,
+                        crate::runtime::observed_status::AttentionMirrorOptions::peon(
+                            attention_written,
+                        ),
+                    );
                 }
                 PeonInferencePersistenceResult {
                     inference_persisted: true,
@@ -3021,13 +3017,7 @@ impl SessionApplication {
         if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
             if !preserve_user_tuple {
                 handle.runtime.prompt_tuple_clear_pending = true;
-                handle.runtime.attention_owner.accepted_write();
-                handle.info.observed_status = None;
-                handle.info.attention = None;
-                handle.info.needs_user_input = None;
-                handle.info.detected_question = None;
-                handle.info.suggested_options = None;
-                handle.runtime.active_prompt_kind = None;
+                crate::runtime::observed_status::clear_live_attention_tuple(handle, None);
             }
         }
         if schedule_retry {
@@ -3251,21 +3241,13 @@ impl SessionApplication {
         }
         handle.pending_work_signal = None;
         if let Some(committed) = committed {
-            handle.runtime.attention_owner.accepted_write();
-            handle.info.observed_status = Some("waiting_for_input".into());
-            handle.info.attention = Some("needs_you".into());
-            handle.info.needs_user_input = None;
-            handle.info.detected_question = None;
-            handle.info.suggested_options = None;
-            handle.info.provenance.attention_source =
-                committed.metadata.provenance.attention_source;
-            handle.info.provenance.attention_confidence =
-                committed.metadata.provenance.attention_confidence;
-            handle.info.provenance.attention_origin =
-                committed.metadata.provenance.attention_origin;
-            handle.info.provenance.attention_updated_at =
-                committed.metadata.provenance.attention_updated_at;
-            handle.runtime.active_prompt_kind = Some(queued.prompt_kind);
+            crate::runtime::observed_status::mirror_committed_attention(
+                handle,
+                &committed.metadata,
+                crate::runtime::observed_status::AttentionMirrorOptions::prompt_commit(Some(
+                    queued.prompt_kind,
+                )),
+            );
         }
         handle.runtime.last_hook_attention_at = queued.observed_at;
         handle.runtime.last_hook_attention_sequence = Some(queued.receipt_sequence);
@@ -3378,13 +3360,7 @@ impl SessionApplication {
                     persistence_failed = true;
                     retry_ids.push(session_id.clone());
                 }
-                handle.runtime.attention_owner.accepted_write();
-                handle.info.observed_status = None;
-                handle.info.attention = None;
-                handle.info.needs_user_input = None;
-                handle.info.detected_question = None;
-                handle.info.suggested_options = None;
-                handle.runtime.active_prompt_kind = None;
+                crate::runtime::observed_status::clear_live_attention_tuple(handle, None);
             }
         }
         drop(sessions);
@@ -3424,16 +3400,11 @@ impl SessionApplication {
             .is_some_and(|metadata| metadata.attention_source() != "user")
         {
             if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
-                handle.runtime.attention_owner.accepted_write();
-                handle.info.observed_status = None;
-                handle.info.attention = None;
-                handle.info.needs_user_input = None;
-                handle.info.detected_question = None;
-                handle.info.suggested_options = None;
-                if let Some(stored) = workspace.metadata.read_session(id) {
-                    handle.info.provenance = stored.provenance;
-                }
-                handle.runtime.active_prompt_kind = None;
+                let provenance = workspace
+                    .metadata
+                    .read_session(id)
+                    .map(|stored| stored.provenance);
+                crate::runtime::observed_status::clear_live_attention_tuple(handle, provenance);
             }
         }
         Ok(())
@@ -4512,14 +4483,11 @@ impl SessionApplication {
                 return false;
             }
         };
-        handle.runtime.attention_owner.accepted_write();
-        handle.info.observed_status = stored.observed_status;
-        handle.info.attention = stored.attention;
-        handle.info.needs_user_input = stored.needs_user_input;
-        handle.info.detected_question = stored.detected_question;
-        handle.info.suggested_options = stored.suggested_options;
-        handle.info.provenance = stored.provenance;
-        handle.pending_work_signal = None;
+        crate::runtime::observed_status::mirror_committed_attention(
+            handle,
+            &stored,
+            crate::runtime::observed_status::AttentionMirrorOptions::native_terminal_status(),
+        );
         self.state.updates.output_changed();
         true
     }
@@ -5319,13 +5287,7 @@ impl SessionApplication {
                         revocation_persistence_failed = true;
                         retry_ids.push(session_id.clone());
                     }
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.observed_status = None;
-                    handle.info.attention = None;
-                    handle.info.needs_user_input = None;
-                    handle.info.detected_question = None;
-                    handle.info.suggested_options = None;
-                    handle.runtime.active_prompt_kind = None;
+                    crate::runtime::observed_status::clear_live_attention_tuple(handle, None);
                 }
             }
         }
@@ -5732,34 +5694,20 @@ fn transition_handle_session(
     }
     let entered_running = !is_terminal && status == "running" && handle.info.status != "running";
     let already_ending = is_terminal && handle.info.lifecycle_phase == "ending";
-    if is_terminal {
-        handle.runtime.attention_owner.accepted_write();
-    }
+    let now = iso_now();
     if is_terminal && !already_ending {
-        transition_handle_terminal(handle);
-    } else if !is_terminal {
+        crate::runtime::observed_status::mark_handle_ending(handle, now);
+    } else if is_terminal {
+        crate::runtime::observed_status::refresh_ending_handle(handle, now);
+    } else {
         transition_handle_non_terminal(handle, status);
-    }
-    handle.info.last_activity_at = Some(iso_now());
-    if is_terminal {
-        handle.info.observed_status = None;
+        handle.info.last_activity_at = Some(now);
     }
     HandleTransition::Applied {
         resume: (handle.info.resume.clone(), handle.info.resumed_from.clone()),
         entered_running,
         already_ending,
     }
-}
-
-/// Absorb an entering terminal transition into the live handle. The caller
-/// owns `attention_owner.accepted_write()`; ending and ended handles reach it too.
-fn transition_handle_terminal(handle: &mut SessionHandle) {
-    handle.info.status = "running".to_string();
-    handle.info.lifecycle_phase = "ending".to_string();
-    handle.info.lifecycle = "stopping".to_string();
-    handle.info.attention = None;
-    handle.info.connectivity = Some(connectivity_for_status("running").to_string());
-    handle.info.terminal_outcome = None;
 }
 
 /// Absorb a non-terminal status into the live handle.
@@ -5975,19 +5923,11 @@ fn apply_prompt_commit(
     receipt_sequence: u64,
 ) {
     if let Some(committed) = committed {
-        handle.runtime.attention_owner.accepted_write();
-        handle.info.observed_status = committed.metadata.observed_status;
-        handle.info.attention = committed.metadata.attention;
-        handle.info.needs_user_input = None;
-        handle.info.detected_question = None;
-        handle.info.suggested_options = None;
-        handle.info.provenance.attention_source = committed.metadata.provenance.attention_source;
-        handle.info.provenance.attention_confidence =
-            committed.metadata.provenance.attention_confidence;
-        handle.info.provenance.attention_origin = committed.metadata.provenance.attention_origin;
-        handle.info.provenance.attention_updated_at =
-            committed.metadata.provenance.attention_updated_at;
-        handle.runtime.active_prompt_kind = next_kind;
+        crate::runtime::observed_status::mirror_committed_attention(
+            handle,
+            &committed.metadata,
+            crate::runtime::observed_status::AttentionMirrorOptions::prompt_commit(next_kind),
+        );
     }
     if let Some(observed_at) = observed_at {
         handle.runtime.last_hook_attention_at = Some(observed_at);

@@ -1693,16 +1693,10 @@ pub(crate) async fn handle_runtime_exit(
                     // in-memory ending phase here so the finalizer can still run;
                     // when the detached transition resumes, it can persist the
                     // terminal metadata without moving this handle out of ending.
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.status = "running".into();
-                    handle.info.lifecycle_phase = "ending".into();
-                    handle.info.lifecycle = "stopping".into();
-                    handle.info.attention = None;
-                    handle.info.connectivity =
-                        Some(crate::session_view::connectivity_for_status("running").to_string());
-                    handle.info.terminal_outcome = None;
-                    handle.info.observed_status = None;
-                    handle.info.last_activity_at = Some(crate::workspace_runtime::iso_now());
+                    crate::runtime::observed_status::mark_handle_ending(
+                        handle,
+                        crate::workspace_runtime::iso_now(),
+                    );
                     (true, true)
                 }
             }
