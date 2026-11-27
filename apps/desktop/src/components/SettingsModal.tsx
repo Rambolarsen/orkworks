@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
+import ModalBackdrop from "./ModalBackdrop";
 import { ChevronRight } from "lucide-react";
 import { acceleratorFromKeyboardEvent } from "../hotkeyCapture";
 import type { AppSettings, DebugSettings, HotkeySettings, RetentionSettings } from "../appSettingsTypes";
@@ -81,7 +82,6 @@ const retentionRows: Array<{ field: keyof RetentionSettings; label: string; hint
   { field: "maxAgeDays", label: "Auto-delete sessions older than (days)", hint: "0 = never" },
 ];
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function jsonText(value: unknown): string {
   return `${JSON.stringify(value ?? {}, null, 2)}\n`;
@@ -108,7 +108,6 @@ function editableHarnessDefinition(harness: HarnessConfigEntry): unknown {
 }
 
 export default function SettingsModal({ initialSection = "tools", initialSettings, currentWorkspacePath, updateStatus, updateCurrentVersion, updateChannel, onCheckForUpdates, onDownloadUpdate, harnesses, documentRevision, onRefreshHarnesses, activeHarnessIds, providerRuntime, onSectionChange, onClose, onSaved, onSaveActiveHarnesses, onSaveDesktopSessionNotifications }: SettingsModalProps) {
-  const modalRef = useRef<HTMLElement>(null);
   const savedSettingsRef = useRef<AppSettings>(clone(initialSettings));
   const defaultHotkeys = initialSettings.defaultHotkeys;
   const toolHarnesses = selectableHarnesses(harnesses)
@@ -232,36 +231,6 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     });
     setIntegrationStatusGeneration((current) => current + 1);
   }
-
-  useLayoutEffect(() => {
-    const modal = modalRef.current;
-    if (!modal) return;
-
-    const focusable = modal.querySelectorAll<HTMLElement>(FOCUSABLE);
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    if (first) first.focus();
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Tab") return;
-
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
-    }
-
-    modal.addEventListener("keydown", onKeyDown);
-    return () => modal.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   useEffect(() => {
     if (!capturing) return;
@@ -838,8 +807,8 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }
 
   return (
-    <div className="settings-backdrop" role="presentation">
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={modalRef}>
+    <ModalBackdrop className="settings-backdrop" labelledBy="settings-title" onCancel={discardDraftsAndClose}>
+      <section className="settings-modal">
         <header className="settings-modal-header">
           <div>
             <h2 id="settings-title">Settings</h2>
@@ -1240,7 +1209,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
           </div>
         </div>
       </section>
-    </div>
+    </ModalBackdrop>
   );
 }
 

@@ -335,7 +335,7 @@ export default function ApplicationShell(props: Props) {
     if (!showInspector || preferences.value.inspectorPinned) return;
     const dismissOutsideInspector = (event: PointerEvent) => {
       const target = event.target;
-      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, [role="dialog"], [data-shell-command="${inspector}"]`)) return;
+      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, dialog, [role="dialog"], [data-shell-command="${inspector}"]`)) return;
       // Let the clicked surface receive focus and perform its own action.
       beginNavigation();
       navigation.onInspect(null);

@@ -9,6 +9,7 @@ import { useShellPreferences } from "./useShellPreferences";
 import NewSessionDialog from "./components/NewSessionDialog";
 import FixWithAiDialog from "./components/FixWithAiDialog";
 import SettingsModal from "./components/SettingsModal";
+import ModalBackdrop from "./components/ModalBackdrop";
 import type { SettingsSection } from "./components/SettingsModal";
 import ToastRack from "./components/ToastRack";
 import { WorkspaceHistoryDropdown } from "./components/WorkspaceHistoryDropdown";
@@ -899,9 +900,9 @@ function App() {
           onSaveDesktopSessionNotifications={saveDesktopSessionNotifications}
         />
       )}
-      {noProvidersPrompt && (
-        <div className="new-session-backdrop" role="presentation">
-          <section className="new-session-dialog" role="dialog" aria-modal="true" aria-labelledby="no-coding-tools-title" aria-describedby="no-coding-tools-description">
+      {noProvidersPrompt && !settingsOpen && (
+        <ModalBackdrop className="new-session-backdrop" labelledBy="no-coding-tools-title" describedBy="no-coding-tools-description" onCancel={() => setNoProvidersPrompt(false)}>
+          <section className="new-session-dialog">
             <header className="new-session-header">
               <h2 id="no-coding-tools-title">No active coding tools</h2>
             </header>
@@ -913,7 +914,7 @@ function App() {
               <button type="button" className="new-session-confirm" onClick={() => { setNoProvidersPrompt(false); openSettings(); }}>Open Settings</button>
             </footer>
           </section>
-        </div>
+        </ModalBackdrop>
       )}
     </div>
   );

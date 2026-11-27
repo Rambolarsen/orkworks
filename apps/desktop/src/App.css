@@ -236,6 +236,20 @@ html, body, #root {
   background: var(--accent-bg-hover);
 }
 
+.modal-backdrop {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+dialog.modal-backdrop:not([open]) { display: none; }
+dialog.modal-backdrop::backdrop { background: transparent; }
+
 .settings-backdrop {
   position: fixed;
   inset: 0;
