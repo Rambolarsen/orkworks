@@ -333,15 +333,42 @@ export default function ApplicationShell(props: Props) {
 
   useEffect(() => {
     if (!showInspector || preferences.value.inspectorPinned) return;
-    const dismissOutsideInspector = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, dialog, [role="dialog"], [data-shell-command="${inspector}"]`)) return;
-      // Let the clicked surface receive focus and perform its own action.
+    let focusFrame = 0;
+    const dismissInspector = () => {
       beginNavigation();
       navigation.onInspect(null);
     };
+    const dismissOutsideInspector = (event: PointerEvent) => {
+      cancelAnimationFrame(focusFrame);
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest(`.shell-inspector-host, dialog, [role="dialog"], [data-shell-command="${inspector}"]`)) return;
+      // Let the clicked surface receive focus and perform its own action.
+      dismissInspector();
+    };
+    const revealToolbarFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+      const previous = document.activeElement;
+      cancelAnimationFrame(focusFrame);
+      // Check after Chromium has moved focus in response to Tab.
+      focusFrame = requestAnimationFrame(() => {
+        const control = document.activeElement;
+        const root = rootRef.current;
+        if (!control || control === previous || !root?.querySelector(".shell-toolbar")?.contains(control)) return;
+        const overlay = root.querySelector(".shell-inspector-host--overlay");
+        if (!overlay) return;
+        const target = control.getBoundingClientRect();
+        const panel = overlay.getBoundingClientRect();
+        if (target.right <= panel.left || target.left >= panel.right || target.bottom <= panel.top || target.top >= panel.bottom) return;
+        dismissInspector();
+      });
+    };
     document.addEventListener("pointerdown", dismissOutsideInspector, true);
-    return () => document.removeEventListener("pointerdown", dismissOutsideInspector, true);
+    document.addEventListener("keydown", revealToolbarFocus, true);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", dismissOutsideInspector, true);
+      document.removeEventListener("keydown", revealToolbarFocus, true);
+    };
   }, [showInspector, inspector, preferences.value.inspectorPinned, navigation.onInspect, controller]);
 
   useLayoutEffect(() => {
