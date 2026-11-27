@@ -72,12 +72,9 @@ impl AssessmentStore {
             .write_all(&bytes)
             .and_then(|()| temporary.as_file().sync_all())
             .map_err(|_| "Assessment report could not be staged")?;
-        crate::harness::integration::atomic_replace(
-            temporary.path(),
-            &self.path,
-            self.path.exists(),
-        )
-        .map_err(|_| "Assessment report could not be committed")?;
+        let temporary = temporary.into_temp_path();
+        crate::harness::integration::atomic_replace(&temporary, &self.path, self.path.exists())
+            .map_err(|_| "Assessment report could not be committed")?;
         #[cfg(not(windows))]
         std::fs::File::open(parent)
             .and_then(|dir| dir.sync_all())
