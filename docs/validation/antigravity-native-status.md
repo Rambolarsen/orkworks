@@ -555,3 +555,42 @@ in the UI, human-operated confirmation, a published installer or a retained
 metadata-origin assertion. The earlier native terminal trials remain evidence
 for those other captured transitions. Source eligibility and the broader #1996
 coverage are unchanged.
+
+
+## Source-build desktop 1.5.18 command rejection, 2026-11-27
+
+Following the question check, the owner directed a bounded command-permission UI
+check. An isolated source-built desktop and sidecar at `1d8df2e5` used the pinned
+1.5.18 artifact with Peon disabled in the previously trusted disposable workspace.
+One fresh built-in session started with an empty initial prompt and no diagnostic
+arguments. Before submitting the single fixture prompt, the operator used native
+Shift+Tab twice, observing auto, plan, then default review mode. A semantic
+fingerprint confirmed saved agent mode, tool permission and permission rules
+were unchanged after mode selection and after the trial; the operator did not
+edit a settings file. The [native mode documentation](https://antigravity.google/docs/cli/modes)
+describes this session control separately from saved `/config` preferences.
+
+At approximately 54 seconds after Start, the terminal showed a real command
+permission dialog while the session row read **Needs you** and the action bar
+showed **Attention 1**. The harmless command would write a fixed marker in its
+owned disposable fixture. The marker was absent before rejection. The dialog
+remained open until the operator selected its observed **4. No, cancel** option
+at approximately 68 seconds. The native UI then showed **User declined the tool
+call** and an ordinary input prompt; the immediate accessibility snapshot still
+showed Needs You. At approximately 76 seconds, the row read **Idle** and the
+bar showed **Attention 0**. No approval or persistent grant was sent.
+
+The marker remained absent after the trial, the pinned binary hash was unchanged,
+and the isolated launcher was stopped within the 180-second budget. A subsequent
+executable-path inventory found no processes using the unique task paths. The
+native root exit code was not retained and complete descendant cleanup is not
+proven. The [sanitized command UI record](antigravity-native-1518-permission-ui-2026-11-27.json)
+retains derived observations without screenshots, account details, raw terminal
+output, permission rules, native IDs or reporting credentials.
+
+This establishes agent-observed command-permission Needs You and clearing after
+explicit rejection in a fresh, qualified macOS arm64 1.5.18 source build with
+Peon disabled. Observation times do not measure clearing latency. It does not
+qualify question cancellation in the desktop UI, human-operated confirmation,
+a published installer or retained metadata origin. No runtime behavior, source
+eligibility, launch checks or saved native policy changed.

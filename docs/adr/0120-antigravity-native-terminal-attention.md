@@ -93,3 +93,14 @@ question UI evidence without changing eligibility or architecture. It does not
 qualify 1.5.18 command-permission UI, a published installer, human-operated
 confirmation or complete descendant cleanup. Historical approval limits above
 retain their original context.
+
+
+## Later desktop command evidence, 2026-11-27
+
+The [source-build 1.5.18 command UI check](../validation/antigravity-native-status.md#source-build-desktop-1518-command-rejection-2026-11-27)
+observed Needs You and Attention 1 during a native permission dialog, then Idle
+and Attention 0 after selecting No. The command marker remained absent and saved
+permission policy was unchanged. This adds agent-observed rejection UI evidence
+without changing eligibility or architecture. Published installers,
+human-operated confirmation, complete descendant cleanup and the other retained
+limits remain unqualified. Earlier evidence sections retain their original scope.
