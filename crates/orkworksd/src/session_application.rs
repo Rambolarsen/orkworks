@@ -3708,26 +3708,24 @@ impl SessionApplication {
             .iter()
             .filter_map(|id| harness_snapshot.registry.get(id))
         {
-            if !harness.definition.retired
-                && seen_active_harness_ids.insert(harness.definition.id.clone())
-            {
-                normalized_active_harness_ids.push(harness.definition.id.clone());
-            } else {
-                integration_cleanup_keys.extend(
-                    harness
-                        .definition
-                        .integration
-                        .as_ref()
-                        .map(crate::harness::integration::integration_key),
-                );
+            let definition = &harness.definition;
+            if !definition.retired && seen_active_harness_ids.insert(definition.id.as_str()) {
+                normalized_active_harness_ids.push(definition.id.clone());
+                continue;
             }
+            integration_cleanup_keys.extend(
+                definition
+                    .integration
+                    .as_ref()
+                    .map(crate::harness::integration::integration_key),
+            );
         }
         if memory.active_harness_ids != normalized_active_harness_ids {
             memory.active_harness_ids = normalized_active_harness_ids;
             memory.active_harness_revision = memory.active_harness_revision.saturating_add(1);
             memory_edit.write(&memory).map_err(workspace_memory_error)?;
         }
-        let last_active_session_id = memory.last_active_session_id.clone();
+        let last_active_session_id = memory.last_active_session_id;
         let active_harness_ids = memory.active_harness_ids;
         let active_harness_revision = memory.active_harness_revision;
         drop(memory_edit);
