@@ -1317,3 +1317,13 @@ finite allowance together. Do not schedule another standalone availability
 probe merely because these earlier records are separate. Proposal publication
 authorizes no tooling or job; obtain one scoped owner decision before dependent
 work. Keep every consumed workflow/pin/history and all unused slots closed.
+
+## Replacement build proposal (2026-11-27)
+
+The [new replacement-candidate proposal](../superpowers/plans/2026-11-27-pair-replacement-windows-build.md)
+selects the observed19.44.35230.0 compiler as a proposed input, uses the retained
+exact SDK product key for two bounded reads bracketing the build, and combines
+controlled input sealing, macro/link-custody oracles and one45-minute job in one
+owner decision. It reuses the accepted macro/startup recipe. Publication is
+proposal-only: no pin, tooling, execution or qualification is accepted by its
+merge. Every prior allowance remains spent and all existing gates remain binding.
