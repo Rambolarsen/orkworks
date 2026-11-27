@@ -96,6 +96,7 @@ export function createWorkspaceSessionController(
   let selectedWorkspace: WorkspaceInfo | null = null;
   let stream: ReturnType<typeof startWorkspaceUpdates> | null = null;
   let streamHealthy = false;
+  let reconnectingForRefresh = false;
   let workspaceGeneration = 0;
   const pendingResumes = new Map<string, symbol>();
   function publishResumes(): void { options.onResumingSessions?.(new Set(pendingResumes.keys())); }
@@ -169,8 +170,27 @@ export function createWorkspaceSessionController(
     return next;
   }
 
-  async function refreshSessions(epoch?: number, allowDuringTransition = false): Promise<readonly SessionInfo[] | null> {
-    if (epoch === undefined && streamHealthy) stream?.resync();
+  async function refreshSessions({
+    allowDuringTransition = false,
+    resyncConnecting = false,
+  }: { allowDuringTransition?: boolean; resyncConnecting?: boolean } = {}): Promise<readonly SessionInfo[] | null> {
+    const updates = streamHealthy || resyncConnecting ? stream : null;
+    if (!updates) return requestSessionList(undefined, allowDuringTransition);
+
+    // resync synchronously reports the socket as unhealthy. Its explicit read
+    // can serve as the first fallback poll while the replacement connects.
+    reconnectingForRefresh = true;
+    try {
+      updates.resync();
+    } finally {
+      reconnectingForRefresh = false;
+    }
+    const refresh = requestSessionList(undefined, allowDuringTransition);
+    startFallback(refresh);
+    return refresh;
+  }
+
+  async function requestSessionList(epoch: number | undefined, allowDuringTransition: boolean): Promise<readonly SessionInfo[] | null> {
     const admissionToken = admissionGeneration;
     if (!allowDuringTransition && !admissionEnabled) return null;
     const token = foregroundGeneration;
@@ -199,10 +219,10 @@ export function createWorkspaceSessionController(
   function stopFallback(): void {
     pollingEpoch++; stopPolling?.(); stopPolling = null;
   }
-  function startFallback(): void {
-    if (!disposed && synchronizationEnabled && admissionEnabled && !streamHealthy && stopPolling === null) {
+  function startFallback(initialRefresh?: Promise<unknown>): void {
+    if (!disposed && synchronizationEnabled && admissionEnabled && !streamHealthy && !reconnectingForRefresh && stopPolling === null) {
       const epoch = ++pollingEpoch;
-      stopPolling = startSessionPolling(() => refreshSessions(epoch), options.pollDelayMs, scheduler);
+      stopPolling = startSessionPolling(() => requestSessionList(epoch, false), options.pollDelayMs, scheduler, initialRefresh);
     }
   }
   function setPollingEnabled(enabled: boolean): void {
@@ -274,7 +294,7 @@ export function createWorkspaceSessionController(
       publishSessions([]);
       options.onSessionSourceStatus?.("loading");
       if (synchronizationEnabled) setPollingEnabled(true);
-      await refreshSessions(undefined, true);
+      await refreshSessions({ allowDuringTransition: true });
     } catch {
       if (isCurrent(token)) publishError("workspace", "Couldn't open workspace.");
     }
@@ -297,7 +317,7 @@ export function createWorkspaceSessionController(
     options.onWorkspace?.(workspace);
     if (!workspace || !isCurrent(token)) return;
 
-    await refreshSessions(undefined, true);
+    await refreshSessions({ allowDuringTransition: true });
   }
 
   async function createSession(optionsForCreate: CreateSessionOptions, shouldSelect: () => boolean = () => true): Promise<boolean> {
@@ -411,8 +431,7 @@ export function createWorkspaceSessionController(
       pendingSnapshotActions.set(pendingKey, list => {
         if (current() && !list.some(session => session.id === id)) disposeDeletedRow();
       });
-      stream?.resync();
-      return refreshSessions();
+      return refreshSessions({ resyncConnecting: true });
     };
     try {
       const baseUrl = await deps.getBackendUrl();

@@ -781,6 +781,65 @@ test("Restore makes no missing-row inference from an unavailable refresh", async
 });
 
 
+test("an explicit refresh supplies the first fallback read while a healthy stream reconnects", async (t) => {
+  const selected = workspace("/workspace");
+  const row = session("existing");
+  const pending = deferred<SessionInfo[]>();
+  const polling = scheduler();
+  const socketTiming = scheduler();
+  const sockets: WebSocket[] = [];
+  let calls = 0, closes = 0, refreshing = false;
+  const controller = createWorkspaceSessionController({
+    scheduler: polling.scheduler,
+    deps: deps({
+      listSessions: async () => {
+        calls++;
+        return refreshing ? pending.promise : [row];
+      },
+      startUpdates: options => startWorkspaceUpdates({
+        ...options,
+        scheduler: socketTiming.scheduler,
+        createSocket() {
+          const socket = { close() { closes++; } } as WebSocket;
+          sockets.push(socket);
+          return socket;
+        },
+      }),
+    }),
+  });
+  t.after(() => controller.dispose());
+
+  await controller.adoptRestoredWorkspace(selected);
+  controller.setPollingEnabled(true);
+  await new Promise(resolve => setImmediate(resolve));
+  sockets[0].onmessage?.({
+    data: JSON.stringify({
+      type: "snapshot", version: 1, workspace: selected.workspaceIdentity,
+      instance: "sidecar", generation: 1, sequence: 0, sessions: [row],
+    }),
+  } as MessageEvent);
+  assert.equal(workspaceUpdateSignal(selected.path).healthy, true);
+  polling.callbacks.length = 0;
+
+  const before = calls;
+  refreshing = true;
+  const refresh = controller.refreshSessions();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(closes, 1);
+  assert.equal(sockets.length, 2);
+  assert.equal(calls - before, 1);
+  assert.equal(polling.callbacks.length, 0, "fallback waits for the pending explicit read");
+
+  pending.resolve([row]);
+  assert.deepEqual(await refresh, [row]);
+  await new Promise(resolve => setImmediate(resolve));
+  const nextPoll = polling.callbacks.shift();
+  assert.ok(nextPoll, "polling continues if the replacement stream is still unavailable");
+  nextPoll();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls - before, 2);
+});
+
 test("healthy update stream fences an older REST response and disconnect restores polling", async () => {
   const stale = deferred<SessionInfo[]>();
   let streamOptions: Parameters<NonNullable<WorkspaceSessionControllerDeps["startUpdates"]>>[0] | undefined;

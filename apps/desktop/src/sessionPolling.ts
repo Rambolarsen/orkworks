@@ -12,13 +12,14 @@ export function startSessionPolling(
   refresh: () => Promise<unknown>,
   delayMs = 2_000,
   scheduler: PollScheduler = browserScheduler,
+  initialRefresh?: Promise<unknown>,
 ): () => void {
   let stopped = false;
   let timer: unknown;
 
-  async function poll(): Promise<void> {
+  async function poll(pendingRefresh?: Promise<unknown>): Promise<void> {
     try {
-      await refresh();
+      await (pendingRefresh ?? refresh());
     } catch {
       // Background refresh failures remain silent; retry on the next cycle.
     }
@@ -27,7 +28,7 @@ export function startSessionPolling(
     }
   }
 
-  void poll();
+  void poll(initialRefresh);
   return () => {
     stopped = true;
     if (timer !== undefined) scheduler.clear(timer);
