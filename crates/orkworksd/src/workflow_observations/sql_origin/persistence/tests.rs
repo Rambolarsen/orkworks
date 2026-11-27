@@ -485,7 +485,7 @@ async fn byte_limited_rewrite_charges_origins_and_preserves_the_evicted_value_di
     seed_file(root.path(), &records, 800);
     let path = root.path().join("workflow-observations/s.ndjson");
     assert_eq!(fs::metadata(&path).unwrap().len(), MAX_SEGMENT_BYTES);
-    write(&directory, &source, "new").unwrap();
+    numeric_write(&directory, &source, "new").unwrap();
     let bytes = fs::read(&path).unwrap();
     assert!(bytes.len() as u64 <= MAX_SEGMENT_BYTES);
     let retained: Vec<_> = bytes

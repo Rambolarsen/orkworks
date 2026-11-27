@@ -172,6 +172,27 @@ without repeating terminal input. Unchanged dismissed evidence does not
 resurface immediately. Rollup members retain exact family lineage. Proposed ordinary-child orchestration is tracked separately
 under [the coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate).
 
+## Captured SQL observation persistence
+
+Sources `crates/orkworksd/src/workflow_observations/sql_origin/{persistence,reader}.rs`.
+See [captured workflow evidence files](architecture.md#captured-workflow-evidence-files).
+
+| Current state | Event and guard | Next state |
+| --- | --- | --- |
+| Batch captured | Original deadline permits bounded intent, inventory, and first-write preflight | Prepared for first effect |
+| Batch before first effect | The deadline expires, including after the inventory scan | Expired without publishing a sequence or segment |
+| Batch prepared | A duplicate receipt is verified against the retained segment and counter | Receipt returned without a write |
+| Batch prepared | Pins and budgets are valid, and the first sequence advance starts | Original batch owns its file effects through settlement |
+| Batch writing | An append or rewrite finishes successfully | Receipt returned and pins, offsets, and shared budgets advance |
+| Batch writing | I/O fails with uncertain effects | Prior receipts survive and later candidates are refused |
+| Batch writing | Original deadline passes after the first effect | Remaining candidates still settle under the original reservation and budgets |
+
+**Invariants.** The batch scans once and charges every reread to its shared
+budget. Before the first effect, expiry leaves the observation directory
+untouched. After the first effect, deadline expiry cannot abandon the original
+write or grant its ownership to a retry. The original sequence advance can
+survive an uncertain write, so sequence values need not be contiguous.
+
 ## Desktop updates
 
 Source `apps/desktop/electron/updateService.ts`. See
@@ -260,6 +281,17 @@ because the read advanced the same generation. A third scenario delays the
 pre-action list reply until after cleanup succeeds. Action settlement now uses
 the workspace generation. It clears the notice for the affected card and waits
 for a fresh list when a pre-action read is still pending.
+
+### Observation rewrite fixtures could expire before testing retention
+
+The successive-rewrite fixture returned `Storage(Expired)` in isolation. The
+byte-limit rewrite fixture also expired in the full suite and passed on rerun.
+Both exercised the production preflight deadline while testing retention and
+accounting. They now use the existing test-only numeric deadline. A dedicated
+batch test expires after inventory and checks that no sequence or segment
+appears. The existing after-counter test confirms that an admitted batch still
+settles past the original deadline.
+[Issue #2194](https://github.com/Rambolarsen/orkworks/issues/2194)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or
