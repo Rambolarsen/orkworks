@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Deliver explicit task actions for existing sessions](2026-11-27-session-task-actions.md) — Proposed qualification, sidecar delivery, title ownership, and desktop checks for #2140.
+
 - [Windows Codex image storage and delivery](2026-11-26-windows-codex-image-storage.md) — Proposed private NTFS storage and native qualification before Windows activation.
 
 - [One read-only Windows component inventory](2026-11-26-pair-toolchain-inventory.md) — Proposed bounded file/version/SDK inventory; no compiler, Cargo or target execution.
