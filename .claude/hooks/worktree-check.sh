@@ -24,7 +24,15 @@ check_worktree() {
   git show-ref --verify --quiet "refs/heads/$branch" || return
 
   if git merge-base --is-ancestor "$branch" "$MAIN_BRANCH" 2>/dev/null; then
-    flags+=("$branch ($path): merged into $MAIN_BRANCH — remove worktree + delete branch")
+    # An ancestor tip alone does not establish that an owned task is finished.
+    # Avoid refreshing another owner's index while checking for pending work.
+    local status
+    if ! status=$(git --no-optional-locks -C "$path" status --porcelain --untracked-files=normal 2>/dev/null); then
+      flags+=("$branch ($path): cleanliness unknown — inspect owned worktree before cleanup")
+      return
+    fi
+    [ -z "$status" ] || return
+    flags+=("$branch ($path): clean, tip already contained in $MAIN_BRANCH — confirm the owned task is finished before cleanup")
     return
   fi
 

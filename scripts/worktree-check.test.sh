@@ -4,14 +4,26 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 hook="$repo_root/.claude/hooks/worktree-check.sh"
 fixture="$(mktemp -d)"
+fixture="$(cd "$fixture" && pwd -P)"
 trap 'rm -rf "$fixture"' EXIT
 repo="$fixture/repo"
 mkdir "$fixture/bin"
 
 git init -q -b main "$repo"
+printf 'baseline\n' > "$repo/tracked"
+git -C "$repo" add tracked
 git -C "$repo" -c user.name=Test -c user.email=test@example.invalid \
   -c core.hooksPath=/dev/null commit -qm baseline --allow-empty
 git -C "$repo" worktree add -qb merged "$fixture/merged"
+for dirty in unstaged staged untracked; do
+  git -C "$repo" worktree add -qb "$dirty" "$fixture/$dirty checkout"
+done
+printf 'changed\n' >> "$fixture/unstaged checkout/tracked"
+printf 'changed\n' >> "$fixture/staged checkout/tracked"
+git -C "$fixture/staged checkout" add tracked
+printf 'new\n' > "$fixture/untracked checkout/new-file"
+git -C "$repo" worktree add -qb unavailable "$fixture/unavailable"
+mv "$fixture/unavailable" "$fixture/moved"
 git -C "$repo" worktree add -qb fresh "$fixture/fresh"
 git -C "$fixture/fresh" -c user.name=Test -c user.email=test@example.invalid \
   -c core.hooksPath=/dev/null commit -qm fresh --allow-empty
@@ -69,9 +81,20 @@ assert_lookups() {
   fi
 }
 
+assert_candidates() {
+  assert_omits 'unstaged ('
+  assert_omits '  • staged ('
+  assert_omits 'untracked ('
+  assert_contains "unavailable ($fixture/unavailable): cleanliness unknown"
+  assert_contains 'clean, tip already contained in main'
+  assert_contains 'confirm the owned task is finished before cleanup'
+  assert_omits 'merged into main'
+  assert_omits 'remove worktree + delete branch'
+}
+
 run_check absent
+assert_candidates
 assert_lookups stale
-assert_contains 'merged into main'
 assert_contains 'stale, no open PR'
 assert_omits 'fresh ('
 
@@ -86,7 +109,7 @@ assert_omits 'no open PR'
 
 run_check absent --local-only
 assert_lookups ''
-assert_contains 'merged into main'
+assert_candidates
 assert_contains 'stale, open PR status unknown'
 assert_omits 'no open PR'
 printf 'Worktree check fixtures passed.\n'
