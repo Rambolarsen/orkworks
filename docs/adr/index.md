@@ -168,3 +168,5 @@ Decision records and their original rationale and consequences.
 - [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native attention architecture with limited macOS arm64 1.5.16/1.5.17 admission.
 
 - [Recover gaps in live terminal output](0121-live-terminal-output-recovery.md) — Bounded catch-up and visible gaps for live PTY attachments.
+
+- [Keep Codex capture custody in startup-sealed workers](0122-startup-sealed-codex-custody.md) — Accepted macOS qualification scope for bounded persistent capture workers.

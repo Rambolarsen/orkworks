@@ -3,17 +3,17 @@ type: Qualification Plan
 title: Qualify a startup-sealed Codex custody owner
 description: Proposed bounded source and native qualification sequence for non-spawning workers and presealed private channels.
 tags: [orkworks, review, codex, custody, qualification]
-status: draft
+status: stable
+workflow_status: active
 ---
 
 # Qualify a startup-sealed Codex custody owner
 
 Outcome: resolve #1981 with a concrete sound boundary before any real Codex
-observer is implemented. Read the [proposed owner architecture](../specs/2026-11-22-review-codex-custody-owner-design.md),
+observer is implemented. Read the [accepted owner architecture](../specs/2026-11-22-review-codex-custody-owner-design.md),
 its accepted parent contracts, and the [source/native evidence](../../validation/ordinary-review-codex-spawn-audit.md).
-The proposal changes process lifetime and startup; it requires owner approval
-before dependent code. Existing #1972 approval remains valid within its scope.
-This plan does not enable a pool, production role, shared mutation owner or Start.
+The owner approved the process lifetime and startup changes for bounded macOS
+qualification. The plan keeps the pool dormant during qualification.
 
 ## Completed investigation and remaining decision
 
@@ -33,7 +33,54 @@ This plan does not enable a pool, production role, shared mutation owner or Star
   worker and transient descriptor ownership. Native source boundary stays open.
 - [x] Verify docs metadata/indexes/regressions/site and prepare the concrete
   proposal package for draft-PR owner review.
-- [ ] Owner accepts the new architecture and its explicit startup/process cost.
+- [x] Owner accepted the architecture and startup/process cost on 2026-11-27 for bounded macOS qualification. [ADR 0122](../../adr/0122-startup-sealed-codex-custody.md) records the decision.
+
+## First native check
+
+Verify the empty channels independently before introducing worker framing or
+resource transfer. In a dedicated macOS fixture entry process, create exactly
+four Unix stream pairs before the first child launch. Verify close-on-exec on
+every endpoint before publication. Treat a reported failure as all-or-nothing:
+drop all created pairs and start no child. Verify the same registered endpoints
+are inaccessible in an ordinary exec child after sealing. The fixture uses no
+user paths, resource descriptors, production entry point or worker mode. It
+supplies initial channel evidence for step 1. The actual executable worker,
+private framing, delayed startup, and native lifecycle measurements follow
+under that step.
+
+Plan review for this check: **Ready.** The fixture has one native channel
+owner and a local rollback. It adds no persistent state. Existing accepted
+bootstrap and process bounds define the checks. Actual worker and channel
+binding remain the next risk-bearing qualification boundary.
+
+Pin the bootstrap bytes separately from lease operations. Each bootstrap
+message is exactly 54 bytes in this order.
+
+| Bytes | Field |
+| --- | --- |
+| 0–3 | ASCII `OWCO` |
+| 4 | Protocol version `1` |
+| 5 | Direction tag `1` for parent challenge or `2` for worker ready |
+| 6–21 | The 16-byte nonce selected for that attempt |
+| 22–53 | The 32-byte source-owned build identity expected by that attempt |
+
+Validate against the expected direction, nonce and build identity as a
+complete byte slice. Reject truncated, extra and mismatched bytes. The future
+stream owner must enforce this exact message boundary and its deadline and
+bind the exchange to the retained child. The pure check exercises fixed wire
+vectors and rejects changed fields, wrong direction, truncation and trailing
+data. Worker binding and acquisition of the trusted build identity remain
+source-bound qualification work. Lease operation framing follows under step 2.
+
+Native component evidence on macOS 26.6.2 arm64. The command
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap`
+passed the native checks, including explicit confirmation from the exec child. The fixture
+confirmed all eight endpoints were closed in the exec child and remained
+sealed in the parent. A synthetic third-pair allocation failure closed both
+earlier pairs. An empty child test selection ran after the positive check and
+was rejected. The codec covered both directions, changed individual fields,
+every short length, and trailing bytes. Native worker binding and concurrent
+application launches still require qualification.
 
 ## Bounded executable qualification after approval
 
@@ -101,7 +148,7 @@ code; activation/upgrade/downgrade recovery remains independently gated.
 Total 13/25 for this proposal slice. Self-review maps each owner/cap/budget and
 recovery requirement to an explicit test stage and preserves the raw-leaf/context/
 source/native/admission limits. Disposition: **Fresh reviews complete with the required evidence correction applied;
-new architecture ready for owner review; actual source boundary Investigate.**
+the owner accepted bounded qualification; actual source boundary Investigate.**
 
 One root owns the artifacts. Dispatch exactly two read-only fresh reviewers in
 one round (current lower-cost tier first): builder checks consequential planning
