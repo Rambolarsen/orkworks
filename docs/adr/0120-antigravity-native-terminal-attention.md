@@ -104,3 +104,14 @@ permission policy was unchanged. This adds agent-observed rejection UI evidence
 without changing eligibility or architecture. Published installers,
 human-operated confirmation, complete descendant cleanup and the other retained
 limits remain unqualified. Earlier evidence sections retain their original scope.
+
+
+## Later desktop cancellation evidence, 2026-11-27
+
+The [source-build 1.5.18 cancellation UI check](../validation/antigravity-native-status.md#source-build-desktop-1518-question-cancellation-2026-11-27)
+observed Needs You and Attention 1 while a structured question waited, then Idle
+and Attention 0 after the operator used its Escape/Skip control. No answer was
+submitted and Peon was disabled. This adds agent-observed cancellation UI
+evidence without changing eligibility or architecture. Published installers,
+human-operated confirmation, complete descendant cleanup and the other retained
+limits remain unqualified. Earlier evidence sections retain their original scope.

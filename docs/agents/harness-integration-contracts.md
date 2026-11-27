@@ -156,7 +156,8 @@ for each artifact. Rejection trials used strict session-only permissions;
 automatic trials retained existing native policy. These are agent-operated
 trials, not human-operated confirmation or published-installer qualification.
 Separate source-built desktop checks establish 1.5.17 startup permission and
-1.5.17/1.5.18 question attention/clearing, plus [1.5.18 command-permission
+1.5.17/1.5.18 question attention/clearing, [1.5.18 question cancellation](../validation/antigravity-native-status.md#source-build-desktop-1518-question-cancellation-2026-11-27),
+plus [1.5.18 command-permission
 attention and clearing after explicit rejection](../validation/antigravity-native-status.md#source-build-desktop-1518-command-rejection-2026-11-27). In native terminal qualification,
 both 1.5.17 and 1.5.18 root exits were confirmed; the 1.5.16 rejection collector left root
 cleanup unconfirmed as documented. All-descendant cleanup remains unproven.
