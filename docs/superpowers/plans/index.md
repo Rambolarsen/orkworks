@@ -415,3 +415,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Registry-only SDK servicing inventory](2026-11-26-pair-sdk-servicing-inventory.md) — Proposed one-job bounded registry observation after the consumed component inventory hit its entry cap.
 
 - [Positive SDK product observation](2026-11-27-pair-sdk-positive-record-observation.md) — Proposed unclassified-name handling and one finite positive-record observation; owner approval pending.
+
+- [Replacement Windows candidate build](2026-11-27-pair-replacement-windows-build.md) — Proposed observed compiler input, same-job named SDK bracket and one finite build/oracle allowance; owner approval pending.
