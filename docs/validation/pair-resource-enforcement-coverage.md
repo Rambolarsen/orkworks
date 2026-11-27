@@ -1075,3 +1075,14 @@ scoped decision and finite allowance; the spent workflows remain unchanged.
 This completes the source review only. Dispatch remains spent 1/1, every unused
 slot remains closed, #1176 stays open and Gate1 remains Investigate. No compiler
 pin, co-availability seal, build, runtime profile or production activation follows.
+
+## Positive SDK record proposal (2026-11-27)
+
+The [new positive-record proposal](../superpowers/plans/2026-11-27-pair-sdk-positive-record-observation.md)
+defines explicit unclassified DisplayName handling after the source review. It
+requests a stable positive SDK record with inventory completeness explicitly
+false, strict matching SDK fields, private bounded payload commitments, and one
+new finite job under the existing caps. It is awaiting owner approval of the
+contract, tooling and exact allowance together. Proposal publication authorizes
+no implementation or dispatch. Every earlier allowance remains spent; no new
+registry observation or runner qualification occurred for this proposal.
