@@ -89,8 +89,8 @@ presealed pairs. Each attempt retains its exact child handle and sends the
 challenge over its selected channel. The child checks the selected channel,
 closure of the other seven registered endpoints, null standard streams, and
 the fixture-only environment. It opens a fresh close-on-exec duplicate for
-its Rust-owned stream. The child returns the ready frame for the same nonce
-and fixture build tag.
+its Rust-owned stream. The parent generates a fresh nonce for each attempt. The child returns it
+in the ready frame with the fixture build tag.
 
 Use half-closed stream directions to validate one exactly sized message in each
 direction. This closes the synthetic exchange at EOF. The persistent worker

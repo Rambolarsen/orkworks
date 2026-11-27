@@ -30,13 +30,14 @@ pub(super) fn check_owned_workers(pairs: &[(UnixStream, UnixStream); 4]) {
 
     for (slot, (controller, worker)) in pairs.iter().enumerate() {
         remaining(deadline).expect("one shared startup deadline");
+        let nonce = *uuid::Uuid::new_v4().as_bytes();
         let selected = worker.as_raw_fd();
         let mut child = spawn(selected, &registered).expect("start owned fixture worker");
         remaining(deadline).expect("child was acquired within the shared startup deadline");
         if slot == 3 {
             // Withhold the challenge. An owned process alone cannot publish readiness.
             let response_deadline = deadline.min(Instant::now() + Duration::from_millis(60));
-            let error = await_ready(controller, &[slot as u8; 16], response_deadline)
+            let error = await_ready(controller, &nonce, response_deadline)
                 .expect_err("silent worker cannot be ready");
             assert_eq!(error.kind(), ErrorKind::TimedOut);
             let status = child
@@ -46,11 +47,12 @@ pub(super) fn check_owned_workers(pairs: &[(UnixStream, UnixStream); 4]) {
             continue;
         }
 
-        let nonce = [slot as u8; 16];
         let challenge = bootstrap_frame::encode(Direction::Challenge, &nonce, &BUILD);
         write_frame(controller, &challenge, deadline).expect("deliver startup challenge");
         if slot == 2 {
-            let error = await_ready(controller, &[255; 16], deadline)
+            let mut different_nonce = nonce;
+            different_nonce[0] ^= 1;
+            let error = await_ready(controller, &different_nonce, deadline)
                 .expect_err("response cannot confirm a different nonce");
             assert_eq!(error.kind(), ErrorKind::InvalidData);
         } else {
