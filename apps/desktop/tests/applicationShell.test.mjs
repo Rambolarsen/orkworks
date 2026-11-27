@@ -73,7 +73,64 @@ if (process.versions.electron) {
       await fresh();
       const scenario = process.env.ORKWORKS_SHELL_SCENARIO;
       const click = async command => evaluate('(()=>{const b=document.querySelector("[data-shell-command=' + command + ']");b.focus();b.click()})()');
-      if (scenario === 'app-review-inert-improvement') {
+      if (scenario === 'app-settings-keyboard' || scenario === 'app-coding-tools-keyboard') {
+        const tab = (shift = false) => {
+          const modifiers = shift ? ['shift'] : [];
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers});
+        };
+        const inSettings = 'document.activeElement.matches(".settings-modal-header button")';
+        const settingsOpener = 'document.activeElement.hasAttribute("data-shell-settings")';
+        if (scenario === 'app-coding-tools-keyboard') {
+          await waitFor('document.activeElement.matches(".new-session-cancel")');
+          await evaluate('document.activeElement.click()');
+          await waitFor('!document.querySelector("#no-coding-tools-title") && document.activeElement !== document.body');
+          await fresh();
+          await waitFor('document.activeElement.matches(".new-session-cancel")');
+          tab();
+          await waitFor('document.activeElement.matches(".new-session-confirm")');
+          tab();
+          await waitFor('document.activeElement.matches(".new-session-cancel")');
+          tab(true);
+          await waitFor('document.activeElement.matches(".new-session-confirm")');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Space'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Space'});
+          await waitFor(inSettings);
+          await waitFor('!document.querySelector("#no-coding-tools-title")');
+          return;
+        }
+
+        await click('details');
+        await waitFor('document.querySelector(".shell-inspector-host--overlay")');
+        await waitFor('document.querySelector("[data-shell-settings]")');
+        await evaluate('document.querySelector("[data-shell-settings]").focus();document.activeElement.click()');
+        await waitFor(inSettings);
+        const settingsHeading = await evaluate('(() => { const r = document.querySelector("#settings-title").getBoundingClientRect(); return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}; })()');
+        win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...settingsHeading});
+        win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...settingsHeading});
+        await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+        assert.equal(await evaluate('!!document.querySelector(".shell-inspector-host--overlay")'),true,'a pointer click inside Settings leaves the inspector open');
+        await evaluate('Array.from(document.querySelectorAll(".settings-nav-button")).find(button=>button.textContent==="Session retention").click()');
+        await waitFor('document.querySelector(".retention-row:last-child input")');
+        await evaluate('document.querySelector(".retention-row:last-child input").focus()');
+        tab();
+        await waitFor(inSettings);
+        tab(true);
+        await waitFor('document.activeElement.matches(".retention-row:last-child input")');
+        await evaluate('document.querySelector(".settings-modal-header button").click()');
+        await waitFor('!document.querySelector(".settings-modal")');
+        await waitFor(settingsOpener);
+
+        await evaluate('fixture.settingsOpener=document.activeElement;document.activeElement.click()');
+        await waitFor(inSettings);
+        await win.setContentSize(640,700);
+        await waitFor('!fixture.settingsOpener.isConnected && document.querySelector(".shell-navigation-menu > summary")');
+        win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+        win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+        await waitFor('!document.querySelector(".settings-modal")');
+        await waitFor('document.activeElement.matches(".shell-navigation-menu > summary")');
+        return;
+      } else if (scenario === 'app-review-inert-improvement') {
         let firstAdviceCase=true;
         for (const version of [2,3]) for (const intent of ['implementation','investigation']) {
           if(!firstAdviceCase)await fresh();
@@ -97,7 +154,13 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.accepted'),[]);
           assert.deepEqual(await evaluate('fixture.input'),[]);
           await evaluate('document.querySelector(".recommendation-fix").click()');
-          await waitFor('document.querySelector("#fix-with-ai-prompt")');
+          await waitFor('document.activeElement.id==="fix-with-ai-prompt"');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers:['shift']});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers:['shift']});
+          await waitFor('document.activeElement.matches(".new-session-confirm")');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.id==="fix-with-ai-prompt"');
           assert.equal(await evaluate('document.querySelector("#fix-with-ai-prompt").readOnly'),true);
           const preview=await evaluate('document.querySelector("#fix-with-ai-prompt").value');
           assert.match(preview,/GET \/taskmaster\/recommendations\/recommendation-inert/);
@@ -2274,6 +2337,12 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'fallback requires confirmation');
           assert.match(await evaluate('document.querySelector("[data-resume-warning]").textContent'),/different session/);
           assert.equal(await evaluate('document.activeElement.textContent'),'Cancel');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.hasAttribute("data-resume-confirm")');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers:['shift']});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers:['shift']});
+          await waitFor('document.activeElement.textContent==="Cancel"');
           if (process.env.ORKWORKS_CAPTURE_RESUME) {
             await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
             const {writeFileSync}=await import('node:fs');
@@ -2948,7 +3017,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -3073,7 +3142,7 @@ if (process.versions.electron) {
             if(${javascriptLiteral(scenario)}==='app-review-history'){fixture.sessionList[1].lifecycle='dead';fixture.sessionList[1].status='ended';}
             fixture.runtime=()=>getTerminal('created');
             Object.assign(window.orkworks,{
-              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review') || ${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}?'created':null,activeHarnessIds:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
+              onBackendLifecycle:callback=>{fixture.lifecycle=callback;queueMicrotask(()=>callback({state:'ready',workspace:${javascriptLiteral(scenario)}==='app-skills-picker'?null:{path:'/tmp/test',workspaceIdentity:'/tmp/test',lastActiveSessionId:${javascriptLiteral(scenario)}.startsWith('app-review') || ${['app-session-attention-alerts', 'app-session-alert-resume-warning'].includes(scenario)}?'created':null,activeHarnessIds:${scenario === 'app-coding-tools-keyboard'}?[]:['generic-shell']},historyDiagnostic:null}));return ()=>{}},
               onUpdateStatus:()=>()=>{},onMenuCommand:callback=>{fixture.menu=callback;return ()=>{}},
               getInitialWorkspace:async()=>({workspace:null,historyDiagnostic:null}),
               openWorkspace:async()=>new Promise(resolve=>{fixture.cancelWorkspacePicker=resolve}),
@@ -3095,7 +3164,7 @@ if (process.versions.electron) {
               window.orkworks.showSessionAttentionNotification=id=>new Promise(complete=>fixture.desktopAlerts.push({id,complete}));
               window.orkworks.closeSessionAttentionNotification=async id=>{fixture.closedAlerts.push(id)};
             }
-            if (${scenario === 'app-workspace-hook-notice' || scenario === 'app-session-attention-alerts'}) {
+            if (${['app-workspace-hook-notice','app-session-attention-alerts','app-settings-keyboard','app-coding-tools-keyboard'].includes(scenario)}) {
               window.orkworks.getSettings=async()=>({
                 hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},desktopSessionNotifications:fixture.desktopEnabled,
                 debug:{showSessionIds:false,rendererHealthLogMs:0},
