@@ -492,10 +492,11 @@ if (process.versions.electron) {
           fixture.setSessionState({attention:"idle"});
         `);
         await waitFor(`document.querySelector("${button}")`);
+        assert.equal(await evaluate(`document.querySelector("${button}").getAttribute("aria-label")`), "Copy continuation prompt");
         await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("${button}").click()`);
-        await waitFor(`document.querySelector("${button}")?.textContent.includes("Copy failed")`);
+        await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Could not copy")`);
         await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("${button}").click()`);
-        await waitFor(`document.querySelector("${button}")?.textContent.includes("Copied")`);
+        await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Prompt copied")`);
         assert.deepEqual(await evaluate('fixture.clipboardWrites'), ['Keep going with the current task.']);
         assert.deepEqual(await evaluate('fixture.input'), []);
         await evaluate('fixture.setSessionState({attention:"needs_you"})');

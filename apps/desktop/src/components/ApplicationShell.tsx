@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert } from "lucide-react";
 import type {
   CentralSurface,
   FocusTarget,
@@ -53,10 +53,11 @@ function CopyContinuationPrompt() {
   const notice = status === "copied"
     ? "Prompt copied. Paste it into the terminal and submit it when ready."
     : status === "failed" ? "Could not copy the continuation prompt. Try again." : "";
+  const Icon = status === "copied" ? Check : status === "failed" ? CircleAlert : Copy;
   return <>
     <button type="button" data-copy-continuation-prompt aria-label="Copy continuation prompt"
       title={notice || "Copy continuation prompt"} disabled={status === "copying"} onClick={() => void copyPrompt()}>
-      {status === "copied" ? "Copied" : status === "failed" ? "Copy failed. Retry" : "Copy continuation prompt"}
+      <Icon size={16} aria-hidden="true" />
     </button>
     <span className="sr-only" role="status">{notice}</span>
   </>;
