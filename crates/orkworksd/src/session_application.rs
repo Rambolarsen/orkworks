@@ -5232,20 +5232,18 @@ impl SessionApplication {
             .read()
             .expect("harness catalog lock poisoned")
             .clone();
-        let mut canonical_active_harness_ids = Vec::with_capacity(MAX_ACTIVE_HARNESS_IDS);
-        for id in &active_harness_ids {
-            let Some(harness) = registry.get(id) else {
-                return Err(SessionError::BadRequest(
-                    "The selected coding tool is no longer available.",
-                ));
-            };
-            if harness.definition.retired {
-                return Err(SessionError::BadRequest(
+        let canonical_active_harness_ids = active_harness_ids
+            .iter()
+            .map(|id| match registry.get(id) {
+                Some(harness) if harness.definition.retired => Err(SessionError::BadRequest(
                     "The selected coding tool is retired and cannot be enabled.",
-                ));
-            }
-            canonical_active_harness_ids.push(harness.definition.id.clone());
-        }
+                )),
+                Some(harness) => Ok(harness.definition.id.clone()),
+                None => Err(SessionError::BadRequest(
+                    "The selected coding tool is no longer available.",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let memory = metadata::WorkspaceMemory {
             last_active_session_id: existing.last_active_session_id,
             last_active_at: Some(iso_now()),
