@@ -63,8 +63,14 @@ function Invoke-RestMethod {
     $record = @{ index=$global:fixtureIndex; method=[string]$Method; uri=[string]$Uri; headers=$Headers; contentType=$ContentType; timeout=$TimeoutSec; body=($Body | ConvertFrom-Json) }
     [IO.File]::AppendAllText($env:ORKWORKS_REQUEST_CAPTURE, (($record | ConvertTo-Json -Depth 10 -Compress) + [Environment]::NewLine))
 }
-@{ version=$PSVersionTable.PSVersion.ToString(); edition=$PSVersionTable.PSEdition; is64Bit=[Environment]::Is64BitProcess } | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:ORKWORKS_RUNTIME_CAPTURE -Encoding UTF8
-$cases = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw -Encoding UTF8 | ConvertFrom-Json
+Write-FixtureStage 'runtime-json-start'
+$runtimeJson = @{ version=$PSVersionTable.PSVersion.ToString(); edition=$PSVersionTable.PSEdition; is64Bit=[Environment]::Is64BitProcess } | ConvertTo-Json -Compress
+Write-FixtureStage 'runtime-json-done'
+$runtimeJson | Set-Content -LiteralPath $env:ORKWORKS_RUNTIME_CAPTURE -Encoding UTF8
+Write-FixtureStage 'runtime-file-done'
+$casesJson = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw -Encoding UTF8
+Write-FixtureStage 'cases-file-read'
+$cases = $casesJson | ConvertFrom-Json
 Write-FixtureStage 'cases-loaded'
 for ($i=0; $i -lt $cases.Count; $i++) {
     $global:fixtureIndex=$i
@@ -95,7 +101,7 @@ Write-FixtureStage 'wrapper-done'
       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper,
     ], { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true });
     const stages = existsSync(progress) ? readFileSync(progress, 'utf8').slice(-4096)
-      .split(/\r?\n/).filter((line) => /^(wrapper-start|cases-loaded|wrapper-done|(?:stdin|invoke|http|done)-[0-9]{1,2})$/.test(line)) : [];
+      .split(/\r?\n/).filter((line) => /^(wrapper-start|runtime-json-start|runtime-json-done|runtime-file-done|cases-file-read|cases-loaded|wrapper-done|(?:stdin|invoke|http|done)-[0-9]{1,2})$/.test(line)) : [];
     t.diagnostic(`PowerShell stages: ${stages.join(', ') || 'none before process outcome'}`);
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
