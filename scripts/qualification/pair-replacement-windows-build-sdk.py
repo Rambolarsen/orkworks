@@ -78,7 +78,9 @@ def main():
         print(json.dumps({**empty(),"reason":"runtime-denied","api_calls":0,"open_handles":0,"read_bytes_charged":0,"hashed_bytes":0}))
         return
     budget = Budget(api_limit=limits["API"],read_limit=limits["READ"],hash_limit=limits["HASH"],seconds=30)
-    print(json.dumps(collect_pass(NativeRegistry(budget),budget),separators=(",",":")))
+    out = collect_pass(NativeRegistry(budget),budget)
+    out["runtime"] = {"path": _native.sys.executable, "version": _native.sys.version.split()[0], "implementation": _native.sys.implementation.name, "bits": 64}
+    print(json.dumps(out,separators=(",",":")))
 
 if __name__ == "__main__":
     main()

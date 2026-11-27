@@ -313,12 +313,17 @@ reader/shared-ledger tests, bounded reader/manifest and controller tests, workfl
 fixtures, full verification, then one bounded fresh-context review round with
 maximum two read-only Luna reviewers (correctness/authority and coverage/bounds).
 Root alone applies findings. No implementer delegation or second coding harness.
-Current status: dependency preparation underway; TDD not yet started; dispatch0/1.
+Current status: implementation and fixture verification in progress; dispatch0/1.
 
 SDK reader: six Windows fixtures passed. Policy primitives: seven local Node
 tests passed after their initial missing-controller failures. Windows bounded
 reader fixture failed on the deliberately missing implementation, then passed
-after implementation in draft CI. No live entry point is wired yet.
+after implementation in draft CI. Locked archive verification likewise reached
+a missing-function failure before passing the Windows fixture. Its initial fixture
+stream-name collision was corrected before observing that meaningful failure.
+The controller entry point and manual workflow are now wired; ten local Node
+checks pass, including full twelve-PE admission and manifest drift refusal.
+Final native CI, full verification and fresh review remain pending.
 
 Ruling: do not reuse the old helper's .cargo-checksum.json assumption; the
 inspected local Cargo registry cache lacks that vendor-side file. Derive member

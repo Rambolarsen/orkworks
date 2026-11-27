@@ -86,6 +86,9 @@ function Read-SealedFile([string]$File,$Budget,[switch]$PE) {
         }finally{$hash.Dispose()}
         $result=@{bytes=$expected;sha256=$digest;id=$before.id}
         if ($PE) {
+            # Conservatively charge a full second file pass for PE/version metadata reads.
+            if($Budget.hashed+$expected -gt $Budget.maximum){throw 'hash-limit'}
+            $Budget.hashed+=$expected
             if ($expected -lt 64) {throw 'pe-format'}
             $reader=[IO.BinaryReader]::new($stream,[Text.Encoding]::UTF8,$true)
             try {
@@ -154,7 +157,10 @@ function Assert-CrateArchives([string]$Source,$Budget,$Policy) {
     foreach($directory in [IO.Directory]::EnumerateDirectories($indices[0])) {
         if($crates.Count -ge $Policy.packages.Count){throw 'package-count-limit'}
         $directory=Assert-PlainPath $directory;$leaf=[IO.Path]::GetFileName($directory)
+        $matches=@($Policy.packages.Keys|Where-Object{($_.Replace('@','-')) -ceq $leaf})
+        if($matches.Count -ne 1){throw 'package-source-drift'}
         $archive=Join-Path $cache ($leaf+'.crate');$identity=Read-SealedFile $archive $Budget
+        if($identity.sha256 -cne $Policy.packages[$matches[0]]){throw 'package-source-drift'}
         if($Budget.hashed+$identity.bytes -gt $Budget.maximum){throw 'hash-limit'}
         $Budget.hashed+=$identity.bytes
         $archiveBytes+=$identity.bytes;if($archiveBytes -gt 12884901888){throw 'manifest-bytes-limit'}
@@ -193,6 +199,8 @@ function Assert-CrateArchives([string]$Source,$Budget,$Policy) {
         foreach($name in $files.Keys){$actual=Read-SealedFile (Join-Path $directory $name) $Budget;if($actual.sha256 -cne $files[$name]){throw 'crate-file-drift'}}
         $tomlPath=Join-Path $directory 'Cargo.toml'
         if(-not $files.ContainsKey('Cargo.toml')){throw 'crate-manifest'}
+        if($Budget.hashed+[IO.FileInfo]::new($tomlPath).Length -gt $Budget.maximum){throw 'hash-limit'}
+        $Budget.hashed+=[IO.FileInfo]::new($tomlPath).Length
         $toml=[IO.File]::ReadAllText((Assert-PlainPath $tomlPath),[Text.UTF8Encoding]::new($false,$true))
         $section=[regex]::Match($toml,'(?ms)^\[package\]\r?\n(.*?)(?=^\[|\z)').Groups[1].Value
         $name=[regex]::Match($section,'(?m)^name = "([^"\r\n]+)"\r?$').Groups[1].Value
@@ -234,7 +242,7 @@ try {
     if ($Mode -ceq 'Preflight') {
         $tools=@{}
         foreach($name in @($policy.paths.Keys|Sort-Object)) {$tools[$name]=Read-SealedFile $policy.paths[$name] $budget -PE}
-        $result=@{success=$true;tools=$tools;hash_bytes=$budget.hashed}
+        $result=@{success=$true;tools=$tools;powershell_version=$PSVersionTable.PSVersion.ToString();hash_bytes=$budget.hashed}
     }else{
         $expected=@{source=$env:ORK_REPLACEMENT_WORKSPACE;registry=(Join-Path $scratch 'working/cargo-home/registry/src')}
         foreach($key in $policy.roots.Keys) {$expected[$key]=$policy.roots[$key]}

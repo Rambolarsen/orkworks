@@ -1,0 +1,52 @@
+name: Replacement Windows sidecar candidate build
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pair-replacement-build-allowance-2026-11-27
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved replacement candidate attempt
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node ./scripts/qualification/pair-replacement-windows-build.mjs
+      - name: Retain bounded allowlisted candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-replacement-windows-build
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/result.json
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/inputs.json
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/cargo.jsonl
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/diagnostics.txt
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/compiler.json
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/oracle.c
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/oracle.i
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/sqlite3.lib
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/libsqlite3_sys.rlib
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/orkworksd.exe
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/candidate.map
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/dependencies.txt
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/archive-members.txt
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/link-custody.json
+            ${{ runner.temp }}/ork-pair-replacement-windows-build/evidence/sdk-record.json
