@@ -2158,6 +2158,11 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
           await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.matches("button[data-shell-resume]")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'moving focus does not resume the session');
           assert.ok(await evaluate(`(() => {
             const main = document.querySelector('[data-shell-resume]');
             const arrow = document.querySelector('.shell-toolbar [data-resume-toggle]');
@@ -2172,6 +2177,10 @@ if (process.versions.electron) {
           assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'main button resumes the preferred exact session');
           await evaluate('fixture.setResuming(["coding"])');
           await waitFor('document.querySelector("[data-shell-resume]").disabled');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.matches("#sessions-list .session-row-more")');
           assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resuming/);
           assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'),/Resuming/);
           assert.equal(await evaluate('document.querySelector("[data-resume-toggle]").disabled'),true);
