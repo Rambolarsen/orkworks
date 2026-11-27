@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseTerminalControlMessage,
+  formatTerminalOutputGapNotice,
   shouldReplayTerminalOutputOnClose,
   appendPendingInput,
   canSendTerminalInput,
@@ -30,6 +31,64 @@ test("parseTerminalControlMessage parses typed input-dropped frames", () => {
   assert.deepEqual(
     parseTerminalControlMessage('{"type":"input-dropped"}'),
     { type: "input-dropped" },
+  );
+});
+
+test("parseTerminalControlMessage parses typed output-gap frames and rejects malformed ones", () => {
+  assert.deepEqual(
+    parseTerminalControlMessage(
+      '{"type":"output-gap","fromCursor":2,"toCursor":5,"missedChunks":3}',
+    ),
+    { type: "output-gap", fromCursor: 2, toCursor: 5, missedChunks: 3 },
+  );
+  assert.equal(
+    parseTerminalControlMessage(
+      '{"type":"output-gap","fromCursor":2,"toCursor":2,"missedChunks":0}',
+    ),
+    null,
+  );
+  assert.equal(
+    parseTerminalControlMessage(
+      '{"type":"output-gap","fromCursor":5,"toCursor":2,"missedChunks":3}',
+    ),
+    null,
+  );
+  assert.equal(
+    parseTerminalControlMessage(
+      '{"type":"output-gap","fromCursor":1,"toCursor":3,"missedChunks":1.5}',
+    ),
+    null,
+  );
+  assert.equal(
+    parseTerminalControlMessage(
+      '{"type":"output-gap","fromCursor":1,"toCursor":5,"missedChunks":3}',
+    ),
+    null,
+  );
+  assert.equal(
+    parseTerminalControlMessage('{"type":"output-gap","missedChunks":2}'),
+    null,
+  );
+});
+
+test("formatTerminalOutputGapNotice formats singular and plural missed-chunk notices", () => {
+  assert.equal(
+    formatTerminalOutputGapNotice({
+      type: "output-gap",
+      fromCursor: 1,
+      toCursor: 2,
+      missedChunks: 1,
+    }),
+    "\r\n[terminal output gap: 1 chunk of live output could not be recovered]",
+  );
+  assert.equal(
+    formatTerminalOutputGapNotice({
+      type: "output-gap",
+      fromCursor: 2,
+      toCursor: 7,
+      missedChunks: 5,
+    }),
+    "\r\n[terminal output gap: 5 chunks of live output could not be recovered]",
   );
 });
 

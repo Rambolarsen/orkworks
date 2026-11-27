@@ -31,7 +31,10 @@ use windows_sys::Win32::System::{
 
 pub(crate) const DEFAULT_TERMINAL_ROWS: u16 = 24;
 pub(crate) const DEFAULT_TERMINAL_COLS: u16 = 80;
-const DEFAULT_REPLAY_CAPACITY: usize = 256;
+// Keep the replay window larger than `output_tx`'s 256-event broadcast buffer
+// so a briefly lagged live terminal receiver can recover missed bursts in order
+// without data loss before falling back to an explicit output gap.
+const DEFAULT_REPLAY_CAPACITY: usize = 512;
 const DRIVER_EVENT_BUFFER_CAPACITY: usize = 64;
 const PERSIST_QUEUE_CAPACITY: usize = 64;
 const CONTROL_CHANNEL_CAPACITY: usize = 64;
@@ -682,6 +685,52 @@ impl ReplayBuffer {
         }
         chunks
     }
+
+    pub(crate) fn recover_from(&self, expected_cursor: u64) -> ReplayRecovery {
+        if expected_cursor >= self.next_cursor {
+            return ReplayRecovery {
+                requested_from: expected_cursor,
+                recovered_from: expected_cursor,
+                recovered_to: expected_cursor,
+                chunks: Vec::new(),
+            };
+        }
+        let start = self.start_cursor();
+        if expected_cursor >= start {
+            let chunks = self
+                .chunks
+                .iter()
+                .filter(|(cursor, _)| *cursor >= expected_cursor)
+                .cloned()
+                .collect();
+            return ReplayRecovery {
+                requested_from: expected_cursor,
+                recovered_from: expected_cursor,
+                recovered_to: self.next_cursor,
+                chunks,
+            };
+        }
+        ReplayRecovery {
+            requested_from: expected_cursor,
+            recovered_from: start,
+            recovered_to: self.next_cursor,
+            chunks: self.snapshot(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReplayRecovery {
+    pub(crate) requested_from: u64,
+    pub(crate) recovered_from: u64,
+    pub(crate) recovered_to: u64,
+    pub(crate) chunks: Vec<(u64, Vec<u8>)>,
+}
+
+impl ReplayRecovery {
+    pub(crate) fn missed_chunks(&self) -> u64 {
+        self.recovered_from.saturating_sub(self.requested_from)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1291,6 +1340,20 @@ pub(crate) fn release_attachment(
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
     }
+}
+
+pub(crate) fn recover_output_since(
+    state: &Arc<AppState>,
+    id: &str,
+    runtime_identity: &RuntimeIdentity,
+    expected_cursor: u64,
+) -> Option<ReplayRecovery> {
+    let sessions = state.sessions.lock().unwrap();
+    let handle = sessions.get(id)?;
+    if !handle.runtime.matches_identity(runtime_identity) {
+        return None;
+    }
+    Some(handle.runtime.replay.recover_from(expected_cursor))
 }
 
 /// An exact ordinary stop snapshot; it never creates or opens evaluation authority.
@@ -5347,6 +5410,75 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
         assert!(bytes.windows(8).any(|part| part == b"\x1b[?2004h"));
         assert_eq!(replay.start_cursor(), 1);
         assert_eq!(replay.next_cursor(), 3);
+    }
+
+    #[test]
+    fn replay_recover_from_replays_exact_tail_without_gap_when_retained() {
+        let mut replay = ReplayBuffer::new(4);
+        replay.push(b"\x1b[?1049hmode-setup".to_vec());
+        replay.push(b"chunk-1".to_vec());
+        replay.push(b"chunk-2".to_vec());
+        replay.push(b"chunk-3".to_vec());
+
+        let recovery = replay.recover_from(2);
+        assert_eq!(recovery.requested_from, 2);
+        assert_eq!(recovery.recovered_from, 2);
+        assert_eq!(recovery.recovered_to, 4);
+        assert_eq!(recovery.missed_chunks(), 0);
+        assert_eq!(
+            recovery.chunks,
+            vec![(2, b"chunk-2".to_vec()), (3, b"chunk-3".to_vec())]
+        );
+
+        let caught_up = replay.recover_from(4);
+        assert_eq!(caught_up.missed_chunks(), 0);
+        assert!(caught_up.chunks.is_empty());
+    }
+
+    #[test]
+    fn replay_recover_from_reports_eviction_gap_and_restores_modes() {
+        let mut replay = ReplayBuffer::new(2);
+        replay.push(b"\x1b[?1049h\x1b[?2004hevicted-0".to_vec());
+        replay.push(b"evicted-1".to_vec());
+        replay.push(b"retained-2".to_vec());
+        replay.push(b"retained-3".to_vec());
+
+        let recovery = replay.recover_from(0);
+        assert_eq!(recovery.requested_from, 0);
+        assert_eq!(recovery.recovered_from, 2);
+        assert_eq!(recovery.recovered_to, 4);
+        assert_eq!(recovery.missed_chunks(), 2);
+        assert_eq!(recovery.chunks.len(), 2);
+        assert_eq!(recovery.chunks[0].0, 2);
+        assert!(recovery.chunks[0].1.windows(8).any(|w| w == b"\x1b[?1049h"));
+        assert!(recovery.chunks[0].1.windows(8).any(|w| w == b"\x1b[?2004h"));
+        assert!(recovery.chunks[0].1.ends_with(b"retained-2"));
+        assert_eq!(recovery.chunks[1], (3, b"retained-3".to_vec()));
+    }
+
+    #[test]
+    fn recover_output_since_rejects_stale_runtime_identity() {
+        let id = "runtime-recover-identity";
+        let state = test_state_with_runtime_session(id);
+        let original = claim_attachment(&state, id).unwrap();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.runtime.replay.push(b"old-output".to_vec());
+        }
+        assert_eq!(
+            recover_output_since(&state, id, &original.runtime_identity, 0)
+                .unwrap()
+                .chunks,
+            vec![(0, b"old-output".to_vec())]
+        );
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.runtime = SessionRuntime::detached_test();
+            handle.runtime.replay.push(b"new-output".to_vec());
+        }
+        assert!(recover_output_since(&state, id, &original.runtime_identity, 0).is_none());
     }
 
     #[test]

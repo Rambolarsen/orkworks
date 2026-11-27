@@ -10,6 +10,7 @@ import { writeTerminalReplay, recordedReplaySize } from "./terminalReplay";
 import { terminalLinkHandler } from "./terminalLinks";
 import {
   parseTerminalControlMessage,
+  formatTerminalOutputGapNotice,
   shouldReplayTerminalOutputOnClose,
   appendPendingInput,
   canSendTerminalInput,
@@ -156,6 +157,9 @@ export function ensureTerminal(id: string, baseUrl: string): TerminalHandle {
     switch (message?.type) {
       case "replay-start":
       case "replay-end":
+        break;
+      case "output-gap":
+        term.writeln(formatTerminalOutputGapNotice(message));
         break;
       case "ended":
         term.write(MOUSE_TRACKING_RESET_SEQUENCE);

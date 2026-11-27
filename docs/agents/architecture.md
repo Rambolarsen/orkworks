@@ -1330,7 +1330,11 @@ Single binary. Top-level modules:
 
 For the current Rust domain model itself, see [domain-entities.md](domain-entities.md).
 
-Live terminal attachment replays the newest 256 PTY output chunks. As older
+Live terminal attachment replays the newest 512 PTY output chunks (larger than
+the 256-event live broadcast buffer so briefly lagged WebSocket receivers can
+recover missed bursts in cursor order without data loss). When a live receiver
+falls behind past the retained window, the sidecar emits an explicit
+`output-gap` control frame before replaying the retained tail. As older
 chunks leave that window, `runtime/terminal_replay_modes.rs` retains a bounded
 checkpoint of screen-buffer and interaction modes. The first replay chunk
 restores that checkpoint before its original bytes, preserving alternate-screen

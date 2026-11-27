@@ -12,10 +12,18 @@ export const MOUSE_TRACKING_RESET_SEQUENCE =
 export type TerminalControlMessage =
   | { type: "replay-start"; cursor: number }
   | { type: "replay-end"; cursor: number }
+  | { type: "output-gap"; missedChunks: number; fromCursor: number; toCursor: number }
   | { type: "ended"; status: string }
   | { type: "error"; code: string; message: string }
   | { type: "terminal-unavailable"; reason: string }
   | { type: "input-dropped" };
+
+export function formatTerminalOutputGapNotice(
+  gap: Extract<TerminalControlMessage, { type: "output-gap" }>,
+): string {
+  const unit = gap.missedChunks === 1 ? "chunk" : "chunks";
+  return `\r\n[terminal output gap: ${gap.missedChunks} ${unit} of live output could not be recovered]`;
+}
 
 export function parseTerminalControlMessage(
   raw: string,
@@ -27,6 +35,27 @@ export function parseTerminalControlMessage(
       case "replay-end":
         if (typeof value.cursor === "number") {
           return { type: value.type, cursor: value.cursor };
+        }
+        return null;
+      case "output-gap":
+        if (
+          typeof value.missedChunks === "number" &&
+          Number.isInteger(value.missedChunks) &&
+          value.missedChunks > 0 &&
+          typeof value.fromCursor === "number" &&
+          Number.isInteger(value.fromCursor) &&
+          value.fromCursor >= 0 &&
+          typeof value.toCursor === "number" &&
+          Number.isInteger(value.toCursor) &&
+          value.toCursor > value.fromCursor &&
+          value.toCursor - value.fromCursor === value.missedChunks
+        ) {
+          return {
+            type: "output-gap",
+            missedChunks: value.missedChunks,
+            fromCursor: value.fromCursor,
+            toCursor: value.toCursor,
+          };
         }
         return null;
       case "ended":
