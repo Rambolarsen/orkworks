@@ -18,6 +18,11 @@ pub enum GitLocationSource {
     Launch,
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BINDING_VALIDATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl WorktreeBinding {
     pub fn resolve(launch: &str, path: &str) -> Result<Self, &'static str> {
         if path.len() > 4096
@@ -43,6 +48,8 @@ impl WorktreeBinding {
     }
 
     pub fn validate(&self) -> Result<PathBuf, &'static str> {
+        #[cfg(test)]
+        BINDING_VALIDATIONS.with(|count| count.set(count.get() + 1));
         let root = canonical_git_path(Path::new(&self.root))
             .map_err(|_| "Reported task worktree unavailable.")?;
         let repo =
