@@ -129,8 +129,8 @@ inherited ACL, reparse and hard-link refusal, no-replace publication, pinned
 dispatch identity, share-delete readers, rollback and process-exit recovery.
 Process exit does not establish power-loss or atomic-media flush ordering.
 
-Before compiling the Windows backend into production, confirm the remaining
-storage checks.
+Production qualification includes the following storage checks. The results
+are recorded below.
 
 - Have a second ordinary Windows account attempt to open an attachment by
   its known path. Require denial and confirm that the owner can read it.
@@ -164,6 +164,38 @@ The regression now passes for Forget and age retention. A second test
 preserves the records when an image store appears before the final check
 or the directory alias changes. The Windows backend and launch override
 are test-only.
+
+## Native NTFS publication and privacy (2026-11-27)
+
+The checks ran on Windows x64 build 26300 with a fixed local NTFS drive.
+The opt-in `qualify_windows_image_publication_before_session_record_flush`
+test uses the installed Codex version and help probes. At the creating
+record's flush boundary, the final bundle name held the expected PNG bytes
+and a matching ownership manifest. The session record was still absent.
+Injecting a failure there removed the bundle and left no record or Codex
+session process. Run it with the `ORKWORKS_IMAGE_FIXTURE_CODEX` setting
+above and `--exact --ignored`.
+
+The native backend checks each file flush before the handle-relative,
+no-replace rename. Its staging directory handle is opened with
+`FILE_WRITE_THROUGH`. Microsoft documents write-through of NTFS rename
+metadata. Session-record persistence follows the image publish call and
+uses its own write-through replacement. The recovery subprocess exercises
+exit after publishing an orphan, after writing an unreadable record, and
+after a successful ordinary session-record write. Recovery removes the
+orphan and retains the two records' bundles. The evidence covers the native
+calls and process interruption. Device behavior during sudden power loss
+remains unverified.
+[NTFS write-through](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew#caching-behavior)
+· [Handle-relative rename](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information)
+
+The native backend created an owner-only synthetic attachment. The owner
+read it and verified a protected DACL with one rule for the owner SID. A
+separate enabled local Windows account used by the sandboxed shell read an
+adjacent control file with identical bytes. Under that second identity,
+opening the known attachment path and listing the bundle both returned
+Windows access denied (`0x80070005`). Both process tokens lacked active
+administrator membership. The disposable bundle and control were removed.
 
 ## Windows live fixture result (2026-11-26)
 

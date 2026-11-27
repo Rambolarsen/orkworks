@@ -471,6 +471,7 @@ mod tests {
 
     const SESSION: &str = "33333333-3333-4333-8333-333333333333";
     const RETAINED: &str = "44444444-4444-4444-8444-444444444444";
+    const COMMITTED: &str = "55555555-5555-4555-8555-555555555555";
     const CHILD_RETAINED: &str = "ORKWORKS_TEST_WINDOWS_IMAGE_CRASH_RETAINED";
     const CHILD_ROOT: &str = "ORKWORKS_TEST_WINDOWS_IMAGE_CRASH_ROOT";
 
@@ -612,12 +613,13 @@ mod tests {
     #[ignore = "subprocess helper for the synthetic Windows recovery test"]
     fn windows_image_recovery_child() {
         let root = PathBuf::from(std::env::var_os(CHILD_ROOT).expect("recovery fixture root"));
-        let id = if std::env::var_os(CHILD_RETAINED).is_some() {
-            RETAINED
-        } else {
-            SESSION
+        let id = match std::env::var(CHILD_RETAINED).unwrap_or_default().as_str() {
+            "" => SESSION,
+            "corrupt" => RETAINED,
+            "committed" => COMMITTED,
+            mode => panic!("unexpected recovery fixture mode {mode}"),
         };
-        let bundle = ImageBundle::publish(&root, id, fixture()).unwrap();
+        let mut bundle = ImageBundle::publish(&root, id, fixture()).unwrap();
         if id == RETAINED {
             let metadata = crate::metadata::MetadataStore::new(&root);
             fs::create_dir_all(metadata.sessions_dir()).unwrap();
@@ -626,6 +628,18 @@ mod tests {
                 b"retained",
             )
             .unwrap();
+        } else if id == COMMITTED {
+            let metadata = crate::metadata::MetadataStore::new(&root);
+            let record = crate::test_support::test_session_metadata(
+                id,
+                "Image publication fixture",
+                root.to_str().unwrap(),
+                "ended",
+                "2026-11-27T00:00:00Z",
+                "2026-11-27T00:00:00Z",
+            );
+            metadata.try_write_session(&record).unwrap();
+            bundle.accept();
         }
         assert!(bundle.paths()[0].is_file());
         // Exit without running the bundle destructors, as after a sidecar crash.
@@ -633,22 +647,19 @@ mod tests {
     }
 
     #[test]
-    fn recovery_removes_abandoned_bundle_and_keeps_corrupt_metadata_ownership() {
+    fn recovery_removes_abandoned_bundles_and_keeps_persisted_owners() {
         let root = tempfile::tempdir().unwrap();
-        for retain in [false, true] {
-            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-            child
+        for mode in ["", "corrupt", "committed"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--ignored",
                     "--exact",
                     "image_context::storage::windows::tests::windows_image_recovery_child",
                 ])
                 .env(CHILD_ROOT, root.path())
-                .env_remove(CHILD_RETAINED);
-            if retain {
-                child.env(CHILD_RETAINED, "1");
-            }
-            let output = child.output().unwrap();
+                .env(CHILD_RETAINED, mode)
+                .output()
+                .unwrap();
             assert!(
                 output.status.success(),
                 "recovery setup failed: {} {}",
@@ -659,13 +670,13 @@ mod tests {
         let storage = root.path().join(DIRECTORY);
         let orphan = storage.join(SESSION).join("0.png");
         let retained = storage.join(RETAINED).join("0.png");
-        assert!(orphan.is_file() && retained.is_file());
-        recover(
-            root.path(),
-            &crate::metadata::MetadataStore::new(root.path()),
-        )
-        .unwrap();
+        let committed = storage.join(COMMITTED).join("0.png");
+        assert!(orphan.is_file() && retained.is_file() && committed.is_file());
+        let metadata = crate::metadata::MetadataStore::new(root.path());
+        recover(root.path(), &metadata).unwrap();
         assert!(!orphan.exists());
         assert!(retained.is_file());
+        assert_eq!(fs::read(committed).unwrap(), fixture()[0].bytes);
+        assert_eq!(metadata.read_session(COMMITTED).unwrap().id, COMMITTED);
     }
 }

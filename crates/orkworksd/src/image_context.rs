@@ -499,6 +499,70 @@ mod tests {
         assert!(!directory.exists());
     }
     /// Explicitly opt in: uses the installed tool/account for a tiny visual task.
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[tokio::test]
+    #[ignore = "requires the installed Codex version/help probes"]
+    async fn qualify_windows_image_publication_before_session_record_flush() {
+        use crate::metadata::atomic_write::testing::{install, SyncPoint};
+        use crate::session_application::{CreateSessionCommand, SessionApplication, SessionError};
+        use std::{cell::RefCell, fs, io, rc::Rc, sync::Arc};
+
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        let executable = windows_qualification::configure(&state);
+        let input = png();
+        let expected = STANDARD.decode(&input.data_base64).unwrap();
+        let publication = Rc::new(RefCell::new(None));
+        let observed = publication.clone();
+        let _hook = install(move |point, record| {
+            let sessions = record.parent().unwrap();
+            if !sessions.ends_with("sessions") {
+                return Ok(());
+            }
+            assert_eq!(point, SyncPoint::File);
+            assert!(!record.try_exists().unwrap());
+            let id = record.file_stem().unwrap();
+            let bundle = sessions.parent().unwrap().join("session-images").join(id);
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&fs::read(bundle.join("owner.json")).unwrap()).unwrap();
+            assert_eq!(manifest["session"], id.to_str().unwrap());
+            assert_eq!(fs::read(bundle.join("0.png")).unwrap(), expected);
+            assert!(observed
+                .borrow_mut()
+                .replace((record.to_path_buf(), bundle))
+                .is_none());
+            Err(io::Error::other("injected creating-record flush failure"))
+        });
+
+        // Hold preflight closed even if the failure hook is bypassed.
+        let result = windows_qualification::FIXTURE
+            .scope(
+                Arc::new(windows_qualification::Fixture::new(executable, true)),
+                SessionApplication::new(state.clone()).create_session(CreateSessionCommand {
+                    reasoning_effort: None,
+                    harness_id: Some("codex".into()),
+                    model: None,
+                    initial_prompt: None,
+                    initial_images: vec![input],
+                    expected_workspace_path: Some(root.path().display().to_string()),
+                }),
+            )
+            .await;
+        let (record, bundle) = publication
+            .borrow_mut()
+            .take()
+            .expect("creating-record flush reached after bundle publication");
+        assert!(matches!(
+            result,
+            Err(SessionError::Internal(
+                "Cannot save the new session. Check storage access and retry."
+            ))
+        ));
+        assert!(!record.try_exists().unwrap());
+        assert!(!bundle.try_exists().unwrap());
+        assert!(state.session_pids.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     #[ignore = "requires an installed, authenticated coding tool and a trusted checkout"]
     async fn qualify_installed_image_delivery() {
