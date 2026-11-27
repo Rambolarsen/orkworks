@@ -87,6 +87,7 @@ export function createWorkspaceSessionController(
   let admissionEnabled = options.initialAdmissionEnabled ?? true;
   let admissionGeneration = 0;
   let foregroundGeneration = 0;
+  let selectionGeneration = 0;
   let pollingEpoch = 0;
   let sourceGeneration = 0;
   let refreshGeneration = 0;
@@ -331,6 +332,7 @@ export function createWorkspaceSessionController(
     const admissionToken = requireAdmission();
     if (pendingResumes.has(id)) return;
     const operation = Symbol();
+    const selection = selectionGeneration;
     pendingResumes.set(id, operation);
     publishResumes();
     pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
@@ -340,10 +342,14 @@ export function createWorkspaceSessionController(
       const baseUrl = await deps.getBackendUrl();
       const resumed = await deps.resumeSession(baseUrl, id, strategy);
       if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
+      // Reads begun during resume can still carry the previous runtime.
+      sourceGeneration++;
       stream?.resync();
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
-      activeSessionId = resumed.id;
-      options.onActiveSession?.(resumed.id);
+      if (selection === selectionGeneration) {
+        activeSessionId = resumed.id;
+        options.onActiveSession?.(resumed.id);
+      }
     } catch (error) {
       if (isCurrent(token) && isCurrentAdmission(admissionToken)) {
         publishError("resume", error instanceof Error ? error.message : "Couldn't resume session.");
@@ -368,6 +374,7 @@ export function createWorkspaceSessionController(
 
   function selectSession(id: string): boolean {
     if (disposed || !admissionEnabled) return false;
+    selectionGeneration++;
     pendingRestoration = null;
     activeSessionId = id;
     options.onActiveSession?.(id);

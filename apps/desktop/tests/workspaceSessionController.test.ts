@@ -1176,3 +1176,67 @@ test("resume forwards the user's chosen strategy", async () => {
   assert.deepEqual(calls, [["http://backend", "one", "latest_cwd"]]);
   controller.dispose();
 });
+
+test("a resume completion updates its row without replacing a newer session selection", async () => {
+  const response = deferred<SessionInfo>();
+  const started = deferred<void>();
+  const selections: Array<string | null> = [];
+  let latest: readonly SessionInfo[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      listSessions: async () => [session("one", "dead", "ended"), session("other")],
+      resumeSession: () => {
+        started.resolve();
+        return response.promise;
+      },
+    }),
+    onSessions: rows => { latest = rows; },
+    onActiveSession: id => selections.push(id),
+  });
+  await controller.refreshSessions();
+  const resume = controller.resumeSession("one");
+  await started.promise;
+  controller.selectSession("other");
+  response.resolve(session("one"));
+  await resume;
+
+  assert.equal(latest.find(row => row.id === "one")?.lifecycle, "alive");
+  assert.deepEqual(selections, ["other"]);
+  controller.dispose();
+});
+
+test("a list read started before resume completes cannot restore the old ended row", async () => {
+  const ended = session("one", "dead", "ended");
+  const response = deferred<SessionInfo>();
+  const listResponse = deferred<SessionInfo[]>();
+  const resumeStarted = deferred<void>();
+  const listStarted = deferred<void>();
+  let latest: readonly SessionInfo[] = [];
+  let lists = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      listSessions: async () => {
+        if (++lists === 1) return [ended];
+        listStarted.resolve();
+        return listResponse.promise;
+      },
+      resumeSession: () => {
+        resumeStarted.resolve();
+        return response.promise;
+      },
+    }),
+    onSessions: rows => { latest = rows; },
+  });
+  await controller.refreshSessions();
+  const resume = controller.resumeSession("one");
+  await resumeStarted.promise;
+  const refresh = controller.refreshSessions();
+  await listStarted.promise;
+  response.resolve(session("one"));
+  await resume;
+  listResponse.resolve([ended]);
+  await refresh;
+
+  assert.equal(latest.find(row => row.id === "one")?.lifecycle, "alive");
+  controller.dispose();
+});

@@ -14,6 +14,8 @@ needed. This index is a routing map; do not load the entire bundle for every tas
   metadata paths, and explicit runtime approval gates.
 - [Architecture](architecture.md) — Electron, React, Rust sidecar, API, and
   runtime architecture reference.
+- [Runtime state machines](runtime-state-machines.md) — State transitions and
+  regression evidence across the desktop and sidecar.
 - [Domain entities](domain-entities.md) — The session state model and its
   core domain concepts.
 
