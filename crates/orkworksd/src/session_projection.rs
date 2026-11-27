@@ -309,13 +309,19 @@ impl DocumentLocations {
             .clone()
     }
 
+    fn binding_root(
+        &mut self,
+        binding: &crate::session_location::WorktreeBinding,
+    ) -> Option<PathBuf> {
+        self.bindings
+            .entry((binding.root.clone(), binding.common_dir.clone()))
+            .or_insert_with(|| binding.validate().ok())
+            .clone()
+    }
+
     fn location_root(&mut self, inputs: &LocationInputs) -> Option<PathBuf> {
         if let Some(binding) = &inputs.binding {
-            return self
-                .bindings
-                .entry((binding.root.clone(), binding.common_dir.clone()))
-                .or_insert_with(|| binding.validate().ok())
-                .clone();
+            return self.binding_root(binding);
         }
         let process_cwd = if inputs.reported_cwd.is_none() {
             inputs
@@ -754,7 +760,8 @@ impl SessionProjection {
                 )
             })
             .collect();
-        let infos = self.enrich_workspace_with_documents(infos, documents, Some(&captured));
+        let infos =
+            self.enrich_workspace_with_documents(infos, documents, Some(&captured), &mut locations);
         // Reinspect the captured inputs with fresh Git/process caches, then
         // compare those inputs under the fence. No repository I/O runs there.
         let mut current_locations = DocumentLocations::default();
@@ -923,7 +930,12 @@ impl SessionProjection {
             .unwrap()
             .as_ref()
             .map(|ws| ws.metadata.branch_documents.clone());
-        self.enrich_workspace_with_documents(infos, documents, None)
+        self.enrich_workspace_with_documents(
+            infos,
+            documents,
+            None,
+            &mut DocumentLocations::default(),
+        )
     }
 
     fn enrich_workspace_with_documents(
@@ -931,6 +943,7 @@ impl SessionProjection {
         mut infos: Vec<SessionInfo>,
         documents: Option<Arc<crate::branch_documents_store::Store>>,
         captured: Option<&HashMap<String, Option<LocationInputs>>>,
+        document_locations: &mut DocumentLocations,
     ) -> Vec<SessionInfo> {
         let session_pids = self.state.session_pids.lock().unwrap().clone();
         let reported_cwds = self.state.peon.reported_cwd.read().unwrap().clone();
@@ -966,19 +979,14 @@ impl SessionProjection {
             // Reuse the complete projection for this request, including errors,
             // rather than multiplying discovery and selection reads by history.
             let mut projections = HashMap::<PathBuf, crate::branch_documents::Projection>::new();
-            let mut locations = DocumentLocations::default();
             let mut memberships = HashMap::<(String, PathBuf), bool>::new();
             for info in &mut infos {
                 let root = if let Some(binding) = &info.worktree_binding {
-                    locations
-                        .bindings
-                        .entry((binding.root.clone(), binding.common_dir.clone()))
-                        .or_insert_with(|| binding.validate().ok())
-                        .clone()
+                    document_locations.binding_root(binding)
                 } else {
                     effective_cwds
                         .get(&info.id)
-                        .and_then(|cwd| locations.root(Path::new(cwd)))
+                        .and_then(|cwd| document_locations.root(Path::new(cwd)))
                 };
                 let projection = root
                     .as_deref()
@@ -1095,7 +1103,7 @@ impl SessionProjection {
                 .filter_map(|info| {
                     info.plan_documents.as_ref()?.branch.as_ref()?;
                     let root = effective_cwds.get(&info.id)?;
-                    let key = locations.branch(Path::new(root))?;
+                    let key = document_locations.branch(Path::new(root))?;
                     Some((info.id.clone(), key))
                 })
                 .collect();
@@ -2491,6 +2499,56 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(5),
             "manual real-history projection must complete within five seconds"
         );
+    }
+
+    #[test]
+    fn full_projections_reuse_initial_document_location_checks() {
+        use crate::session_location::{WorktreeBinding, BINDING_VALIDATIONS};
+
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main");
+        let linked = dir.path().join("linked");
+        let repo = warning_repo(&main);
+        repo.worktree("feature", &linked, None).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(&main);
+        {
+            let workspace = state.workspace.lock().unwrap();
+            let metadata = &workspace.as_ref().unwrap().metadata;
+            for (i, root) in [&main, &linked].into_iter().cycle().take(20).enumerate() {
+                let mut session = test_session_metadata(
+                    format!("history-{i}"),
+                    "claude",
+                    "history",
+                    "ended",
+                    "2026-11-10T10:00:00Z",
+                    "2026-11-10T10:00:00Z",
+                );
+                session.cwd = main.display().to_string();
+                session.worktree_binding =
+                    Some(WorktreeBinding::resolve(&session.cwd, root.to_str().unwrap()).unwrap());
+                metadata.write_session(&session);
+            }
+        }
+
+        let projection = SessionProjection::new(state);
+        for full_list in [true, false] {
+            BINDING_VALIDATIONS.with(|count| count.set(0));
+            let rows = if full_list {
+                projection.list().unwrap()
+            } else {
+                projection.stream_projection(true).unwrap().infos
+            };
+            assert_eq!(rows.len(), 20);
+            assert!(rows.iter().all(|row| row
+                .plan_documents
+                .as_ref()
+                .is_some_and(|documents| documents.shared_sessions == 10)));
+            assert_eq!(
+                BINDING_VALIDATIONS.with(|count| count.get()),
+                8,
+                "each worktree needs an initial, Git-status, pre-publication, and final check"
+            );
+        }
     }
 
     #[tokio::test]
