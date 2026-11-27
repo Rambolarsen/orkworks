@@ -176,3 +176,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Recover gaps in live terminal output](0121-live-terminal-output-recovery.md) — Bounded catch-up and visible gaps for live PTY attachments.
 
 - [Keep Codex capture custody in startup-sealed workers](0122-startup-sealed-codex-custody.md) — Accepted macOS qualification scope for bounded persistent capture workers.
+
+- [Synthetic reader diagnostics](0123-synthetic-reader-diagnostics.md) — Accepted on 2026-11-27; no live qualification authority.

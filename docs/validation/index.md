@@ -191,3 +191,5 @@ Capability research, validation results, and evidence fixtures.
 - [Codex capture descriptor inheritance on macOS](ordinary-review-codex-descriptor-qualification.md) — Temporary native evidence and the unresolved concurrent-spawn custody gate.
 
 - [Codex custody spawn audit and isolated receiver witness](ordinary-review-codex-spawn-audit.md) — Actual launch families, bootstrap limitations and finite native process-separation evidence.
+
+- [Synthetic reader diagnostic fixtures](reader-diagnostic-synthetic.md) — Bounded synthetic parser, timeout and buffer comparison evidence.

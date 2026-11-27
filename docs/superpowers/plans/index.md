@@ -421,3 +421,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Positive SDK product observation](2026-11-27-pair-sdk-positive-record-observation.md) — Proposed unclassified-name handling and one finite positive-record observation; owner approval pending.
 
 - [Replacement Windows candidate build](2026-11-27-pair-replacement-windows-build.md) — Proposed observed compiler input, same-job named SDK bracket and one finite build/oracle allowance; owner approval pending.
+
+- [Synthetic reader diagnostic implementation](2026-11-27-reader-diagnostic-implementation.md) — Accepted bounded fixture tooling implementation.

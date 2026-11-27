@@ -1,0 +1,115 @@
+---
+type: Implementation Plan
+title: Synthetic reader diagnostic implementation
+description: Implements the owner-accepted bounded synthetic diagnostic contract with test-first protocol and native fixture checks.
+tags: [orkworks, qualification, diagnostics, implementation]
+status: draft
+workflow_status: implementation-in-progress
+---
+
+# Synthetic reader diagnostic implementation
+
+Outcome: retain the last validated phase across an owned timeout and demonstrate
+fresh/reuse equality with independent synthetic goldens. Authority is the owner's
+“keep going” after #2193; [contract](../specs/2026-11-27-reader-diagnostic-contract-design.md),
+[ADR 0123](../../adr/0123-synthetic-reader-diagnostics.md), tracking
+[#1176](https://github.com/Rambolarsen/orkworks/issues/1176). No qualification run.
+
+## Scope and decisions
+
+Root is the sole implementation writer in the owned reader-diagnostic worktree.
+New pair-reader-diagnostic Node modules own strict decoding, shared budget,
+held-file witnesses, fixture generation, process drain and result publication.
+The new PowerShell worker owns native identity/archive verification and scratch
+leasing; its test companion runs guard cases in the one guards invocation.
+Only one existing workflow step changes, as specified in the accepted contract.
+Use Node standard libraries and in-process Add-Type; no package dependencies.
+
+## Investigation and review
+
+Least confidence: Windows handle identities and TAR streaming. Inspected the
+spent replacement reader's Read-SealedFile, Get-HandleInfo and Assert-CrateArchives
+without invoking it. Preserve before/after/open-name identity comparisons,
+ancestor reparse refusal, archive digest before inflation, membership/helper and
+extra-file checks. New code has its own names and bounds; no spent main import.
+The project could confuse an expected refusal with source success: keep
+reader_complete distinct from tests_passed and all qualification flags false.
+The fixed PowerShell path is unavailable on macOS; native execution must be
+explicitly skipped locally and verified in the one normal Windows fixture CI step.
+
+Plan review: Ready. Scope is additive/reversible, no runtime callers, no migration.
+Dependencies 1 (standard runtimes); blast radius 2 (one CI step); state changes 1
+(owned temporary files); reversibility 1 (remove additions/step); uncertainty 3
+(native behavior needs Windows CI). Total 8. Unexpected native failure stops later
+children, preserves full unknown grants and requires drain before cleanup. Failed
+CI cannot be retried by silently starting an extra qualification job. Parent and
+worker enforce the same finite suite envelope; no lowered-case pool resets.
+
+## Deliverables and checks
+
+- [ ] Strict parser and ledger in pair-reader-diagnostic-protocol.mjs; pure tests
+  first in pair-reader-diagnostic.test.mjs. Test canonical framing/chunking,
+  phase order, every cap, immutable prefixes, EOF/close settlement, expected
+  transport failures and shared model debits. At most 64 vectors/512 KiB injected
+  in the shared 1 MiB stream pool; run directly, no test-runner subprocess.
+- [ ] Owned fixture/controller in pair-reader-diagnostic.mjs; native worker and
+  guard tests in pair-reader-diagnostic.ps1 / pair-reader-diagnostic.test.ps1.
+  Test-first assertions compare complete sorted manifests and IDs, archive
+  members, helper dispositions, independent digests, allocation counts and h.
+  Three native children maximum, same positive identities, guards separate;
+  one final zero-hash Node timeout child. All source/control, file, scratch,
+  output, stream, hash and clock limits remain those in the contract.
+- [ ] Add the sole bounded fixture-CI step and synthetic validation record/index.
+  Run direct suite locally (native explicit skip), Windows CI native suite,
+  appropriate full repository verification, docs build and close-out checks.
+  Inspect the verified diff, obtain fresh-context branch review under the local
+  review routing policy, then current-head hosted review and required CI. PR
+  lifecycle ends at merge or an explicit bounded handoff; no live dispatch.
+
+## Execution ledger
+
+Preparation complete before code: scoped acceptance, ADR and plan review above.
+Record task outcomes and any material implementation rulings here.
+
+Review routing fixed before dispatch: maximum two read-only Luna verifiers, one
+round, root sole writer. Correctness verifier checks protocol/native/process
+semantics against the contract; completeness verifier checks missing acceptance
+coverage and authority/budgets. No reviewer runs children or writes files. Root
+vets cited findings and records disposition; no second subagent round.
+
+Task 1: complete — 46 bounded pure vectors were written first; observed missing
+ledger assertion, implemented parser/accounting, then observed passing suite.
+Task 2: in progress — end-to-end assertion observed missing controller, then
+controller implemented. Local direct suite now exercises one real owned Node
+timeout, retains one immutable prefix, drains and removes scratch; native skipped.
+Ruling: canonicalize the runtime temp directory before exclusive creation on
+macOS, whose /var alias is a symlink; below it every input still rejects symlinks.
+Native test assertions precede Windows execution; no local native claim.
+
+Review disposition: both read-only reviews completed. Root verified/fixed missing
+volume/directory identities, premature reservation settlement, incomplete guard
+summary matching and allocation arithmetic. Added failed-output regression,
+exact 32 dispositions, 4,123 reference allocations, modeled boundary checks,
+real event-observer fake transport cases and finalization failure checks.
+Sixty-three vectors pass locally; native claims remain pending Windows CI. No second
+subagent review round was started. Two local setup failures were diagnosed:
+temporary-root alias was canonicalized; Cargo was restored to verification PATH.
+
+Implementation rulings: the non-hashed bounded request read is excluded from h,
+so reference/reuse mode spelling cannot create a false payload-work difference.
+Catalog/TOML/data work remains charged. Guard summary records the in-process
+PowerShell version to satisfy runtime provenance without another child. The
+separate guard-directory witness permits only its expected timestamp change
+from creating/removing the own reparse vector; its identity and full positive
+input witnesses remain mandatory. doc-check's README nudge needs no edit: this
+additive test-only ADR changes no product architecture or installer claim.
+
+Source settlement ruling: verify own source/control seals after each native
+close while its reservation is still held, including cooperative errors; every
+repeated read remains in the existing pool. Always perform the final source
+seal after the last drained child on failure paths too. An unverified source
+report keeps the entire grant unknown. Its regression failed with 9 versus
+1,024 charged bytes before the correction, then the 63-vector suite passed.
+Documentation metadata, index validation, 2,583 documentation tests and site
+build passed. Existing chunk warnings concern unchanged bundling. Full
+verify-repo is still running before publication; native results await normal CI.

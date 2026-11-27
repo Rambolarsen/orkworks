@@ -62,6 +62,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test scripts/qualification/pair-replacement-windows-build.test.mjs
           exit $LASTEXITCODE
+      - name: Test bounded synthetic reader diagnostics
+        timeout-minutes: 5
+        run: node scripts/qualification/pair-reader-diagnostic.test.mjs
 
   workspace-reporting:
     name: Workspace reporting (${{ matrix.os }})
