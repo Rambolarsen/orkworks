@@ -312,7 +312,7 @@ async fn legacy_branch_document_access_rejects_a_new_nested_repository() {
     git2::Repository::init(root.path().join("specs")).unwrap();
     let app = SessionApplication::new(state);
     assert!(app.read_plan_content("runtime-review").is_err());
-    let request = app.request_plan_review("runtime-review");
+    let request = app.request_document_review("runtime-review", None, None);
     tokio::pin!(request);
     tokio::select! {
         result = &mut request => assert!(result.is_err()),

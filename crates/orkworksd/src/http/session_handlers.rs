@@ -149,11 +149,6 @@ struct ActiveHarnessesConflictResponse {
     active_harness_revision: u64,
 }
 
-#[derive(Serialize)]
-pub(crate) struct PlanContentResponse {
-    pub(crate) content: String,
-}
-
 pub(crate) fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::http::StatusCode> {
     let Ok(token) = std::env::var("ORKWORKS_OPEN_PLAN_TOKEN") else {
         return Err(axum::http::StatusCode::SERVICE_UNAVAILABLE);
@@ -167,35 +162,6 @@ pub(crate) fn authorize_plan_request(headers: &HeaderMap) -> Result<(), axum::ht
             .and_then(|value| value.to_str().ok()))
     .then_some(())
     .ok_or(axum::http::StatusCode::UNAUTHORIZED)
-}
-
-pub(crate) async fn get_session_plan_content(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) {
-        return status.into_response();
-    }
-    match SessionApplication::new(state).read_plan_content(&id) {
-        Ok(content) => Json(PlanContentResponse { content }).into_response(),
-        Err(error) => application_error_response(error),
-    }
-}
-
-pub(crate) async fn request_session_plan_review(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if let Err(status) = authorize_plan_request(&headers) {
-        return status.into_response();
-    }
-    SessionApplication::new(state)
-        .request_plan_review(&id)
-        .await
-        .map(|_| axum::http::StatusCode::NO_CONTENT.into_response())
-        .unwrap_or_else(application_error_response)
 }
 
 pub(crate) async fn report_session_plan_path(
@@ -781,6 +747,9 @@ pub(crate) async fn list_sessions(State(state): State<Arc<AppState>>) -> impl In
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::api_auth::{ApiAccess, RENDERER_TOKEN_HEADER};
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
 
     include!("copilot_attention_tests.rs");
     include!("claude_attention_tests.rs");
@@ -9699,13 +9668,26 @@ mod tests {
             .metadata
             .write_session(&metadata);
 
-        let mut headers = HeaderMap::new();
-        headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
-        let response = get_session_plan_content(State(state), Path("plan-session".into()), headers)
-            .await
-            .into_response();
+        let response =
+            crate::build_router_with_access(state, ApiAccess::enforced("renderer-token".into()))
+                .oneshot(
+                    Request::builder()
+                        .uri("/sessions/plan-session/plan-content")
+                        .header("x-orkworks-open-plan-token", "test-token")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"content": "# plan"})
+        );
     }
 
     #[tokio::test]
@@ -9844,20 +9826,26 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(workspace.path());
 
-        let content = get_session_plan_content(
-            State(state.clone()),
-            Path("missing".into()),
-            HeaderMap::new(),
-        )
-        .await
-        .into_response();
-        let review =
-            request_session_plan_review(State(state), Path("missing".into()), HeaderMap::new())
+        let router =
+            crate::build_router_with_access(state, ApiAccess::enforced("renderer-token".into()));
+        for (method, path) in [
+            ("GET", "/sessions/missing/plan-content"),
+            ("POST", "/sessions/missing/request-plan-review"),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(RENDERER_TOKEN_HEADER, "renderer-token")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
-                .into_response();
-
-        assert_eq!(content.status(), axum::http::StatusCode::UNAUTHORIZED);
-        assert_eq!(review.status(), axum::http::StatusCode::UNAUTHORIZED);
+                .unwrap();
+            assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        }
     }
 
     #[tokio::test]
@@ -9897,22 +9885,29 @@ mod tests {
             .unwrap()
             .insert("plan-session".into(), handle);
 
-        let mut headers = HeaderMap::new();
-        headers.insert("x-orkworks-open-plan-token", "test-token".parse().unwrap());
-        let mut request = tokio::spawn(request_session_plan_review(
-            State(state.clone()),
-            Path("plan-session".into()),
-            headers,
-        ));
+        let router = crate::build_router_with_access(
+            state.clone(),
+            ApiAccess::enforced("renderer-token".into()),
+        );
+        let mut request = tokio::spawn(
+            router.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/sessions/plan-session/request-plan-review")
+                    .header("x-orkworks-open-plan-token", "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            ),
+        );
         let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
             command = control_rx.recv() => command.unwrap(),
-            response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().into_response().status()),
+            response = &mut request => panic!("review request returned {} before reaching the PTY", response.unwrap().unwrap().status()),
         }) else {
             panic!("expected terminal input")
         };
         assert_eq!(data, "Please review the plan or specification at specs/plan.md. Delegate this review to a subagent if you can; otherwise review it yourself. Check for missing requirements, risky assumptions, and unclear steps, then report the findings.\r");
         accepted.unwrap().send(Ok(())).unwrap();
-        let response = request.await.unwrap().into_response();
+        let response = request.await.unwrap().unwrap();
 
         assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
         let events = state
