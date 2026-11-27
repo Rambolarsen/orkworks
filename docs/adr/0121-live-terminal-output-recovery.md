@@ -3,13 +3,13 @@ type: Architecture Decision
 title: Recover gaps in live terminal output
 description: Recover retained PTY chunks in order and make unrecoverable gaps visible in the terminal panel.
 tags: [orkworks, architecture, terminal, replay]
-status: draft
+status: stable
 ---
 
 # Recover gaps in live terminal output
 
-- Status: proposed
-- Deciders: project owner approval pending
+- Status: accepted
+- Deciders: project owner
 - Date: 2026-11-27
 
 ## Context
@@ -18,7 +18,7 @@ status: draft
 
 The [session lifetime contract](../../specs/orkworks-mvp.md#session-lifetime) gives the sidecar ownership of the PTY and allows one interactive attachment. [The live replay implementation](../agents/architecture.md) already retains the latest 256 chunks and a bounded interaction-mode, parser, and UTF-8 checkpoint at the start of that window. The attachment write deadline and cleanup from [PR #2137](https://github.com/Rambolarsen/orkworks/pull/2137) give a stalled attachment a way to release the claim while the PTY continues.
 
-## Proposed decision
+## Decision
 
 ### Recover on the same attachment
 
@@ -43,16 +43,4 @@ A healthy attachment can recover a backlog without a disconnect or duplicate ter
 2. **Renderer notice and resynchronization.** Extend `terminalProtocol.ts` for the bounded control message and `terminalStore.ts` and its terminal presentation for the fixed notice and ordered local writes. Cover a recoverable gap with no notice or reset, one visible notice on a missing range, malformed controls with no renderer side effects, and a real xterm check that an open control string or partial UTF-8 sequence cannot swallow the reset or the first recovered bytes. Verify attachment switching, disposal, and keyboard focus.
 3. **Compatibility checks.** Keep the existing attach/replay and socket deadline tests passing. Exercise both mixed-version directions with the existing raw frame fixtures. Run the repository verifier and the current-head review before merge. Update the runtime concept and the session lifetime spec with the accepted behavior.
 
-## Plan review
-
-**Ready for owner review.** The plan covers retained recovery, visible loss, attachment ownership, termination ordering, and compatibility. The same producer lock protects the replay and broadcast ordering. The socket owner already provides a deterministic test seam. xterm’s public synchronous reset leaves parser and queued data in place, so the renderer plan uses an ordered in-band cancel and reset and requires a real parser test before relying on it.
-
-| Dimension | Rating | Evidence |
-| --- | --- | --- |
-| Dependencies | 2 | Existing socket, replay, and renderer owners. One additive message couples the endpoints. |
-| Blast radius | 3 | Shared live terminal transport. The recovery branch runs only after a missed or out-of-order chunk. |
-| State changes | 2 | Transient per-attachment cursor and notice. |
-| Reversibility | 1 | Revert the paired transport and renderer changes in a single commit. |
-| Uncertainty | 2 | Producer ordering and checkpoint bounds are known. Parser behavior across a live gap requires qualification. |
-
-Total 10. The next gate is owner approval of the additive control message and the live screen reset after irrecoverable loss.
+The project owner approved the control message and the live screen reset after an unrecoverable gap on 2026-11-27.

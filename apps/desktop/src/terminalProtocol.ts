@@ -12,6 +12,7 @@ export const MOUSE_TRACKING_RESET_SEQUENCE =
 export type TerminalControlMessage =
   | { type: "replay-start"; cursor: number }
   | { type: "replay-end"; cursor: number }
+  | { type: "terminal-output-gap"; fromCursor: number; toCursor: number; checkpoint: number[] }
   | { type: "ended"; status: string }
   | { type: "error"; code: string; message: string }
   | { type: "terminal-unavailable"; reason: string }
@@ -29,6 +30,18 @@ export function parseTerminalControlMessage(
           return { type: value.type, cursor: value.cursor };
         }
         return null;
+      case "terminal-output-gap": {
+        const { fromCursor, toCursor, checkpoint } = value;
+        if (
+          typeof fromCursor === "number" && Number.isSafeInteger(fromCursor) && fromCursor >= 0 &&
+          typeof toCursor === "number" && Number.isSafeInteger(toCursor) && toCursor > fromCursor &&
+          Array.isArray(checkpoint) && checkpoint.length <= 512 &&
+          checkpoint.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+        ) {
+          return { type: "terminal-output-gap", fromCursor, toCursor, checkpoint };
+        }
+        return null;
+      }
       case "ended":
         if (typeof value.status === "string") {
           return { type: "ended", status: value.status };

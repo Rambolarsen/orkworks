@@ -630,6 +630,13 @@ pub(crate) struct AttachmentClaim {
     pub(crate) events: broadcast::Receiver<RuntimeEvent>,
 }
 
+pub(crate) struct OutputRecovery {
+    pub(crate) retained_from: u64,
+    pub(crate) to: u64,
+    pub(crate) checkpoint: Option<Vec<u8>>,
+    pub(crate) chunks: Vec<Vec<u8>>,
+}
+
 #[derive(Debug)]
 pub(crate) struct ReplayBuffer {
     capacity: usize,
@@ -669,6 +676,21 @@ impl ReplayBuffer {
             .front()
             .map(|(cursor, _)| *cursor)
             .unwrap_or(self.next_cursor)
+    }
+
+    fn recovery(&self, expected: u64) -> OutputRecovery {
+        let start = self.start_cursor();
+        OutputRecovery {
+            retained_from: expected.max(start),
+            to: self.next_cursor,
+            checkpoint: (expected < start).then(|| self.modes.prefix()),
+            chunks: self
+                .chunks
+                .iter()
+                .skip_while(|(cursor, _)| *cursor < expected)
+                .map(|(_, chunk)| chunk.clone())
+                .collect(),
+        }
     }
 
     pub(crate) fn snapshot(&self) -> Vec<(u64, Vec<u8>)> {
@@ -1273,6 +1295,26 @@ pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<Attach
         replay_chunks,
         events,
     })
+}
+
+pub(crate) fn recover_attachment_output(
+    state: &AppState,
+    id: &str,
+    runtime_identity: &RuntimeIdentity,
+    generation: u64,
+    expected: u64,
+) -> Option<OutputRecovery> {
+    let sessions = state.sessions.lock().unwrap();
+    let runtime = &sessions.get(id)?.runtime;
+    // The latest generation also identifies the attachment draining output
+    // after runtime exit has cleared the interactive claim.
+    if !runtime.matches_identity(runtime_identity)
+        || runtime.attachment_generation != generation
+        || expected > runtime.replay.next_cursor()
+    {
+        return None;
+    }
+    Some(runtime.replay.recovery(expected))
 }
 
 pub(crate) fn release_attachment(

@@ -173,4 +173,4 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 - [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native-only attention with owner-accepted limited macOS arm64 1.5.16/1.5.17 activation.
 
-- [Recover gaps in live terminal output](0121-live-terminal-output-recovery.md) — Proposed bounded catch-up and visible gaps for live PTY attachments.
+- [Recover gaps in live terminal output](0121-live-terminal-output-recovery.md) — Bounded catch-up and visible gaps for live PTY attachments.
