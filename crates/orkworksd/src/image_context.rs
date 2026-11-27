@@ -312,15 +312,19 @@ mod tests {
             )).unwrap();
             crate::test_support::make_test_executable(&bin);
             assert_eq!(
-                delivery("codex", bin.to_str().unwrap()).await.is_some(),
+                delivery("codex", bin.to_str().unwrap(), None)
+                    .await
+                    .is_some(),
                 supported,
                 "version={version}, help={help}, exit={exit}"
             );
         }
-        assert!(delivery("generic-shell", bin.to_str().unwrap())
+        assert!(delivery("generic-shell", bin.to_str().unwrap(), None)
             .await
             .is_none());
-        assert!(delivery("codex", "/nonexistent/codex").await.is_none());
+        assert!(delivery("codex", "/nonexistent/codex", None)
+            .await
+            .is_none());
     }
     fn remove_bundle(root: &std::path::Path, id: &str) -> std::io::Result<()> {
         if let Some(cleanup) = prepare_cleanup(root, id)? {
