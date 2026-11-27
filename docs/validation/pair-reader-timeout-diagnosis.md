@@ -172,3 +172,13 @@ into installed-input discovery, increase any quota or dispatch again. No new
 numeric budget, execution allowance, artifact type or production pin is selected
 here. Gate 1 remains Investigate and all source/compatibility/bootstrap/native/
 profile/recovery/durability/activation gates remain. #1176 stays open.
+
+
+## Proposed synthetic contract
+
+The [synthetic progress/buffer contract](../superpowers/specs/2026-11-27-reader-diagnostic-contract-design.md)
+now makes the recommended next scope concrete. It proposes fixed bounded
+phase/root tuples, parent retention during a rejected child close and one
+reusable payload buffer against the same owned fixture identities. The proposal
+requires owner acceptance before implementation; publication grants no live
+collector, installed-input probe, candidate execution or renewed allowance.
