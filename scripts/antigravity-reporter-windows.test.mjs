@@ -63,6 +63,9 @@ function Invoke-RestMethod {
     $record = @{ index=$global:fixtureIndex; method=[string]$Method; uri=[string]$Uri; headers=$Headers; contentType=$ContentType; timeout=$TimeoutSec; body=($Body | ConvertFrom-Json) }
     [IO.File]::AppendAllText($env:ORKWORKS_REQUEST_CAPTURE, (($record | ConvertTo-Json -Depth 10 -Compress) + [Environment]::NewLine))
 }
+# Use this native host's modules, not an inherited PowerShell 7 search path.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
+Write-FixtureStage 'native-modules-selected'
 Write-FixtureStage 'runtime-json-start'
 $runtimeJson = @{ version=$PSVersionTable.PSVersion.ToString(); edition=$PSVersionTable.PSEdition; is64Bit=[Environment]::Is64BitProcess } | ConvertTo-Json -Compress
 Write-FixtureStage 'runtime-json-done'
@@ -101,7 +104,7 @@ Write-FixtureStage 'wrapper-done'
       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper,
     ], { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true });
     const stages = existsSync(progress) ? readFileSync(progress, 'utf8').slice(-4096)
-      .split(/\r?\n/).filter((line) => /^(wrapper-start|runtime-json-start|runtime-json-done|runtime-file-done|cases-file-read|cases-loaded|wrapper-done|(?:stdin|invoke|http|done)-[0-9]{1,2})$/.test(line)) : [];
+      .split(/\r?\n/).filter((line) => /^(wrapper-start|native-modules-selected|runtime-json-start|runtime-json-done|runtime-file-done|cases-file-read|cases-loaded|wrapper-done|(?:stdin|invoke|http|done)-[0-9]{1,2})$/.test(line)) : [];
     t.diagnostic(`PowerShell stages: ${stages.join(', ') || 'none before process outcome'}`);
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
