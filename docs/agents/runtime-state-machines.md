@@ -84,7 +84,8 @@ prompt. An old capacity analysis cannot overwrite a newer control revision.
 
 ## Renderer synchronization, resume, and navigation
 
-Sources `apps/desktop/src/{workspaceUpdates,workspaceSessionController,sessionPolling,recommendationSource,shellNavigation}.ts`.
+Sources `apps/desktop/src/{workspaceUpdates,workspaceSessionController,sessionPolling,recommendationSource,shellNavigation}.ts`
+and `crates/orkworksd/src/workspace_updates/split.rs`.
 See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 [fixed desktop shell](architecture.md#fixed-desktop-shell).
 
@@ -93,6 +94,7 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Session source disabled | Workspace ready and admission open | REST fallback and stream connection pending |
 | Stream awaiting baseline | First valid snapshot for the expected workspace | Stream healthy; current REST fallback retires |
 | Stream healthy | Contiguous delta for the current instance and generation | Baseline and sequence advance together |
+| Status-first stream subscribed | Watcher reports a recommendation change or the 30-second reconciliation deadline arrives | Publish recommendation invalidation to the current stream |
 | Stream connecting or healthy | Transport failure, heartbeat timeout, invalid message, or explicit resync | Baseline discarded; REST fallback and reconnect |
 | Recommendation refresh idle | First subscriber, invalidation, or fallback timer fires | One request in flight |
 | Recommendation refresh in flight | Invalidation arrives | Dirty until settle, then one follow-up refresh |
@@ -107,7 +109,8 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Shell on older workspace | Workspace generation advances | Clear session, review, and inspector state tied to the former workspace |
 
 **Invariants.** A stream delta needs a matching baseline and cursor. Reconnect
-starts with a new authoritative snapshot. Workspace admission fences old
+starts with a new authoritative snapshot. Periodic invalidation lets the
+desktop retry the recommendation query on a healthy stream. Workspace admission fences old
 operations, selection order governs focus, and source order governs publication
 of session data. Selection and row freshness must both survive asynchronous
 resume. Inspecting a different subject does not itself select a terminal.
@@ -179,7 +182,7 @@ shutdown before invoking the installer.
 
 ## Confirmed findings and regression evidence
 
-Both findings are grouped in [#2101](https://github.com/Rambolarsen/orkworks/issues/2101).
+The resume findings are grouped in [#2101](https://github.com/Rambolarsen/orkworks/issues/2101).
 The tests in `apps/desktop/tests/workspaceSessionController.test.ts` drive the
 production controller with deferred responses, without timing-dependent sleeps.
 
@@ -188,8 +191,23 @@ production controller with deferred responses, without timing-dependent sleeps.
 | 1. Incorrect session lifecycle display and terminal attachment cleanup | Start resume, start a list read, deliver the successful resume, then deliver the list containing the prior ended row. The local row goes `dead → alive → dead` without a new process termination. | The baseline test observed `dead` where it expected `alive`. Successful resume now advances the source generation before updating the row. |
 | 2. Unexpected terminal selection | Start resume for A, select B, and then deliver the successful resume for A. The late callback selects A after the deliberate selection of B. | The baseline test observed selection callbacks for B and then A. Successful resume now checks the selection generation independently of the row update. |
 
-Both regressions failed on the baseline and passed with the new guards. The
-inventory covers the workflows above at their ownership boundaries. It does
+Both resume regressions failed on the baseline and passed with the new guards.
+
+### Missing recommendation refresh on a healthy stream
+
+[#2129](https://github.com/Rambolarsen/orkworks/issues/2129) tracks a stale or
+unavailable Actions list on the status-first stream. After a missed watcher
+event or a failed list request, the connected desktop waits for invalidation
+because fallback polling only runs while the stream is unhealthy. The
+publisher's 30-second reconciliation previously refreshed sessions and rearmed
+watches without invalidating recommendations. The regression test
+`periodic_reconciliation_invalidates_recommendations_without_a_watcher_event`
+in `crates/orkworksd/src/workspace_updates/split.rs` advances that deadline
+without changing the producer revision, then checks that the publisher
+invalidates recommendations. The same test checks that a subsequent producer
+event still invalidates promptly.
+
+The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or
 inactive storage path. Keep the transition row and its regression evidence in
 sync when a later change touches one of these guards.
