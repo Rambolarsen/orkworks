@@ -205,7 +205,8 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
       processError: null,
       killRequested: false,
       stopWait: null,
-      stdout: "",
+      // The first stdout line starts at the beginning of the stream.
+      stdout: "\n",
       cleanup,
       resolveCleanup,
       rejectCleanup,
@@ -222,9 +223,10 @@ export function createSidecarLifecycle(options: SidecarLifecycleOptions): Sideca
         fail(candidate, new Error("Sidecar readiness timed out"));
       }, readinessTimeoutMs);
       candidate.process.stdout?.on("data", (data: Buffer | string) => {
-        if (!isCurrent(candidate) || candidate.failed) return;
-        candidate.stdout = (candidate.stdout + data.toString()).slice(-MAX_READINESS_OUTPUT_LENGTH);
-        const match = candidate.stdout.match(/ORKWORKSD_PORT=(-?\d+)/);
+        if (!isCurrent(candidate) || candidate.failed || candidate.ready) return;
+        const stdout = candidate.stdout + data.toString();
+        const match = stdout.match(/\nORKWORKSD_PORT=(-?\d+)\r?\n/);
+        candidate.stdout = stdout.slice(-MAX_READINESS_OUTPUT_LENGTH);
         if (match) {
           const announcedPort = Number.parseInt(match[1], 10);
           if (announcedPort >= 1 && announcedPort <= 65_535) {
