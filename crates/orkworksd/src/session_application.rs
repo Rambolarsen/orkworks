@@ -4047,10 +4047,11 @@ impl SessionApplication {
         if let Some(stop) = require_alive_session(workspace, handle, &signal) {
             return Err(stop);
         }
-        if signal
+        let hook_harness = signal
             .opencode_authority
             .as_ref()
-            .is_some_and(|authority| authority.harness == "antigravity")
+            .map(|authority| authority.harness);
+        if hook_harness == Some("antigravity")
             && handle.is_some_and(|handle| {
                 handle.runtime.terminal_status_active
                     && handle.runtime.terminal_status_profile
@@ -4071,16 +4072,10 @@ impl SessionApplication {
             signal.message.as_deref(),
             &signal.plan_path,
             &signal.timestamp,
-            if signal
-                .opencode_authority
-                .as_ref()
-                .is_some_and(|authority| authority.harness == "antigravity")
-            {
-                "antigravity_hook"
-            } else if signal.opencode_authority.is_some() {
-                "opencode_hook"
-            } else {
-                &signal.source
+            match hook_harness {
+                Some("antigravity") => "antigravity_hook",
+                Some(_) => "opencode_hook",
+                None => &signal.source,
             },
             signal.confidence,
             signal.activate_work_hook,
