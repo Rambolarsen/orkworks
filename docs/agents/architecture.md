@@ -1340,6 +1340,9 @@ retained mode changes and resets still execute in their original order. This
 does not reconstruct evicted screen contents or scrollback, and it does not
 persist PTYs or checkpoints across a sidecar restart.
 
+[ADR 0121](../adr/0121-live-terminal-output-recovery.md) proposes using this checkpoint for
+recovering gaps on an existing live attachment.
+
 Delayed terminal-status transitions preserve durable `ended` metadata even
 while the same live runtime remains `ending`: finalization writes metadata
 before updating the live handle, so that interval must not reopen the record.

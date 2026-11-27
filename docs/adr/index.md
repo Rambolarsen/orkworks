@@ -166,3 +166,5 @@ Decision records and their original rationale and consequences.
 - [Pair build and startup custody](0119-pair-build-startup-custody.md) — Accepted shared candidate macro undefinition and process bootstrap custody for further qualification.
 
 - [Antigravity native terminal attention](0120-antigravity-native-terminal-attention.md) — Native attention architecture with limited macOS arm64 1.5.16/1.5.17 admission.
+
+- [Recover gaps in live terminal output](0121-live-terminal-output-recovery.md) — Proposed bounded catch-up and visible gaps for live PTY attachments.
