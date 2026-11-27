@@ -1,7 +1,7 @@
 ---
 type: Validation Record
 title: Antigravity native terminal status qualification
-description: Native question, cancellation, explicit rejection and automatic-command traces with retained coverage and cleanup limits.
+description: Native terminal traces and source-build desktop startup attention evidence with explicit coverage and cleanup limits.
 tags: [orkworks, antigravity, attention, validation]
 status: draft
 ---
@@ -321,3 +321,47 @@ Explicit attention ownership, generation fencing, live-only ingestion and Peon
 preservation remain unchanged. This describes source behavior, not a published
 installer or installed UI test. No further native start is authorized by this
 activation approval, and none is needed for this implementation.
+
+
+## Source-build desktop startup permission check, 2026-11-27
+
+Following [activation PR #2086](https://github.com/Rambolarsen/orkworks/pull/2086),
+the owner directed the next real desktop UI check. The isolated development
+app and sidecar were built from source commit `efb0117f`. A separate development
+profile and an empty disposable Git workspace kept the existing desktop app
+and its live sessions outside this test. Antigravity alone was enabled through
+Settings; its integration installed `.agents/hooks.json` in the disposable
+workspace after `.agents/` was ignored. No existing workspace integration or
+global native configuration was changed.
+
+One fresh built-in Antigravity session was started, bounded to 180 seconds and
+at most two fixture prompts. Only one initial fixture prompt was submitted;
+it never reached an in-conversation question because native workspace trust
+was outstanding. The pinned executable reported exactly 1.5.17 and retained
+its preflight SHA-256 after the test. Peon was disabled in the isolated app's
+process environment. Process-only updater suppression pinned this test copy;
+it is not a production launch setting.
+
+The agent observed the actual desktop window through native accessibility and
+screenshots. At about six seconds, the terminal showed the workspace trust
+question with Yes/No controls, the session row showed **Needs you**, and Actions
+showed **Attention 1**. A later accessibility snapshot still showed Needs you.
+The agent selected the visible **No, exit** control and confirmed it. After the
+native session ended, the row no longer showed Needs you, Actions showed
+**Attention 0**, and the header offered a resume action. No trust or persistent
+permission was granted, and no second native start or resume occurred.
+
+The [sanitized UI record](antigravity-native-ui-2026-11-27.json) retains only
+fixed observations and test boundaries. Raw screenshots, terminal output,
+native IDs, account data and reporting credentials are not committed. The
+isolated development launcher was stopped, and a subsequent process inventory
+found no executable using the task's unique app/sidecar/native paths. This is
+not proof about every possible descendant.
+
+This establishes agent-observed startup permission attention and exit clearing
+in an updated source-built OrkWorks desktop on macOS arm64. It is not a
+human-operated confirmation, a published-installer test, a retained metadata
+origin assertion, or an in-conversation question/command-permission UI test.
+The earlier native terminal trials remain the evidence for those other
+transitions. The existing user desktop was not restarted or updated, and the
+remaining coverage tracked by #1996 is still open.

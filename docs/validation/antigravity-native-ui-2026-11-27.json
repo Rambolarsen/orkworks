@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-27",
+  "sourceCommitPrefix": "efb0117f",
+  "platform": "macOS arm64",
+  "surface": "isolated source-built desktop and sidecar",
+  "operator": "agent through native UI automation",
+  "nativeVersion": "1.5.17",
+  "nativeSha256": "e6cabc85878e5beaaac911993751abe314f6c1d89ebfd30a4fc578b7703638eb",
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "scope": {
+    "nativeStarts": 1,
+    "maximumSeconds": 180,
+    "maximumFixturePrompts": 2,
+    "submittedFixturePrompts": 1,
+    "resumes": 0
+  },
+  "workspace": "empty disposable Git workspace",
+  "integration": "Antigravity enabled only in disposable workspace through Settings",
+  "observations": [
+    {
+      "phase": "startup wait",
+      "elapsedSecondsApprox": 6,
+      "nativeControl": "workspace trust Yes/No",
+      "sessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "phase": "blocked hold",
+      "accessibilityConfirmedNeedsYou": true
+    },
+    {
+      "phase": "resolution",
+      "operatorAction": "select No, exit then Enter",
+      "trustGranted": false
+    },
+    {
+      "phase": "native session ended",
+      "sessionRowNeedsYou": false,
+      "attentionCount": 0,
+      "resumeActionVisible": true
+    }
+  ],
+  "cleanup": {
+    "isolatedLauncherStopped": true,
+    "noExecutableWithUniqueTaskPathsInFollowupInventory": true,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "startup permission and exit clearing only",
+    "no in-conversation question or command-permission UI qualification",
+    "no human-operated confirmation",
+    "no published-installer qualification",
+    "no retained metadata-origin assertion",
+    "existing user desktop and sessions not updated or restarted"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "account data",
+    "reporting credentials"
+  ]
+}
