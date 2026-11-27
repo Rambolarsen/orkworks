@@ -313,6 +313,28 @@ suggestion grounded in that work or the live issue board. Board-based suggestion
 follow the current priority and scope rules above; the suggestion is a handoff
 for a separate task, not authorization to begin it in the same session.
 
+### When an Actions log download is blocked
+
+GitHub can redirect Actions log downloads to a storage host. A sandbox denial
+on that host can leave PR checks and check-run annotations available through
+the GitHub API.
+
+Use the PR check link to identify the run, then select the failed attempt.
+Set `repo` to `OWNER/REPO`, `run_id` to the Actions run ID, and `attempt` to
+the failed attempt number. Confirm the run's head SHA and copy the failed
+Actions job's `databaseId` into `check_run_id`.
+
+```bash
+gh run view "$run_id" --repo "$repo" --attempt "$attempt" --json headSha,jobs
+gh api --paginate "repos/$repo/check-runs/$check_run_id/annotations" \
+  --jq '.[] | {annotation_level, title, message, path, start_line}'
+```
+
+Record the failed step and any evidence the annotations provide. If diagnosis
+needs log details that are missing from the annotations, use an authorized
+log-access path for that same job or state that the log was unavailable.
+Keep the recorded check result tied to its head and attempt.
+
 ## Architecture decision records
 
 Architecture decisions are recorded in `docs/adr/`, using the
