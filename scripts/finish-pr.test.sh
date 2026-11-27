@@ -96,7 +96,21 @@ fi
 test -d "$worktree"
 git -C "$repo" show-ref --verify --quiet refs/heads/feature
 
+# A different owner may need to repair a moved checkout's registration.
+git -C "$repo" worktree add -qb unrelated "$fixture/unrelated"
+unrelated_admin="$(git -C "$fixture/unrelated" rev-parse --absolute-git-dir)"
+cp "$unrelated_admin/HEAD" "$fixture/unrelated-head"
+cp "$unrelated_admin/gitdir" "$fixture/unrelated-gitdir"
+mv "$fixture/unrelated" "$fixture/unrelated-moved"
+
 (cd "$repo" && PATH="$bin:$PATH" GH_MODE=merged GH_HEAD_REF_OID="$feature_sha" "$helper" '#435') > "$fixture/merged.out"
+if [ ! -d "$unrelated_admin" ]; then
+  echo 'finish-pr pruned an unrelated worktree registration' >&2
+  exit 1
+fi
+cmp "$unrelated_admin/HEAD" "$fixture/unrelated-head"
+cmp "$unrelated_admin/gitdir" "$fixture/unrelated-gitdir"
+git -C "$repo" show-ref --verify --quiet refs/heads/unrelated
 test ! -e "$worktree"
 if git -C "$repo" show-ref --verify --quiet refs/heads/feature; then
   echo 'finish-pr left the merged local branch behind' >&2
@@ -233,5 +247,10 @@ if git -C "$repo" show-ref --verify --quiet refs/heads/no-origin-feature; then
   echo 'finish-pr left the no-origin merged branch behind' >&2
   exit 1
 fi
+
+test -d "$unrelated_admin"
+cmp "$unrelated_admin/HEAD" "$fixture/unrelated-head"
+cmp "$unrelated_admin/gitdir" "$fixture/unrelated-gitdir"
+git -C "$repo" show-ref --verify --quiet refs/heads/unrelated
 
 echo 'finish-pr fixtures passed'

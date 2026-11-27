@@ -180,8 +180,8 @@ bash scripts/finish-pr.sh <PR_NUMBER_OR_URL>
 ```
 
 The helper verifies the PR is merged into `main`, refuses the current,
-ambiguous, or dirty worktree, and performs the matching worktree removal,
-prune, and local branch cleanup as one guarded operation.
+ambiguous, or dirty worktree, and performs the matching worktree removal
+and local branch cleanup as one guarded operation.
 
 Also clean up worktrees for abandoned tasks — if you decide not to pursue a task, remove the worktree immediately. Do not leave it "just in case."
 

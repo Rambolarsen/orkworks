@@ -123,7 +123,7 @@ if [ "$matching_count" -eq 1 ]; then
   git -C "$repo_root" worktree remove "$matching_path"
 fi
 
-git -C "$repo_root" worktree prune
+# worktree remove unregisters its target; preserve other owners' registrations.
 branch_removed=false
 if [ "$local_branch_exists" = true ]; then
   if ! git -C "$repo_root" update-ref -d "refs/heads/$head_branch" "$head_ref_oid"; then
