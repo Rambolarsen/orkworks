@@ -48,15 +48,19 @@ and [session organization](runtime-contracts.md#session-organization).
 | --- | --- | --- |
 | Runtime absent or eligible ended | Create or explicit validated resume reserves the runtime | `creating` |
 | Runtime `creating` | Owned child starts | `alive` |
-| Runtime `creating` or `alive` | Startup failure, process exit, or requested kill | `stopping` / phase `ending`, with terminal outcome recorded |
+| Runtime `creating` or `alive` | Startup failure, PTY wait error, native app-server failure, or initial prompt delivery failure | `stopping` / phase `ending`, with outcome `error` |
+| Runtime `creating` or `alive` | The PTY driver observes child exit and drains output | `stopping` / phase `ending`, with `ended` for successful exit, `error` for unsuccessful exit, or `killed` for an observed explicit stop |
 | Runtime `ending` | Owned finalizer persists terminal metadata | `dead` / phase `ended` |
 | Runtime `ending` | Terminal persistence fails | Retains `ending`; the same generation may retry finalization |
 | Organization `active` | Archive or confirmed Delete reserves the target and awaits durable ending | `archived` or removed |
 | Organization `closed` | Archive, eligible resume, or confirmed Delete | `archived`, `active`, or removed |
 | Organization `archived` | Restore or confirmed Delete against finalized state | `closed` or removed |
 
-**Invariants.** Durable terminal metadata takes precedence over an ending handle
-in live projection. Resume must reject an ending handle or archived history.
+**Invariants.** The PTY driver carries the child exit status through output drain.
+An explicit stop takes precedence over an unsuccessful child exit, while an
+independent runtime failure still follows its existing error path.
+Durable terminal metadata takes precedence over an ending handle in live
+projection. Resume must reject an ending handle or archived history.
 Archive and Delete wait for the captured runtime, and archived history is
 protected from automatic age/count cleanup. A terminal connection does not own
 the PTY. The SQLite session store and its recovery stages have separate
@@ -206,6 +210,17 @@ in `crates/orkworksd/src/workspace_updates/split.rs` advances that deadline
 without changing the producer revision, then checks that the publisher
 invalidates recommendations. The same test checks that a subsequent producer
 event still invalidates promptly.
+
+### Nonzero PTY child exit was recorded as a successful end
+
+[#2108](https://github.com/Rambolarsen/orkworks/issues/2108) tracks the loss
+of the child exit status. The wait task discarded the status. The audit
+reproduced exit code 23 emitting an `ended` event. The merged fix carries
+the exit status through output drain. Its regression test
+`runtime_exit_reports_nonzero_child_status` runs a real PTY child that exits
+with code 7 and checks both the error event and the finalized outcome.
+Successful exit and an explicit stop still record `ended` and `killed`.
+[Implementation and regression test](https://github.com/Rambolarsen/orkworks/pull/2145)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or
