@@ -947,13 +947,9 @@ impl SessionApplication {
                     else {
                         return false;
                     };
-                    let mut current_member_ids = parent.rollup_member_ids.clone();
-                    current_member_ids.sort();
-                    current_member_ids.dedup();
                     if parent.status != RecommendationStatus::Proposed
                         || recommendation.status != RecommendationStatus::RolledUp
                         || recommendation.rolled_up_by.as_deref() != Some(expected_parent_id)
-                        || current_member_ids != snapshot.active_parent_member_ids
                     {
                         return false;
                     }
@@ -969,9 +965,11 @@ impl SessionApplication {
                     }
                     None
                 };
+            // Snapshot equality includes the normalized active parent's member IDs.
             RollupFamilySnapshot::from_recommendation_with_active_parent(&comparable, active_parent)
                 .ok()
-                == Some(snapshot.clone())
+                .as_ref()
+                == Some(snapshot)
         })
     }
 
@@ -17113,6 +17111,14 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             workspace,
             instance_id,
             &rollup_snapshots,
+        ));
+        let mut stale_snapshots = rollup_snapshots.clone();
+        // Keep the parent ID and evidence hash intact so only membership differs.
+        stale_snapshots[0].active_parent_member_ids.pop().unwrap();
+        assert!(!SessionApplication::rollup_inputs_match_locked(
+            workspace,
+            instance_id,
+            &stale_snapshots,
         ));
         let original_graph = store.list().unwrap();
         // Stage parent candidates through the existing legacy-update overlay so
