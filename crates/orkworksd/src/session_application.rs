@@ -4582,16 +4582,6 @@ impl SessionApplication {
             .map_err(|_| SessionError::Conflict)
     }
 
-    pub(crate) async fn request_plan_review(&self, id: &str) -> Result<(), SessionError> {
-        let (identity, control_tx) = {
-            let sessions = self.state.sessions.lock().unwrap();
-            let runtime = &sessions.get(id).ok_or(SessionError::Conflict)?.runtime;
-            (runtime.identity(), runtime.control_tx.clone())
-        };
-        self.request_plan_review_to_runtime(id, &identity, &control_tx)
-            .await
-    }
-
     pub(crate) async fn request_plan_review_to_runtime(
         &self,
         id: &str,
@@ -14923,7 +14913,8 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
         state.sessions.lock().unwrap().insert(id.into(), handle);
 
         let application = SessionApplication::new(state.clone());
-        let mut request = tokio::spawn(async move { application.request_plan_review(id).await });
+        let mut request =
+            tokio::spawn(async move { application.request_document_review(id, None, None).await });
         let crate::runtime::session_runtime::RuntimeCommand::Input { data, accepted } = (tokio::select! {
             command = control_rx.recv() => command.unwrap(),
             response = &mut request => panic!("review request returned {:?} before reaching the PTY", response.unwrap()),
@@ -14984,10 +14975,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .write_session(&metadata);
         let application = SessionApplication::new(state.clone());
 
-        assert_eq!(
-            application.request_plan_review(id).await,
-            Err(SessionError::Conflict)
-        );
+        assert!(application
+            .request_document_review(id, None, None)
+            .await
+            .is_err());
 
         let plan = root.path().join("plan.md");
         std::fs::write(&plan, "# plan").unwrap();
@@ -15010,10 +15001,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .write_session(&metadata);
-        assert_eq!(
-            application.request_plan_review(id).await,
-            Err(SessionError::Conflict)
-        );
+        assert!(application
+            .request_document_review(id, None, None)
+            .await
+            .is_err());
 
         metadata.lifecycle = "alive".into();
         metadata.plan_path = Some("missing.md".into());
@@ -15025,10 +15016,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .unwrap()
             .metadata
             .write_session(&metadata);
-        assert_eq!(
-            application.request_plan_review(id).await,
-            Err(SessionError::Conflict)
-        );
+        assert!(application
+            .request_document_review(id, None, None)
+            .await
+            .is_err());
 
         metadata.plan_path = Some("plan.md".into());
         state
@@ -15044,10 +15035,10 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
             .lock()
             .unwrap()
             .insert(id.into(), attention_test_handle(id, root.path()));
-        assert_eq!(
-            application.request_plan_review(id).await,
-            Err(SessionError::Conflict)
-        );
+        assert!(application
+            .request_document_review(id, None, None)
+            .await
+            .is_err());
         assert!(state
             .workspace
             .lock()
