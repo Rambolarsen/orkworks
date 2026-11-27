@@ -454,5 +454,8 @@ jobs:
             echo "$OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY" || true
           fi
 
+      - name: Check starting-work ownership guidance
+        run: bash scripts/starting-work-skill.test.sh
+
       - name: Check branch-protection policy guidance
         run: bash scripts/branch-protection-policy-check.sh
