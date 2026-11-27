@@ -56,3 +56,5 @@ test("Windows positive fixture seals exactly the published observation without i
 }finally{fs.rmSync(d,{recursive:true,force:true});}});
 
 test("source hash reservation fails before any source read",()=>{need();const d=fs.mkdtempSync(path.join(os.tmpdir(),"sdk-reserve-source-")),f=path.join(d,"source"),original=fs.readSync;try{fs.writeFileSync(f,"abc");let reads=0;fs.readSync=(...args)=>{reads++;return original(...args);};assert.throws(()=>mod.sourceHash(f,3,()=>{throw Error("hash-budget");}),/hash-budget/);assert.equal(reads,0);}finally{fs.readSync=original;fs.rmSync(d,{recursive:true,force:true});}});
+
+test("identical reason counts survive different registry enumeration insertion order",()=>{need();const x=fixture();for(const p of x.passes){p.roots[0].count=p.roots[0].after_count=3;p.roots[1].count=p.roots[1].after_count=0;p.classification={accepted_ascii:1,absent_name:0,unclassified:2,predicate_match:1,predicate_nonmatch:0,reasons:{unsupported_type:1,non_ascii_or_nonprintable:1}};}x.passes[1].classification.reasons={non_ascii_or_nonprintable:1,unsupported_type:1};assert.deepEqual(mod.problems(x),[]);});

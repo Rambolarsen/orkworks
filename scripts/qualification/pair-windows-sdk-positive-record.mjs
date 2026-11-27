@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { assertFirstRun } from "./pair-windows-metadata-evidence.mjs";
 import { runBounded } from "./pair-windows-toolchain-inventory.mjs";
 const workflow = "pair-windows-sdk-positive-record.yml";
@@ -122,7 +123,7 @@ export function problems(data) {
       add(pass.products.some(p=>p?.version === "10.1.26100.9457"), "sdk-service");
     }
   }
-  if (data?.passes?.length === 2) add(data.passes[0]?.digest === data.passes[1]?.digest && JSON.stringify(data.passes[0]?.products) === JSON.stringify(data.passes[1]?.products) && JSON.stringify(data.passes[0]?.classification) === JSON.stringify(data.passes[1]?.classification), "observation-drift");
+  if (data?.passes?.length === 2) add(data.passes[0]?.digest === data.passes[1]?.digest && JSON.stringify(data.passes[0]?.products) === JSON.stringify(data.passes[1]?.products) && isDeepStrictEqual(data.passes[0]?.classification, data.passes[1]?.classification), "observation-drift");
   return [...new Set(errors)];
 }
 export async function collectOnce(run) {

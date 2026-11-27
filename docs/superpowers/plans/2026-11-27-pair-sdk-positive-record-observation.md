@@ -237,3 +237,12 @@ other coding harness. No concurrent writers.
   passed locally (58 pass,3 Windows-only skips). New collector:27 pass,1 skip;
   existing collector:19 pass,1 skip. Site regressions:42 pass. No deferred minors
   or changed evidence semantics. One review round, two read-only Luna reviewers.
+
+- Hosted review of482ec042 found an insertion-order-sensitive classification
+  comparison. Reversed enumeration with multiple local refusal reasons kept the
+  collector digest stable but triggered controller observation-drift. Regression
+  failed with that exact denial before the fix; node:util structural equality
+  now compares the counts independently of key insertion order. All62 Node
+  policy tests are green (59 pass,3 skips), new collector28 pass,1 skip. This
+  preserves the approved enumeration-order-independent contract. Substantial
+  hosted feedback cycle1/3 requires one fresh current-head review after push.

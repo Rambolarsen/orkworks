@@ -112,6 +112,15 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(r["reason"], "observation-drift")
         self.assertFalse(r["positive_record_observed"])
 
+    def test_reversed_enumeration_with_multiple_reasons_is_stable(self):
+        f = FakeRegistry()
+        f.entries = [f.entries[0], {"name": "private-é"}, {"name": (4, b"abcd")}]
+        f.name = lambda h, index: str(2-index if f.pass_number == 2 else index)
+        r = self.collect(f)
+        self.assertTrue(r["success"], r)
+        self.assertEqual(r["passes"][0]["digest"], r["passes"][1]["digest"])
+        self.assertEqual(r["passes"][0]["classification"], r["passes"][1]["classification"])
+
     def test_unknown_only_never_proves_a_positive_record(self):
         f = FakeRegistry(1); f.entries = [{"name": "private-é"}]
         r = self.collect(f)
