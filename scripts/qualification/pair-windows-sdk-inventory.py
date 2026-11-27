@@ -34,10 +34,10 @@ class Budget:
             raise Denied("api-limit")
         self.calls += 1
         self.handles += reserve
-    def close(self):
+    def close(self, success=True):
         # Every successful or failed open has already reserved this call.
         self.calls += 1
-        self.handles -= 1
+        self.handles -= int(success)
     def read(self, maximum):
         self.check()
         if self.read_bytes + maximum > self.read_limit:
@@ -84,20 +84,21 @@ class NativeRegistry:
             fn = getattr(self.dll, name)
             fn.argtypes, fn.restype = args, ctypes.c_int32
     @contextmanager
-    def open(self, path):
+    def open(self, path, parent=None):
         handle = self.HKEY()
         self.budget.call(reserve_close=True)
         # OPEN_LINK opens a link itself instead of following it out of scope.
-        code = self.dll.RegOpenKeyExW(self.hive, path.replace("/", "\\"), 8, 0x20119, ctypes.byref(handle))
+        code = self.dll.RegOpenKeyExW(self.hive if parent is None else parent, path.replace("/", "\\"), 8, 0x20119, ctypes.byref(handle))
         if code:
             self.budget.handles -= 1
             raise Denied("registry-open")
         try:
             yield handle
         finally:
-            self.budget.close()
+            self.budget.close(success=False)
             if self.dll.RegCloseKey(handle):
                 raise Denied("registry-close")
+            self.budget.handles -= 1
     def info(self, handle):
         count = self.DWORD()
         stamp = (self.DWORD * 2)()
@@ -110,7 +111,7 @@ class NativeRegistry:
     def name(self, handle, index):
         value = ctypes.create_unicode_buffer(256)
         size = self.DWORD(256)
-        self.budget.read(512)
+        self.budget.read(516)
         self.budget.call()
         code = self.dll.RegEnumKeyExW(handle, index, value, ctypes.byref(size), None, None, None, None)
         if code or not 0 < size.value < 256:
@@ -126,7 +127,7 @@ class NativeRegistry:
     def value(self, handle, name, maximum, missing=False):
         data = (ctypes.c_ubyte * (2*(maximum+1)))()
         size, kind = self.DWORD(len(data)), self.DWORD()
-        self.budget.read(len(data))
+        self.budget.read(len(data) + 8)
         self.budget.call()
         code = self.dll.RegQueryValueExW(handle, name, None, ctypes.byref(kind), data, ctypes.byref(size))
         if code == 2 and missing:
@@ -151,9 +152,9 @@ def collect(registry, budget):
                     raise Denied("entry-limit")
                 with registry.open(INSTALLED) as h:
                     kit = registry.value(h, "KitsRoot10", 256)
-                observation["kits_root"] = kit
                 if kit.replace("\\", "/").rstrip("/").lower() != KIT_ROOT:
                     raise Denied("sdk-root")
+                observation["kits_root"] = "C:/Program Files (x86)/Windows Kits/10/"
                 for root, handle, (count, _) in zip(ROOTS, roots, before):
                     seen = set()
                     for index in range(count):
@@ -163,7 +164,7 @@ def collect(registry, budget):
                             raise Denied("duplicate-name")
                         seen.add(name.casefold())
                         key = root + "/" + name
-                        with registry.open(key) as child:
+                        with registry.open(name, parent=handle) as child:
                             display = registry.value(child, "DisplayName", 256, missing=True)
                             version = None
                             if display is not None and "windows software development kit" in display.lower():
@@ -202,13 +203,15 @@ def collect(registry, budget):
                   read_bytes_charged=budget.read_bytes, hashed_bytes=budget.hashed_bytes)
     return result
 
+def runtime_identity():
+    return (sys.platform == "win32" and sys.version_info[:3] == (3, 12, 10)
+            and ctypes.sizeof(ctypes.c_void_p) == 8 and sys.implementation.name == "cpython"
+            and bool(sys.flags.isolated) and bool(sys.flags.no_site) and sys.dont_write_bytecode
+            and os.path.normcase(sys.executable) == os.path.normcase(PYTHON.replace("/", "\\")))
+
 def main():
     # Importing for offline tests never constructs NativeRegistry or reads a key.
-    if (sys.platform != "win32" or sys.version_info[:3] != (3, 12, 10)
-            or ctypes.sizeof(ctypes.c_void_p) != 8 or sys.implementation.name != "cpython"
-            or not sys.flags.isolated or not sys.flags.no_site or not sys.dont_write_bytecode
-            or os.path.normcase(sys.executable) != os.path.normcase(PYTHON.replace("/", "\\"))
-            or os.environ.get("ORK_PAIR_SDK_CHILD") != "1"
+    if (not runtime_identity() or os.environ.get("ORK_PAIR_SDK_CHILD") != "1"
             or os.environ.get("SystemRoot", "").lower() != "c:\\windows"):
         print('{"schema":1,"success":false,"reason":"runtime-denied","passes":[],"api_calls":0,"open_handles":0,"read_bytes_charged":0,"hashed_bytes":0}')
         return

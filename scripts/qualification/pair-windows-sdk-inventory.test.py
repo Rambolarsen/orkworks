@@ -20,26 +20,44 @@ class FakeRegistry:
         self.closed = 0
         self.opened = 0
         self.names_read = 0
+        self.value_reads = 0
+        self.version_reads = 0
+        self.require_parent = False
+        self.split = None
     @contextmanager
-    def open(self, path):
+    def open(self, path, parent=None):
+        if self.require_parent and parent is None and path not in (*m.ROOTS, m.INSTALLED):
+            raise m.Denied("parent-binding")
+        path = parent + "/" + path if parent is not None else path
         self.opened += 1
         try:
             yield path
         finally:
             self.closed += 1
     def info(self, handle):
-        return (len(self.entries) if handle == m.ROOTS[0] else 0, 7)
+        count = len(self.entries) if handle == m.ROOTS[0] else 0
+        if self.split is not None:
+            count = self.split if handle == m.ROOTS[0] else len(self.entries)-self.split
+        return (count, 7)
     def name(self, handle, index):
         self.names_read += 1
         return str(index)
     def value(self, handle, name, maximum, missing=False):
+        self.value_reads += 1
+        self.version_reads += int(name == "DisplayVersion")
         if name == "KitsRoot10":
             self.pass_number += 1
             if self.change and self.pass_number == 2:
                 self.change(self)
             return "C:\\Program Files (x86)\\Windows Kits\\10\\"
-        entry = self.entries[int(handle.rsplit("/", 1)[1])]
-        return entry.get("name" if name == "DisplayName" else "version")
+        index = int(handle.rsplit("/", 1)[1])
+        if self.split is not None and handle.startswith(m.ROOTS[1]+"/"):
+            index += self.split
+        entry = self.entries[index]
+        value = entry.get("name" if name == "DisplayName" else "version")
+        if value is None and not missing:
+            raise m.Denied("registry-value")
+        return value
 
 class CollectorTests(unittest.TestCase):
     def setUp(self):
@@ -92,6 +110,36 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(m.decode_value("SDK\x00".encode("utf-16-le"), 1, 128), "SDK")
         for data, kind in [(b"A\x00", 1), (b"A\x00\x00", 1), (b"A\x00\x00\x00B\x00\x00\x00", 1), ("SDK\x00".encode("utf-16-le"), 2), (("A"*129+"\x00").encode("utf-16-le"), 1), (b"\x00\xd8\x00\x00", 1)]:
             with self.assertRaises(m.Denied): m.decode_value(data, kind, 128)
+    def test_foreign_kit_root_is_not_exported_on_failure(self):
+        f = FakeRegistry()
+        original = f.value
+        f.value = lambda h,n,*a,**kw: "C:/Users/private-person/secret" if n == "KitsRoot10" else original(h,n,*a,**kw)
+        r = self.collect(f)
+        self.assertFalse(r["success"])
+        self.assertNotIn("private-person", str(r))
+    def test_children_remain_bound_to_the_enumerated_root_handle(self):
+        f = FakeRegistry(); f.require_parent = True
+        self.assertTrue(self.collect(f)["success"])
+    def test_value_allowance_and_33rd_match_does_not_read_version(self):
+        f = FakeRegistry(1024); sdk = f.entries[0]
+        f.entries = [sdk] * 32 + [{"name": None}] * 992
+        f.split = 512
+        self.assertTrue(self.collect(f)["success"])
+        self.assertEqual(f.value_reads, 2114)
+        self.assertEqual(f.version_reads, 64)
+        f = FakeRegistry(33); f.entries = [sdk] * 33
+        self.assertEqual(self.collect(f)["reason"], "match-limit")
+        self.assertEqual(f.version_reads, 32)
+    def test_missing_mandatory_sdk_version_is_unavailable(self):
+        f = FakeRegistry()
+        f.entries.append({"name": "Windows Software Development Kit - incomplete"})
+        self.assertEqual(self.collect(f)["reason"], "registry-value")
+        self.assertEqual(f.opened, f.closed)
+    def test_failed_close_keeps_outstanding_handle_count(self):
+        b = m.Budget(); b.call(reserve_close=True)
+        b.close(success=False)
+        self.assertEqual(b.calls, 2)
+        self.assertEqual(b.handles, 1)
     def test_budget_debits_errors_and_reserves_handle_close(self):
         b = m.Budget(api_limit=3)
         b.call(reserve_close=True)
@@ -109,6 +157,7 @@ class NativeBoundaryTests(unittest.TestCase):
     def test_fixed_buffer_native_reads_errors_and_closure_on_owned_fixture(self):
         import uuid
         import winreg
+        self.assertTrue(m.runtime_identity(), "fixed isolated interpreter selector must match before any fixture access")
         name = "SOFTWARE\\OrkWorksSdkInventoryTests\\" + uuid.uuid4().hex
         # Test-only writes: never installed SDK or uninstall roots.
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, name) as h:
@@ -123,8 +172,14 @@ class NativeBoundaryTests(unittest.TestCase):
             registry = m.NativeRegistry(budget, hive=-2147483647)
             with registry.open(name) as h:
                 self.assertEqual(registry.info(h)[0], 1)
+                with registry.open("child", parent=h) as child:
+                    self.assertEqual(registry.info(child)[0], 0)
+                before = budget.read_bytes
                 self.assertEqual(registry.name(h, 0), "child")
+                self.assertEqual(budget.read_bytes - before, 516)
+                before = budget.read_bytes
                 self.assertEqual(registry.value(h, "DisplayVersion", 128), "10.1.26100.9457")
+                self.assertEqual(budget.read_bytes - before, 266)
                 self.assertIsNone(registry.value(h, "Missing", 256, missing=True))
                 for field in ["Oversize", "WrongType"]:
                     with self.assertRaises(m.Denied): registry.value(h, field, 256)
@@ -134,6 +189,17 @@ class NativeBoundaryTests(unittest.TestCase):
                 with registry.open(name + "\\missing"):
                     pass
             self.assertEqual(budget.handles, 0)
+            close = registry.dll.RegCloseKey
+            saved = None
+            try:
+                with self.assertRaisesRegex(m.Denied, "registry-close"):
+                    with registry.open(name) as saved:
+                        registry.dll.RegCloseKey = lambda h: 6
+                self.assertEqual(budget.handles, 1)
+            finally:
+                registry.dll.RegCloseKey = close
+                if saved is not None:
+                    close(saved)
         finally:
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, name + "\\child")
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, name)
