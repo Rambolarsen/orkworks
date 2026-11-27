@@ -22,5 +22,26 @@ try {
     $denied=$false;try {Get-SealedManifest @{source=$dir} (New-ReadBudget 1024) -EncodedLimit 8|Out-Null}catch{$denied=$true};Assert $denied 'encoded cap'
     $link=Join-Path $dir 'linked';New-Item -ItemType Junction -Path $link -Target $dir|Out-Null
     try {$denied=$false;try {Get-SealedManifest @{source=$dir} (New-ReadBudget 1024)|Out-Null}catch{$denied=$true};Assert $denied 'reparse refusal'}finally{[IO.Directory]::Delete($link)}
-    Write-Output 'Bounded Windows reader fixtures passed'
+    Add-Type -AssemblyName System.Formats.Tar
+    $registry=Join-Path $dir 'registry';$index='fixture-index';$package='fixture-1.0.0'
+    $src=Join-Path $registry "src/$index/$package";$cache=Join-Path $registry "cache/$index"
+    [IO.Directory]::CreateDirectory($src)|Out-Null;[IO.Directory]::CreateDirectory($cache)|Out-Null
+    $archive=Join-Path $cache ($package+'.crate')
+    $output=[IO.File]::Create($archive);$gzip=[IO.Compression.GZipStream]::new($output,[IO.Compression.CompressionLevel]::Fastest)
+    $tar=[System.Formats.Tar.TarWriter]::new($gzip,$true)
+    try {
+        foreach($item in @{ 'Cargo.toml'="[package]`nname = `"fixture`"`nversion = `"1.0.0`"`nbuild = false`n"; 'src/lib.rs'='pub fn fixture() {}' }.GetEnumerator()) {
+            $bytes=[Text.Encoding]::UTF8.GetBytes($item.Value);$entry=[System.Formats.Tar.PaxTarEntry]::new([System.Formats.Tar.TarEntryType]::RegularFile,($package+'/'+$item.Key))
+            $entry.DataStream=[IO.MemoryStream]::new($bytes);$tar.WriteEntry($entry);$entry.DataStream.Dispose()
+            $file=Join-Path $src $item.Key;[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($file))|Out-Null;[IO.File]::WriteAllBytes($file,$bytes)
+        }
+    } finally {$tar.Dispose();$gzip.Dispose();$output.Dispose()}
+    [IO.File]::WriteAllText((Join-Path $src '.cargo-ok'),'{"v":1}',[Text.UTF8Encoding]::new($false))
+    $h=(Read-SealedFile $archive (New-ReadBudget 1048576)).sha256
+    $policy=@{packages=@{'fixture@1.0.0'=$h};scripts=@{};proc_macros=@{}}
+    $verified=Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $policy
+    Assert ($verified.crates.Count -eq 1 -and $verified.crates[0].files.Count -eq 2) 'archive association'
+    [IO.File]::WriteAllText((Join-Path $src 'src/lib.rs'),'changed',[Text.UTF8Encoding]::new($false))
+    $denied=$false;try{Assert-CrateArchives (Join-Path $registry 'src') (New-ReadBudget 1048576) $policy|Out-Null}catch{$denied=$true};Assert $denied 'tampered extracted member'
+    Write-Output 'Bounded Windows reader fixtures passed' 
 } finally {Remove-Item -LiteralPath $dir -Recurse -Force}

@@ -314,3 +314,16 @@ fixtures, full verification, then one bounded fresh-context review round with
 maximum two read-only Luna reviewers (correctness/authority and coverage/bounds).
 Root alone applies findings. No implementer delegation or second coding harness.
 Current status: dependency preparation underway; TDD not yet started; dispatch0/1.
+
+SDK reader: six Windows fixtures passed. Policy primitives: seven local Node
+tests passed after their initial missing-controller failures. Windows bounded
+reader fixture failed on the deliberately missing implementation, then passed
+after implementation in draft CI. No live entry point is wired yet.
+
+Ruling: do not reuse the old helper's .cargo-checksum.json assumption; the
+inspected local Cargo registry cache lacks that vendor-side file. Derive member
+checksums from the actual lock-hashed crate archive with the own standard-runtime
+reader, comparing every extracted file and reviewed entrypoint. This preserves
+the accepted archive/file verification, roots, subprocess counts and hash/time
+bounds. If the archive format/runtime is unsupported, the attempt is unavailable
+rather than trusting unchecked sources or acquiring another tool.
