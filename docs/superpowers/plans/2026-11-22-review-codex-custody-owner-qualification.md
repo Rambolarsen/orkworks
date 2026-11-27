@@ -88,8 +88,9 @@ Extend the macOS fixture with a serial worker check using the same four
 presealed pairs. Each attempt retains its exact child handle and sends the
 challenge over its selected channel. The child checks the selected channel,
 closure of the other seven registered endpoints, null standard streams, and
-the fixture-only environment. The child returns the ready frame for the same
-nonce and fixture build tag.
+the fixture-only environment. It opens a fresh close-on-exec duplicate for
+its Rust-owned stream. The child returns the ready frame for the same nonce
+and fixture build tag.
 
 Use half-closed stream directions to validate one exactly sized message in each
 direction. This closes the synthetic exchange at EOF. The persistent worker
@@ -97,7 +98,8 @@ will need message-boundary handling that preserves the channel for later lease
 operations. Share one three-second deadline across the four attempts. Require
 both a valid response and confirmation from the owned child. Check rejected
 nonce and missing response paths without publishing readiness. Kill and reap
-the exact child when the response times out.
+the exact child when the response times out. Check the common deadline
+again when each spawn returns. Owned cleanup may finish after expiry.
 
 Plan review for this check: **Ready.** It adds a test-only same-binary exec
 path, a fixed close boundary for the synthetic exchange, and exact local child
@@ -114,7 +116,8 @@ sent SIGKILL to the retained child, and reaped its signaled exit. Successful
 exec checks verified the seven other registered descriptors were closed,
 standard streams were null, and the worker environment held only fixture
 data. The parent verified all eight close-on-exec flags after the attempts.
-Exact-length, truncated, and trailing-data stream cases also passed.
+Exact-length, truncated, and trailing-data stream cases also passed. A closed
+selected descriptor was rejected before constructing an owned stream.
 
 ## Bounded executable qualification after approval
 

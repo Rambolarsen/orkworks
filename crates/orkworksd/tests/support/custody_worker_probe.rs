@@ -32,6 +32,7 @@ pub(super) fn check_owned_workers(pairs: &[(UnixStream, UnixStream); 4]) {
         remaining(deadline).expect("one shared startup deadline");
         let selected = worker.as_raw_fd();
         let mut child = spawn(selected, &registered).expect("start owned fixture worker");
+        remaining(deadline).expect("child was acquired within the shared startup deadline");
         if slot == 3 {
             // Withhold the challenge. An owned process alone cannot publish readiness.
             let response_deadline = deadline.min(Instant::now() + Duration::from_millis(60));
@@ -134,9 +135,7 @@ pub(super) fn run_child() {
         assert_eq!((stat.st_dev as u64, stat.st_ino), (null.dev(), null.ino()));
     }
 
-    // SAFETY: selected is the fixture's only inherited registered endpoint.
-    // The child has no other Rust owner for it.
-    let stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(selected) });
+    let stream = duplicate_endpoint(selected).expect("adopt verified worker endpoint");
     stream.peer_addr().expect("selected Unix channel");
     let deadline = Instant::now() + STARTUP;
     let frame = read_frame(&stream, deadline).expect("read the challenge");
@@ -150,6 +149,17 @@ pub(super) fn run_child() {
     let ready = bootstrap_frame::encode(Direction::Ready, &nonce, &BUILD);
     write_frame(&stream, &ready, deadline).expect("return matching readiness");
     std::process::exit(CHECKED);
+}
+
+fn duplicate_endpoint(selected: RawFd) -> io::Result<UnixStream> {
+    // SAFETY: fcntl reports a closed descriptor as EBADF and returns a new,
+    // close-on-exec descriptor on success.
+    let duplicate = unsafe { libc::fcntl(selected, libc::F_DUPFD_CLOEXEC, 3) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the successful duplicate is fresh and has no other owner.
+    Ok(UnixStream::from(unsafe { OwnedFd::from_raw_fd(duplicate) }))
 }
 
 fn remaining(deadline: Instant) -> io::Result<Duration> {
@@ -223,6 +233,16 @@ fn read_frame(mut stream: &UnixStream, deadline: Instant) -> io::Result<[u8; FRA
 }
 
 pub(super) fn verify_exact_stream_frames() {
+    let (closed, _peer) = UnixStream::pair().expect("closed endpoint test");
+    let fd = closed.as_raw_fd();
+    drop(closed);
+    assert_eq!(
+        duplicate_endpoint(fd)
+            .expect_err("closed endpoint cannot be adopted")
+            .raw_os_error(),
+        Some(libc::EBADF)
+    );
+
     let frame = [0; FRAME_SIZE + 1];
     for (length, expected) in [
         (FRAME_SIZE - 1, Some(ErrorKind::UnexpectedEof)),
