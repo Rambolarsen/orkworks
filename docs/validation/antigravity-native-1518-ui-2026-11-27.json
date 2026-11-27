@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-27",
+  "sourceCommit": "c87e020e170b7b288750f2e45955198b6696c894",
+  "surface": "isolated source-built desktop and sidecar",
+  "platform": "macOS arm64",
+  "operator": "agent through native UI automation",
+  "nativeVersion": "1.5.18",
+  "nativeSha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "workspace": "previously trusted disposable question fixture",
+  "scope": {
+    "nativeStarts": 1,
+    "maximumSeconds": 180,
+    "fixturePromptsSubmitted": 1,
+    "maximumFixturePrompts": 1,
+    "resumes": 0
+  },
+  "newTrustOrCommandApprovalSent": false,
+  "hookChanges": false,
+  "observations": [
+    {
+      "elapsedSecondsApprox": 11,
+      "nativeUi": "version 1.5.18 banner and initial turn",
+      "attentionCount": 0
+    },
+    {
+      "elapsedSecondsApprox": 20,
+      "accessibilitySessionRow": "Needs you"
+    },
+    {
+      "elapsedSecondsApprox": 29,
+      "nativeUi": "structured question with numbered options and Enter control",
+      "sessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "phase": "blocked hold before answer",
+      "accessibilityNeedsYou": true
+    },
+    {
+      "elapsedSecondsApprox": 50,
+      "operatorAction": "Enter selected default option",
+      "immediateAccessibilityStillNeedsYou": true
+    },
+    {
+      "elapsedSecondsApprox": 61,
+      "nativeUi": "Working",
+      "accessibilitySessionRow": "Working",
+      "attentionCount": 0
+    },
+    {
+      "elapsedSecondsApprox": 89,
+      "nativeUi": "brief completion reply and ordinary input prompt",
+      "accessibilitySessionRow": "Idle",
+      "attentionCount": 0
+    }
+  ],
+  "cleanup": {
+    "isolatedLauncherStoppedWithinBudget": true,
+    "noExecutableWithUniqueTaskPathsInFollowupInventory": true,
+    "nativeExitCodeRetained": false,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "question answered, not canceled",
+    "no command-permission UI qualification",
+    "no human-operated confirmation",
+    "no published-installer qualification",
+    "observation times do not measure clearing latency",
+    "no retained metadata-origin assertion"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "prompt and answer text",
+    "account data",
+    "reporting credentials"
+  ]
+}

@@ -501,3 +501,57 @@ The experimental strict-permission and update-suppression settings are not
 added to production launches. Other versions/platforms and custom commands
 retain their gates. This describes source behavior, not a published installer
 or a new 1.5.18 desktop UI test. No further native probe is part of this change.
+
+
+## Source-build desktop 1.5.18 question check, 2026-11-27
+
+Following [activation PR #2133](https://github.com/Rambolarsen/orkworks/pull/2133),
+the owner directed the 1.5.18 desktop question check. An isolated app and sidecar
+were built from source commit `c87e020e`, which includes that activation. Its
+unique app identity, separate development profile and test port kept the
+existing user desktop and live sessions outside the test. The new app opened
+only the previously trusted disposable question workspace. Its existing
+Antigravity integration was reused; no hooks, native trust, permission lists
+or installed binary were changed. The earlier fixture session was not resumed.
+
+One fresh built-in Antigravity session was started, capped at 180 seconds and
+one fixture prompt. The pinned installed-artifact copy reported exactly 1.5.18
+with a successful bounded probe and no stderr, matched the qualified hash, and
+retained that hash after the check. Peon was disabled in the isolated app's
+process environment. Updater suppression applied only to the test process;
+inherited reporting capabilities and model/proxy credentials were excluded.
+Normal native saved login/configuration still applied. Native model-call
+accounting was not measured.
+
+The agent observed the actual desktop through accessibility and screenshots:
+
+| Observation time after start | Native terminal | OrkWorks UI |
+| --- | --- | --- |
+| About 20 seconds | Question turn pending | Accessibility reports Needs you |
+| About 29 seconds | Structured Alpha/Beta question, numbered choices and Enter control | Needs you in session row; Attention 1 |
+| Before the answer | Question remained held | Accessibility still reports Needs you |
+| About 50 seconds | Enter submitted the default response | Immediate accessibility observation still reported Needs you |
+| About 61 seconds | Working after the answer | Accessibility reports Working; screenshot shows Attention 0 |
+| About 89 seconds | Brief completion reply and ordinary input prompt | Accessibility reports Idle; screenshot shows Attention 0 |
+
+These are observation times, not precise native transition or clearing-latency
+measurements. The [sanitized 1.5.18 UI record](antigravity-native-1518-ui-2026-11-27.json)
+retains only fixed observations, hash and scope. Raw screenshots, terminal output,
+native IDs, account information, prompt/answer text and reporting credentials
+are not committed. The question was answered rather than canceled; no command
+approval, second prompt, second start or resume occurred.
+
+The isolated launcher was stopped within the three-minute budget. A subsequent
+executable-path inventory found no process using the unique test app, sidecar
+or native paths, and the temporary native executable was removed. Native root
+exit code was not retained by the UI launcher, and complete descendant cleanup
+is not proven. Existing user sessions and their running desktop were not
+restarted or updated.
+
+This establishes agent-observed 1.5.18 in-conversation question attention and
+clearing through Working to Idle in the source-built macOS arm64 desktop with
+Peon disabled. It does not establish command-permission UI, question cancellation
+in the UI, human-operated confirmation, a published installer or a retained
+metadata-origin assertion. The earlier native terminal trials remain evidence
+for those other captured transitions. Source eligibility and the broader #1996
+coverage are unchanged.
