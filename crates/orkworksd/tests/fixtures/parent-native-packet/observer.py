@@ -187,6 +187,7 @@ class Trace:
         self.calls = []
         self.completed = set()
         self.turns = self.usages = 0
+        self.turns_at_start = 0
         self.pending = None
 
     def ingest(self, line, phase):
@@ -201,6 +202,7 @@ class Trace:
             require(phase == 1 and not self.started and data.get("sessionId") == self.proposal["nativeSessionId"]
                     and data.get("copilotVersion") == "1.0.90" and not data.get("alreadyInUse"), "Native start identity unverified")
             self.started = True
+            self.turns_at_start = self.turns
         elif typ == "session.resume":
             require(phase == 2 and self.started and not self.resumed and self.pending is None
                     and type(data.get("eventCount")) is int and data["eventCount"] == self.count
@@ -705,6 +707,38 @@ def discovery(proposal, case, env, deadline, record_attempt, diagnostic=None):
     return receipts
 
 
+def read_helper_receipts(case, proposal, binding, *, strict=False):
+    phase = binding["phase"]
+    raw = read_bounded(case/f"control/mcp-{phase}.jsonl", 131072)
+    if strict:
+        from mcp_server import parse_frame
+        require(raw.endswith(b"\n"), "Incomplete helper receipt")
+        rows = [parse_frame(line) for line in raw[:-1].split(b"\n")]
+        require(all(type(row.get("phase")) is int and type(row.get("nativePid")) is int
+                    for row in rows), "Invalid helper binding fields")
+    else:
+        rows = [json.loads(line) for line in raw.splitlines()]
+    require(rows and sum(r["kind"] == "startup" for r in rows) == 1
+            and rows[0]["kind"] == "startup" and rows[0]["environmentNames"] == sorted(proposal["mcpEnvironmentNames"])
+            and all(r.get("phase") == phase and r.get("generation") == binding["generation"]
+                    and r.get("nativePid") == binding["nativePid"] for r in rows), "Helper runtime binding failed")
+    return rows
+
+
+def fixture_tools_listed(case, proposal, binding):
+    try:
+        rows = read_helper_receipts(case, proposal, binding, strict=True)
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        return False
+    startup = rows[0]
+    helper_pid = startup.get("pid")
+    if (type(helper_pid) is not int or helper_pid <= 0
+            or set(startup) != {*binding, "kind", "pid", "environmentNames"}):
+        return False
+    checkpoints = [row for row in rows if row["kind"] == "tools-listed"]
+    return checkpoints == [{**binding, "kind": "tools-listed"}]
+
+
 def run_native(approval, output):
     """Separate live entry point. It is never called by model-free preparation."""
     import os
@@ -786,12 +820,7 @@ def run_native(approval, output):
             diagnostic["stage"] = "input-check"
             check_pins(pins)
             diagnostic["stage"] = "helper-receipt"
-            rows = [json.loads(line) for line in read_bounded(case/f"control/mcp-{phase}.jsonl", 131072).splitlines()]
-            require(rows and sum(r["kind"] == "startup" for r in rows) == 1
-                    and rows[0]["kind"] == "startup" and rows[0]["environmentNames"] == sorted(proposal["mcpEnvironmentNames"])
-                    and all(r.get("phase") == phase and r.get("generation") == generation
-                            and r.get("nativePid") == bindings[-1]["nativePid"] for r in rows), "Helper runtime binding failed")
-            logs[phase] = rows
+            logs[phase] = read_helper_receipts(case, proposal, bindings[-1])
             diagnostic["stage"] = "receipt-join"
             summary["checks"] = join_receipts(trace, logs, final=phase == 2)
         diagnostic["stage"] = "runtime-check"
@@ -815,6 +844,13 @@ def run_native(approval, output):
                 failure["startupDiagnostic"] = (
                     startup_diagnostic(case/"stderr.raw")
                     if failure["process"]["terminationStepsCompleted"] else "unclassified"
+                )
+            else:
+                failure["promptProgress"].update(
+                    assistantTurnStarted=trace.turns > trace.turns_at_start,
+                    firstNativeMcpCallStarted=bool(trace.calls),
+                    fixtureToolsListed=(failure["process"]["terminationStepsCompleted"]
+                                        and fixture_tools_listed(case, proposal, bindings[-1])),
                 )
     finally:
         try:

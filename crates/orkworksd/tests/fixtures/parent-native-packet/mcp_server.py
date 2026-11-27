@@ -247,6 +247,7 @@ def serve(root):
     record({"kind": "startup", "phase": context["phase"], "pid": os.getpid(),
             "environmentNames": sorted(os.environ)})
     protocol = Protocol(phase=context["phase"], record=record, delay=lambda: time.sleep(1))
+    tools_list_recorded = False
     selector = selectors.DefaultSelector()
     selector.register(sys.stdin.fileno(), selectors.EVENT_READ)
     os.set_blocking(sys.stdin.fileno(), False)
@@ -276,6 +277,9 @@ def serve(root):
                     sys.stdout.buffer.flush()
                     if "error" in response:
                         raise ValueError("Rejected MCP request")
+                    if not tools_list_recorded and message["method"] == "tools/list":
+                        record({"kind": "tools-listed", "phase": context["phase"]})
+                        tools_list_recorded = True
         raise ValueError("MCP deadline")
     finally:
         selector.close()

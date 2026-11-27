@@ -299,6 +299,7 @@ def request(method,params):
 request('initialize',{'protocolVersion':'2025-06-18'})
 p.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n');p.stdin.flush()
 assert len(request('tools/list',{})['tools'])==3
+assert len(request('tools/list',{})['tools'])==3
 n=0
 def tool(name,args):
     global n
@@ -340,6 +341,9 @@ assert not p.stderr.read();f.close()
                 logs[phase] = [json.loads(line) for line in (case/f"control/mcp-{phase}.jsonl").read_text().splitlines()]
                 self.assertEqual(logs[phase][0]["nativePid"], pids[-1])
                 self.assertEqual(logs[phase][0]["environmentNames"], sorted(PROPOSAL["mcpEnvironmentNames"]))
+                checkpoints = [row for row in logs[phase] if row["kind"] == "tools-listed"]
+                self.assertEqual(checkpoints, [{"kind": "tools-listed", "phase": phase,
+                                                "generation": str(phase)*64, "nativePid": pids[-1]}])
             self.assertNotEqual(pids[0], pids[1])
             self.assertTrue(observer.join_receipts(trace, logs)["allCallsCorrelated"])
 
@@ -794,7 +798,7 @@ class StopReportingTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE", json.dumps(value))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
-    def _failed_run(self, fail_cleanup=False, native_events=None, native_stderr=b""):
+    def _failed_run(self, fail_cleanup=False, native_events=None, native_stderr=b"", helper_receipt=None):
         import shutil
         import subprocess
         directory = Path(__file__).parent
@@ -817,18 +821,44 @@ class StopReportingTests(unittest.TestCase):
             if native_events is None:
                 raise AssertionError("Native launch forbidden")
             script = """from pathlib import Path
-import sys
+import json,sys
+path = Path(sys.argv[1])
 if sys.argv[2]:
-    path = Path(sys.argv[1])
     path.parent.mkdir(parents=True)
     path.write_text(sys.argv[2])
+if sys.argv[4]:
+    control = path.parents[3]/"control"
+    binding = json.loads((control/"context.json").read_text())
+    startup = dict(binding, kind="startup", pid=123, environmentNames=json.loads(sys.argv[5]))
+    checkpoint = dict(binding, kind="tools-listed")
+    if sys.argv[4] == "wrong-pid":
+        checkpoint["nativePid"] += 1
+    if sys.argv[4] == "wrong-generation":
+        checkpoint["generation"] = "PRIVATE_GENERATION"
+    if sys.argv[4] == "boolean-phase":
+        checkpoint["phase"] = True
+    rows = [startup] if sys.argv[4] == "startup-only" else [startup, checkpoint]
+    if sys.argv[4] == "duplicate":
+        rows.append(checkpoint)
+    if sys.argv[4] == "startup-missing-pid":
+        startup.pop("pid")
+    if sys.argv[4] == "startup-boolean-phase":
+        startup["phase"] = True
+    lines = [json.dumps(row) for row in rows]
+    if sys.argv[4] == "duplicate-key":
+        lines[-1] = '{"generation":"PRIVATE_BAD",' + lines[-1][1:]
+    payload = "\\n".join(lines) + "\\n"
+    if sys.argv[4] == "incomplete":
+        payload = payload[:-1]
+    (control/"mcp-1.jsonl").write_text(payload)
 sys.stderr.buffer.write(bytes.fromhex(sys.argv[3]))
 sys.exit(1)
 """
             path = root/"settings/session-state"/PROPOSAL["nativeSessionId"]/"events.jsonl"
             rows = "".join(row + "\n" for row in native_events)
             allowed_argv = [sys.executable, "-I", "-B", "-c", script, str(path), rows,
-                            native_stderr.hex()]
+                            native_stderr.hex(), helper_receipt or "",
+                            json.dumps(sorted(PROPOSAL["mcpEnvironmentNames"]))]
             return supervise(allowed_argv, cwd, {}, root, *args, **kwargs)
 
         def fail_discovery(*args, **kwargs):
@@ -885,18 +915,40 @@ sys.exit(1)
                      mcpTransport="stdio", arguments={"bootstrap": True})
         completed = event("tool.execution_complete", toolCallId="PRIVATE_CALL", turnId="PRIVATE_TURN",
                           success=True, result={"content": "PRIVATE_OUTPUT"})
+        turn = event("assistant.turn_start", turnId="PRIVATE_TURN")
         for rows, expected in (
-                ([], (False, False)),
-                ([start], (True, False)),
-                ([start, call], (True, False)),
-                ([start, call, completed], (True, True))):
+                ([], (False, False, False, False)),
+                ([start], (True, False, False, False)),
+                ([turn, start], (True, False, False, False)),
+                ([start, turn], (True, False, True, False)),
+                ([start, turn, call], (True, False, True, True)),
+                ([start, turn, call, completed], (True, True, True, True))):
             with self.subTest(events=len(rows)):
                 result, retained = self._failed_run(native_events=rows)
                 self.assertTrue(result["rawRootsRemoved"])
                 self.assertEqual(result["nativePromptInvocations"], 1)
                 self.assertEqual(result["failure"]["supervisorCheckCode"], "supervisor-exit")
-                self.assertEqual(result["failure"].get("promptProgress"), dict(
-                    sessionStartObserved=expected[0], firstNativeMcpCallCompleted=expected[1]))
+                progress = dict(sessionStartObserved=expected[0], firstNativeMcpCallCompleted=expected[1])
+                if expected[0]:
+                    progress.update(assistantTurnStarted=expected[2], firstNativeMcpCallStarted=expected[3],
+                                    fixtureToolsListed=False)
+                self.assertEqual(result["failure"].get("promptProgress"), progress)
+                self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_post_start_exit_reports_only_bound_helper_checkpoint(self):
+        start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")
+        for helper_receipt, expected in (("match", True), ("startup-only", False),
+                                         ("wrong-pid", False), ("wrong-generation", False),
+                                         ("boolean-phase", False), ("duplicate", False),
+                                         ("startup-missing-pid", False), ("startup-boolean-phase", False),
+                                         ("duplicate-key", False), ("incomplete", False)):
+            with self.subTest(helper_receipt=helper_receipt):
+                result, retained = self._failed_run(native_events=[start], helper_receipt=helper_receipt)
+                failure = result["failure"]
+                self.assertEqual(failure["supervisorCheckCode"], "supervisor-exit")
+                self.assertEqual(failure["promptProgress"].get("fixtureToolsListed"), expected)
+                self.assertTrue(result["rawRootsRemoved"])
                 self.assertNotIn("PRIVATE", retained)
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")

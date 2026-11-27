@@ -1,8 +1,8 @@
 {
   "schema": "orkworks.native-packet-manifest.v1",
   "files": {
-    "observer.py": "b4138dc2cab593e9886affb93ff9589d70f9f0ef1b95a0275c5b6c43416af493",
-    "mcp_server.py": "b2c56fa808b8da80be311fcedd32b44f0e584b59b34dddb9345979f11c4cec97",
+    "observer.py": "d65060dd7494d8256b43ede098abd3c6c5571d97912c80ecffdd0a8180a06478",
+    "mcp_server.py": "fa4f53cfec215fe7a3fd2c60e68859e984d3fa08622f20e3d328fcdd1f30cbeb",
     "proposal.json": "39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b",
     "source-contracts.json": "8199a3963cbba17633adddd09a27f734ec3da439ee4012d27159b976366cfc91",
     "peer.py": "c7e328f9139e6937344bfbb1e64adf9852146fb393e377549c4f8cebf936ed03"
