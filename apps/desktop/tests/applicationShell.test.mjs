@@ -1805,6 +1805,52 @@ if (process.versions.electron) {
           }
           assert.equal(await evaluate('fixture.selections'),0);
           assert.equal(await evaluate('fixture.input.length'),0);
+        } else if (scenario === 'inspector-toolbar-focus') {
+          const tab = async (command, shift = false) => {
+            const modifiers = shift ? ['shift'] : [];
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers});
+            await waitFor('document.activeElement.dataset.shellCommand==='+javascriptLiteral(command));
+            await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+            const focus = await evaluate(`(() => {
+              const target = document.activeElement;
+              const r = target.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+              return {command:target.dataset.shellCommand, visible:target.contains(hit), hit:hit?.tagName};
+            })()`);
+            assert.ok(focus.command===command && focus.visible, command+' must be visible when keyboard focus reaches it: '+JSON.stringify(focus));
+          };
+          await evaluate('fixture.setSessionState({branch:"feature"})');
+          await waitFor('document.querySelector("[data-shell-command=changes]:enabled")');
+          await click('details');
+          await waitFor('document.querySelector(".shell-inspector-host--overlay")');
+          await evaluate('document.querySelector("[data-shell-command=changes]").focus()');
+          assert.equal(await evaluate('!!document.querySelector(".shell-inspector-host--overlay")'),true,'the overlay stays open while focus is clear of it');
+          await tab('actions');
+          await waitFor('!document.querySelector(".shell-inspector-host--overlay")');
+
+          await evaluate('fixture.setEmpty(true)');
+          await waitFor('!document.querySelector("[data-shell-command=changes]") && !document.querySelector(".xterm-helper-textarea")');
+          await click('details');
+          await waitFor('document.querySelector(".shell-inspector-host--overlay")');
+          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus()');
+          await tab('details', true);
+          await waitFor('!document.querySelector(".shell-inspector-host--overlay")');
+
+          await click('details');
+          await waitFor('document.querySelector("[data-shell-pin]")');
+          await evaluate('document.querySelector("[data-shell-pin]").click()');
+          await waitFor('document.querySelector("[data-shell-pin][aria-pressed=true]")');
+          await evaluate('document.querySelector(".shell-inspector-host [role=separator]").focus()');
+          await tab('details', true);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-pin][aria-pressed=true]")'),true,'pinned Details stays open');
+
+          await win.setContentSize(640,700);
+          await waitFor('document.querySelector(".shell-layout").dataset.mode==="compact" && document.querySelector("[data-shell-region=utility]")');
+          await evaluate('document.querySelector(".shell-toolbar [data-shell-command=details]").focus()');
+          await tab('next-action', true);
+          assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),true,'the compact Details page stays open');
+          assert.deepEqual(await evaluate('fixture.input'),[],'toolbar navigation sends no terminal input');
         } else if (scenario === 'inspector-overlay') {
           const mainWidth = await evaluate('document.querySelector(".shell-main").getBoundingClientRect().width');
           await click('details');
@@ -3017,7 +3063,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
