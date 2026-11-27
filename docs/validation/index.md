@@ -8,7 +8,7 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
-- [Antigravity native status qualification](antigravity-native-status.md) — Native question/rejection/cancellation and automatic-command evidence for macOS arm64 1.5.16 and 1.5.17; source eligibility and remaining limits stay explicit.
+- [Antigravity native status qualification](antigravity-native-status.md) — Native terminal evidence for macOS arm64 1.5.16 and 1.5.17 plus a source-build desktop startup permission check; source eligibility and remaining limits stay explicit.
 
 - [Offline workflow evidence boundary replay](workflow-evidence-replay.md) — Explicit-input current Rust policy checks, synthetic controls and unqualified historical/usefulness boundaries.
 
