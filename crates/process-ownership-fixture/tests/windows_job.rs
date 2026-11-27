@@ -355,7 +355,12 @@ fn failed_job_termination_after_sidecar_exit_reports_retained_descendant_unresol
     let descendant = unresolved
         .descendants
         .first()
-        .expect("a forked sidecar should have a retained descendant")
+        .unwrap_or_else(|| {
+            panic!(
+                "a forked sidecar should have a retained descendant; \
+                 pre-cleanup observation: {unresolved:?}"
+            )
+        })
         .identity
         .clone();
     supervisor_and_domain.1.inject_termination_failure_once();
