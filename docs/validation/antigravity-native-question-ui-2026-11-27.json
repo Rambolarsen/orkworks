@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-27",
+  "sourceCommitPrefix": "7471775a",
+  "platform": "macOS arm64",
+  "surface": "isolated source-built desktop and sidecar",
+  "operator": "agent through native UI automation",
+  "installedCliVersionAtPreflight": "1.5.18",
+  "testedCliVersion": "1.5.17",
+  "nativeSha256": "e6cabc85878e5beaaac911993751abe314f6c1d89ebfd30a4fc578b7703638eb",
+  "archiveSha256": "94d4c4755c9edbae3feba8f7d3c7b2764e6b239326efb0477b28407635c9e764",
+  "officialRelease": "https://github.com/google-antigravity/antigravity-cli/releases/tag/1.5.17",
+  "archiveMatchesPublishedDigest": true,
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "scope": {
+    "nativeStarts": 1,
+    "maximumSeconds": 180,
+    "maximumFixturePrompts": 2,
+    "submittedFixturePrompts": 1,
+    "resumes": 0
+  },
+  "workspace": "empty disposable Git workspace",
+  "workspaceTrustAccepted": true,
+  "commandApprovalSent": false,
+  "observations": [
+    {
+      "elapsedSecondsApprox": 34,
+      "nativeUi": "structured question with numbered options and Enter control",
+      "sessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "elapsedSecondsApprox": 44,
+      "phase": "held question wait before answer",
+      "accessibilityNeedsYou": true
+    },
+    {
+      "phase": "answer",
+      "operatorAction": "Enter selected default option",
+      "nativeUi": "Working",
+      "immediateScreenshotStillNeedsYou": true
+    },
+    {
+      "elapsedSecondsApprox": 73,
+      "nativeUi": "completion reply and ordinary input prompt",
+      "accessibilitySessionRow": "Idle",
+      "screenshotNeedsYou": false,
+      "attentionCount": 0
+    }
+  ],
+  "cleanup": {
+    "isolatedLauncherStoppedWithinBudget": true,
+    "noExecutableWithUniqueTaskPathsInFollowupInventory": true,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "question answered, not canceled",
+    "no published installer qualification",
+    "no human-operated confirmation",
+    "no instantaneous clearing latency claim",
+    "no command-permission UI qualification",
+    "no 1.5.18 support",
+    "no retained metadata-origin assertion",
+    "native trust accepted only for disposable fixture; trust persistence not qualified"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "account data",
+    "reporting credentials"
+  ]
+}
