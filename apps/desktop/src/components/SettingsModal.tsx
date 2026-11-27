@@ -315,7 +315,7 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }, [peonSelection.provider, providerRuntime]);
 
   useEffect(() => {
-    void verifyPeonSelection(initialPeonSelection);
+    scheduleVerifyPeonSelection(initialPeonSelection, true);
     // The initial selection is intentionally verified once when the modal opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -622,22 +622,25 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   }
 
   function scheduleVerifyPeonSelection(selection: PeonSelection, immediate = false) {
-    if (verificationTimer.current) clearTimeout(verificationTimer.current);
-    if (immediate) {
-      void verifyPeonSelection(selection);
-      return;
-    }
-    verificationTimer.current = setTimeout(() => {
+    if (verificationTimer.current !== null) {
+      clearTimeout(verificationTimer.current);
       verificationTimer.current = null;
-      void verifyPeonSelection(selection);
-    }, 300);
-  }
-
-  async function verifyPeonSelection(selection: PeonSelection) {
+    }
     const requestGeneration = ++peonVerificationGeneration.current;
     setPeonBusy(true);
     setPeonError(null);
     setPeonVerification(null);
+    if (immediate) {
+      void verifyPeonSelection(selection, requestGeneration);
+      return;
+    }
+    verificationTimer.current = setTimeout(() => {
+      verificationTimer.current = null;
+      void verifyPeonSelection(selection, requestGeneration);
+    }, 300);
+  }
+
+  async function verifyPeonSelection(selection: PeonSelection, requestGeneration: number) {
     try {
       const result = await window.orkworks.verifyPeonProvider(selection.provider, selection.provider === "ollama" ? selection.ollamaBaseUrl : undefined);
       if (requestGeneration !== peonVerificationGeneration.current) return;
@@ -1078,12 +1081,10 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
                       const next = { ...peonSelection, ollamaBaseUrl: event.target.value };
                       setPeonSelection(next);
                       setPeonLocallyApplied(false);
-                      setPeonVerification(null);
-                      setPeonError(null);
                       scheduleVerifyPeonSelection(next);
                     }} placeholder="http://127.0.0.1:11434" />}
                     <div role="status" aria-live="polite" className="provider-verify-status">{peonBusy ? <><span className="provider-verify-spinner" aria-hidden="true" />Verifying provider…<span aria-hidden="true">{peonBusyElapsedSeconds > 0 ? ` ${peonBusyElapsedSeconds}s elapsed` : ""}{peonBusyElapsedSeconds >= 15 ? " — can take up to a minute" : ""}</span></> : peonVerification?.ok ? "Provider verified." : peonError ?? "Choose a provider to verify it."}</div>
-                    <Button variant="secondary" size="sm" disabled={peonBusy} onClick={() => void verifyPeonSelection(peonSelection)}>Refresh models</Button>
+                    <Button variant="secondary" size="sm" disabled={peonBusy} onClick={() => scheduleVerifyPeonSelection(peonSelection, true)}>Refresh models</Button>
                     <div className="provider-label">Peon model</div>
                     <select className="provider-model-select" disabled={manualModelOverride || !peonVerification?.ok} value={manualModelOverride ? "" : peonSelection.model} onChange={(event) => { const model = event.target.value; const option = peonModelOptions.find((candidate) => candidate.id === model); setPeonSelection({ ...peonSelection, model, reasoningEffort: option?.defaultReasoningEffort ?? null }); setPeonLocallyApplied(false); }}>
                       <option value="">Select a verified model</option>

@@ -99,6 +99,30 @@ attention. Integration coverage remains limited. Exact-head CI results in the
 fixture's PR record establish whether a particular replay completed; the
 original macOS observations and their limits remain unchanged.
 
+### Windows fixture command discovery, 2026-11-27
+
+[Issue #2209](https://github.com/Rambolarsen/orkworks/issues/2209) recorded repeated
+30-second timeouts in this fixture. Fixed stage markers on Windows localized
+the stall to the first `ConvertTo-Json` call, before case loading or any reporter
+invocation: [diagnostic failure](https://github.com/Rambolarsen/orkworks/actions/runs/46067359113/job/140735820074).
+The fixture's scrubbed process environment had left built-in cmdlet discovery
+to the host's reconstructed module search path. Constraining only the child
+process's `PSModulePath` to `$PSHOME\Modules` let all seven retained payloads and
+five controls complete in about 0.85 seconds under the unchanged 30-second
+process deadline: [native Windows pass](https://github.com/Rambolarsen/orkworks/actions/runs/46067677335/job/140736848089).
+The recorded host was 64-bit Windows PowerShell 5.1.26100.33822.
+
+[Microsoft documents PSModulePath](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath)
+as the module lookup path. This evidence localizes the fixture failure to
+cmdlet discovery under its scrubbed environment; it does not identify the
+individual slow search location or establish a PowerShell product defect.
+The correction selects this native host's built-in modules without inheriting
+a PowerShell 7 module path. Reporter code, payload/report expectations,
+permission behavior and timeout thresholds are unchanged. Fixed stage/case
+markers remain bounded and omit payloads, paths and credentials. The earlier
+Windows fixture pass and all native Antigravity qualification limits retain
+their original scope.
+
 ## Native attention and cleanup limits
 
 The interactive exact-resume probe requested brief native OSC 7501 emission.

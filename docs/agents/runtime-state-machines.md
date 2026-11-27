@@ -172,6 +172,23 @@ without repeating terminal input. Unchanged dismissed evidence does not
 resurface immediately. Rollup members retain exact family lineage. Proposed ordinary-child orchestration is tracked separately
 under [the coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate).
 
+## Peon provider verification in Settings
+
+Source `apps/desktop/src/components/SettingsModal.tsx`.
+
+| Current state | Event and guard | Next state |
+| --- | --- | --- |
+| Any open verification state | User edits the Ollama URL | Schedule verification for the new draft and clear the previous result |
+| Any open verification state | Settings opens, provider changes, or Refresh models is requested | Verify the current selection immediately |
+| Verification scheduled | Debounce expires for the current draft | Verification in flight |
+| Verification in flight | Current request settles | Publish models and the verified URL, or show a retryable error |
+| Verification scheduled or in flight | Modal closes or unmounts | Cancel the timer and invalidate any in-flight reply |
+| Verification scheduled or in flight | An earlier request settles | Keep the current draft and verification state |
+
+**Invariants.** The new request owns verification from the time it is
+scheduled. Only its reply can publish models, normalize the URL, show an error,
+or clear the busy indicator. Apply requires verification of the current draft.
+
 ## Captured SQL observation persistence
 
 Sources `crates/orkworksd/src/workflow_observations/sql_origin/{persistence,reader}.rs`.
@@ -292,6 +309,15 @@ batch test expires after inventory and checks that no sequence or segment
 appears. The existing after-counter test confirms that an admitted batch still
 settles past the original deadline.
 [Issue #2194](https://github.com/Rambolarsen/orkworks/issues/2194)
+
+### A stale Ollama verification replaced an edited URL
+
+The Settings component regression starts verification, edits the URL, and
+then resolves the old reply before the replacement's debounce expires.
+Previously the old canonical URL replaced the draft and the old model catalog
+became selectable. The test now verifies that the draft survives, the old
+catalog stays hidden, and the new reply supplies the verified URL and models.
+[Issue #2212](https://github.com/Rambolarsen/orkworks/issues/2212)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or
