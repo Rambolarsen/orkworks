@@ -132,3 +132,16 @@ resume again used first PreInvocation identity rather than SessionStart.
 This adds native protocol evidence; it does not qualify resumed desktop display,
 metadata identity/origin or authenticated installed-hook delivery. The earlier
 new-workspace startup block and its limits remain recorded above.
+
+
+## Later exact-resume desktop check
+
+A separate [source-built desktop check](antigravity-native-status.md#source-built-exact-resume-desktop-question-check-2026-11-27)
+created a new seed session, closed its runtime, then used its exact-session
+Resume control. The resumed native history retained the seed context. A
+structured question coincided with Needs You and Attention 1; Escape/Skip was
+followed by Working, then Idle, with Attention 0. Peon was disabled. This adds
+one resumed UI cancellation path without retaining independent native-ID equality,
+metadata-origin or reporter-transport receipts. Earlier probe sections retain
+their original limits; resumed answer/command rejection and Windows remain
+unqualified.

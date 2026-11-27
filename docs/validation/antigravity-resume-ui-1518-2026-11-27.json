@@ -1,0 +1,112 @@
+{
+  "date": "2026-11-27",
+  "sourceCommit": "67a2a59e58c93349d4631772fbaa4ced8f582282",
+  "platform": "macOS arm64",
+  "surface": "isolated source-built desktop and sidecar; built renderer files",
+  "operator": "agent through native UI automation",
+  "nativeVersion": "1.5.18",
+  "nativeSha256": "89d0b97a9ebcefcaebbdfe4ffeb2de877ef92ee4504de188e35a38489136be13",
+  "nativeHashUnchangedAfter": true,
+  "peonEnabled": false,
+  "workspace": "previously trusted disposable fixture",
+  "scope": {
+    "nativeStarts": 2,
+    "freshSeedStarts": 1,
+    "exactResumes": 1,
+    "maximumStarts": 2,
+    "fixturePromptsSubmitted": 2,
+    "maximumFixturePrompts": 2,
+    "maximumSecondsFromSeedStart": 360,
+    "foreignOrEarlierFixtureSessionsResumed": false
+  },
+  "launch": "unique app identity and checkout/port-scoped dev profile; built renderer file path without a dev server",
+  "newTrustOrCommandApprovalSent": false,
+  "hookChanges": false,
+  "observations": [
+    {
+      "secondsAfterSeedStartApprox": 7,
+      "nativeUi": "1.5.18 banner and no-tool seed turn",
+      "sessionRow": "Working",
+      "attentionCount": 0
+    },
+    {
+      "secondsAfterSeedStartApprox": 14,
+      "nativeUi": "seed acknowledgement and ordinary input prompt",
+      "sessionRow": "Idle",
+      "attentionCount": 0
+    },
+    {
+      "secondsAfterSeedStartApprox": 81,
+      "operatorAction": "Close selected only the newly created seed session",
+      "nativeUi": "saved terminal output",
+      "resumeControl": "Resume session; Reattach to this exact session"
+    },
+    {
+      "secondsAfterSeedStartApprox": 91,
+      "operatorAction": "Resume session selected for the same owned seed row"
+    },
+    {
+      "secondsAfterSeedStartApprox": 99,
+      "secondsAfterResumeApprox": 8,
+      "nativeUi": "seed prompt and acknowledgement retained in resumed native history",
+      "sessionRow": "Idle",
+      "attentionCount": 0
+    },
+    {
+      "secondsAfterSeedStartApprox": 112,
+      "secondsAfterResumeApprox": 21,
+      "operatorAction": "submitted the one resumed structured-question prompt"
+    },
+    {
+      "secondsAfterSeedStartApprox": 120,
+      "secondsAfterResumeApprox": 29,
+      "nativeUi": "structured question with numbered choices and Escape Skip control",
+      "sessionRow": "Needs you",
+      "attentionCount": 1
+    },
+    {
+      "secondsAfterSeedStartApprox": 130,
+      "secondsAfterResumeApprox": 39,
+      "phase": "question held before cancellation",
+      "accessibilitySessionRow": "Needs you"
+    },
+    {
+      "secondsAfterSeedStartApprox": 138,
+      "secondsAfterResumeApprox": 47,
+      "operatorAction": "Escape used native Skip control without an answer",
+      "nativeUi": "question skipped and Working",
+      "accessibilitySessionRow": "Working",
+      "attentionCount": 0
+    },
+    {
+      "secondsAfterSeedStartApprox": 146,
+      "secondsAfterResumeApprox": 55,
+      "nativeUi": "skip acknowledgement and ordinary input prompt",
+      "accessibilitySessionRow": "Idle",
+      "attentionCount": 0
+    }
+  ],
+  "cleanup": {
+    "isolatedLauncherStoppedWithinBudget": true,
+    "noUniqueTaskExecutablesInFollowupInventory": true,
+    "temporaryNativeBinaryRemoved": true,
+    "nativeRootExitCodesRetained": false,
+    "allDescendantsProven": false
+  },
+  "limits": [
+    "one exact-resumed question cancellation; no resumed question answer or command rejection",
+    "agent-operated source build; no published installer or human-operated confirmation",
+    "observation times do not measure clearing latency",
+    "no independently retained native-ID equality or metadata-origin assertion",
+    "no raw hook receipts or authenticated reporter transport trace retained",
+    "no Windows or continue-mode desktop qualification"
+  ],
+  "omitted": [
+    "raw screenshots",
+    "raw terminal output",
+    "native IDs",
+    "prompt and answer text",
+    "account data",
+    "reporting credentials"
+  ]
+}
