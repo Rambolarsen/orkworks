@@ -1,182 +1,406 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
-import { DEFAULT_SETTINGS, normalizeProviderSettings, type AppSettings } from "../electron/settingsMemory.ts";
-import { WorkspaceRestorationFailure } from "../electron/backendRestoration.ts";
-import { WorkspaceSwitchError } from "../electron/workspaceSwitchCoordinator.ts";
-
-const main = readFileSync(new URL("../electron/main.ts", import.meta.url), "utf8");
-
-// Run the production main-process functions with only external boundaries
-// replaced. These assertions exercise effects, not source-pattern spelling.
-function loadMainSnippet<T>(startMarker: string, endMarker: string, setup: string, exports: string, injected: Record<string, unknown>): T {
-  const start = main.indexOf(startMarker);
-  const end = main.indexOf(endMarker, start);
-  assert.ok(start >= 0 && end > start, `missing main-process helper: ${startMarker}`);
-  const compiled = transpileModule(`${setup}\n${main.slice(start, end)}\nmodule.exports = ${exports};`, {
-    compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 },
-  }).outputText;
-  const module = { exports: {} as T };
-  new Function("module", ...Object.keys(injected), compiled)(module, ...Object.values(injected));
-  return module.exports;
-}
+import type { BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic } from "../electron/backendLifecycleEvent.ts";
+import { DEFAULT_SETTINGS, type AppSettings } from "../electron/settingsMemory.ts";
+import type { SidecarProcess } from "../electron/sidecarLifecycle.ts";
+import {
+  createWorkspaceRuntime,
+  StaleBackendGenerationError,
+  type WorkspaceRuntimeOptions,
+} from "../electron/workspaceRuntime.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>(done => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
-const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function providerReplay(options: { queued?: Promise<void>; body?: Promise<unknown>; push?: Promise<unknown> } = {}) {
+class FakeSidecarProcess extends EventEmitter implements SidecarProcess {
+  stdout = new EventEmitter();
+  stderr = new EventEmitter();
+  pid: number;
+  killed = false;
+  exited = false;
+  killSignals: Array<NodeJS.Signals | number | undefined> = [];
+  autoExitOnKill = true;
+
+  constructor(pid: number) {
+    super();
+    this.pid = pid;
+  }
+
+  emitReady(port: number): void {
+    this.stdout.emit("data", Buffer.from(`ORKWORKSD_PORT=${port}\n`));
+  }
+
+  emitExit(code: number | null = 0, signal: NodeJS.Signals | null = null): void {
+    if (this.exited) return;
+    this.exited = true;
+    this.emit("exit", code, signal);
+  }
+
+  kill(signal?: NodeJS.Signals | number): boolean {
+    this.killed = true;
+    this.killSignals.push(signal);
+    if (this.autoExitOnKill && !this.exited) {
+      queueMicrotask(() => this.emitExit(0, typeof signal === "string" ? signal : null));
+    }
+    return true;
+  }
+}
+
+function makeWorkspace(workspacePath: string, activeHarnessRevision = 1): BackendLifecycleWorkspace {
+  return {
+    path: workspacePath,
+    workspaceIdentity: workspacePath,
+    repo_root: null,
+    branch: null,
+    dirty: false,
+    lastActiveSessionId: null,
+    activeHarnessIds: [],
+    activeHarnessRevision,
+  };
+}
+
+interface FixtureOptions {
+  queued?: Promise<void>;
+  providerBody?: Promise<unknown>;
+  pushResponse?: Promise<Response>;
+  workspaceResponse?: (port: number, init?: { signal?: AbortSignal }) => Promise<Response>;
+  forgetWorkspacePath?: WorkspaceRuntimeOptions["forgetWorkspacePath"];
+  initialHistoryDiagnostic?: WorkspaceHistoryDiagnostic | null;
+  restorationTimeoutMs?: number;
+}
+
+function createRuntimeFixture(options: FixtureOptions = {}) {
   const initialSettings = structuredClone(DEFAULT_SETTINGS);
+  let currentSettings: AppSettings = structuredClone(DEFAULT_SETTINGS);
   const writes: AppSettings[] = [];
   const requests: string[] = [];
+  const processes: FakeSidecarProcess[] = [];
+  const tokens: string[] = [];
   let clears = 0;
-  const replay = loadMainSnippet<{ run(port: number, signal: AbortSignal): Promise<void>; settings(): AppSettings }>(
-    "async function syncSavedProviderSettings(", "\n  let persistedPeonRestoreController",
-    "let currentSettings = initialSettings;",
-    "{ run: syncSavedProviderSettings, settings: () => currentSettings }", {
-      initialSettings, normalizeProviderSettings,
-      enqueueSettingsWrite: async (operation: () => Promise<void>) => { await options.queued; return operation(); },
-      app: { getPath: () => "/test-settings" },
-      readSettings: () => initialSettings,
-      writeSettings: (_path: string, settings: AppSettings) => writes.push(settings),
-      sidecarSend: async () => { requests.push("catalog"); return { ok: true, json: async () => options.body ?? { providers: [{ id: "replacement-provider", label: "Replacement" }] } }; },
-      sidecarUrl: (port: number) => `http://127.0.0.1:${port}`,
-      pushProviderSettings: async () => { requests.push("push"); return options.push ?? {}; },
-      providerSettingsSyncError: () => null,
-      providerModels: { clear: () => { clears++; } },
+  let nextPid = 5000;
+  let tokenSeq = 0;
+
+  const sidecarSend: NonNullable<WorkspaceRuntimeOptions["sidecarSend"]> = async (port, endpoint, init) => {
+    if (endpoint === "workspace") {
+      if (options.workspaceResponse) {
+        return options.workspaceResponse(port, init);
+      }
+      const body = init?.jsonBody as { path?: string } | undefined;
+      const wsPath = body?.path ?? "/workspace";
+      return new Response(JSON.stringify(makeWorkspace(wsPath)), { status: 200 });
+    }
+    if (endpoint === "settings/retention") {
+      return new Response(null, { status: 204 });
+    }
+    if (endpoint === "providers") {
+      requests.push("catalog");
+      return {
+        ok: true,
+        status: 200,
+        json: async () => options.providerBody ?? {
+          providers: [{ id: "replacement-provider", label: "Replacement" }],
+        },
+      } as unknown as Response;
+    }
+    return new Response(null, { status: 404 });
+  };
+
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    requests.push("push");
+    if (options.pushResponse) {
+      return options.pushResponse;
+    }
+    init?.signal?.throwIfAborted();
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  const runtime = createWorkspaceRuntime({
+    generateToken: () => {
+      const token = `token-${++tokenSeq}`;
+      tokens.push(token);
+      return token;
     },
-  );
-  return { ...replay, initialSettings, writes, requests, clears: () => clears };
+    spawnSidecar: () => {
+      const proc = new FakeSidecarProcess(++nextPid);
+      processes.push(proc);
+      return proc;
+    },
+    sidecarSend,
+    fetch: fetchImpl,
+    validateDestination: (candidate) => candidate,
+    canonicalizePath: (candidate) => candidate,
+    rememberWorkspacePath: () => ({ diagnostic: null }),
+    forgetWorkspacePath: options.forgetWorkspacePath ?? (async () => ({ historyDiagnostic: null, navigationDiagnostic: null })),
+    getSettings: () => currentSettings,
+    writeSettings: (next) => {
+      writes.push(next);
+      currentSettings = next;
+    },
+    enqueueSettingsWrite: async (operation) => {
+      if (options.queued) await options.queued;
+      return operation();
+    },
+    clearProviderModelsCache: () => {
+      clears += 1;
+    },
+    initialHistoryDiagnostic: options.initialHistoryDiagnostic ?? null,
+    timers: {
+      setTimeout: (cb, ms) => setTimeout(cb, ms),
+      clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+      now: () => Date.now(),
+      ...(options.restorationTimeoutMs === undefined ? {} : { restorationTimeoutMs: options.restorationTimeoutMs }),
+    },
+    logger: { log() {}, warn() {}, error() {} },
+  });
+
+  async function openReady(wsPath: string, port: number): Promise<FakeSidecarProcess> {
+    const startCount = processes.length;
+    const opening = runtime.openWorkspace(wsPath);
+    await settle();
+    const proc = processes[startCount];
+    assert.ok(proc, `expected spawned sidecar for ${wsPath}`);
+    proc.emitReady(port);
+    const result = await opening;
+    assert.equal(result.ok, true);
+    return proc;
+  }
+
+  return {
+    runtime,
+    processes,
+    tokens,
+    initialSettings,
+    settings: () => currentSettings,
+    writes,
+    requests,
+    clears: () => clears,
+    openReady,
+  };
 }
 
 test("cancelled provider replay waiting in the settings queue has no effects", async () => {
   const queued = deferred<void>();
-  const replay = providerReplay({ queued: queued.promise });
-  const controller = new AbortController();
-  const pending = replay.run(4001, controller.signal);
-  controller.abort();
+  const fixture = createRuntimeFixture({ queued: queued.promise });
+
+  const opening = fixture.runtime.openWorkspace("/ws-queued");
+  await settle();
+  fixture.processes[0].emitReady(4001);
+  await settle();
+
+  // Unexpected sidecar exit cancels restoration while provider replay waits in the settings queue.
+  fixture.processes[0].emitExit(1);
   queued.resolve();
-  await assert.rejects(pending, { name: "AbortError" });
-  assert.deepEqual(replay.requests, []);
-  assert.deepEqual(replay.writes, []);
-  assert.deepEqual(replay.settings(), replay.initialSettings);
+  await opening;
+  await settle();
+
+  assert.deepEqual(fixture.requests, []);
+  assert.deepEqual(fixture.writes, []);
+  assert.deepEqual(fixture.settings(), fixture.initialSettings);
+  assert.equal(fixture.clears(), 0);
+  fixture.runtime.dispose();
 });
 
 test("a stale provider catalog body cannot write settings or push them after cancellation", async () => {
   const body = deferred<unknown>();
-  const replay = providerReplay({ body: body.promise });
-  const controller = new AbortController();
-  const pending = replay.run(4001, controller.signal);
+  const fixture = createRuntimeFixture({ providerBody: body.promise });
+
+  const opening = fixture.runtime.openWorkspace("/ws-stale-catalog");
   await settle();
-  controller.abort();
+  fixture.processes[0].emitReady(4001);
+  await settle();
+
+  assert.deepEqual(fixture.requests, ["catalog"]);
+  fixture.processes[0].emitExit(1);
   body.resolve({ providers: [{ id: "old-workspace-provider", label: "Old workspace" }] });
-  await assert.rejects(pending, { name: "AbortError" });
-  assert.deepEqual(replay.requests, ["catalog"]);
-  assert.deepEqual(replay.writes, []);
-  assert.deepEqual(replay.settings(), replay.initialSettings);
-  assert.equal(replay.clears(), 0);
+  await opening;
+  await settle();
+
+  assert.deepEqual(fixture.requests, ["catalog"]);
+  assert.deepEqual(fixture.writes, []);
+  assert.deepEqual(fixture.settings(), fixture.initialSettings);
+  assert.equal(fixture.clears(), 0);
+  fixture.runtime.dispose();
 });
 
-test("current provider replay still normalizes, persists and pushes settings", async () => {
-  const replay = providerReplay();
-  await replay.run(4002, new AbortController().signal);
-  assert.equal(replay.writes.length, 1);
-  assert.deepEqual(replay.requests, ["catalog", "push"]);
-  assert.equal(replay.clears(), 1);
-  assert.equal(replay.settings().providers.providers.some(provider => provider.id === "replacement-provider"), true);
+test("current provider replay normalizes, persists, pushes settings, and clears model cache", async () => {
+  const fixture = createRuntimeFixture();
+  await fixture.openReady("/ws-current", 4002);
+  // Secondary restoration steps (retention, provider replay) run asynchronously after workspace readiness.
+  await settle();
+  await settle();
+
+  assert.equal(fixture.writes.length, 1);
+  assert.deepEqual(fixture.requests, ["catalog", "push"]);
+  assert.equal(fixture.clears(), 1);
+  assert.equal(
+    fixture.settings().providers.providers.some((provider) => provider.id === "replacement-provider"),
+    true,
+  );
+  fixture.runtime.dispose();
 });
 
 test("a cancelled provider push cannot clear model state for a newer generation", async () => {
-  const push = deferred<unknown>();
-  const replay = providerReplay({ push: push.promise });
-  const controller = new AbortController();
-  const pending = replay.run(4001, controller.signal);
+  const push = deferred<Response>();
+  const fixture = createRuntimeFixture({ pushResponse: push.promise });
+
+  const opening = fixture.runtime.openWorkspace("/ws-stale-push");
   await settle();
-  controller.abort();
-  push.resolve({});
-  await assert.rejects(pending, { name: "AbortError" });
-  assert.equal(replay.clears(), 0);
+  fixture.processes[0].emitReady(4001);
+  await settle();
+
+  assert.deepEqual(fixture.requests, ["catalog", "push"]);
+  fixture.processes[0].emitExit(1);
+  push.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  await opening;
+  await settle();
+
+  assert.equal(fixture.clears(), 0);
+  fixture.runtime.dispose();
 });
 
 for (const outcome of ["success", "failure"] as const) {
-  test(`rejected-workspace history cleanup ${outcome} cannot clear a replacement path`, async () => {
+  test(`rejected-workspace history cleanup ${outcome} cannot clear a replacement path or diagnostic`, async () => {
     const removal = deferred<void>();
-    const warnings: unknown[][] = [];
-    const restore = loadMainSnippet<{
-      run(port: number, signal: AbortSignal): Promise<unknown>;
-      replace(): void;
-      snapshot(): unknown;
-    }>("async function restoreWorkspace(", "\n  async function applyRetentionSettings(",
-      'let workspacePath = "/old"; let workspaceDisplayPath = null; let currentHistoryDiagnostic = null;',
-      '{ run: restoreWorkspace, replace: () => { workspacePath = "/replacement"; }, snapshot: () => ({ workspacePath, currentHistoryDiagnostic }) }', {
-        sidecarSend: async () => ({}),
-        buildWorkspaceRestoreRequest: () => ({}),
-        parseWorkspaceRestoreResponse: async () => ({ ok: false, removeFromHistory: true, failureCode: "invalid_destination", status: 400 }),
-        forgetRememberedWorkspaceWithNavigation: async () => {
-          await removal.promise;
-          if (outcome === "failure") throw new Error("history failure");
-          return { history: { diagnostic: "old diagnostic" }, navigation: null };
-        },
-        app: { getPath: () => "/test-history" }, workspaceNavigationMemory: {},
-        toWorkspaceHistoryDiagnostic: (value: unknown) => value,
-        WorkspaceRestorationFailure, WorkspaceSwitchError,
-        console: { warn: (...args: unknown[]) => warnings.push(args) },
-      });
-    const controller = new AbortController();
-    const pending = restore.run(4001, controller.signal);
+    let workspaceCalls = 0;
+
+    const fixture = createRuntimeFixture({
+      restorationTimeoutMs: 25,
+      workspaceResponse: async (_port) => {
+        workspaceCalls += 1;
+        if (workspaceCalls === 1) {
+          return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+        }
+        return new Response(JSON.stringify(makeWorkspace("/replacement")), { status: 200 });
+      },
+      forgetWorkspacePath: async () => {
+        await removal.promise;
+        if (outcome === "failure") throw new Error("history failure");
+        return {
+          historyDiagnostic: { code: "history_write_failed", message: "old diagnostic" },
+          navigationDiagnostic: null,
+        };
+      },
+    });
+
+    const firstOpen = fixture.runtime.openWorkspace("/old");
     await settle();
-    controller.abort();
-    restore.replace();
+    fixture.processes[0].emitReady(4001);
+
+    // Let restoration time out cleanly while forgetWorkspacePath is still pending.
+    // The attempted sidecar is stopped cleanly (no sticky unresolved failure).
+    const firstResult = await firstOpen;
+    assert.equal(firstResult.ok, false);
+    assert.equal(fixture.runtime.getLifecycle().state, "picker");
+
+    // Open the replacement workspace before the stale forgetWorkspacePath settles.
+    const secondOpen = fixture.runtime.openWorkspace("/replacement");
+    await settle();
+    fixture.processes[1].emitReady(4002);
+    const secondResult = await secondOpen;
+    assert.equal(secondResult.ok, true);
+    assert.equal(fixture.runtime.getWorkspacePath(), "/replacement");
+
     removal.resolve();
-    await assert.rejects(pending, { name: "AbortError" });
-    assert.deepEqual(restore.snapshot(), { workspacePath: "/replacement", currentHistoryDiagnostic: null });
+    await settle();
+
+    assert.equal(fixture.runtime.getWorkspacePath(), "/replacement");
+    assert.equal(fixture.runtime.getInitialWorkspaceSnapshot().historyDiagnostic, null);
+    fixture.runtime.dispose();
   });
 }
 
+test("backend replacement while awaiting readiness cannot dispatch an old runReady operation", async () => {
+  const fixture = createRuntimeFixture();
+  const proc = await fixture.openReady("/ws-a", 4001);
 
-function generationRequests(getReadiness: () => Promise<number>) {
-  return loadMainSnippet<{
-    run(operation: (port: number, token: string, signal: AbortSignal) => Promise<unknown>): Promise<unknown>;
-    replace(): void;
-  }>("const STALE_BACKEND_GENERATION_MESSAGE", "\n  function normalizeDebugAttention",
-    'let backendGeneration = 1; let latestBackendLifecycle = { state: "ready" }; let openPlanToken = "old-token";',
-    '{ run: withReadyBackendGeneration, replace: () => { cancelGenerationBoundRequests(); backendGeneration++; openPlanToken = "new-token"; } }',
-    { restoration: { getReadiness } });
-}
-
-test("backend replacement while awaiting readiness cannot dispatch an old operation", async () => {
-  const readiness = deferred<number>();
-  const requests = generationRequests(() => readiness.promise);
   let dispatched = false;
-  const pending = requests.run(async () => { dispatched = true; });
-  requests.replace();
-  readiness.resolve(4001);
-  await assert.rejects(pending, /workspace changed/i);
+  const pending = fixture.runtime.runReady(async () => {
+    dispatched = true;
+    return "should-not-run";
+  });
+
+  // Invalidate generation synchronously before getReadiness() resolves on the microtask queue.
+  proc.emitExit(1);
+
+  await assert.rejects(pending, (error: unknown) =>
+    error instanceof StaleBackendGenerationError && /workspace changed/i.test(error.message));
   assert.equal(dispatched, false);
+  fixture.runtime.dispose();
 });
 
-test("backend replacement aborts old operations and fences late results while new work succeeds", async () => {
-  let port = 4001;
-  const requests = generationRequests(async () => port);
+test("backend replacement aborts old runReady operations and fences late results while new work succeeds", async () => {
+  const fixture = createRuntimeFixture();
+  await fixture.openReady("/ws-a", 4001);
+
   const oldResult = deferred<string>();
   let oldSignal: AbortSignal | undefined;
-  const pending = requests.run(async (_port, _token, signal) => { oldSignal = signal; return oldResult.promise; });
+  const pending = fixture.runtime.runReady(async ({ port, token, signal }) => {
+    assert.equal(port, 4001);
+    assert.equal(token, "token-1");
+    oldSignal = signal;
+    return oldResult.promise;
+  });
   await settle();
-  requests.replace();
-  port = 4002;
+  assert.equal(oldSignal?.aborted, false);
+
+  // Switch to a replacement workspace.
+  const switching = fixture.runtime.openWorkspace("/ws-b");
+  await settle();
   assert.equal(oldSignal?.aborted, true);
-  const current = await requests.run(async (readyPort, token, signal) => {
-    assert.equal(readyPort, 4002);
-    assert.equal(token, "new-token");
+  assert.equal(fixture.processes.length, 2);
+  fixture.processes[1].emitReady(4002);
+  const switchResult = await switching;
+  assert.equal(switchResult.ok, true);
+
+  const current = await fixture.runtime.runReady(async ({ port, token, signal, workspacePath }) => {
+    assert.equal(port, 4002);
+    assert.equal(token, "token-2");
+    assert.equal(workspacePath, "/ws-b");
     assert.equal(signal.aborted, false);
     return "current result";
   });
+
   oldResult.resolve("obsolete result");
-  await assert.rejects(pending, /workspace changed/i);
+  await assert.rejects(pending, (error: unknown) =>
+    error instanceof StaleBackendGenerationError && /workspace changed/i.test(error.message));
   assert.equal(current, "current result");
+  fixture.runtime.dispose();
+});
+
+test("runReady enforces expectedWorkspacePath, expectedBackendUrl, and custom stale messages", async () => {
+  const fixture = createRuntimeFixture();
+  await fixture.openReady("/ws-a", 4001);
+
+  await assert.rejects(
+    fixture.runtime.runReady(async () => "never", {
+      expectedWorkspacePath: "/ws-other",
+      staleMessage: "Custom stale message",
+    }),
+    (error: unknown) => error instanceof StaleBackendGenerationError && error.message === "Custom stale message",
+  );
+
+  await assert.rejects(
+    fixture.runtime.runReady(async () => "never", {
+      expectedWorkspacePath: "/ws-a",
+      expectedBackendUrl: "http://127.0.0.1:9999",
+    }),
+    (error: unknown) => error instanceof StaleBackendGenerationError,
+  );
+
+  const ok = await fixture.runtime.runReady(
+    async ({ url, workspacePath }) => ({ url, workspacePath }),
+    { expectedWorkspacePath: "/ws-a", expectedBackendUrl: "http://127.0.0.1:4001" },
+  );
+  assert.deepEqual(ok, { url: "http://127.0.0.1:4001", workspacePath: "/ws-a" });
+  fixture.runtime.dispose();
 });

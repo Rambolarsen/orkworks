@@ -12,9 +12,8 @@ import { spawn, execFile } from "child_process";
 import { stat } from "node:fs/promises";
 import { inspectSessionApp, openSessionApp, sessionAppInvocation, type SessionAppDependencies } from "./sessionAppOpener";
 import { normalizeImageCreation, submitImageSession } from "./sessionImages";
-import { createHash, randomBytes } from "crypto";
+import { randomBytes } from "crypto";
 import { existsSync, readFileSync } from "fs";
-import type { AppUpdater, NsisUpdater, UpdateInfo } from "electron-updater";
 import { KnowledgeUpdates, synchronizeKnowledge } from "./knowledgeUpdates";
 import { taskmasterRequest } from "./taskmasterSettings";
 import * as path from "path";
@@ -26,28 +25,23 @@ import { createShellLayoutMemory } from "./shellLayoutMemory";
 import { confirmShellMemoryRebuild } from "./shellMemoryRebuild";
 import { createWorkspaceNavigationMemory, forgetRememberedWorkspaceWithNavigation, type LastCentralSurface } from "./workspaceNavigationMemory";
 import type { AppSettings, RendererSettings } from "./settingsMemory";
-import { DEFAULT_HOTKEYS, DEFAULT_RETENTION, loadSettingsForStartup, normalizeDebugSettings, normalizeProviderSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
-import { providerSettingsSyncError, pushProviderSettings } from "./providerSettingsSync";
-import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, ProviderApplyStatus, ProviderDefinition, ProviderId, ProviderModelOption } from "./providerTypes";
+import { DEFAULT_HOTKEYS, loadSettingsForStartup, normalizeDebugSettings, normalizeRetention, readSettings, settingsWithHotkeys, settingsWithPeonSelection, validateHotkeys, writeSettings } from "./settingsMemory";
+import type { PeonAppliedState, PeonProviderVerificationResponse, PeonSelectionSaveResult, ProviderApplyStatus, ProviderId, ProviderModelOption } from "./providerTypes";
 import { createPeonSelectionTransaction, normalizePeonSelectionInput, type PeonSelectionTransaction } from "./peonSelectionTransaction";
 import { buildMenuTemplate } from "./menuTemplate";
 import { getSessionPlanContent, requestSessionPlanReview, selectTerminalPlan, useLatestPlanDocument, resetSavedPlanDocuments, validatePlanRecoveryId, validatePlanDocumentKind, validatePlanSelectionId } from "./planOpener";
 import { configureExternalLinks, openExternalLink } from "./externalLinks";
-import { createSidecarLifecycle, type SidecarLifecycle, type SidecarProcess, type SidecarState } from "./sidecarLifecycle";
-import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody, setSidecarRendererToken, sidecarAccessHeaders } from "./sidecarClient";
-import { channelForVersion, createUpdateService, type UpdateCandidate, type UpdateEngine, type UpdateEngineEvent, type UpdateService } from "./updateService";
-import { createBackendRestorationCoordinator, WorkspaceRestorationFailure, type BackendRestorationCoordinator } from "./backendRestoration";
-import { buildWorkspaceRestoreRequest, parseWorkspaceRestoreResponse, sameWorkspaceIdentity } from "./workspaceRestore";
-import { workspaceHistoryPath } from "./workspaceRestore";
-import type { BackendLifecycleEvent, BackendLifecycleWorkspace, BackendRetryResult, InitialWorkspaceSnapshot, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
-import { createWorkspaceSwitchCoordinator, WorkspaceSwitchError, type WorkspaceSwitchCoordinator, type WorkspaceSwitchEvent } from "./workspaceSwitchCoordinator";
-import { BACKEND_UNAVAILABLE_MESSAGE } from "./backendLifecycleFailure";
+import type { SidecarProcess } from "./sidecarLifecycle";
+import { sidecarSend, sidecarUrl, parseErrorBody, parsePeonError, errorFromBody, setSidecarRendererToken } from "./sidecarClient";
+import { createUpdateService, type UpdateService } from "./updateService";
+import { createElectronUpdateEngine, registerUpdateIpc } from "./electronUpdateEngine";
+import type { BackendRetryResult, WorkspaceHistoryDiagnostic } from "./backendLifecycleEvent";
+import { createWorkspaceRuntime, StaleBackendGenerationError, type WorkspaceRuntime } from "./workspaceRuntime";
 import { rendererConsoleDiagnostic, rendererConsoleLevel, rendererOrigin, sanitizeRendererDiagnosticMessage } from "./rendererDiagnostic";
 import { recoveryDocumentUrl } from "./rendererRecoveryDocument";
 import { createRecoveryDocumentGuard, isSupersededNavigation } from "./rendererRecoveryState";
 import {
   enableHarnessImmediate,
-  isStale,
   saveActiveHarnessesWithIntegrations,
   type ActiveHarnessSaveResult,
   type ElectronHarnessConfig,
@@ -76,21 +70,15 @@ if (!app.isPackaged && (process.env.ORKWORKS_DEV_PORT ?? "").trim() !== "") {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let sidecarLifecycle: SidecarLifecycle | null = null;
-let backendRestoration: BackendRestorationCoordinator<BackendLifecycleWorkspace> | null = null;
+let workspaceRuntime: WorkspaceRuntime | null = null;
 let updateService: UpdateService | null = null;
-let workspaceSwitchCoordinator: WorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic> | null = null;
 let quitInProgress = false;
 let quitBypass = false;
-let workspacePath: string | null = null;
-let workspaceDisplayPath: string | null = null;
-let pendingWorkspaceDisplayPath: string | null = null;
 let menuPanelItems: Record<string, Electron.MenuItem> = {};
 let currentSettings: AppSettings | null = null;
 let providerModels = new Map<string, { models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] }>();
 const peonModelCatalogCache = new Map<string, { models: ProviderModelOption[]; observedAt: string }>();
 let hotkeyCaptureActive = false;
-let openPlanToken = "";
 // Lower-privilege credential for the renderer and ordinary main-process calls
 // (ADR 0117). It lives for this app run; openPlanToken stays main-only.
 const rendererToken = randomBytes(32).toString("hex");
@@ -98,310 +86,27 @@ setSidecarRendererToken(rendererToken);
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 const menuPanelIds = ["sessions", "detail", "terminal", "recommendations"];
 
-type ElectronUpdateInfo = UpdateInfo & {
-  tag?: string;
-  downloadedFile?: string;
-};
-
-async function discoverProviderModels(port: number, providerId: string, ollamaBaseUrl?: string): Promise<{ models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] }> {
+async function discoverProviderModels(
+  port: number,
+  providerId: string,
+  ollamaBaseUrl?: string,
+  signal?: AbortSignal,
+): Promise<{ models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] }> {
   const response = await sidecarSend(port, `settings/providers/${encodeURIComponent(providerId)}/models`, {
     method: "POST",
     jsonBody: ollamaBaseUrl ? { baseUrl: ollamaBaseUrl } : {},
+    ...(signal ? { signal } : {}),
   });
   if (!response.ok) throw new Error("model discovery failed");
   return await response.json() as { models: string[]; modelOptions?: import("./providerTypes").ProviderModelOption[] };
 }
 
-async function listSessions(port: number): Promise<Array<{ lifecycle?: string }>> {
-  const response = await sidecarSend(port, "sessions");
+async function listSessions(port: number, signal?: AbortSignal): Promise<Array<{ lifecycle?: string }>> {
+  const response = await sidecarSend(port, "sessions", signal ? { signal } : {});
   if (!response.ok) throw new Error(`list sessions failed: ${response.status}`);
   const sessions: unknown = await response.json();
   if (!Array.isArray(sessions)) throw new Error("list sessions failed: malformed response");
   return sessions as Array<{ lifecycle?: string }>;
-}
-
-function updateCandidate(info: ElectronUpdateInfo, channel: "latest" | "nightly", metadataUrl: string | null): UpdateCandidate {
-  const tag = info.tag;
-  const metadataFile = process.platform === "darwin" ? `${channel}-mac.yml` : `${channel}.yml`;
-  if (channelForVersion(info.version) !== channel || tag !== `v${info.version}`
-    || metadataUrl !== `https://github.com/Rambolarsen/orkworks/releases/download/${encodeURIComponent(tag)}/${metadataFile}`) {
-    throw new Error("Update metadata does not match the requested channel, version, and release tag.");
-  }
-  const payload = info.files?.find(({ url }) => url.endsWith(process.platform === "darwin" ? ".zip" : ".exe"));
-  if (!payload || !/^[A-Za-z0-9+/]{86}==$/.test(payload.sha512)) {
-    throw new Error("Update metadata is missing a valid platform payload checksum.");
-  }
-  // UpdateDownloadedEvent extends UpdateInfo with a local completion path.
-  // Hash the same release metadata at check, completion, and revalidation.
-  const { downloadedFile: _downloadedFile, ...releaseMetadata } = info;
-  const metadataDigest = createHash("sha256").update(JSON.stringify(releaseMetadata)).digest("hex");
-  const releaseNotes = Array.isArray(info.releaseNotes)
-    ? info.releaseNotes.map(({ note }) => note).filter((note): note is string => note !== null).join("\n\n") || null
-    : info.releaseNotes ?? null;
-  return {
-    identity: {
-      channel,
-      version: info.version,
-      tag,
-      metadataUrl,
-      metadataDigest: `sha256:${metadataDigest}`,
-      payloadDigest: `sha512:${payload.sha512}`,
-    },
-    releaseNotes,
-    publishedAt: info.releaseDate || null,
-  };
-}
-
-function sameUpdateCandidate(left: UpdateCandidate, right: UpdateCandidate): boolean {
-  return left.identity.channel === right.identity.channel
-    && left.identity.version === right.identity.version
-    && left.identity.tag === right.identity.tag
-    && left.identity.metadataUrl === right.identity.metadataUrl
-    && left.identity.metadataDigest === right.identity.metadataDigest
-    && left.identity.payloadDigest === right.identity.payloadDigest;
-}
-
-function createElectronUpdateEngine(autoUpdater: AppUpdater): {
-  engine: UpdateEngine;
-  verifyCandidate(candidate: UpdateCandidate): Promise<boolean>;
-} {
-  const updaterSettings = {
-    autoDownload: false,
-    autoInstallOnAppQuit: false,
-    allowDowngrade: false,
-  };
-  Object.assign(autoUpdater, updaterSettings);
-  autoUpdater.setFeedURL({ provider: "github", owner: "Rambolarsen", repo: "orkworks" });
-  autoUpdater.requestHeaders = { "Cache-Control": "no-cache" };
-  autoUpdater.disableWebInstaller = true;
-
-  const listeners = new Set<(event: UpdateEngineEvent) => void>();
-  let channel: "latest" | "nightly" = "latest";
-  let downloadedCandidate: UpdateCandidate | null = null;
-  let metadataUrl: string | null = null;
-  let signatureVerified = false;
-  // Observe the public NSIS verifier without replacing or bypassing its verdict.
-  // Cached downloads that skip it cannot establish verification in this process.
-  const windowsUpdater = autoUpdater as AppUpdater & Partial<Pick<NsisUpdater, "verifyUpdateCodeSignature">>;
-  if (process.platform === "win32" && typeof windowsUpdater.verifyUpdateCodeSignature === "function") {
-    let verifyingPublishers: string[] | null = null;
-    let verificationWarning = false;
-    const logger = autoUpdater.logger;
-    autoUpdater.logger = {
-      info: (message) => logger?.info(message),
-      error: (message) => logger?.error(message),
-      debug: (message) => logger?.debug?.(message),
-      warn: (message) => {
-        // The release pipeline pins the certificate SimpleName (CN). This exact
-        // pinned-verifier message means a successful match, not skipped checks.
-        if (verifyingPublishers !== null && !verifyingPublishers.some((publisher) => message ===
-          `Signature validated using only CN ${publisher}. Please add your full Distinguished Name (DN) to publisherNames configuration`)) {
-          verificationWarning = true;
-        }
-        logger?.warn(message);
-      },
-    };
-    const verify = windowsUpdater.verifyUpdateCodeSignature.bind(autoUpdater);
-    windowsUpdater.verifyUpdateCodeSignature = async (publishers, file) => {
-      signatureVerified = false;
-      if (!publishers.length || publishers.some((publisher) => !publisher.trim())) {
-        return "Update signature verification requires an expected publisher.";
-      }
-      verificationWarning = false;
-      verifyingPublishers = publishers;
-      try {
-        const failure = await verify(publishers, file);
-        // The pinned verifier can warn and return null after skipping validation
-        // (e.g. unsupported PowerShell or missing path). Only the explicit
-        // successful SimpleName message above is exempt from failing closed.
-        signatureVerified = failure === null && !verificationWarning;
-        return failure ?? (signatureVerified ? null : "Windows signature verification could not be established without warnings.");
-      } finally {
-        verifyingPublishers = null;
-      }
-    };
-  }
-  // GitHubProvider falls back to latest metadata on *any* prerelease metadata
-  // error. Cancel that request in the updater's own public Electron session.
-  autoUpdater.netSession.webRequest.onBeforeRequest({
-    urls: ["https://github.com/Rambolarsen/orkworks/releases/download/*"],
-  }, ({ url }, callback) => {
-    const parsed = new URL(url);
-    if (!parsed.pathname.endsWith(".yml")) return callback({});
-    const expected = process.platform === "darwin" ? `${channel}-mac.yml` : `${channel}.yml`;
-    const allowed = parsed.pathname.endsWith(`/${expected}`);
-    if (allowed) metadataUrl = url;
-    callback({ cancel: !allowed });
-  });
-  let operationQueue: Promise<void> = Promise.resolve();
-  const emit = (event: UpdateEngineEvent): void => {
-    for (const listener of listeners) listener(event);
-  };
-  const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = operationQueue.then(operation, operation);
-    operationQueue = result.then(() => undefined, () => undefined);
-    return result;
-  };
-
-  const engine: UpdateEngine = {
-    // NSIS schedules quit before async spawn failure is known and exposes no
-    // supported latch reset/retry handshake. Block before any sidecar effects.
-    installationUnavailableReason: process.platform === "win32"
-      ? "Windows installation is unavailable: installer failure cannot be recovered safely through the public updater API. Install a signed release manually."
-      : "Installation is unavailable: native verification cannot be completed safely before shutdown. Install a signed release manually.",
-    get autoDownload() { return autoUpdater.autoDownload; },
-    set autoDownload(value) { autoUpdater.autoDownload = value; },
-    get autoInstallOnAppQuit() { return autoUpdater.autoInstallOnAppQuit; },
-    set autoInstallOnAppQuit(value) { autoUpdater.autoInstallOnAppQuit = value; },
-    get allowDowngrade() { return autoUpdater.allowDowngrade; },
-    set allowDowngrade(value) { autoUpdater.allowDowngrade = value; },
-    get allowPrerelease() { return autoUpdater.allowPrerelease; },
-    set allowPrerelease(value) { autoUpdater.allowPrerelease = value; },
-    get channel() { return channel; },
-    set channel(value) {
-      channel = value;
-      autoUpdater.channel = value;
-      autoUpdater.allowDowngrade = false;
-    },
-    onEvent(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    checkForUpdates(operationId) {
-      return serialize(async () => {
-        metadataUrl = null;
-        const operation = { id: operationId, channel, finished: false };
-        const cleanup = () => {
-          autoUpdater.removeListener("update-available", onAvailable);
-          autoUpdater.removeListener("update-not-available", onNotAvailable);
-          autoUpdater.removeListener("error", onError);
-        };
-        const finish = (event: UpdateEngineEvent) => {
-          if (operation.finished) return;
-          operation.finished = true;
-          cleanup();
-          emit(event);
-        };
-        const onAvailable = (info: ElectronUpdateInfo) => {
-          if (operation.finished) return;
-          try {
-            finish({ type: "update-available", operationId: operation.id,
-              candidate: updateCandidate(info, operation.channel, metadataUrl) });
-          } catch (error) {
-            onError(error instanceof Error ? error : new Error(String(error)));
-          }
-        };
-        const onNotAvailable = () => finish({ type: "update-not-available", operationId: operation.id });
-        const onError = (error: Error) => finish({
-          type: "error",
-          operation: "check",
-          operationId: operation.id,
-          message: error.message,
-        });
-        autoUpdater.on("update-available", onAvailable);
-        autoUpdater.on("update-not-available", onNotAvailable);
-        autoUpdater.on("error", onError);
-        try {
-          await autoUpdater.checkForUpdates();
-        } catch (error) {
-          onError(error instanceof Error ? error : new Error(String(error)));
-          throw error;
-        } finally {
-          operation.finished = true;
-          cleanup();
-        }
-      });
-    },
-    downloadUpdate(operationId) {
-      return serialize(async () => {
-        downloadedCandidate = null;
-        signatureVerified = false;
-        let completedCandidate: UpdateCandidate | null = null;
-        const operation = { id: operationId, channel, finished: false };
-        const cleanup = () => {
-          autoUpdater.removeListener("download-progress", onProgress);
-          autoUpdater.removeListener("update-downloaded", onDownloaded);
-          autoUpdater.removeListener("error", onError);
-        };
-        const finish = (event: UpdateEngineEvent) => {
-          if (operation.finished) return;
-          operation.finished = true;
-          cleanup();
-          emit(event);
-        };
-        const onProgress = (progress: { percent: number; transferred: number; total: number }) => {
-          if (operation.finished) return;
-          emit({
-            type: "download-progress",
-            operationId: operation.id,
-            percent: progress.percent,
-            transferred: progress.transferred,
-            total: progress.total,
-          });
-        };
-        const onDownloaded = (info: ElectronUpdateInfo) => {
-          if (!operation.finished) completedCandidate = updateCandidate(info, operation.channel, metadataUrl);
-        };
-        const onError = (error: Error) => finish({
-          type: "error",
-          operation: "download",
-          operationId: operation.id,
-          message: error.message,
-        });
-        autoUpdater.on("download-progress", onProgress);
-        autoUpdater.on("update-downloaded", onDownloaded);
-        autoUpdater.on("error", onError);
-        try {
-          await autoUpdater.downloadUpdate();
-          if (!operation.finished && completedCandidate !== null) {
-            downloadedCandidate = completedCandidate;
-            finish({ type: "update-downloaded", operationId: operation.id, candidate: completedCandidate });
-          }
-        } catch (error) {
-          onError(error instanceof Error ? error : new Error(String(error)));
-          throw error;
-        } finally {
-          operation.finished = true;
-          cleanup();
-        }
-      });
-    },
-    async quitAndInstall() {
-      // Also fail closed if a caller bypasses the service's availability guard.
-      throw new Error(engine.installationUnavailableReason!);
-    },
-  };
-
-  return {
-    engine,
-    verifyCandidate: (candidate) => serialize(async () => {
-      if (process.platform !== "win32" || !signatureVerified || downloadedCandidate === null
-        || !sameUpdateCandidate(candidate, downloadedCandidate)) return false;
-      metadataUrl = null;
-      const current = await autoUpdater.checkForUpdates();
-      return current !== null && sameUpdateCandidate(candidate,
-        updateCandidate(current.updateInfo, channel, metadataUrl));
-    }),
-  };
-}
-
-function registerUpdateIpc(service: UpdateService): void {
-  const updateSubscriptions = new Map<number, () => void>();
-  ipcMain.handle("get-update-status", () => service.getStatus());
-  ipcMain.handle("check-for-updates", () => service.check());
-  ipcMain.handle("download-update", () => service.download());
-  ipcMain.handle("request-update-install", () => service.requestInstall());
-  ipcMain.on("subscribe-update-status", (event) => {
-    const senderId = event.sender.id;
-    updateSubscriptions.get(senderId)?.();
-    const unsubscribe = service.subscribe((status) => event.sender.send("update-status", status));
-    updateSubscriptions.set(senderId, unsubscribe);
-    event.sender.once("destroyed", () => {
-      if (updateSubscriptions.get(senderId) !== unsubscribe) return;
-      updateSubscriptions.delete(senderId);
-      unsubscribe();
-    });
-  });
 }
 
 function rendererSettings(settings: AppSettings): RendererSettings {
@@ -559,11 +264,6 @@ function updateDockIcon(): void {
   }
 }
 
-function logBackendLifecycleFailure(scope: string, error: unknown): void {
-  const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-  console.error("[main] backend lifecycle failure", scope, detail);
-}
-
 function toWorkspaceHistoryDiagnostic(
   diagnostic: WorkspaceMemoryDiagnostic | null,
 ): WorkspaceHistoryDiagnostic | null {
@@ -593,22 +293,11 @@ app.whenReady().then(async () => {
     console.warn("[main] workspace history diagnostic", appMemory.diagnostic.message);
   }
   const initialHistoryDiagnostic = toWorkspaceHistoryDiagnostic(appMemory.diagnostic);
-  let currentHistoryDiagnostic = initialHistoryDiagnostic;
-  workspacePath = null;
   currentSettings = loadSettingsForStartup(app.getPath("userData"));
   const shellLayoutMemory = createShellLayoutMemory(app.getPath("userData"));
   const workspaceNavigationMemory = createWorkspaceNavigationMemory(app.getPath("userData"));
 
-  let latestBackendLifecycle: BackendLifecycleEvent = { state: "picker" };
-  const clearSessionNotifications = installSessionNotificationIpc(
-    () => mainWindow,
-    () => latestBackendLifecycle.state === "ready"
-      && currentSettings?.desktopSessionNotifications === true,
-    { ipc: ipcMain, isSupported: () => Notification.isSupported(), create: options => new Notification(options) },
-  );
-  let lastBackendFailure = "The OrkWorks sidecar is unavailable.";
   let appliedPeonState: PeonAppliedState | null = null;
-  let backendGeneration = 0;
   const knowledgeResources = app.isPackaged
     ? path.join(process.resourcesPath, "knowledge")
     : path.join(__dirname, "../resources/knowledge");
@@ -619,41 +308,6 @@ app.whenReady().then(async () => {
     publicKey: existsSync(knowledgeKeyPath) ? readFileSync(knowledgeKeyPath, "utf8") : "",
     feedUrl: "https://rambolarsen.github.io/brain/orkworks-knowledge/manifest.json",
   });
-  const STALE_BACKEND_GENERATION_MESSAGE =
-    "The workspace changed before this request could run. Reload the current workspace and retry.";
-  const generationBoundRequestControllers = new Set<AbortController>();
-
-  function cancelGenerationBoundRequests(): void {
-    for (const controller of generationBoundRequestControllers) controller.abort();
-    generationBoundRequestControllers.clear();
-  }
-
-  function assertCurrentReadyBackendGeneration(generation: number): void {
-    if (generation !== backendGeneration || latestBackendLifecycle.state !== "ready") {
-      throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
-    }
-  }
-
-  async function withReadyBackendGeneration<T>(
-    operation: (port: number, token: string, signal: AbortSignal) => Promise<T>,
-  ): Promise<T> {
-    if (latestBackendLifecycle.state !== "ready") {
-      throw new Error("Workspace transition is in progress");
-    }
-    const generation = backendGeneration;
-    const port = await restoration.getReadiness();
-    assertCurrentReadyBackendGeneration(generation);
-    const token = openPlanToken;
-    const controller = new AbortController();
-    generationBoundRequestControllers.add(controller);
-    try {
-      const result = await operation(port, token, controller.signal);
-      assertCurrentReadyBackendGeneration(generation);
-      return result;
-    } finally {
-      generationBoundRequestControllers.delete(controller);
-    }
-  }
 
   function normalizeDebugAttention(value: unknown): string {
     if (value === "working" || value === "idle" || value === "needs_you"
@@ -661,182 +315,110 @@ app.whenReady().then(async () => {
     throw new Error("Invalid debug attention.");
   }
 
+  function persistedOllamaBaseUrl(): string | undefined {
+    return currentSettings?.providers.peonSelection?.ollamaBaseUrl
+      ?? currentSettings?.providers.ollamaBaseUrl;
+  }
+
+  const clearSessionNotifications = installSessionNotificationIpc(
+    () => mainWindow,
+    () => workspaceRuntime?.getLifecycle().state === "ready"
+      && currentSettings?.desktopSessionNotifications === true,
+    { ipc: ipcMain, isSupported: () => Notification.isSupported(), create: options => new Notification(options) },
+  );
+
+  const runtime = createWorkspaceRuntime({
+    generateToken: () => {
+      const openPlanToken = randomBytes(32).toString("hex");
+      return openPlanToken;
+    },
+    spawnSidecar: (cwd, openPlanToken): SidecarProcess => {
+      const binaryPath = getSidecarPath();
+      console.log(`[main] starting sidecar: ${binaryPath}`);
+      console.log(`[main] sidecar cwd: ${cwd}`);
+      const child = spawn(binaryPath, [], {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken, ORKWORKS_RENDERER_TOKEN: rendererToken },
+      });
+      child.stderr?.on("data", (data: Buffer) => {
+        console.error(`[orkworksd:err] ${data.toString().trim()}`);
+      });
+      return child as SidecarProcess;
+    },
+    validateDestination: (candidate) => accessibleWorkspaceDirectoryPath(candidate),
+    canonicalizePath: (candidate) => canonicalWorkspacePath(candidate),
+    rememberWorkspacePath: (canonicalPath) => {
+      const result = rememberWorkspacePath(app.getPath("userData"), canonicalPath);
+      return { diagnostic: toWorkspaceHistoryDiagnostic(result.diagnostic) };
+    },
+    forgetWorkspacePath: async (rejectedPath) => {
+      const result = await forgetRememberedWorkspaceWithNavigation(
+        app.getPath("userData"),
+        rejectedPath,
+        workspaceNavigationMemory,
+      );
+      return {
+        historyDiagnostic: toWorkspaceHistoryDiagnostic(result.history.diagnostic),
+        navigationDiagnostic: result.navigation && !result.navigation.ok ? result.navigation.diagnostic : null,
+      };
+    },
+    getSettings: () => currentSettings ?? readSettings(app.getPath("userData")),
+    writeSettings: (nextSettings) => {
+      writeSettings(app.getPath("userData"), nextSettings);
+      currentSettings = nextSettings;
+    },
+    enqueueSettingsWrite,
+    clearProviderModelsCache: () => {
+      providerModels.clear();
+    },
+    initialHistoryDiagnostic,
+    onLifecycleChange: (event) => {
+      clearSessionNotifications();
+      mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
+    },
+    onReadySideEffects: ({ port, signal, isCurrent }) => {
+      restorePersistedPeonSelection(port, signal, isCurrent);
+      void refreshKnowledge();
+    },
+  });
+  workspaceRuntime = runtime;
+
   let knowledgeSync: Promise<void> | null = null;
   function refreshKnowledge(): Promise<void> {
     if (knowledgeSync) return knowledgeSync;
-    const requestedGeneration = backendGeneration;
-    knowledgeSync = (async () => {
-      const generation = backendGeneration;
-      const port = await restoration.getReadiness();
-      const token = openPlanToken;
-      const stillCurrent = () => generation === backendGeneration && token === openPlanToken;
-      if (!stillCurrent()) return;
+    if (runtime.getLifecycle().state !== "ready") return Promise.resolve();
+    const requestedGeneration = runtime.getGeneration();
+    knowledgeSync = runtime.runReady(async ({ port, token, isCurrent }) => {
       const status = await taskmasterRequest(port, token, "settings");
+      if (!isCurrent()) return;
       const settings = status.settings as { automaticKnowledgeUpdates?: boolean };
       knowledgeUpdates.setEnabled(settings.automaticKnowledgeUpdates !== false);
-      await synchronizeKnowledge(knowledgeUpdates,
-        (activation) => taskmasterRequest(port, token, "knowledge", activation), stillCurrent);
-    })().catch((error: unknown) => {
+      await synchronizeKnowledge(
+        knowledgeUpdates,
+        (activation) => taskmasterRequest(port, token, "knowledge", activation),
+        isCurrent,
+      );
+    }).catch((error: unknown) => {
+      if (error instanceof StaleBackendGenerationError) return;
       console.warn("[taskmaster] knowledge unavailable:", error instanceof Error ? error.message : "unknown error");
     }).finally(() => {
       knowledgeSync = null;
-      if (requestedGeneration !== backendGeneration) void refreshKnowledge();
+      if (requestedGeneration !== runtime.getGeneration() && runtime.getLifecycle().state === "ready") {
+        void refreshKnowledge();
+      }
     });
     return knowledgeSync;
   }
   const knowledgeTimer = setInterval(() => { void refreshKnowledge(); }, 6 * 60 * 60 * 1000);
   knowledgeTimer.unref();
   app.once("before-quit", () => { clearInterval(knowledgeTimer); knowledgeUpdates.setEnabled(false); });
-  let activeHarnessRevision = 0;
 
-  function publishBackendLifecycle(event: BackendLifecycleEvent): void {
-    clearSessionNotifications();
-    latestBackendLifecycle = event;
-    mainWindow?.webContents.send("orkworks:backend-lifecycle", event);
-  }
-
-  function rememberRestoredWorkspace(workspace: BackendLifecycleWorkspace | null): WorkspaceHistoryDiagnostic | null {
-    const restoredPath = workspaceHistoryPath(workspacePath, workspace);
-    if (!restoredPath) return currentHistoryDiagnostic;
-    const canonicalPath = canonicalWorkspacePath(restoredPath);
-    if (!canonicalPath) {
-      currentHistoryDiagnostic = {
-        code: "history_write_failed",
-        message: "Workspace history could not be saved; the ready workspace was kept.",
-      };
-      console.warn("[main] workspace history was not updated", "workspace path could not be canonicalized");
-      return currentHistoryDiagnostic;
-    }
-    try {
-      const result = rememberWorkspacePath(app.getPath("userData"), canonicalPath);
-      const diagnostic = result.diagnostic;
-      currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic(diagnostic);
-      if (currentHistoryDiagnostic) {
-        console.warn("[main] workspace history was not updated", diagnostic?.message);
-      }
-    } catch (error) {
-      currentHistoryDiagnostic = {
-        code: "history_write_failed",
-        message: "Workspace history could not be saved; the ready workspace was kept.",
-      };
-      console.warn("[main] workspace history was not updated", error instanceof Error ? error.message : "unknown error");
-    }
-    return currentHistoryDiagnostic;
-  }
-
-  async function restoreWorkspace(port: number, signal: AbortSignal): Promise<BackendLifecycleWorkspace | null> {
-    if (!workspacePath) return null;
-
-    const displayPath = workspaceDisplayPath ?? workspacePath;
-    const response = await sidecarSend(port, "workspace", {
-      method: "POST",
-      jsonBody: buildWorkspaceRestoreRequest(displayPath, workspacePath),
-      signal,
-    });
-    const restoreResult = await parseWorkspaceRestoreResponse(response);
-    signal.throwIfAborted();
-    if (!restoreResult.ok) {
-      const rejectedPath = workspacePath;
-      console.warn(`[main] remembered workspace path was rejected by the sidecar: ${rejectedPath}`);
-      if (restoreResult.removeFromHistory) {
-        try {
-          const result = await forgetRememberedWorkspaceWithNavigation(app.getPath("userData"), rejectedPath, workspaceNavigationMemory);
-          signal.throwIfAborted();
-          const diagnostic = result.history.diagnostic;
-          currentHistoryDiagnostic = toWorkspaceHistoryDiagnostic(diagnostic);
-          if (currentHistoryDiagnostic) {
-            console.warn("[main] rejected workspace could not be removed from history", diagnostic?.message);
-          }
-          if (result.navigation && !result.navigation.ok) {
-            console.warn("[main] rejected workspace navigation could not be removed", result.navigation.diagnostic);
-          }
-        } catch (error) {
-          signal.throwIfAborted();
-          console.warn("[main] rejected workspace could not be removed from history", error instanceof Error ? error.message : "unknown error");
-        }
-      }
-      workspacePath = null;
-      if (restoreResult.failureCode === "destination_conflict") {
-        throw new WorkspaceSwitchError("destination_conflict", "Workspace is already owned by another sidecar.");
-      }
-      throw new WorkspaceRestorationFailure(restoreResult.status);
-    }
-    return restoreResult.workspace;
-  }
-
-  async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
-    const retention = currentSettings?.retention ?? DEFAULT_RETENTION;
-    try {
-      const response = await sidecarSend(port, "settings/retention", {
-        method: "POST",
-        jsonBody: retention,
-        signal,
-      });
-      signal.throwIfAborted();
-      if (!response.ok) {
-        console.warn(`[main] failed to restore retention settings: ${response.status}`);
-      }
-    } catch (error) {
-      signal.throwIfAborted();
-      console.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
-    }
-  }
-
-  async function persistActiveHarnesses(
-    ids: string[],
-    expectedActiveHarnessRevision: number,
-  ): Promise<
-    | { ok: true; activeHarnessRevision: number }
-    | { ok: false; error: string; code?: string }
-  > {
-    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
-    const port = await restoration.getReadiness();
-    if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
-      // Workspace switched mid-await: readiness now resolves to a different
-      // sidecar than the one this save started against. Skip the write
-      // rather than persisting the old workspace's selection into the new
-      // one's backend; saveActiveHarnessesWithIntegrations independently
-      // re-checks the guard right after this resolves and reports
-      // stale_workspace, so this result is discarded either way.
-      return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
-    }
-    const response = await sidecarSend(port, "workspace/active-harnesses", {
-      method: "PUT",
-      jsonBody: { activeHarnessIds: ids, expectedActiveHarnessRevision },
-    });
-    if (response.ok) {
-      const body = await response.json() as { activeHarnessRevision?: unknown };
-      const savedActiveHarnessRevision = body.activeHarnessRevision;
-      if (
-        typeof savedActiveHarnessRevision !== "number" ||
-        !Number.isInteger(savedActiveHarnessRevision) ||
-        savedActiveHarnessRevision < 0
-      ) {
-        return { ok: false, error: "The sidecar returned an invalid active harness revision." };
-      }
-      // The workspace can switch while this PUT is in flight. Discard a stale
-      // response without overwriting the revision seeded by the new workspace.
-      // Callers re-check their guards and report stale_workspace.
-      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
-        return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
-      }
-      activeHarnessRevision = savedActiveHarnessRevision;
-      return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
-    }
-    const body = await response.json().catch(() => ({ error: undefined, code: undefined })) as {
-      error?: string;
-      code?: string;
-    };
-    return {
-      ok: false,
-      error: body.error ?? "Couldn't save active coding tools.",
-      ...(body.code ? { code: body.code } : {}),
-    };
-  }
-
-  async function fetchHarnessesForSave(): Promise<{ documentRevision: string | null; harnesses: ElectronHarnessConfig[] }> {
-    const port = await restoration.getReadiness();
-    const response = await sidecarSend(port, "harnesses");
+  async function fetchHarnessesFromSidecar(
+    port: number,
+    signal: AbortSignal,
+  ): Promise<{ documentRevision: string | null; harnesses: ElectronHarnessConfig[] }> {
+    const response = await sidecarSend(port, "harnesses", { signal });
     if (!response.ok) throw new Error(await parseErrorBody(response, "Couldn't load coding tool definitions."));
     const data = await response.json() as {
       documentRevision?: unknown;
@@ -867,333 +449,156 @@ app.whenReady().then(async () => {
     return { documentRevision: data.documentRevision === undefined ? null : data.documentRevision, harnesses };
   }
 
-  function persistedOllamaBaseUrl(): string | undefined {
-    return currentSettings?.providers.peonSelection?.ollamaBaseUrl
-      ?? currentSettings?.providers.ollamaBaseUrl;
+  function fetchHarnessesForSave(): Promise<{ documentRevision: string | null; harnesses: ElectronHarnessConfig[] }> {
+    return runtime.runReady(({ port, signal }) => fetchHarnessesFromSidecar(port, signal));
   }
 
-  async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {
-    return enqueueSettingsWrite(async () => {
-      signal.throwIfAborted();
-      const settings = currentSettings ?? readSettings(app.getPath("userData"));
-      const providerResponse = await sidecarSend(port, "providers", { signal });
-      if (!providerResponse.ok) throw new Error(`provider catalog sync failed: ${providerResponse.status}`);
-      const providerBody = await providerResponse.json() as {
-        providers?: unknown;
-      };
-      signal.throwIfAborted();
-      if (!Array.isArray(providerBody.providers)) throw new Error("provider catalog sync returned malformed data");
-      const definitions: ProviderDefinition[] = providerBody.providers.map((entry) => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-          throw new Error("provider catalog sync returned malformed entry");
+  async function persistActiveHarnesses(
+    ids: string[],
+    expectedActiveHarnessRevision: number,
+  ): Promise<
+    | { ok: true; activeHarnessRevision: number }
+    | { ok: false; error: string; code?: string }
+  > {
+    try {
+      return await runtime.runReady(async ({ port, generation, workspacePath: capturedPath, signal }) => {
+        const response = await sidecarSend(port, "workspace/active-harnesses", {
+          method: "PUT",
+          jsonBody: { activeHarnessIds: ids, expectedActiveHarnessRevision },
+          signal,
+        });
+        if (response.ok) {
+          const body = await response.json() as { activeHarnessRevision?: unknown };
+          const savedActiveHarnessRevision = body.activeHarnessRevision;
+          if (
+            typeof savedActiveHarnessRevision !== "number" ||
+            !Number.isInteger(savedActiveHarnessRevision) ||
+            savedActiveHarnessRevision < 0
+          ) {
+            return { ok: false, error: "The sidecar returned an invalid active harness revision." };
+          }
+          // The workspace can switch while this PUT is in flight. Discard a stale
+          // response without overwriting the revision seeded by the new workspace.
+          // Callers re-check their guards and report stale_workspace.
+          if (!runtime.setActiveHarnessRevision(generation, capturedPath, savedActiveHarnessRevision)) {
+            return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
+          }
+          return { ok: true, activeHarnessRevision: savedActiveHarnessRevision };
         }
-        const raw = entry as Record<string, unknown>;
-        if (typeof raw.id !== "string" || typeof raw.label !== "string") {
-          throw new Error("provider catalog sync returned malformed identity");
-        }
+        const body = await response.json().catch(() => ({ error: undefined, code: undefined })) as {
+          error?: string;
+          code?: string;
+        };
         return {
-          id: raw.id,
-          label: raw.label,
-          ...(typeof raw.harnessId === "string" ? { harnessId: raw.harnessId } : {}),
-          ...(raw.origin === "builtin" || raw.origin === "override" || raw.origin === "custom" || raw.origin === "standalone"
-            ? { origin: raw.origin }
-            : {}),
+          ok: false,
+          error: body.error ?? "Couldn't save active coding tools.",
+          ...(body.code ? { code: body.code } : {}),
         };
       });
-      const normalizedProviders = normalizeProviderSettings(settings.providers, definitions);
-      const nextSettings: AppSettings = { ...settings, providers: normalizedProviders };
-      if (JSON.stringify(settings.providers) !== JSON.stringify(normalizedProviders)) {
-        writeSettings(app.getPath("userData"), nextSettings);
-        currentSettings = nextSettings;
+    } catch (error) {
+      if (error instanceof StaleBackendGenerationError) {
+        return { ok: true, activeHarnessRevision: expectedActiveHarnessRevision };
       }
-      const abortableFetch: typeof fetch = (input, init) => {
-        const headers = new Headers(init?.headers);
-        for (const [name, value] of Object.entries(sidecarAccessHeaders())) headers.set(name, value);
-        return fetch(input, { ...init, headers, signal });
-      };
-      const result = await pushProviderSettings(
-        sidecarUrl(port),
-        normalizedProviders,
-        abortableFetch,
-      );
-      signal.throwIfAborted();
-      const syncError = providerSettingsSyncError(result);
-      if (syncError) throw syncError;
-      providerModels.clear();
-    });
-  }
-
-  let persistedPeonRestoreController: AbortController | null = null;
-
-  function cancelPersistedPeonSelectionRestore(): void {
-    const controller = persistedPeonRestoreController;
-    persistedPeonRestoreController = null;
-    controller?.abort();
-  }
-
-  function restorePersistedPeonSelection(port: number): void {
-    cancelPersistedPeonSelectionRestore();
-    const selection = currentSettings?.providers.peonSelection;
-    if (!selection) return;
-    const generation = backendGeneration;
-    const controller = new AbortController();
-    persistedPeonRestoreController = controller;
-    const isCurrentReady = (): boolean => !controller.signal.aborted
-      && generation === backendGeneration
-      && latestBackendLifecycle.state === "ready";
-    void peonTransaction.syncPersistedSelection(selection, controller.signal, port)
-      .then((applied) => {
-        if (!isCurrentReady()) return;
-        appliedPeonState = applied;
-      })
-      .catch((error: unknown) => {
-        if (!isCurrentReady()) return;
-        console.warn(`[main] failed to restore Peon selection: ${error instanceof Error ? error.message : "unknown error"}`);
-      })
-      .finally(() => {
-        if (persistedPeonRestoreController === controller) persistedPeonRestoreController = null;
-      });
-  }
-
-  const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
-    discover: async (provider, ollamaBaseUrl) => {
-      const port = await restoration.getReadiness();
-      return (await discoverProviderModels(port, provider, ollamaBaseUrl)).models;
-    },
-    verify: async ({ provider, ollamaBaseUrl, generation, readyPort, signal }) => {
-      const port = readyPort ?? await restoration.getReadiness();
-      const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
-      if (provider === "ollama") body.ollamaBaseUrl = ollamaBaseUrl ?? persistedOllamaBaseUrl();
-      const response = await sidecarSend(port, "settings/peon/provider/verify", {
-        method: "POST",
-        jsonBody: body,
-        signal,
-      });
-      if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
-      const result = await response.json() as PeonProviderVerificationResponse;
-      const cacheKey = providerModelCacheKey(provider, provider === "ollama" ? (result.ollamaBaseUrl ?? ollamaBaseUrl) : undefined);
-      const modelOptions = result.modelOptions ?? result.models.map((id) => ({ id, displayName: id, reasoningEfforts: [], defaultReasoningEffort: null }));
-      if (result.ok && modelOptions.length > 0) {
-        peonModelCatalogCache.set(cacheKey, { models: modelOptions, observedAt: new Date().toISOString() });
-      } else if (result.ok && result.capabilities.modelDiscovery) {
-        const cached = peonModelCatalogCache.get(cacheKey);
-        if (cached) return { ...result, models: cached.models.map((model) => model.id), modelOptions: cached.models, catalogStale: true, catalogObservedAt: cached.observedAt };
-      }
-      return result;
-    },
-    apply: async ({ selection, generation, readyPort, signal, skipTest }) => {
-      const port = readyPort ?? await restoration.getReadiness();
-      const response = await sidecarSend(port, "settings/peon/test-and-apply", {
-        method: "POST",
-        jsonBody: skipTest ? { selection, generation, skipTest } : { selection, generation },
-        signal,
-      });
-      if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
-      return await response.json();
-    },
-    getApplied: async (signal) => {
-      const port = await restoration.getReadiness();
-      const response = await sidecarSend(port, "settings/peon/applied", { signal });
-      if (!response.ok) throw await parsePeonError(response, "Couldn't read the applied Peon provider.");
-      return await response.json();
-    },
-  });
-
-  const restoration = createBackendRestorationCoordinator<BackendLifecycleWorkspace>({
-    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
-    onReady: (port, workspace) => {
-      activeHarnessRevision = workspace?.activeHarnessRevision ?? 0;
-    },
-    onFailure: (error) => {
-      logBackendLifecycleFailure("restoration", error);
-      if (workspaceSwitchCoordinator?.getState() === "opening") return;
-      lastBackendFailure = BACKEND_UNAVAILABLE_MESSAGE;
-      publishBackendLifecycle({ state: "failed", message: lastBackendFailure });
-    },
-    onStepFailure: (step, error) => {
-      logBackendLifecycleFailure(`restoration:${step}`, error);
-    },
-  });
-  backendRestoration = restoration;
-
-  sidecarLifecycle = createSidecarLifecycle({
-    spawn: (cwd): SidecarProcess => {
-      const binaryPath = getSidecarPath();
-      openPlanToken = randomBytes(32).toString("hex");
-      console.log(`[main] starting sidecar: ${binaryPath}`);
-      console.log(`[main] sidecar cwd: ${cwd}`);
-      const child = spawn(binaryPath, [], {
-        cwd,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, ORKWORKS_OPEN_PLAN_TOKEN: openPlanToken, ORKWORKS_RENDERER_TOKEN: rendererToken },
-      });
-      child.stderr?.on("data", (data: Buffer) => {
-        console.error(`[orkworksd:err] ${data.toString().trim()}`);
-      });
-      return child as SidecarProcess;
-    },
-    setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
-    clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
-    now: () => Date.now(),
-    callbacks: {
-      onReady: (port) => {
-        console.log(`[main] sidecar ready on port ${port}`);
-        restoration.restore(port, {
-          restoreWorkspace: (signal) => restoreWorkspace(port, signal),
-          applyRetentionSettings: (signal) => applyRetentionSettings(port, signal),
-          syncProviderSettings: (signal) => syncSavedProviderSettings(port, signal),
-        });
-      },
-      onUnavailable: (message) => {
-        logBackendLifecycleFailure("sidecar", message);
-        lastBackendFailure = BACKEND_UNAVAILABLE_MESSAGE;
-        // A failed generation is reported to the coordinator; recovery stays
-        // explicit through retry-backend so replacement remains serialized.
-        restoration.fail(new Error(lastBackendFailure));
-      },
-      onUnexpectedExit: (message) => {
-        cancelPersistedPeonSelectionRestore();
-        cancelGenerationBoundRequests();
-        backendGeneration += 1;
-        const failureMessage = BACKEND_UNAVAILABLE_MESSAGE;
-        lastBackendFailure = failureMessage;
-        restoration.cancel(new Error(failureMessage));
-        workspaceSwitchCoordinator?.markUnresolved({
-          code: "cleanup_failed",
-          message: failureMessage,
-        });
-      },
-      onState: (state: SidecarState) => {
-        if (state === "starting") {
-          cancelPersistedPeonSelectionRestore();
-          cancelGenerationBoundRequests();
-          backendGeneration += 1;
-          restoration.beginGeneration();
-        }
-      },
-    },
-  });
-
-  function publishWorkspaceSwitchEvent(event: WorkspaceSwitchEvent<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic>): void {
-    if (event.state === "picker") {
-      publishBackendLifecycle(event.failure ? { state: "picker", failure: event.failure } : { state: "picker" });
-    } else if (event.state === "opening" || event.state === "closing") {
-      publishBackendLifecycle({ state: event.state });
-    } else if (event.state === "unresolved") {
-      publishBackendLifecycle({ state: "unresolved", failure: event.failure });
-    } else {
-      publishBackendLifecycle({
-        state: "ready",
-        port: event.port,
-        workspace: event.workspace,
-        historyDiagnostic: event.historyDiagnostic,
-      });
-      restorePersistedPeonSelection(event.port);
-      void refreshKnowledge();
+      throw error;
     }
   }
 
-  workspaceSwitchCoordinator = createWorkspaceSwitchCoordinator<BackendLifecycleWorkspace, WorkspaceHistoryDiagnostic>({
-    initialWorkspacePath: null,
-    validateDestination: (candidate) => {
-      const identity = accessibleWorkspaceDirectoryPath(candidate);
-      if (identity) pendingWorkspaceDisplayPath = candidate;
-      return identity;
-    },
-    setWorkspacePath: (nextPath) => {
-      workspacePath = nextPath;
-      if (nextPath) {
-        workspaceDisplayPath = pendingWorkspaceDisplayPath ?? nextPath;
-        pendingWorkspaceDisplayPath = null;
-      } else {
-        workspaceDisplayPath = null;
-      }
-    },
-    onCloseAdmission: () => {
-      cancelPersistedPeonSelectionRestore();
-      cancelGenerationBoundRequests();
-      backendGeneration += 1;
-    },
-    closeCurrentRuntime: async () => {
-      restoration.cancel(new Error("Workspace is closing"));
-      await sidecarLifecycle?.stop();
-    },
-    startRuntime: async (nextPath, generation) => {
-      workspacePath = nextPath;
-      workspaceDisplayPath = pendingWorkspaceDisplayPath ?? nextPath;
-      let lifecycleReadiness: Promise<number>;
-      try {
-        lifecycleReadiness = sidecarLifecycle!.start(nextPath);
-        void lifecycleReadiness.catch(() => {});
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
-        throw new WorkspaceSwitchError("readiness_failed", message);
-      }
-      const port = await lifecycleReadiness.catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "The sidecar did not become ready.";
-        throw new WorkspaceSwitchError("readiness_failed", message);
+  function restorePersistedPeonSelection(port: number, signal: AbortSignal, isCurrent: () => boolean): void {
+    const selection = currentSettings?.providers.peonSelection;
+    if (!selection) return;
+    void peonTransaction.syncPersistedSelection(selection, signal, port)
+      .then((applied) => {
+        if (!isCurrent()) return;
+        appliedPeonState = applied;
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent()) return;
+        console.warn(`[main] failed to restore Peon selection: ${error instanceof Error ? error.message : "unknown error"}`);
       });
+  }
 
-      let restoredPort: number;
-      try {
-        restoredPort = await restoration.getReadiness();
-      } catch (error: unknown) {
-        if (error instanceof WorkspaceSwitchError) throw error;
-        if (error instanceof WorkspaceRestorationFailure) {
-          throw new WorkspaceSwitchError("restoration_failed", error.message);
+  function runPeonOperation<T>(
+    readyPort: number | undefined,
+    externalSignal: AbortSignal | undefined,
+    operation: (port: number, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    if (readyPort !== undefined) {
+      const signal = externalSignal ?? new AbortController().signal;
+      return operation(readyPort, signal);
+    }
+    return runtime.runReady(({ port, signal }) => {
+      const combinedSignal = externalSignal ? AbortSignal.any([externalSignal, signal]) : signal;
+      return operation(port, combinedSignal);
+    });
+  }
+
+  const peonTransaction: PeonSelectionTransaction = createPeonSelectionTransaction({
+    discover: (provider, ollamaBaseUrl) => runtime.runReady(async ({ port, signal }) =>
+      (await discoverProviderModels(port, provider, ollamaBaseUrl, signal)).models),
+    verify: ({ provider, ollamaBaseUrl, generation, readyPort, signal }) =>
+      runPeonOperation(readyPort, signal, async (port, requestSignal) => {
+        const body: { provider: string; generation: number; ollamaBaseUrl?: string } = { provider, generation };
+        if (provider === "ollama") body.ollamaBaseUrl = ollamaBaseUrl ?? persistedOllamaBaseUrl();
+        const response = await sidecarSend(port, "settings/peon/provider/verify", {
+          method: "POST",
+          jsonBody: body,
+          signal: requestSignal,
+        });
+        if (!response.ok) throw await parsePeonError(response, "Couldn't verify the Peon provider.");
+        const result = await response.json() as PeonProviderVerificationResponse;
+        const cacheKey = providerModelCacheKey(provider, provider === "ollama" ? (result.ollamaBaseUrl ?? ollamaBaseUrl) : undefined);
+        const modelOptions = result.modelOptions ?? result.models.map((id) => ({ id, displayName: id, reasoningEfforts: [], defaultReasoningEffort: null }));
+        if (result.ok && modelOptions.length > 0) {
+          peonModelCatalogCache.set(cacheKey, { models: modelOptions, observedAt: new Date().toISOString() });
+        } else if (result.ok && result.capabilities.modelDiscovery) {
+          const cached = peonModelCatalogCache.get(cacheKey);
+          if (cached) return { ...result, models: cached.models.map((model) => model.id), modelOptions: cached.models, catalogStale: true, catalogObservedAt: cached.observedAt };
         }
-        const message = error instanceof Error ? error.message : "The destination workspace could not be restored.";
-        throw new WorkspaceSwitchError("restoration_failed", message);
-      }
-      if (!workspaceSwitchCoordinator?.isCurrentGeneration(generation)) {
-        throw new WorkspaceSwitchError("restoration_failed", "Workspace opening was superseded.");
-      }
-      const workspace = restoration.getRestoredWorkspace();
-      if (!workspace) {
-        throw new WorkspaceSwitchError("restoration_failed", "The destination workspace was not restored.");
-      }
-      return { port: restoredPort || port, workspace };
-    },
-    cleanupAttemptedRuntime: async () => {
-      restoration.cancel(new Error("Attempted workspace runtime is being cleaned up"));
-      workspacePath = null;
-      workspaceDisplayPath = null;
-      pendingWorkspaceDisplayPath = null;
-      await sidecarLifecycle?.stop();
-    },
-    rememberWorkspace: (_path, workspace) => rememberRestoredWorkspace(workspace),
-    publish: publishWorkspaceSwitchEvent,
+        return result;
+      }),
+    apply: ({ selection, generation, readyPort, signal, skipTest }) =>
+      runPeonOperation(readyPort, signal, async (port, requestSignal) => {
+        const response = await sidecarSend(port, "settings/peon/test-and-apply", {
+          method: "POST",
+          jsonBody: skipTest ? { selection, generation, skipTest } : { selection, generation },
+          signal: requestSignal,
+        });
+        if (!response.ok) throw await parsePeonError(response, "Couldn't apply the Peon provider.");
+        return await response.json();
+      }),
+    getApplied: (signal) =>
+      runPeonOperation(undefined, signal, async (port, requestSignal) => {
+        const response = await sidecarSend(port, "settings/peon/applied", { signal: requestSignal });
+        if (!response.ok) throw await parsePeonError(response, "Couldn't read the applied Peon provider.");
+        return await response.json();
+      }),
   });
 
-  ipcMain.handle("get-backend-lifecycle", () => {
-    return latestBackendLifecycle;
-  });
+  ipcMain.handle("get-backend-lifecycle", () => runtime.getLifecycle());
 
   ipcMain.on("get-backend-token-sync", (event) => {
     // Only the application window's top-level document may hold the credential.
     event.returnValue = mainWindow !== null && event.senderFrame === mainWindow.webContents.mainFrame ? rendererToken : "";
   });
 
-  ipcMain.handle("get-backend-url", async () => {
-    const port = await restoration.getReadiness();
-    return `http://127.0.0.1:${port}`;
-  });
+  ipcMain.handle("get-backend-url", () => runtime.getBackendUrl());
 
   ipcMain.handle("create-session-with-images", async (_event, expectedBackendUrl: unknown, value: unknown) => {
     const request = normalizeImageCreation(value);
-    if (request.expectedWorkspacePath !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
-    return withReadyBackendGeneration((port, token, signal) => {
-      if (expectedBackendUrl !== sidecarUrl(port) || request.expectedWorkspacePath !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
-      return submitImageSession(port, token, request, signal);
-    });
+    return runtime.runReady(
+      ({ port, token, signal }) => submitImageSession(port, token, request, signal),
+      {
+        expectedWorkspacePath: request.expectedWorkspacePath,
+        expectedBackendUrl: typeof expectedBackendUrl === "string" ? expectedBackendUrl : "",
+      },
+    );
   });
 
   ipcMain.handle("apply-debug-attention", async (_event, id: unknown, attention: unknown, message: unknown) => {
     if (typeof id !== "string" || !id) throw new Error("Invalid session ID.");
     const normalizedAttention = normalizeDebugAttention(attention);
     if (message !== undefined && typeof message !== "string") throw new Error("Invalid debug attention message.");
-    await withReadyBackendGeneration(async (port, token, signal) => {
+    await runtime.runReady(async ({ port, token, signal }) => {
       const response = await sidecarSend(port, `sessions/${encodeURIComponent(id)}/debug-injection`, {
         method: "POST",
         jsonBody: { attention: normalizedAttention, message },
@@ -1205,21 +610,11 @@ app.whenReady().then(async () => {
     });
   });
 
-  ipcMain.handle("retry-backend", async (): Promise<BackendRetryResult> => {
-    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
-    const result = await workspaceSwitchCoordinator.retry();
-    if (result.ok) return { ok: true, state: "ready" };
-    if (result.state === "unresolved") return { ok: false, state: "unresolved", failure: result.failure };
-    if (!result.ok && result.failure.code === "invalid_destination") {
-      publishBackendLifecycle({ state: "picker" });
-    }
-    return { ok: false, state: "picker", failure: result.failure };
-  });
+  ipcMain.handle("retry-backend", (): Promise<BackendRetryResult> => runtime.retry());
 
   function sessionAppRequest(expectedWorkspace: unknown, id: unknown, open: boolean, destination: unknown) {
-    if (typeof expectedWorkspace !== "string" || expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
-    return withReadyBackendGeneration(async (port, _token, signal) => {
-      if (expectedWorkspace !== workspacePath) throw new Error(STALE_BACKEND_GENERATION_MESSAGE);
+    if (typeof expectedWorkspace !== "string") throw new StaleBackendGenerationError();
+    return runtime.runReady(async ({ port, signal }) => {
       const read = async (resource: string) => {
         const response = await sidecarSend(port, resource, { signal, timeoutMs: 10_000 });
         if (!response.ok) throw new Error("Couldn't read the current session's desktop destination.");
@@ -1242,7 +637,7 @@ app.whenReady().then(async () => {
         }),
       };
       return open ? openSessionApp(id, deps, destination) : inspectSessionApp(id, deps, destination);
-    });
+    }, { expectedWorkspacePath: expectedWorkspace });
   }
   ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, false, destination));
   ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, true, destination));
@@ -1253,8 +648,8 @@ app.whenReady().then(async () => {
   let apmSettingsRevision = 0;
   const apmOverride = () => readSettings(app.getPath("userData")).apmExecutablePath ?? null;
   const skillInstaller = new SkillInstaller({
-    home: homedir(), env: process.env, workspace: () => workspacePath,
-    workspaceRevision: () => `${workspacePath}/${backendGeneration}`,
+    home: homedir(), env: process.env, workspace: () => runtime.getWorkspacePath(),
+    workspaceRevision: () => runtime.getWorkspaceRevision(),
     executable: () => findApm(process.env, apmOverride()),
     configurationRevision: () => `${apmSettingsRevision}/${apmOverride()}`,
     confirm: async preview => {
@@ -1267,12 +662,12 @@ app.whenReady().then(async () => {
     },
   });
   ipcMain.handle("get-skill-inventory", async () => {
-    const generation = `${workspacePath}/${backendGeneration}`;
-    const inventory = await discoverSkills({ workspace: workspacePath, home: homedir(), env: process.env });
-    if (generation !== `${workspacePath}/${backendGeneration}`) throw new Error("Workspace changed. Refresh skills.");
+    const generation = runtime.getWorkspaceRevision();
+    const inventory = await discoverSkills({ workspace: runtime.getWorkspacePath(), home: homedir(), env: process.env });
+    if (generation !== runtime.getWorkspaceRevision()) throw new Error("Workspace changed. Refresh skills.");
     const revision = apmSettingsRevision;
     inventory.apm = await inspectApm(process.env, apmOverride());
-    if (revision !== apmSettingsRevision || generation !== `${workspacePath}/${backendGeneration}`) throw new Error("Configuration changed. Refresh skills.");
+    if (revision !== apmSettingsRevision || generation !== runtime.getWorkspaceRevision()) throw new Error("Configuration changed. Refresh skills.");
     skillInventory = inventory; inventoryGeneration = generation;
     return inventory;
   });
@@ -1285,7 +680,7 @@ app.whenReady().then(async () => {
     apmSettingsRevision++;
   }));
   ipcMain.handle("read-skill-detail", async (_event, id: unknown) => {
-    if (!skillInventory || inventoryGeneration !== `${workspacePath}/${backendGeneration}`) throw new Error("Refresh skills before opening details.");
+    if (!skillInventory || inventoryGeneration !== runtime.getWorkspaceRevision()) throw new Error("Refresh skills before opening details.");
     return readSkillDetail(skillInventory, id);
   });
   ipcMain.handle("pick-skill-source", async () => {
@@ -1301,7 +696,7 @@ app.whenReady().then(async () => {
     const request = input as { source?: unknown; scope?: unknown; expectedWorkspace?: unknown };
     if (typeof request.source !== "string") throw new Error("Choose a source.");
     if (path.isAbsolute(request.source) && !selectedSkillSources.has(request.source)) throw new Error("Select the local skill through Choose folder first.");
-    if (request.scope === "workspace" && request.expectedWorkspace !== workspacePath) throw new Error("Workspace changed. Preview again.");
+    if (request.scope === "workspace" && request.expectedWorkspace !== runtime.getWorkspacePath()) throw new Error("Workspace changed. Preview again.");
     return skillInstaller.preview(input);
   });
   ipcMain.handle("install-skill-add", (_event, id: unknown) => skillInstaller.install(id));
@@ -1324,20 +719,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("rebuild-shell-layout", async () => confirmShellMemoryRebuild("layout", mainWindow,
     (owner, options) => dialog.showMessageBox(owner, options), () => shellLayoutMemory.rebuild(true)));
 
-  function currentNavigationIdentity(): { workspaceIdentity: string; generation: number } {
-    if (latestBackendLifecycle.state !== "ready" || !latestBackendLifecycle.workspace) {
-      throw new Error("Workspace navigation is available only in a ready workspace.");
-    }
-    const workspaceIdentity = latestBackendLifecycle.workspace.workspaceIdentity;
-    if (!workspaceIdentity || !workspacePath || !sameWorkspaceIdentity(workspacePath, workspaceIdentity)
-      || !sameWorkspaceIdentity(workspaceSwitchCoordinator?.getCurrentWorkspacePath() ?? "", workspaceIdentity)) {
-      throw new Error("Ready workspace identity is unavailable.");
-    }
-    return { workspaceIdentity, generation: backendGeneration };
-  }
-
   ipcMain.handle("get-workspace-navigation", () => {
-    const { workspaceIdentity } = currentNavigationIdentity();
+    const { workspaceIdentity } = runtime.getReadyNavigationIdentity();
     const snapshot = workspaceNavigationMemory.read();
     return {
       lastCentralSurface: snapshot.entries.find((entry) => entry.workspaceIdentity === workspaceIdentity)?.lastCentralSurface ?? null,
@@ -1347,30 +730,17 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("complete-workspace-navigation", async (_event, surface: unknown) => {
     if (surface !== "terminal" && surface !== "review") throw new Error("Invalid central surface.");
-    const { workspaceIdentity, generation } = currentNavigationIdentity();
-    const stillCurrent = () => latestBackendLifecycle.state === "ready"
-      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
-      && !!workspacePath && sameWorkspaceIdentity(workspacePath, workspaceIdentity) && backendGeneration === generation;
-    return workspaceNavigationMemory.complete(workspaceIdentity, generation, stillCurrent, surface as LastCentralSurface);
+    const { workspaceIdentity, generation, isCurrent } = runtime.getReadyNavigationIdentity();
+    return workspaceNavigationMemory.complete(workspaceIdentity, generation, isCurrent, surface as LastCentralSurface);
   });
   ipcMain.handle("delete-workspace-navigation", async () => {
-    const { workspaceIdentity, generation } = currentNavigationIdentity();
-    const stillCurrent = () => latestBackendLifecycle.state === "ready"
-      && latestBackendLifecycle.workspace?.workspaceIdentity === workspaceIdentity
-      && !!workspacePath && sameWorkspaceIdentity(workspacePath, workspaceIdentity) && backendGeneration === generation;
-    return workspaceNavigationMemory.delete(workspaceIdentity, generation, stillCurrent);
+    const { workspaceIdentity, generation, isCurrent } = runtime.getReadyNavigationIdentity();
+    return workspaceNavigationMemory.delete(workspaceIdentity, generation, isCurrent);
   });
   ipcMain.handle("rebuild-workspace-navigation", async () => confirmShellMemoryRebuild("navigation", mainWindow,
     (owner, options) => dialog.showMessageBox(owner, options), () => workspaceNavigationMemory.rebuild(true)));
 
-  ipcMain.handle("get-initial-workspace", async (): Promise<InitialWorkspaceSnapshot> => ({
-    // Workspace history is a picker hint, not proof that this process owns the
-    // remembered directory after a restart. Native process-tree ownership is
-    // not proven on every supported platform yet, so startup remains in the
-    // picker until the user explicitly chooses a destination.
-    workspace: null,
-    historyDiagnostic: currentHistoryDiagnostic,
-  }));
+  ipcMain.handle("get-initial-workspace", async () => runtime.getInitialWorkspaceSnapshot());
 
   ipcMain.handle("save-desktop-session-notifications", async (event, enabled: unknown) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents
@@ -1391,11 +761,11 @@ app.whenReady().then(async () => {
   });
   installTaskmasterIpc({
     handle: (name, handler) => ipcMain.handle(name, handler),
-    withReady: withReadyBackendGeneration,
-    workspacePath: () => workspacePath,
-    getGeneration: () => backendGeneration,
-    getReadiness: () => restoration.getReadiness(),
-    getToken: () => openPlanToken,
+    withReady: (operation) => runtime.runReady(({ port, token, signal }) => operation(port, token, signal)),
+    workspacePath: () => runtime.getWorkspacePath(),
+    getGeneration: () => runtime.getGeneration(),
+    getReadiness: () => runtime.getReadiness(),
+    getToken: () => runtime.getOpenPlanToken(),
     setKnowledgeUpdatesEnabled: (enabled) => knowledgeUpdates.setEnabled(enabled),
     getKnowledgeUpdateStatus: () => knowledgeUpdates.status(),
     refreshKnowledge: () => { void refreshKnowledge(); },
@@ -1451,11 +821,11 @@ app.whenReady().then(async () => {
       lastApplyError: null,
     };
     try {
-      const port = await restoration.getReadiness();
-      const response = await sidecarSend(port, "settings/retention", {
+      const response = await runtime.runReady(({ port, signal }) => sidecarSend(port, "settings/retention", {
         method: "POST",
         jsonBody: nextSettings.retention,
-      });
+        signal,
+      }));
       retentionApplyStatus = {
         appliedRevision: null,
         appliedAt: response.ok ? new Date().toISOString() : null,
@@ -1531,10 +901,11 @@ app.whenReady().then(async () => {
       return providerModels.get(cacheKey)!;
     }
     try {
-      const port = await restoration.getReadiness();
-      const catalog = await discoverProviderModels(port, providerId, ollamaBaseUrl);
-      providerModels.set(cacheKey, catalog);
-      return catalog;
+      return await runtime.runReady(async ({ port, isCurrent }) => {
+        const catalog = await discoverProviderModels(port, providerId, ollamaBaseUrl);
+        if (isCurrent()) providerModels.set(cacheKey, catalog);
+        return catalog;
+      });
     } catch {
       // Fall through to empty
     }
@@ -1543,26 +914,26 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("read-git-changes", async (_event, request: unknown) => {
     validateGitChangesRequest(request);
-    return withReadyBackendGeneration((port, token, signal) =>
+    return runtime.runReady(({ port, token, signal }) =>
       readGitChanges(sidecarUrl(port), request, token, fetch, signal));
   });
   ipcMain.handle("session-title", async (_event, request: unknown) => {
     validateSessionTitleRequest(request);
-    return withReadyBackendGeneration((port, token, signal) =>
+    return runtime.runReady(({ port, token, signal }) =>
       requestSessionTitle(sidecarUrl(port), request, token, fetch, signal));
   });
   ipcMain.handle("get-plan-content", async (_event, sessionId: unknown, kind?: unknown, selectionId?: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     validatePlanDocumentKind(kind);
     validatePlanSelectionId(selectionId);
-    return withReadyBackendGeneration((port, token, signal) =>
+    return runtime.runReady(({ port, token, signal }) =>
       getSessionPlanContent(sidecarUrl(port), sessionId, token, fetch, signal, kind, selectionId));
   });
   ipcMain.handle("request-plan-review", async (_event, sessionId: unknown, kind?: unknown, selectionId?: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     validatePlanDocumentKind(kind);
     validatePlanSelectionId(selectionId);
-    await withReadyBackendGeneration((port, token, signal) =>
+    await runtime.runReady(({ port, token, signal }) =>
       requestSessionPlanReview(sidecarUrl(port), sessionId, token, fetch, signal, kind, selectionId));
   });
   ipcMain.handle("use-latest-plan-document", async (_event, sessionId: unknown, kind: unknown, selectionId?: unknown) => {
@@ -1570,16 +941,18 @@ app.whenReady().then(async () => {
     validatePlanDocumentKind(kind);
     if (kind === undefined) throw new Error("A document kind is required.");
     validatePlanSelectionId(selectionId);
-    await withReadyBackendGeneration((port, token, signal) => useLatestPlanDocument(sidecarUrl(port), sessionId, kind, token, fetch, signal, selectionId));
+    await runtime.runReady(({ port, token, signal }) =>
+      useLatestPlanDocument(sidecarUrl(port), sessionId, kind, token, fetch, signal, selectionId));
   });
   ipcMain.handle("reset-saved-plan-documents", async (_event, sessionId: unknown, recoveryId: unknown) => {
     if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid session ID.");
     validatePlanRecoveryId(recoveryId);
-    await withReadyBackendGeneration((port, token, signal) => resetSavedPlanDocuments(sidecarUrl(port), sessionId, recoveryId, token, fetch, signal));
+    await runtime.runReady(({ port, token, signal }) =>
+      resetSavedPlanDocuments(sidecarUrl(port), sessionId, recoveryId, token, fetch, signal));
   });
   ipcMain.handle("select-terminal-plan", async (_event, sessionId: unknown, printedPath: unknown) => {
     if (typeof sessionId !== "string" || !sessionId || typeof printedPath !== "string" || !printedPath) throw new Error("Invalid plan selection.");
-    return await withReadyBackendGeneration((port, token, signal) =>
+    return runtime.runReady(({ port, token, signal }) =>
       selectTerminalPlan(sidecarUrl(port), sessionId, printedPath, token, fetch, signal));
   });
 
@@ -1595,24 +968,24 @@ app.whenReady().then(async () => {
 
   async function getHarnessIntegrationStatus(harnessId: unknown): Promise<{ ok: true; status: unknown } | { ok: false; error: string }> {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
-    // Readiness may resolve to a different sidecar after a workspace switch.
     // Keep status results bound to the workspace and generation that requested them.
-    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
     try {
-      const port = await restoration.getReadiness();
-      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+      return await runtime.runReady(async ({ port, signal }) => {
+        const resp = await sidecarSend(
+          port,
+          `workspace/integrations/${encodeURIComponent(harnessId)}/status`,
+          { signal },
+        );
+        if (resp.ok) {
+          return { ok: true as const, status: await resp.json() };
+        }
+        const body = await resp.json().catch(() => ({ error: undefined }));
+        return { ok: false as const, error: errorFromBody(body, "Couldn't check the integration status.") };
+      }, { staleMessage: STALE_WORKSPACE_FALLBACK_MESSAGE });
+    } catch (error) {
+      if (error instanceof StaleBackendGenerationError) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
-      const resp = await sidecarSend(
-        port,
-        `workspace/integrations/${encodeURIComponent(harnessId)}/status`,
-      );
-      if (resp.ok) {
-        return { ok: true, status: await resp.json() };
-      }
-      const body = await resp.json().catch(() => ({ error: undefined }));
-      return { ok: false, error: errorFromBody(body, "Couldn't check the integration status.") };
-    } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
   }
@@ -1626,31 +999,31 @@ app.whenReady().then(async () => {
     | { ok: false; error: string; code?: string }
   > {
     if (!key.adapterId || !key.targetId) throw new Error("Invalid integration key.");
-    const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
     try {
-      const port = await restoration.getReadiness();
-      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+      return await runtime.runReady(async ({ port, signal }) => {
+        const mutation = action !== "status";
+        const resp = await sidecarSend(
+          port,
+          `workspace/integrations/${encodeURIComponent(key.adapterId)}/${encodeURIComponent(key.targetId)}/${action}`,
+          mutation ? { method: "POST", jsonBody: expected, signal } : { signal },
+        );
+        if (resp.ok) {
+          return { ok: true as const, group: await resp.json() as GroupedIntegrationStatus };
+        }
+        const body = await resp.json().catch(() => ({ error: undefined, code: undefined })) as {
+          error?: string;
+          code?: string;
+        };
+        return {
+          ok: false as const,
+          error: body.error ?? `Couldn't ${integrationActionLabels[action]}.`,
+          ...(body.code ? { code: body.code } : {}),
+        };
+      }, { staleMessage: STALE_WORKSPACE_FALLBACK_MESSAGE });
+    } catch (error) {
+      if (error instanceof StaleBackendGenerationError) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE, code: "workspace_changed" };
       }
-      const mutation = action !== "status";
-      const resp = await sidecarSend(
-        port,
-        `workspace/integrations/${encodeURIComponent(key.adapterId)}/${encodeURIComponent(key.targetId)}/${action}`,
-        mutation ? { method: "POST", jsonBody: expected } : {},
-      );
-      if (resp.ok) {
-        return { ok: true, group: await resp.json() as GroupedIntegrationStatus };
-      }
-      const body = await resp.json().catch(() => ({ error: undefined, code: undefined })) as {
-        error?: string;
-        code?: string;
-      };
-      return {
-        ok: false,
-        error: body.error ?? `Couldn't ${integrationActionLabels[action]}.`,
-        ...(body.code ? { code: body.code } : {}),
-      };
-    } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
   }
@@ -1722,7 +1095,7 @@ app.whenReady().then(async () => {
     }
 
     return saveActiveHarnessesWithIntegrations(ids, {
-      captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
+      captureWorkspaceGuard: () => runtime.getWorkspaceGuard(),
       persistActiveHarnesses,
       listHarnesses: fetchHarnessesForSave,
       getGroupedIntegrationStatus: async (key) =>
@@ -1748,7 +1121,7 @@ app.whenReady().then(async () => {
       }
 
       return enableHarnessImmediate(ids, { adapterId, targetId }, {
-        captureWorkspaceGuard: () => ({ workspacePath, generation: backendGeneration, activeHarnessRevision }),
+        captureWorkspaceGuard: () => runtime.getWorkspaceGuard(),
         persistActiveHarnesses,
         listHarnesses: fetchHarnessesForSave,
         getGroupedIntegrationStatus: async (key) =>
@@ -1791,36 +1164,37 @@ app.whenReady().then(async () => {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     if (typeof commandPath !== "string" || !commandPath.trim()) throw new Error("Invalid command path.");
     try {
-      const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
-      const port = await restoration.getReadiness();
-      const snapshot = await fetchHarnessesForSave();
-      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+      return await runtime.runReady(async ({ port, signal }) => {
+        const snapshot = await fetchHarnessesFromSidecar(port, signal);
+        const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
+        if (!harness) return { ok: false, error: "Coding tool was not found." };
+        if (!snapshot.documentRevision) return { ok: false, error: "Coding tool configuration has no revision." };
+        const isCustom = harness.origin === "custom";
+        const definition = isCustom ? editableCustomDefinition(harness) : undefined;
+        if (definition && typeof definition.launch === "object" && definition.launch !== null) {
+          (definition.launch as { command?: string }).command = commandPath.trim();
+        }
+        const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
+          method: "PUT",
+          jsonBody: {
+            kind: isCustom ? "CustomReplace" : "BuiltinPatch",
+            ...(isCustom
+              ? { definition }
+              : { patch: { launch: { command: commandPath.trim() } } }),
+            expectedRevision: snapshot.documentRevision,
+          },
+          signal,
+        });
+        if (resp.ok) {
+          const updated = effectiveHarnessFromMutationResponse(await resp.json());
+          return updated ? { ok: true, harness: updated } : { ok: false, error: "Malformed harness update response." };
+        }
+        return { ok: false, error: await parseErrorBody(resp, "Couldn't set the custom path.") };
+      }, { staleMessage: STALE_WORKSPACE_FALLBACK_MESSAGE });
+    } catch (error) {
+      if (error instanceof StaleBackendGenerationError) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
-      const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
-      if (!harness) return { ok: false, error: "Coding tool was not found." };
-      if (!snapshot.documentRevision) return { ok: false, error: "Coding tool configuration has no revision." };
-      const isCustom = harness.origin === "custom";
-      const definition = isCustom ? editableCustomDefinition(harness) : undefined;
-      if (definition && typeof definition.launch === "object" && definition.launch !== null) {
-        (definition.launch as { command?: string }).command = commandPath.trim();
-      }
-      const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
-        method: "PUT",
-        jsonBody: {
-          kind: isCustom ? "CustomReplace" : "BuiltinPatch",
-          ...(isCustom
-            ? { definition }
-            : { patch: { launch: { command: commandPath.trim() } } }),
-          expectedRevision: snapshot.documentRevision,
-        },
-      });
-      if (resp.ok) {
-        const updated = effectiveHarnessFromMutationResponse(await resp.json());
-        return updated ? { ok: true, harness: updated } : { ok: false, error: "Malformed harness update response." };
-      }
-      return { ok: false, error: await parseErrorBody(resp, "Couldn't set the custom path.") };
-    } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
   }
@@ -1828,26 +1202,27 @@ app.whenReady().then(async () => {
   async function clearHarnessCommandOverride(harnessId: unknown) {
     if (typeof harnessId !== "string" || !harnessId) throw new Error("Invalid harness ID.");
     try {
-      const guard = { workspacePath, generation: backendGeneration, activeHarnessRevision };
-      const port = await restoration.getReadiness();
-      const snapshot = await fetchHarnessesForSave();
-      if (isStale(guard, { workspacePath, generation: backendGeneration, activeHarnessRevision })) {
+      return await runtime.runReady(async ({ port, signal }) => {
+        const snapshot = await fetchHarnessesFromSidecar(port, signal);
+        const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
+        if (!harness) return { ok: false, error: "Coding tool was not found." };
+        if (harness.origin === "custom") {
+          return { ok: false, error: "Custom harness commands are edited in the configuration JSON." };
+        }
+        const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
+          method: "DELETE",
+          jsonBody: { expectedRevision: snapshot.documentRevision },
+          signal,
+        });
+        if (resp.ok) {
+          return { ok: true };
+        }
+        return { ok: false, error: await parseErrorBody(resp, "Couldn't clear the custom path.") };
+      }, { staleMessage: STALE_WORKSPACE_FALLBACK_MESSAGE });
+    } catch (error) {
+      if (error instanceof StaleBackendGenerationError) {
         return { ok: false, error: STALE_WORKSPACE_FALLBACK_MESSAGE };
       }
-      const harness = snapshot.harnesses.find((candidate) => candidate.id === harnessId);
-      if (!harness) return { ok: false, error: "Coding tool was not found." };
-      if (harness.origin === "custom") {
-        return { ok: false, error: "Custom harness commands are edited in the configuration JSON." };
-      }
-      const resp = await sidecarSend(port, `harnesses/${encodeURIComponent(harnessId)}`, {
-        method: "DELETE",
-        jsonBody: { expectedRevision: snapshot.documentRevision },
-      });
-      if (resp.ok) {
-        return { ok: true };
-      }
-      return { ok: false, error: await parseErrorBody(resp, "Couldn't clear the custom path.") };
-    } catch {
       return { ok: false, error: "Couldn't reach the OrkWorks sidecar." };
     }
   }
@@ -1859,8 +1234,7 @@ app.whenReady().then(async () => {
     clearHarnessCommandOverride(harnessId));
 
   ipcMain.handle("open-workspace", async () => {
-    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
-    const result = await workspaceSwitchCoordinator.pickWorkspace(async () => {
+    const result = await runtime.pickWorkspace(async () => {
       const selection = await dialog.showOpenDialog({
         properties: ["openDirectory"],
         title: "Select Workspace",
@@ -1898,10 +1272,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("open-remembered-workspace", async (_event, path: unknown) => {
-    if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
     if (typeof path !== "string") return null;
-    if (workspaceSwitchCoordinator.getCurrentWorkspacePath() === path) return null;
-    const result = await workspaceSwitchCoordinator.switchWorkspace(path);
+    if (runtime.getWorkspacePath() === path) return null;
+    const result = await runtime.openWorkspace(path);
     // Some failure paths inside switchWorkspaceInternal (e.g. invalid_destination,
     // hit when a remembered path has since been moved/deleted) return a failure
     // without ever publishing a workspace-switch event, so the renderer's
@@ -1946,11 +1319,10 @@ app.whenReady().then(async () => {
       currentVersion: app.getVersion(),
       createEngine: () => adapter.engine,
       now: () => new Date().toISOString(),
-      querySessions: async () => {
-        const port = await restoration.getReadiness();
-        const sessions = await listSessions(port);
+      querySessions: () => runtime.runReady(async ({ port, signal }) => {
+        const sessions = await listSessions(port, signal);
         return sessions.filter((session) => session.lifecycle === "alive");
-      },
+      }),
       verifyCandidate: adapter.verifyCandidate,
       confirmInstall: async ({ liveSessionCount }) => {
         const detail = liveSessionCount === null
@@ -1973,27 +1345,11 @@ app.whenReady().then(async () => {
           : await dialog.showMessageBox(options);
         return result.response === 1;
       },
-      stopSidecar: async () => {
-        if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable");
-        await sidecarLifecycle.stopAndWait(10_000);
-      },
-      restartSidecar: async () => {
-        if (!sidecarLifecycle) throw new Error("Backend lifecycle is unavailable. Restart OrkWorks.");
-        const restartCwd = workspacePath ?? app.getPath("home");
-        try {
-          const lifecycleReadiness = sidecarLifecycle.start(restartCwd);
-          await lifecycleReadiness;
-          await restoration.getReadiness();
-        } catch {
-          throw new Error("The sidecar could not be restarted. Restart OrkWorks to recover.");
-        }
-      },
-      runInstall: async (install) => {
-        if (!workspaceSwitchCoordinator) throw new Error("Workspace lifecycle is unavailable");
-        await workspaceSwitchCoordinator.runUpdate(async () => install());
-      },
+      stopSidecar: () => runtime.stopSidecarForUpdate(10_000),
+      restartSidecar: () => runtime.restartSidecarAfterUpdate(app.getPath("home")),
+      runInstall: (install) => runtime.runUpdate(async () => { await install(); }),
     });
-    registerUpdateIpc(updateService);
+    registerUpdateIpc(updateService, ipcMain);
   }
 
   createWindow(clearSessionNotifications);
@@ -2014,18 +1370,15 @@ app.on("window-all-closed", () => {
 
 function killSidecar(): void {
   updateService = null;
-  backendRestoration?.dispose();
-  backendRestoration = null;
-  sidecarLifecycle?.dispose();
-  sidecarLifecycle = null;
-  workspaceSwitchCoordinator = null;
+  workspaceRuntime?.dispose();
+  workspaceRuntime = null;
 }
 
 function requestQuit(): void {
-  void (workspaceSwitchCoordinator?.quit() ?? Promise.resolve({ ok: true as const, state: "picker" as const, generation: 0 }))
+  void (workspaceRuntime?.quit() ?? Promise.resolve({ ok: true as const, state: "picker" as const, generation: 0 }))
     .then((result) => {
       if (!result.ok) {
-        // The coordinator has already published the unresolved diagnostic. Keep
+        // The runtime has already published the unresolved diagnostic. Keep
         // the app and retry path alive so a later quit can try cleanup again.
         quitInProgress = false;
         return;
@@ -2035,7 +1388,7 @@ function requestQuit(): void {
       app.quit();
     })
     .catch(() => {
-      // An unexpected coordinator rejection is also unsafe to finalize. Keep
+      // An unexpected runtime rejection is also unsafe to finalize. Keep
       // the app alive; the lifecycle event remains the source of truth.
       quitInProgress = false;
     });
