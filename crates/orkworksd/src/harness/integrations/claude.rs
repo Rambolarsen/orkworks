@@ -3,8 +3,8 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    event_reporter_invocation_for_platform, reconcile_current, FragmentState, JsonHookHandler,
-    ReporterInvocation, ReporterPlatform, ToolHookContract,
+    event_reporter_invocation_for_platform, hooks_map, reconcile_current, FragmentState,
+    JsonHookHandler, ReporterInvocation, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
@@ -133,17 +133,21 @@ fn plan_path_invocation_for_platform(
     invocation
 }
 
-fn groups(document: &Map<String, Value>, event: &str) -> Result<Vec<Value>, IntegrationError> {
-    let Some(hooks) = document.get("hooks") else {
-        return Ok(vec![]);
-    };
-    let hooks = hooks
-        .as_object()
-        .ok_or_else(|| IntegrationError::InvalidConfig("Claude hooks must be an object.".into()))?;
-    hooks.get(event).map_or(Ok(vec![]), |value| {
-        value.as_array().cloned().ok_or_else(|| {
-            IntegrationError::InvalidConfig(format!("Claude {event} hooks must be an array."))
-        })
+const TOOL_LABEL: &str = "Claude";
+
+const ALL_EVENTS: [EventProfile; 5] = [
+    EventProfile::SessionStart,
+    EventProfile::Notification,
+    EventProfile::UserPromptSubmit,
+    EventProfile::PostToolUse,
+    EventProfile::PreToolUse,
+];
+
+fn extract_marker(hook: &Value) -> Option<&str> {
+    hook.get("args").and_then(Value::as_array).and_then(|args| {
+        args.iter()
+            .filter_map(Value::as_str)
+            .find(|value| value.starts_with("orkworks:harness-integration:"))
     })
 }
 
@@ -153,70 +157,43 @@ fn marker_state(
     expected_matcher: Option<&str>,
     async_spec: AsyncSpec,
 ) -> FragmentState {
-    let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
-        return FragmentState::Absent;
-    };
-    let mut found = None;
-    for hook in hooks {
-        let marker = hook.get("args").and_then(Value::as_array).and_then(|args| {
-            args.iter()
-                .filter_map(Value::as_str)
-                .find(|value| value.starts_with("orkworks:harness-integration:"))
-        });
-        let Some(marker) = marker else {
-            continue;
-        };
-        if marker.starts_with("orkworks:harness-integration:") {
-            if marker != MARKER || hooks.len() != 1 {
-                return FragmentState::Ambiguous;
-            }
-            let exact = expected.is_some_and(|invocation| {
-                let async_ok = match async_spec {
-                    AsyncSpec::Any => true,
-                    // PostToolUse is intentionally synchronous: `merge`
-                    // never writes the `async` field for it, and a hook
-                    // edited to set `async: true` would just delay the
-                    // path report — Drifted so install can converge it back.
-                    AsyncSpec::SyncMandatory => {
-                        !hook.get("async").and_then(Value::as_bool).unwrap_or(false)
-                    }
-                };
-                // A hand-edited matcher must not silently claim Installed.
-                // This matters most for PostToolUse: widening its matcher to
-                // `*` or `Read|Write|Edit` would make Read events feed
-                // `tool_input.file_path` to /plan-path, falsely associating
-                // the session with documents the agent merely read (ADR 0038).
-                let matcher_ok = expected_matcher.map_or(true, |matcher| {
-                    group.get("matcher").and_then(Value::as_str) == Some(matcher)
-                });
-                hook.get("type").and_then(Value::as_str) == Some("command")
-                    && hook.get("command").and_then(Value::as_str)
-                        == Some(invocation.program.as_str())
-                    && hook
-                        .get("args")
-                        .and_then(Value::as_array)
-                        .is_some_and(|args| {
-                            args == &invocation
-                                .args
-                                .iter()
-                                .cloned()
-                                .map(Value::String)
-                                .collect::<Vec<_>>()
-                        })
-                    && async_ok
-                    && matcher_ok
+    hooks_map::classify_hook_group(group, MARKER, extract_marker, |hook| {
+        expected.is_some_and(|invocation| {
+            let async_ok = match async_spec {
+                AsyncSpec::Any => true,
+                // PostToolUse is intentionally synchronous: `merge`
+                // never writes the `async` field for it, and a hook
+                // edited to set `async: true` would just delay the
+                // path report — Drifted so install can converge it back.
+                AsyncSpec::SyncMandatory => {
+                    !hook.get("async").and_then(Value::as_bool).unwrap_or(false)
+                }
+            };
+            // A hand-edited matcher must not silently claim Installed.
+            // This matters most for PostToolUse: widening its matcher to
+            // `*` or `Read|Write|Edit` would make Read events feed
+            // `tool_input.file_path` to /plan-path, falsely associating
+            // the session with documents the agent merely read (ADR 0038).
+            let matcher_ok = expected_matcher.map_or(true, |matcher| {
+                group.get("matcher").and_then(Value::as_str) == Some(matcher)
             });
-            if found.is_some() {
-                return FragmentState::Drifted;
-            }
-            found = Some(if exact {
-                FragmentState::Installed
-            } else {
-                FragmentState::Drifted
-            });
-        }
-    }
-    found.unwrap_or(FragmentState::Absent)
+            hook.get("type").and_then(Value::as_str) == Some("command")
+                && hook.get("command").and_then(Value::as_str) == Some(invocation.program.as_str())
+                && hook
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .is_some_and(|args| {
+                        args == &invocation
+                            .args
+                            .iter()
+                            .cloned()
+                            .map(Value::String)
+                            .collect::<Vec<_>>()
+                    })
+                && async_ok
+                && matcher_ok
+        })
+    })
 }
 
 fn event_state(
@@ -229,18 +206,10 @@ fn event_state(
     // caller passes None and uses AsyncSpec::Any to flag any drift marker
     // for cleanup without requiring byte-exact match.
     let expected_matcher = expected.is_some().then_some(profile.matcher());
-    let mut state = FragmentState::Absent;
-    for group in groups(document, profile.event_name())? {
-        let next = marker_state(&group, expected, expected_matcher, async_spec);
-        if next == FragmentState::Absent {
-            continue;
-        }
-        if state != FragmentState::Absent || next == FragmentState::Ambiguous {
-            return Ok(FragmentState::Ambiguous);
-        }
-        state = next;
-    }
-    Ok(state)
+    let entries = hooks_map::event_entries(document, profile.event_name(), TOOL_LABEL)?;
+    Ok(hooks_map::reduce_event_entries(entries, |group| {
+        marker_state(group, expected, expected_matcher, async_spec)
+    }))
 }
 
 fn probe(
@@ -248,40 +217,23 @@ fn probe(
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
     let platform = ReporterPlatform::current();
-    let mut installed_count = 0;
-    let mut absent_count = 0;
-    let mut any_ambiguous = false;
-    for profile in EVENTS {
-        let invocation = profile.invocation(platform, reporter);
-        let next = event_state(document, profile, Some(&invocation), profile.async_spec())?;
-        match next {
-            FragmentState::Ambiguous => any_ambiguous = true,
-            FragmentState::Installed => installed_count += 1,
-            FragmentState::Absent => absent_count += 1,
-            FragmentState::Drifted => {}
-        }
-    }
-    let mut legacy_present = false;
-    for profile in LEGACY_EVENTS {
-        let state = event_state(document, profile, None, AsyncSpec::Any)?;
-        any_ambiguous |= state == FragmentState::Ambiguous;
-        legacy_present |= state != FragmentState::Absent;
-    }
-    if any_ambiguous {
-        return Ok(FragmentState::Ambiguous);
-    }
-    if legacy_present {
-        return Ok(FragmentState::Drifted);
-    }
-    if installed_count == EVENTS.len() {
-        return Ok(FragmentState::Installed);
-    }
-    if absent_count == EVENTS.len() {
-        return Ok(FragmentState::Absent);
-    }
-    // At least one event is Installed or Drifted, and at least one is missing
-    // or differently shaped — install must converge, so report Drifted.
-    Ok(FragmentState::Drifted)
+    hooks_map::probe_event_bundle(
+        document,
+        TOOL_LABEL,
+        &EVENTS,
+        |profile| profile.event_name(),
+        |profile, group| {
+            let invocation = profile.invocation(platform, reporter);
+            marker_state(
+                group,
+                Some(&invocation),
+                Some(profile.matcher()),
+                profile.async_spec(),
+            )
+        },
+        &LEGACY_EVENTS,
+        |_profile, group| marker_state(group, None, None, AsyncSpec::Any),
+    )
 }
 
 pub(super) fn prompt_attention_probe(
@@ -301,60 +253,33 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
     if remove(document)? == FragmentState::Ambiguous {
         return Err(IntegrationError::OwnershipAmbiguous);
     }
-    let hooks = document.entry("hooks").or_insert_with(|| json!({}));
-    let hooks = hooks
-        .as_object_mut()
-        .ok_or_else(|| IntegrationError::InvalidConfig("Claude hooks must be an object.".into()))?;
     let platform = ReporterPlatform::current();
-    for profile in EVENTS {
-        let invocation = profile.invocation(platform, reporter);
-        let entry = hooks
-            .entry(profile.event_name())
-            .or_insert_with(|| json!([]));
-        let entries = entry.as_array_mut().ok_or_else(|| {
-            IntegrationError::InvalidConfig(format!(
-                "Claude {} hooks must be an array.",
-                profile.event_name()
-            ))
-        })?;
-        let hook = json!({
-            "type": "command",
-            "command": invocation.program,
-            "args": invocation.args,
-        });
-        let matcher = profile.matcher();
-        entries.push(json!({"matcher": matcher, "hooks": [hook]}));
-    }
-    Ok(())
+    hooks_map::append_event_entries(
+        document,
+        TOOL_LABEL,
+        EVENTS.into_iter().map(|profile| {
+            let invocation = profile.invocation(platform, reporter);
+            let hook = json!({
+                "type": "command",
+                "command": invocation.program,
+                "args": invocation.args,
+            });
+            (
+                profile.event_name(),
+                json!({"matcher": profile.matcher(), "hooks": [hook]}),
+            )
+        }),
+    )
 }
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
-    let mut found = false;
-    for profile in EVENTS.into_iter().chain(LEGACY_EVENTS) {
-        let state = event_state(document, profile, None, AsyncSpec::Any)?;
-        if state == FragmentState::Ambiguous {
-            return Ok(FragmentState::Ambiguous);
-        }
-        found |= state != FragmentState::Absent;
-    }
-    if !found {
-        return Ok(FragmentState::Absent);
-    }
-    let hooks = document
-        .get_mut("hooks")
-        .and_then(Value::as_object_mut)
-        .expect("validated hooks object");
-    for profile in EVENTS.into_iter().chain(LEGACY_EVENTS) {
-        if let Some(groups) = hooks
-            .get_mut(profile.event_name())
-            .and_then(Value::as_array_mut)
-        {
-            groups.retain(|group| {
-                marker_state(group, None, None, AsyncSpec::Any) == FragmentState::Absent
-            });
-        }
-    }
-    Ok(FragmentState::Drifted)
+    hooks_map::remove_event_bundle(
+        document,
+        TOOL_LABEL,
+        &ALL_EVENTS,
+        |profile| profile.event_name(),
+        |_profile, group| marker_state(group, None, None, AsyncSpec::Any),
+    )
 }
 
 #[cfg(test)]

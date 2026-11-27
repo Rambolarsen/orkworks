@@ -3,12 +3,13 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    event_reporter_invocation_for_platform, FragmentState, JsonHookHandler, ReporterPlatform,
-    ToolHookContract,
+    event_reporter_invocation_for_platform, hooks_map, reconcile_all_platforms, FragmentState,
+    JsonHookHandler, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
 const MARKER: &str = "orkworks:harness-integration:v2:copilot";
+const TOOL_LABEL: &str = "Copilot";
 const EVENTS: [(&str, &str); 3] = [
     ("notification", "notification"),
     ("sessionStart", "sessionStart"),
@@ -30,16 +31,8 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     probe,
     merge,
     remove,
-    reconcile_reporters,
+    reconcile_all_platforms,
 );
-
-fn reconcile_reporters(
-    resolver: &crate::harness::integration::ReporterAssetResolver,
-) -> Result<std::path::PathBuf, IntegrationError> {
-    resolver.reconcile(ReporterPlatform::Posix.asset_name())?;
-    resolver.reconcile(ReporterPlatform::WindowsPowerShell.asset_name())?;
-    resolver.stable_path(ReporterPlatform::current().asset_name())
-}
 
 fn reporter_paths(reporter: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
     let parent = reporter.parent().unwrap_or_else(|| Path::new("."));
@@ -49,7 +42,7 @@ fn reporter_paths(reporter: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
     )
 }
 
-fn hooks(document: &Map<String, Value>, event: &str) -> Result<Vec<Value>, IntegrationError> {
+fn validate_version(document: &Map<String, Value>) -> Result<(), IntegrationError> {
     if document
         .get("version")
         .is_some_and(|version| version != &Value::from(1))
@@ -58,17 +51,7 @@ fn hooks(document: &Map<String, Value>, event: &str) -> Result<Vec<Value>, Integ
             "Copilot inline hooks require top-level version 1.".into(),
         ));
     }
-    let Some(value) = document.get("hooks") else {
-        return Ok(vec![]);
-    };
-    let hooks = value.as_object().ok_or_else(|| {
-        IntegrationError::InvalidConfig("Copilot hooks must be an object.".into())
-    })?;
-    hooks.get(event).map_or(Ok(vec![]), |value| {
-        value.as_array().cloned().ok_or_else(|| {
-            IntegrationError::InvalidConfig(format!("Copilot {event} hooks must be an array."))
-        })
-    })
+    Ok(())
 }
 
 fn state(hook: &Value, reporter: Option<&Path>, event: &str) -> FragmentState {
@@ -116,51 +99,26 @@ fn probe(
     document: &Map<String, Value>,
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
-    let mut installed_count = 0;
-    let mut absent_count = 0;
-    let mut ambiguous = false;
-    for (key, event) in EVENTS {
-        let mut result = FragmentState::Absent;
-        for hook in hooks(document, key)? {
-            let next = state(&hook, Some(reporter), event);
-            if result != FragmentState::Absent && next != FragmentState::Absent {
-                result = FragmentState::Ambiguous;
-                break;
-            }
-            match next {
-                FragmentState::Absent => {}
-                FragmentState::Ambiguous => {
-                    result = FragmentState::Ambiguous;
-                    break;
-                }
-                FragmentState::Installed | FragmentState::Drifted => result = next,
-            }
-        }
-        match result {
-            FragmentState::Absent => absent_count += 1,
-            FragmentState::Installed => installed_count += 1,
-            FragmentState::Drifted => {}
-            FragmentState::Ambiguous => ambiguous = true,
-        }
-    }
-    if ambiguous {
-        Ok(FragmentState::Ambiguous)
-    } else if installed_count == EVENTS.len() {
-        Ok(FragmentState::Installed)
-    } else if absent_count == EVENTS.len() {
-        Ok(FragmentState::Absent)
-    } else {
-        Ok(FragmentState::Drifted)
-    }
+    validate_version(document)?;
+    hooks_map::probe_event_bundle(
+        document,
+        TOOL_LABEL,
+        &EVENTS,
+        |(key, _)| key,
+        |(_, event), hook| state(hook, Some(reporter), event),
+        &[],
+        |_, _| FragmentState::Absent,
+    )
 }
 
 pub(super) fn prompt_attention_probe(
     document: &Map<String, Value>,
     reporter: &Path,
 ) -> Result<FragmentState, IntegrationError> {
+    validate_version(document)?;
     let mut result = FragmentState::Absent;
-    for hook in hooks(document, "notification")? {
-        match state(&hook, Some(reporter), "notification") {
+    for hook in hooks_map::event_entries(document, "notification", TOOL_LABEL)? {
+        match state(hook, Some(reporter), "notification") {
             FragmentState::Absent => {}
             FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
             FragmentState::Drifted => result = FragmentState::Drifted,
@@ -177,77 +135,42 @@ fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), Integ
     if remove(document)? == FragmentState::Ambiguous {
         return Err(IntegrationError::OwnershipAmbiguous);
     }
-    match document.get("version") {
-        None => {
-            document.insert("version".into(), Value::from(1));
-        }
-        Some(version) if version == &Value::from(1) => {}
-        Some(_) => {
-            return Err(IntegrationError::InvalidConfig(
-                "Copilot inline hooks require top-level version 1.".into(),
-            ))
-        }
+    validate_version(document)?;
+    if !document.contains_key("version") {
+        document.insert("version".into(), Value::from(1));
     }
-    let hooks = document
-        .entry("hooks")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(|| {
-            IntegrationError::InvalidConfig("Copilot hooks must be an object.".into())
-        })?;
     let (posix_path, powershell_path) = reporter_paths(reporter);
-    for (key, event) in EVENTS {
-        let entries = hooks
-            .entry(key)
-            .or_insert_with(|| json!([]))
-            .as_array_mut()
-            .ok_or_else(|| {
-                IntegrationError::InvalidConfig(format!("Copilot {key} hooks must be an array."))
-            })?;
-        let posix = event_reporter_invocation_for_platform(
-            ReporterPlatform::Posix,
-            &posix_path,
-            MARKER,
-            event,
-        );
-        let powershell = event_reporter_invocation_for_platform(
-            ReporterPlatform::WindowsPowerShell,
-            &powershell_path,
-            MARKER,
-            event,
-        );
-        entries.push(json!({"type":"command","bash":posix.shell_command,"powershell":powershell.shell_command,"env":{"ORKWORKS_INTEGRATION_MARKER":MARKER}}));
-    }
-    Ok(())
+    hooks_map::append_event_entries(
+        document,
+        TOOL_LABEL,
+        EVENTS.into_iter().map(|(key, event)| {
+            let posix = event_reporter_invocation_for_platform(
+                ReporterPlatform::Posix,
+                &posix_path,
+                MARKER,
+                event,
+            );
+            let powershell = event_reporter_invocation_for_platform(
+                ReporterPlatform::WindowsPowerShell,
+                &powershell_path,
+                MARKER,
+                event,
+            );
+            (
+                key,
+                json!({"type":"command","bash":posix.shell_command,"powershell":powershell.shell_command,"env":{"ORKWORKS_INTEGRATION_MARKER":MARKER}}),
+            )
+        }),
+    )
 }
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
-    let mut found_owned = false;
-    for (key, event) in EVENTS {
-        let mut event_count = 0;
-        for hook in hooks(document, key)? {
-            match state(&hook, None, event) {
-                FragmentState::Absent => {}
-                FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-                _ => event_count += 1,
-            }
-        }
-        if event_count > 1 {
-            return Ok(FragmentState::Ambiguous);
-        }
-        found_owned |= event_count == 1;
-    }
-    if !found_owned {
-        return Ok(FragmentState::Absent);
-    }
-    let hooks = document
-        .get_mut("hooks")
-        .and_then(Value::as_object_mut)
-        .expect("validated hooks object");
-    for (key, event) in EVENTS {
-        if let Some(entries) = hooks.get_mut(key).and_then(Value::as_array_mut) {
-            entries.retain(|hook| state(hook, None, event) == FragmentState::Absent);
-        }
-    }
-    Ok(FragmentState::Drifted)
+    validate_version(document)?;
+    hooks_map::remove_event_bundle(
+        document,
+        TOOL_LABEL,
+        &EVENTS,
+        |(key, _)| key,
+        |(_, event), hook| state(hook, None, event),
+    )
 }

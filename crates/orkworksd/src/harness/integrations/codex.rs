@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use super::{
-    portable_reporter_invocation, reconcile_current, reporter_invocation, FragmentState,
+    hooks_map, portable_reporter_invocation, reconcile_current, reporter_invocation, FragmentState,
     JsonHookHandler, ReporterInvocation, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
@@ -176,68 +176,34 @@ fn reconcile_codex_reporters(
     reconcile_current(resolver)
 }
 
-fn groups(document: &Map<String, Value>) -> Result<Vec<(String, Value)>, IntegrationError> {
-    let Some(hooks) = document.get("hooks") else {
-        return Ok(vec![]);
-    };
-    let hooks = hooks
-        .as_object()
-        .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
-    let mut groups = Vec::new();
-    for event in CODEX_EVENTS {
-        let Some(value) = hooks.get(event) else {
-            continue;
-        };
-        let event_groups = value.as_array().cloned().ok_or_else(|| {
-            IntegrationError::InvalidConfig(format!("Codex {event} hooks must be an array."))
-        })?;
-        groups.extend(
-            event_groups
-                .into_iter()
-                .map(|group| (event.to_owned(), group)),
-        );
-    }
-    Ok(groups)
-}
+const TOOL_LABEL: &str = "Codex";
 
 fn marker_state(
     _event: &str,
     group: &Value,
     expected: Option<&ReporterInvocation>,
 ) -> FragmentState {
-    let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
-        return FragmentState::Absent;
-    };
-    let mut found = None;
-    for hook in hooks {
-        let Some(command) = hook.get("command").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(marker) = extract_marker(command) else {
-            continue;
-        };
-        if marker != MARKER || hooks.len() != 1 {
-            return FragmentState::Ambiguous;
-        }
-        let exact = expected.is_some_and(|invocation| {
-            // merge() never sets an outer "matcher" — it intentionally
-            // matches every source for this event. A group edited to add one
-            // no longer fires for the complete event contract, so it must
-            // not read as Installed.
-            group.get("matcher").is_none()
-                && hook.get("type").and_then(Value::as_str) == Some("command")
-                && command == invocation.shell_command.as_str()
-        });
-        if found.is_some() {
-            return FragmentState::Drifted;
-        }
-        found = Some(if exact {
-            FragmentState::Installed
-        } else {
-            FragmentState::Drifted
-        });
-    }
-    found.unwrap_or(FragmentState::Absent)
+    hooks_map::classify_hook_group(
+        group,
+        MARKER,
+        |hook| {
+            hook.get("command")
+                .and_then(Value::as_str)
+                .and_then(extract_marker)
+        },
+        |hook| {
+            expected.is_some_and(|invocation| {
+                // merge() never sets an outer "matcher" — it intentionally
+                // matches every source for this event. A group edited to add one
+                // no longer fires for the complete event contract, so it must
+                // not read as Installed.
+                group.get("matcher").is_none()
+                    && hook.get("type").and_then(Value::as_str) == Some("command")
+                    && hook.get("command").and_then(Value::as_str)
+                        == Some(invocation.shell_command.as_str())
+            })
+        },
+    )
 }
 
 fn probe(
@@ -258,58 +224,34 @@ fn probe(
     // install() reconciles the missing script instead of leaving a hook
     // that reports installed but can never run.
     let expected_available = reporter.try_exists().unwrap_or(false);
-    let existing = groups(document)?;
-    let bundle = (expected_available && !existing.is_empty())
+    let has_entries = hooks_map::has_any_event_entries(document, TOOL_LABEL, &CODEX_EVENTS)?;
+    let bundle = (expected_available && has_entries)
         .then(|| resolved_command_bundle(reporter))
         .transpose()?;
-    Ok(probe_command_bundle(
-        &existing,
-        bundle.as_ref().map(|(_, commands)| commands),
-    ))
+    probe_command_bundle(document, bundle.as_ref().map(|(_, commands)| commands))
 }
 
 fn probe_command_bundle(
-    existing: &[(String, Value)],
+    document: &Map<String, Value>,
     expected: Option<&[ReporterInvocation; 6]>,
-) -> FragmentState {
-    let mut installed_events = 0;
-    let mut saw_owned = false;
-    let mut saw_drifted = false;
-    let mut owned_events = std::collections::HashSet::new();
-    for (event, group) in existing {
-        let invocation = expected.and_then(|commands| {
-            CODEX_EVENTS
-                .iter()
-                .position(|known| known == event)
-                .map(|index| &commands[index])
-        });
-        let next = marker_state(event, group, invocation);
-        match next {
-            FragmentState::Absent => {}
-            FragmentState::Ambiguous => return FragmentState::Ambiguous,
-            FragmentState::Installed => {
-                if !owned_events.insert(event) {
-                    return FragmentState::Ambiguous;
-                }
-                saw_owned = true;
-                installed_events += 1;
-            }
-            FragmentState::Drifted => {
-                if !owned_events.insert(event) {
-                    return FragmentState::Ambiguous;
-                }
-                saw_owned = true;
-                saw_drifted = true;
-            }
-        }
-    }
-    if !saw_owned {
-        FragmentState::Absent
-    } else if !saw_drifted && installed_events == CODEX_EVENTS.len() {
-        FragmentState::Installed
-    } else {
-        FragmentState::Drifted
-    }
+) -> Result<FragmentState, IntegrationError> {
+    hooks_map::probe_event_bundle(
+        document,
+        TOOL_LABEL,
+        &CODEX_EVENTS,
+        |event| event,
+        |event, group| {
+            let invocation = expected.and_then(|commands| {
+                CODEX_EVENTS
+                    .iter()
+                    .position(|known| known == event)
+                    .map(|index| &commands[index])
+            });
+            marker_state(event, group, invocation)
+        },
+        &[],
+        |_, _| FragmentState::Absent,
+    )
 }
 
 fn merge(document: &mut Map<String, Value>, reporter: &Path) -> Result<(), IntegrationError> {
@@ -324,58 +266,34 @@ fn merge_command_bundle(
     document: &mut Map<String, Value>,
     commands: &[ReporterInvocation; 6],
 ) -> Result<(), IntegrationError> {
-    let hooks = document
-        .entry("hooks")
-        .or_insert_with(|| json!({}))
-        .as_object_mut()
-        .ok_or_else(|| IntegrationError::InvalidConfig("Codex hooks must be an object.".into()))?;
-    for (event, invocation) in CODEX_EVENTS.into_iter().zip(commands) {
-        let event_hooks = hooks
-            .entry(event)
-            .or_insert_with(|| json!([]))
-            .as_array_mut()
-            .ok_or_else(|| {
-                IntegrationError::InvalidConfig(format!("Codex {event} hooks must be an array."))
-            })?;
-        event_hooks.push(json!({
-            "hooks":[{"type":"command","command":invocation.shell_command}]
-        }));
-    }
-    Ok(())
+    hooks_map::append_event_entries(
+        document,
+        TOOL_LABEL,
+        CODEX_EVENTS
+            .into_iter()
+            .zip(commands)
+            .map(|(event, invocation)| {
+                (
+                    event,
+                    json!({
+                        "hooks":[{"type":"command","command":invocation.shell_command}]
+                    }),
+                )
+            }),
+    )
 }
 
 fn remove(document: &mut Map<String, Value>) -> Result<FragmentState, IntegrationError> {
-    let existing = groups(document)?;
-    let mut owned_events = std::collections::HashSet::new();
-    for (event, group) in &existing {
-        match marker_state(event, group, None) {
-            FragmentState::Absent => {}
-            FragmentState::Ambiguous => return Ok(FragmentState::Ambiguous),
-            FragmentState::Installed | FragmentState::Drifted => {
-                // One OrkWorks group per event is the owned shape. Multiple
-                // owned groups for the same event are ambiguous, while one
-                // group on each of the six Codex events is the complete
-                // bundle and must be removable as one unit.
-                if !owned_events.insert(event) {
-                    return Ok(FragmentState::Ambiguous);
-                }
-            }
-        }
-    }
-    if owned_events.is_empty() {
-        return Ok(FragmentState::Absent);
-    }
-    let hooks = document
-        .get_mut("hooks")
-        .and_then(Value::as_object_mut)
-        .expect("validated hooks object");
-    for event in CODEX_EVENTS {
-        let Some(event_hooks) = hooks.get_mut(event).and_then(Value::as_array_mut) else {
-            continue;
-        };
-        event_hooks.retain(|group| marker_state(event, group, None) == FragmentState::Absent);
-    }
-    Ok(FragmentState::Drifted)
+    // One OrkWorks group per event is the owned shape. Multiple owned groups
+    // for the same event are ambiguous, while one group on each of the six
+    // Codex events is the complete bundle and must be removable as one unit.
+    hooks_map::remove_event_bundle(
+        document,
+        TOOL_LABEL,
+        &CODEX_EVENTS,
+        |event| event,
+        |event, group| marker_state(event, group, None),
+    )
 }
 
 #[cfg(test)]
@@ -413,9 +331,8 @@ mod tests {
             );
             assert_eq!(document["hooks"][event][0]["hooks"][0]["command"], expected);
         }
-        let existing = groups(&document).unwrap();
         assert!(matches!(
-            probe_command_bundle(&existing, Some(&commands)),
+            probe_command_bundle(&document, Some(&commands)).unwrap(),
             FragmentState::Installed
         ));
     }
