@@ -18,8 +18,9 @@ not backend implementation or a numerical native E/S search.
 meanings. Native host allocation, helper workspaces and stacks remain outside
 those numeric guarantees. All lower/source/lifetime/authority gates remain.
 
-Current metadata status: the [single Windows attempt below](#one-windows-metadata-attempt-completed--2026-11-26)
-supersedes the earlier uncached-target failure for its exact frozen request only.
+Current status: the [source-only toolchain/SDK reconciliation](#toolchain-and-sdk-source-reconciliation-2026-11-27)
+joins the retained evidence limits. The frozen Windows metadata request and a
+separate positive SDK record succeeded; the fixed build stopped before compilation.
 Actual effective flags, linked artifact, startup and native mechanism remain
 unqualified; Gate 1 is still Investigate and no executable slice is unlocked.
 
@@ -1214,3 +1215,105 @@ source/custody/compatibility/recovery/durability/activation gates remain closed.
 Next useful work is a source-only reconciliation of the retained toolchain and
 SDK facts against the remaining qualification requirements, before proposing
 any further acquisition or build allowance.
+
+## Toolchain and SDK source reconciliation (2026-11-27)
+
+Disposition: **positive SDK evidence established; exact-build and mechanism
+qualification remain Investigate.** Inspection base c87e020e170b7b288750f2e45955198b6696c894.
+This source-only follow-up to #2135 reconciles existing records and committed
+policies. It reacquired no raw artifact, queried no runner or installed tool,
+executed no qualification program and changed no pin, collector, workflow or
+allowance. Every earlier execution allowance remains terminal and spent.
+
+### Evidence ledger and permissible joins
+
+| Retained record | Established fact | Limit on reuse |
+| --- | --- | --- |
+| [Metadata run45763908423](#one-windows-metadata-attempt-completed--2026-11-26) | Complete target-filtered graph for the frozen default-feature request; SQLite/build.rs identities matched; Cargo/rustc byte identities observed | A resolve graph is not a compiler/unit/link graph. No effective macro or linked object was produced. |
+| [Fixed-build run45876634487](#fixed-windows-build-batch-closed-unavailable-2026-11-26) | Four source pins and Cargo/rustc matched; selected cl.exe differed from its approved pin | Preflight stopped before tool version commands, fetch, build and oracle. There is no candidate, object, archive, map or link-custody receipt to qualify. |
+| [Component run45889209265](#read-only-inventory-terminal-result-2026-11-26) | Thirteen selected PE identities stable within that job; cl.exe19.44.35230.0 observed at the fixed toolset selector; selected SDK directories existed | Its SDK product enumeration never began. Thirteen files are a bounded subset, not all compiler/Rust/SDK headers, libraries, helpers or actual linked inputs. |
+| [Registry-only run45957491349](#registry-only-sdk-terminal-result-2026-11-27) | Bounded partial observation and local DisplayName rejection | Terminal unavailable; neither absence nor a complete inventory. Later success does not rewrite this result or identify its exact rejected value. |
+| [Positive-record run45991524648](#positive-sdk-record-terminal-result-2026-11-27) | SDK10.1.26100.9457 product record stable in two passes, with five matching records and two explicitly unclassified names | Positive-only schema: inventory_complete=false. No compiler/PE reads or build; it cannot seal co-availability with the earlier thirteen-file job. |
+
+The metadata/fixed-build image was20261116.370.1; the later component and SDK
+observations reported20261123.376.1. Equal later image labels, KitsRoot10, root
+counts or write markers provide context, not identity of a shared job, filesystem
+contents or loader/helper closure. No historical cause for the compiler change
+has been established. Do not transfer the older compiler's macro/link/runtime
+results to the newer bytes or combine separate receipts into one build witness.
+
+### Current source and selection comparison
+
+A direct SHA-256 comparison of the four current repository files against
+[scripts/qualification/pair-fixed-windows-build.inputs.json](../../scripts/qualification/pair-fixed-windows-build.inputs.json)
+found all four equal to the frozen metadata/build baseline:
+
+| Input | Current SHA-256, equal to policy |
+| --- | --- |
+| crates/orkworksd/Cargo.toml | 0134c524d6e92d0f01f3cf3953f687c1ee0b570e54da879659061238aa615cc8 |
+| crates/orkworksd/Cargo.lock | 40845c5bdf0a4ed869e93af1de572220711f0d2fabf31f546488b1cdbab28ded |
+| rust-toolchain.toml | d4d89c66d4e571b2f86ef1c5484191acca0465a101b6c46083eea9537e69fc25 |
+| crates/orkworksd/build.rs | 1111ea2be9dfa3ddeb9402608723b50b01bd304a81d3de63d7d1427fe7915edf |
+
+This is a comparison of those four source inputs, not a claim that all current
+sidecar source matches an earlier tree or that a new runner has the same resolved
+inputs. Reuse the frozen graph only within its recorded request; any future
+attempt must bind its reviewed source head and actual complete input manifest.
+
+The spent policy still requires cl.exe SHA-256
+fe251ef50a1545b1b0835ee17b1e785459712b38d79e45b5c1d3d28970a36619 and the
+[spent driver](../../scripts/qualification/pair-fixed-windows-build.mjs) requires
+file version19.44.35229.0. The later observation is SHA-256
+e87e78b3ef6580b75aebda843f8a22e874612d9f766344046551399f898eb226,
+file version19.44.35230.0/product14.44.35230.0. The shared directory label
+14.44.35207 does not make these byte identities equivalent. A replacement would
+be a new candidate decision, never a policy patch or retry of the consumed build.
+
+### Requirements that remain without actual evidence
+
+The [accepted build/startup provenance contract](../superpowers/specs/2026-11-24-pair-build-startup-design.md#exact-proposed-build-rule-and-provenance)
+and [ADR0119](../adr/0119-pair-build-startup-custody.md) remain the requirements.
+The existing [fixed-build input audit](#fixed-build-input-audit--2026-11-26) and
+driver describe planned checks; they do not report those checks executing after
+the preflight denial.
+
+| Requirement | Remaining evidence or decision |
+| --- | --- |
+| Candidate and complete inputs | Explicit replacement compiler decision if selecting the observed newer bytes; exact Rust/MSVC/SDK selectors and a same-job source/tool/header/library/helper manifest sealed before compilation and rechecked afterward. The separate SDK receipt supplies a known positive record, not a reusable availability token. |
+| Build-script/proc-macro/configuration closure | Reconcile the reviewed37 build-script and14 proc-macro entrypoints, all package files/lock checksums and actual child environment/configuration against the selected build. Existing static helper audits are conditional source evidence; no fetch/build stage of the failed fixed attempt reached this verification. |
+| Effective SQLite semantics | Actual SQLite compiler/argv/source/environment association and the same-input oracle showing MEMORY_MANAGEMENT absent, THREADSAFE=1 and reviewed override exclusions. LIBSQLITE3_FLAGS text and a source branch are insufficient; the old compiler's result does not qualify a new compiler. |
+| Linked-artifact custody | Actual SQLite object, native archive, unique Cargo libsqlite3_sys archive, matching extracted member bytes, final map/import association and unsigned sidecar identity. No such output exists from the spent fixed-build batch. No reproducibility claim follows from a hash alone. |
+| Startup and configuration ownership | Actual early owner, stable saved methods/pAppData, no unknown prior writer/cache/lookaside state, sticky failure and unpaired delegation. A built artifact or dormant fake-state tests alone do not prove that history. |
+| Ordinary compatibility | Qualify Codex/OpenCode reads and ordinary storage under the changed shared library/actual bootstrap, including changed memory-reclamation behavior, late/partial init, allocation provenance, failure and concurrent unpaired use. Unchanged SQL or absent direct release_memory calls are not compatibility evidence. |
+| Controlled mechanism and full profile | Actual EOF/arena/VFS/context owners and their pre-effect/lifetime checks, source authority/newness/cutoff/catalog/initializer participation, original old/new/unknown recovery and paired durability. Toolchain/SDK availability cannot supply these independent witnesses. |
+
+In particular, the reviewed driver would build a complete input manifest, derive
+an oracle from the actual SQLite compile command, and compare the captured
+SQLite object with members extracted from both archives plus final map rows.
+Those branches remain unobserved. Their source and synthetic tests explain what
+to demand from a later candidate; they do not mint link custody now.
+
+### Gate disposition and next bounded deliverable
+
+[ADR0118](../adr/0118-pair-resource-assurance.md) still accepts only the logical
+EOF/fixed-arena guarantee, with native host costs outside its numeric caps. The
+shared macro/startup recipe is already accepted for further qualification; do
+not ask the owner to approve those unchanged choices again. Source authority,
+ordinary compatibility and actual runtime mechanisms are still unqualified.
+
+Gate1 remains Investigate. Gate2's
+[private bootstrap-state plan](../superpowers/plans/2026-11-24-pair-bootstrap-state-tests.md)
+still requires its stated source closure and bounded implementation authority;
+Gate3 native qualification and Gate4 complete admission/activation remain gated.
+The inspected production Connection::open still returns unqualified profile
+before path I/O. This reconciliation unlocks no code, SQL/database, native/model,
+compiler, acquisition, migration or production route. #1176 remains open.
+
+The next useful deliverable is a **new written replacement-candidate build
+proposal**, using the observed compiler identity as a candidate and reusing the
+accepted macro/startup recipe. It should resolve same-job SDK/input sealing,
+complete helper/configuration custody, exact outputs/oracles and one explicit
+finite allowance together. Do not schedule another standalone availability
+probe merely because these earlier records are separate. Proposal publication
+authorizes no tooling or job; obtain one scoped owner decision before dependent
+work. Keep every consumed workflow/pin/history and all unused slots closed.

@@ -249,3 +249,20 @@ pins from unmeasured linker/SDK identities and requires reviewed input/helper
 closure before dispatch. The new allowance is owner-pending; no earlier batch
 is renewed. A built artifact would still not qualify startup, native/source or
 ordinary compatibility, and Gate1/bootstrap implementation remain gated.
+
+## Toolchain and SDK evidence reconciled — 2026-11-27
+
+The [source-only reconciliation](../../validation/pair-resource-enforcement-coverage.md#toolchain-and-sdk-source-reconciliation-2026-11-27)
+records the successful frozen metadata graph, pre-compilation fixed-build denial,
+stable thirteen-file component snapshot and separate positive SDK record. All
+four current frozen build-input hashes match; this does not join the separate
+jobs into a complete build witness. The newer compiler remains an unaccepted
+replacement candidate. Effective macro, object/archive/sidecar custody, actual
+startup/ordinary compatibility and source/mechanism evidence remain unavailable.
+
+Next is a new written replacement-candidate build proposal with same-job input
+sealing, reused accepted recipe, exact oracles and one explicit finite allowance.
+No repeat architecture acceptance, standalone availability probe, tooling edit or
+dispatch is authorized by this handoff. All earlier allowances stay spent. Gate1
+remains Investigate, Gate2 and the bootstrap-state slice stay gated, and Gates3–4
+remain separate. This source-only task changes no implementation or policy.
