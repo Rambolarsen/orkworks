@@ -515,6 +515,11 @@ test("navigation identity and activeHarnessRevision mutations are fenced to the 
 
 // Cross-boundary IPC & renderer contract checks (main <-> preload <-> renderer types <-> App).
 
+test("image creation and session app actions use the ready workspace identity", () => {
+  assert.ok(mainSource.includes("expectedWorkspaceIdentity: request.expectedWorkspacePath"));
+  assert.ok(mainSource.includes("{ expectedWorkspaceIdentity: expectedWorkspace }"));
+});
+
 test("main delegates workspace lifecycle to WorkspaceRuntime without duplicate spawn or legacy channels", () => {
   assert.equal(mainSource.match(/createWorkspaceRuntime\(/g)?.length, 1);
   assert.equal(mainSource.match(/\bspawn\(/g)?.length, 1);

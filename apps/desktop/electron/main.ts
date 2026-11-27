@@ -588,7 +588,7 @@ app.whenReady().then(async () => {
     return runtime.runReady(
       ({ port, token, signal }) => submitImageSession(port, token, request, signal),
       {
-        expectedWorkspacePath: request.expectedWorkspacePath,
+        expectedWorkspaceIdentity: request.expectedWorkspacePath,
         expectedBackendUrl: typeof expectedBackendUrl === "string" ? expectedBackendUrl : "",
       },
     );
@@ -637,7 +637,7 @@ app.whenReady().then(async () => {
         }),
       };
       return open ? openSessionApp(id, deps, destination) : inspectSessionApp(id, deps, destination);
-    }, { expectedWorkspacePath: expectedWorkspace });
+    }, { expectedWorkspaceIdentity: expectedWorkspace });
   }
   ipcMain.handle("inspect-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, false, destination));
   ipcMain.handle("open-session-app", (_event, expectedWorkspace: unknown, id: unknown, destination: unknown) => sessionAppRequest(expectedWorkspace, id, true, destination));

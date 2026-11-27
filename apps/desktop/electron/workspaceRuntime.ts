@@ -57,6 +57,7 @@ export interface ReadyBackendContext {
 
 export interface RunReadyOptions {
   expectedWorkspacePath?: string;
+  expectedWorkspaceIdentity?: string;
   expectedBackendUrl?: string;
   staleMessage?: string;
   notReadyMessage?: string;
@@ -506,6 +507,12 @@ export function createWorkspaceRuntime(options: WorkspaceRuntimeOptions): Worksp
   ): boolean {
     if (capturedGeneration !== generation || latestLifecycle.state !== "ready") return false;
     if (runOptions.expectedWorkspacePath !== undefined && runOptions.expectedWorkspacePath !== workspacePath) {
+      return false;
+    }
+    if (
+      runOptions.expectedWorkspaceIdentity !== undefined
+      && runOptions.expectedWorkspaceIdentity !== latestLifecycle.workspace?.workspaceIdentity
+    ) {
       return false;
     }
     if (runOptions.expectedBackendUrl !== undefined && runOptions.expectedBackendUrl !== sidecarUrl(port)) {
