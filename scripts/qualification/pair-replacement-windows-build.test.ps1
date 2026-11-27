@@ -27,7 +27,7 @@ try {
     $src=Join-Path $registry "src/$index/$package";$cache=Join-Path $registry "cache/$index"
     [IO.Directory]::CreateDirectory($src)|Out-Null;[IO.Directory]::CreateDirectory($cache)|Out-Null
     $archive=Join-Path $cache ($package+'.crate')
-    $output=[IO.File]::Create($archive);$gzip=[IO.Compression.GZipStream]::new($output,[IO.Compression.CompressionLevel]::Fastest)
+    $archiveStream=[IO.File]::Create($archive);$gzip=[IO.Compression.GZipStream]::new($archiveStream,[IO.Compression.CompressionLevel]::Fastest)
     $tar=[System.Formats.Tar.TarWriter]::new($gzip,$true)
     try {
         foreach($item in @{ 'Cargo.toml'="[package]`nname = `"fixture`"`nversion = `"1.0.0`"`nbuild = false`n"; 'src/lib.rs'='pub fn fixture() {}' }.GetEnumerator()) {
@@ -35,7 +35,7 @@ try {
             $entry.DataStream=[IO.MemoryStream]::new($bytes);$tar.WriteEntry($entry);$entry.DataStream.Dispose()
             $file=Join-Path $src $item.Key;[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($file))|Out-Null;[IO.File]::WriteAllBytes($file,$bytes)
         }
-    } finally {$tar.Dispose();$gzip.Dispose();$output.Dispose()}
+    } finally {$tar.Dispose();$gzip.Dispose();$archiveStream.Dispose()}
     [IO.File]::WriteAllText((Join-Path $src '.cargo-ok'),'{"v":1}',[Text.UTF8Encoding]::new($false))
     $h=(Read-SealedFile $archive (New-ReadBudget 1048576)).sha256
     $policy=@{packages=@{'fixture@1.0.0'=$h};scripts=@{};proc_macros=@{}}
