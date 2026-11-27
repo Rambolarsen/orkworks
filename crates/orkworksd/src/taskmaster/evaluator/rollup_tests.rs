@@ -256,8 +256,8 @@ fn rollup_application_rejects_empty_or_missing_members_without_legacy_writes() {
 #[test]
 fn rollup_application_uses_the_updated_first_member_in_id_order() {
     let directory = tempfile::tempdir().unwrap();
-    let (state, _runtime, recommendations) = seeded_state(&directory, &["b", "a"]);
-    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations, 0).unwrap();
+    let (state, _runtime, recommendations) = seeded_state(&directory, &["b", "a", "untouched"]);
+    let snapshots = build_rollup_family_snapshots_with_offset(&recommendations[..2], 0).unwrap();
     let mut legacy_update = recommendations[1].clone();
     legacy_update.workflow_improvement.expected_benefit = "Updated benefit from a".into();
     let instance = workspace_instance(&state);
@@ -284,13 +284,15 @@ fn rollup_application_uses_the_updated_first_member_in_id_order() {
         parent.workflow_improvement.expected_benefit,
         "Updated benefit from a"
     );
-    assert!(records
-        .iter()
-        .filter(|record| record.id != parent_id)
-        .all(|member| {
-            member.status == RecommendationStatus::RolledUp
-                && member.rolled_up_by.as_deref() == Some(parent_id.as_str())
-        }));
+    for id in ["a", "b"] {
+        let member = records.iter().find(|record| record.id == id).unwrap();
+        assert_eq!(member.status, RecommendationStatus::RolledUp);
+        assert_eq!(member.rolled_up_by.as_deref(), Some(parent_id.as_str()));
+    }
+    assert_eq!(
+        records.iter().find(|record| record.id == "untouched"),
+        Some(&recommendations[2])
+    );
 }
 
 #[test]

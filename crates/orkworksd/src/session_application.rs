@@ -1001,7 +1001,7 @@ impl SessionApplication {
             current.insert(update.id.clone(), update.clone());
         }
         let now = chrono::Utc::now().to_rfc3339();
-        let mut working = current.clone();
+        let mut replacements = BTreeMap::new();
         let assigned_member_ids = clusters
             .iter()
             .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
@@ -1154,13 +1154,12 @@ impl SessionApplication {
             {
                 add_expected(id, &mut expected);
             }
-            working.insert(parent.id.clone(), parent.clone());
-            for member in &members {
-                let mut member = member.clone();
+            replacements.insert(parent_id.clone(), parent);
+            for mut member in members {
                 member.status = RecommendationStatus::RolledUp;
-                member.rolled_up_by = Some(parent.id.clone());
+                member.rolled_up_by = Some(parent_id.clone());
                 add_expected(&member.id, &mut expected);
-                working.insert(member.id.clone(), member);
+                replacements.insert(member.id.clone(), member);
             }
         }
         // A valid clustering result is authoritative for the complete active
@@ -1180,7 +1179,7 @@ impl SessionApplication {
             superseded.status = RecommendationStatus::Superseded;
             superseded.updated_at = now.clone();
             add_expected(&superseded.id, &mut expected);
-            working.insert(superseded.id.clone(), superseded);
+            replacements.insert(superseded.id.clone(), superseded);
             for old_member_id in old_parent
                 .rollup_member_ids
                 .iter()
@@ -1194,18 +1193,19 @@ impl SessionApplication {
                     released.status = RecommendationStatus::Proposed;
                     released.rolled_up_by = None;
                     add_expected(&released.id, &mut expected);
-                    working.insert(released.id.clone(), released);
+                    replacements.insert(released.id.clone(), released);
                 }
             }
         }
         if expected.is_empty() {
             return true;
         }
+        current.extend(replacements);
         workspace
             .recommendation_store
             .apply_recommendation_graph_transaction(
                 &expected,
-                &working.into_values().collect::<Vec<_>>(),
+                &current.into_values().collect::<Vec<_>>(),
             )
             .is_ok()
     }
