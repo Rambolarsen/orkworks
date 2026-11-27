@@ -35,6 +35,19 @@ fixture and version/feature evidence are added beside the binding.
 | Aider (not installed) | [Notifications](https://aider.chat/docs/usage/notifications.html) | `--notifications-command` runs when the LLM finishes a response and Aider is waiting for the next input. The callback has no native Aider session ID or structured event payload and does not distinguish an ordinary completed response from a response containing a question. OrkWorks correlates its reporter to the launched session through its inherited session environment. Current source gives Aider no static attention authority, and both shared reporters leave its callback without attention or identity writes. Source launches leave `--notifications` and `--notifications-command` under Aider/user control; enabling the OrkWorks preference does not inject a callback or reconcile an unused reporter. | Limited: [Aider 0.86.0 source](https://github.com/Aider-AI/aider/blob/a4be6ccd87ebaa59b361f3f028d116ce1761b626/aider/io.py#L1049-L1104) pins the completion callback, but the attempted live active/inactive precedence fixture was interrupted and remains unverified in #643. Synthetic reporter fixtures establish no callback attention writes; they do not establish live Peon precedence. No repository Aider config is edited. |
 | Generic shell | No deterministic extension point | None. | Unsupported; all integration mutation requests are no-ops with a conflict response. |
 
+### Antigravity 1.5.18 resume evidence
+
+The [bounded resume fixtures](../validation/antigravity-resume-identity.md)
+confirmed headless `--continue` and `--conversation=<id>` retained the fresh
+fixture's conversation ID. Neither emitted SessionStart in these trials; the
+first PreInvocation carried `invocationNum: 0`, exercising the reporter's existing
+identity fallback. Subsequent fully idle Stop payloads and sanitized reporter
+replay established expected Working/Idle reports. The interactive exact-resume
+probe stopped at startup permission without a prompt. This does not qualify
+resumed native Needs You or desktop clearing, installed-hook live delivery,
+Windows, or other versions. The earlier 1.5.13 capture retains its own scope;
+integration coverage remains limited.
+
 ### Short discovery probe ownership
 
 Source version/help probes, Codex isolation help and the OpenCode exact-resume
