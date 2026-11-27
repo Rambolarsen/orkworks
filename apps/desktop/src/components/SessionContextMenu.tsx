@@ -8,7 +8,7 @@ export interface SessionMenuAnchor { session: SessionInfo; x: number; y: number;
 interface Props {
   anchor: SessionMenuAnchor;
   disabled: boolean;
-  onDismiss: () => void;
+  onDismiss: () => boolean;
   onAction: (action: SessionAction | "resume") => void;
 }
 
@@ -38,12 +38,17 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
     document.addEventListener("pointerdown", outside, true);
     window.addEventListener("resize", dismiss);
     return () => { document.removeEventListener("pointerdown", outside, true); window.removeEventListener("resize", dismiss); };
-  }, [anchor, onDismiss]);
+  }, [anchor, disabled, onDismiss]);
 
   return createPortal(<div ref={ref} className="session-context-menu" role="menu" aria-label={`Actions for ${session.label}`} tabIndex={-1}
     style={{ position: "fixed", ...position }} onKeyDown={event => {
       event.stopPropagation();
-      if (event.key === "Escape" || event.key === "Tab") { event.preventDefault(); onDismiss(); return; }
+      if (event.key === "Escape") { event.preventDefault(); onDismiss(); return; }
+      if (event.key === "Tab") {
+        // Let Chromium advance from the invoker. Keep focus on the fallback if the invoker is gone.
+        if (!onDismiss()) event.preventDefault();
+        return;
+      }
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
       event.preventDefault();
       const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];

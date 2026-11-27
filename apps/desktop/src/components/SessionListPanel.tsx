@@ -218,7 +218,11 @@ function SessionListPanel({
     const current = menuRef.current;
     menuRef.current = null;
     setMenu(null);
-    if (current) (current.invoker?.isConnected ? current.invoker : listRef.current)?.focus();
+    if (!current) return false;
+    current.invoker?.focus();
+    if (document.activeElement === current.invoker) return true;
+    (listRef.current ?? filterRef.current)?.focus();
+    return false;
   }, []);
   const openMenu = useCallback((session: SessionInfo, x: number, y: number, invoker: HTMLElement | null) => {
     setError(null);
