@@ -2877,17 +2877,18 @@ impl SessionApplication {
             _ => return,
         };
         if let Some(native_session_id) = candidate.as_deref() {
-            let mut persisted_candidate = self
-                .state
-                .workspace
-                .lock()
-                .unwrap()
-                .as_ref()
-                .and_then(|workspace| workspace.metadata.read_session(id))
-                .and_then(|metadata| metadata.resume)
-                .and_then(|resume| resume.harness_session_id)
-                .is_some_and(|persisted_id| persisted_id == native_session_id);
-            if !persisted_candidate {
+            let candidate_is_persisted = || {
+                self.state
+                    .workspace
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|workspace| workspace.metadata.read_session(id))
+                    .and_then(|metadata| metadata.resume)
+                    .and_then(|resume| resume.harness_session_id)
+                    .is_some_and(|persisted_id| persisted_id == native_session_id)
+            };
+            if !candidate_is_persisted() {
                 let _ = self.report_harness_session_with_codex_context(
                     id,
                     metadata::HarnessSessionReport {
@@ -2899,20 +2900,10 @@ impl SessionApplication {
                     Some(event),
                     true,
                 );
-                persisted_candidate = self
-                    .state
-                    .workspace
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(|workspace| workspace.metadata.read_session(id))
-                    .and_then(|metadata| metadata.resume)
-                    .and_then(|resume| resume.harness_session_id)
-                    .is_some_and(|persisted_id| persisted_id == native_session_id);
-            }
-            if !persisted_candidate {
-                self.mark_prompt_identity_reset_pending(id, schedule_retry);
-                return;
+                if !candidate_is_persisted() {
+                    self.mark_prompt_identity_reset_pending(id, schedule_retry);
+                    return;
+                }
             }
         } else {
             let result = self
@@ -2932,10 +2923,15 @@ impl SessionApplication {
                 self.mark_prompt_identity_reset_pending(id, schedule_retry);
                 return;
             }
-            if let Some(handle) = self.state.sessions.lock().unwrap().get_mut(id) {
-                if let Some(resume) = handle.info.resume.as_mut() {
-                    resume.harness_session_id = None;
-                }
+            if let Some(resume) = self
+                .state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_mut(id)
+                .and_then(|handle| handle.info.resume.as_mut())
+            {
+                resume.harness_session_id = None;
             }
         }
         let authority = crate::runtime::prompt_authority::registry();
