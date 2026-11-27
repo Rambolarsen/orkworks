@@ -6894,6 +6894,18 @@ async fn resume_session_workflow(
                     stored_meta.ending_observed_status_snapshot = None;
                     stored_meta.final_observed_status_snapshot = None;
                     stored_meta.observed_status = None;
+                    // Agent attention from the previous Antigravity run cannot
+                    // own the empty status of the replacement runtime.
+                    if stored_meta.harness == "antigravity"
+                        && stored_meta.attention_source() == "agent"
+                    {
+                        stored_meta.needs_user_input = None;
+                        stored_meta.detected_question = None;
+                        stored_meta.suggested_options = None;
+                        stored_meta.provenance.attention_source = Some("unknown".into());
+                        stored_meta.provenance.attention_origin = Some("process".into());
+                        stored_meta.provenance.attention_confidence = None;
+                    }
                     stored_meta.connectivity = connectivity_for_status("creating").to_string();
                     stored_meta.terminal_outcome = None;
                     stored_meta.startup_failure = None;
@@ -12797,6 +12809,75 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 Some(crate::runtime::terminal_status::Profile::Antigravity);
         }
         (root, state, generation)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn antigravity_exact_resume_accepts_working_after_previous_agent_attention() {
+        use crate::runtime::terminal_status::{Profile, Status};
+
+        let root = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(root.path());
+        state
+            .harness_store
+            .mutate(&state.harness_catalog, |document| {
+                let overrides = document.overrides.entry("antigravity".into()).or_default();
+                overrides.resume = Some(Some(harness::definition::ResumePatch {
+                    exact: Some(Some(harness::CommandTemplate {
+                        command: "/bin/sh".into(),
+                        args: vec!["-c".into(), "read -r line".into()],
+                    })),
+                    ..Default::default()
+                }));
+                Ok(())
+            })
+            .unwrap();
+        let id = "antigravity-resume-agent-attention";
+        let mut meta = crate::test_support::test_session_metadata(
+            id,
+            "Antigravity resume",
+            root.path().display().to_string(),
+            "ended",
+            "before",
+            "before",
+        );
+        meta.harness = "antigravity".into();
+        meta.resume = Some(harness::ResumeMemory {
+            state: harness::ResumeState::Available,
+            preferred_strategy: harness::ResumeStrategy::Exact,
+            harness_session_id: Some("antigravity-fixture-conversation".into()),
+            latest_fallback: false,
+            last_seen_at: None,
+        });
+        meta.provenance.attention_source = Some("agent".into());
+        meta.provenance.attention_origin = Some("direct_agent".into());
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+
+        let app = SessionApplication::new(state.clone());
+        app.resume_session(id, Some(harness::ResumeStrategy::Exact))
+            .await
+            .unwrap();
+        let generation = {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            // The fixture shell bypasses executable qualification. Exercise the
+            // same status application used by a qualified Antigravity runtime.
+            handle.runtime.terminal_status_profile = Some(Profile::Antigravity);
+            handle.runtime.run_generation()
+        };
+        let accepted = app.apply_terminal_status(id, generation, Status::Working);
+        let observed = stored_observed_status(&state, id);
+        app.delete_session(id).await.unwrap();
+
+        assert!(accepted);
+        assert_eq!(observed.as_deref(), Some("working"));
     }
 
     #[test]
