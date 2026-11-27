@@ -574,6 +574,18 @@ fn record_peon_output_touch(state: &Arc<AppState>, id: &str) {
         .insert(id.to_string(), tokio::time::Instant::now());
 }
 
+fn apply_committed_working_to_handle(handle: &mut SessionHandle, fields: &ProcessTransitionFields) {
+    apply_process_transition_to_handle(
+        &mut handle.info,
+        &mut handle.runtime.attention_owner,
+        fields,
+    );
+    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
+        tracker.invalidate();
+    }
+    handle.pending_work_signal = None;
+}
+
 /// Atomically advances terminal input fences and, when the input qualifies as
 /// committed working activity, persists and mirrors `ProcessTransition::CommittedWorking`
 /// under the documented `workspace -> sessions` lock order (ADR 0027).
@@ -625,17 +637,10 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
     let fields = process_transition_fields(ProcessTransition::CommittedWorking);
     if ws_guard.is_none() {
         // A detached test/runtime has no metadata store, so there is no
-        // durable state to diverge from. Keep its live terminal contract
-        // explicit here; workspace-backed sessions take the atomic path below.
-        apply_process_transition_to_handle(
-            &mut handle.info,
-            &mut handle.runtime.attention_owner,
-            &fields,
-        );
-        if let Some(tracker) = handle.runtime.native_approval.as_mut() {
-            tracker.invalidate();
-        }
-        handle.pending_work_signal = None;
+        // durable state to diverge from. Apply the exact same live-handle
+        // transition and invalidation invariants as the workspace-backed path
+        // (including `native_approval.invalidate()` per ADR 0027).
+        apply_committed_working_to_handle(handle, &fields);
         finish_input_fences(
             handle,
             next_generation,
@@ -712,15 +717,7 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
         record_peon_output_touch(state, id);
         return;
     }
-    apply_process_transition_to_handle(
-        &mut handle.info,
-        &mut handle.runtime.attention_owner,
-        &fields,
-    );
-    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
-        tracker.invalidate();
-    }
-    handle.pending_work_signal = None;
+    apply_committed_working_to_handle(handle, &fields);
     finish_input_fences(
         handle,
         next_generation,
@@ -1336,5 +1333,57 @@ mod tests {
         assert_eq!(stored.observed_status.as_deref(), Some("working"));
         assert_eq!(stored.attention.as_deref(), Some("working"));
         assert_eq!(stored.needs_user_input, None);
+    }
+
+    #[test]
+    fn mark_committed_input_working_detached_workspace_invalidates_native_approval() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        *state.workspace.lock().unwrap() = None;
+        let id = "s-detached-committed-input";
+        let mut handle = live_handle(id);
+        handle.info.observed_status = Some("waiting_for_input".into());
+        handle.info.attention = Some("needs_you".into());
+        handle.info.needs_user_input = Some(true);
+        handle.info.provenance.attention_source = Some("process".into());
+        let owner_before = handle.runtime.attention_owner.snapshot().unwrap();
+        let rev_before = handle
+            .runtime
+            .native_approval
+            .as_ref()
+            .unwrap()
+            .hook_revision();
+        state.sessions.lock().unwrap().insert(id.into(), handle);
+
+        mark_committed_input_working(
+            &state,
+            id,
+            CommittedInput {
+                output_boundary: Some(11),
+                line_completed: true,
+                printable_keystroke: false,
+                mouse_button_event: false,
+            },
+        );
+
+        let sessions = state.sessions.lock().unwrap();
+        let live = sessions.get(id).unwrap();
+        assert!(!live.runtime.attention_owner.owns(&owner_before));
+        assert_ne!(
+            live.runtime
+                .native_approval
+                .as_ref()
+                .unwrap()
+                .hook_revision(),
+            rev_before
+        );
+        assert_eq!(live.info.observed_status.as_deref(), Some("working"));
+        assert_eq!(live.info.attention.as_deref(), Some("working"));
+        assert_eq!(live.info.needs_user_input, None);
+        assert!(live.pending_work_signal.is_none());
+        assert_eq!(live.runtime.active_prompt_kind, None);
+        assert_eq!(live.runtime.input_generation, 1);
+        assert_eq!(live.runtime.committed_input_sequence, 1);
+        assert_eq!(live.runtime.min_peon_output_revision, 11);
     }
 }
