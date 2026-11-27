@@ -1802,84 +1802,56 @@ impl SessionApplication {
             handle.runtime.prompt_tuple_clear_pending = false;
         }
 
-        let attention_policy = match sessions_guard.get(session_id) {
-            Some(handle) if handle.runtime.terminal_status_active => {
+        let live_handle = sessions_guard.get(session_id);
+        let live_harness_id = live_handle.and_then(|handle| {
+            handle
+                .info
+                .harness_id
+                .as_deref()
+                .or(handle.info.harness.as_deref())
+        });
+        let attention_policy = match (live_handle, live_harness_id) {
+            (Some(handle), _) if handle.runtime.terminal_status_active => {
                 metadata::PeonAttentionPolicy::PreserveAttention
             }
-            Some(handle)
-                if handle
-                    .info
-                    .harness_id
-                    .as_deref()
-                    .or(handle.info.harness.as_deref())
-                    == Some("antigravity") =>
+            (Some(_), Some("antigravity")) => metadata::PeonAttentionPolicy::PreserveAttention,
+            (None, _)
+                if workspace
+                    .metadata
+                    .read_session(session_id)
+                    .is_some_and(|meta| meta.harness == "antigravity") =>
             {
                 metadata::PeonAttentionPolicy::PreserveAttention
             }
-            None if workspace
-                .metadata
-                .read_session(session_id)
-                .is_some_and(|meta| meta.harness == "antigravity") =>
-            {
-                metadata::PeonAttentionPolicy::PreserveAttention
-            }
-
-            Some(handle)
+            (Some(handle), Some("opencode"))
                 if handle.active_work_hook
                     && handle.info.lifecycle == "alive"
-                    && handle.info.lifecycle_phase == "active"
-                    && handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref())
-                        == Some("opencode") =>
+                    && handle.info.lifecycle_phase == "active" =>
             {
                 metadata::PeonAttentionPolicy::PreserveAttention
             }
-
-            Some(handle)
-                if matches!(
-                    handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("claude-code") | Some("copilot")
-                ) && crate::runtime::prompt_authority::registry().is_active(session_id)
+            (Some(handle), Some("claude-code" | "copilot"))
+                if crate::runtime::prompt_authority::registry().is_active(session_id)
                     && handle.info.lifecycle == "alive"
                     && handle.info.lifecycle_phase == "active" =>
             {
                 Self::hook_attention_policy(&handle.info)
             }
-            Some(handle)
-                if matches!(
-                    handle
-                        .info
-                        .harness_id
-                        .as_deref()
-                        .or(handle.info.harness.as_deref()),
-                    Some("codex") | Some("opencode")
-                ) =>
-            {
-                if handle
-                    .runtime
-                    .native_approval
-                    .as_ref()
-                    .is_some_and(|tracker| {
-                        tracker
-                            .protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
-                    })
-                {
+            (Some(handle), Some("codex" | "opencode")) => handle
+                .runtime
+                .native_approval
+                .as_ref()
+                .filter(|tracker| {
+                    tracker.protects_permission_wait(&handle.runtime.attention_owner, &handle.info)
+                })
+                .map_or(metadata::PeonAttentionPolicy::NonPrompt, |_| {
                     Self::hook_attention_policy(&handle.info)
-                } else {
-                    metadata::PeonAttentionPolicy::NonPrompt
-                }
-            }
-            None if workspace
-                .metadata
-                .read_session(session_id)
-                .is_some_and(|meta| matches!(meta.harness.as_str(), "codex" | "opencode")) =>
+                }),
+            (None, _)
+                if workspace
+                    .metadata
+                    .read_session(session_id)
+                    .is_some_and(|meta| matches!(meta.harness.as_str(), "codex" | "opencode")) =>
             {
                 metadata::PeonAttentionPolicy::NonPrompt
             }
@@ -1903,16 +1875,7 @@ impl SessionApplication {
 
         // The merge enforces the source-priority ladder itself (issue #400);
         // its outcome is the only gate.
-        let prompt_harness = sessions_guard.get(session_id).is_some_and(|handle| {
-            matches!(
-                handle
-                    .info
-                    .harness_id
-                    .as_deref()
-                    .or(handle.info.harness.as_deref()),
-                Some("claude-code" | "copilot")
-            )
-        });
+        let prompt_harness = matches!(live_harness_id, Some("claude-code" | "copilot"));
         let guarded_inference = (prompt_harness
             && crate::runtime::prompt_authority::registry().identity_reset_pending(session_id)
             && inference.harness_session_id.is_some())
