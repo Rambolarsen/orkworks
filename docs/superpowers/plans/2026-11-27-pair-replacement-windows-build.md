@@ -4,7 +4,7 @@ title: One replacement Windows sidecar candidate build
 description: Proposed finite candidate using observed compiler bytes, a same-job named SDK record and sealed inputs, with effective macro and linked-artifact evidence only.
 tags: [orkworks, hierarchy, windows, sqlite, qualification]
 status: draft
-workflow_status: proposed-awaiting-owner-approval
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One replacement Windows sidecar candidate build
@@ -298,3 +298,19 @@ cover input candidate, exact-key SDK method, tooling and this exact job together
 material changes after approval require a new decision before dependent work.
 Gate1 remains Investigate, Gate2/bootstrap implementation and Gates3–4 remain
 gated. All source/compatibility/recovery/durability/activation obligations persist.
+
+## Accepted execution ledger (2026-11-27)
+
+Owner replied “keep going” to the explicit combined request after #2159, accepting
+this named candidate/SDK method/tooling and one exact finite job. Original
+proposal language above is preserved as history. The new allowance is unused;
+all earlier allowances remain spent. No repeat policy approval is needed within
+this scope. Verification, current-diff review, required CI, tooling merge and
+source freeze precede the sole dispatch.
+
+Root owns one writer worktree replacement-windows-build at9d0d869e. Execute SDK
+reader/shared-ledger tests, bounded reader/manifest and controller tests, workflow
+fixtures, full verification, then one bounded fresh-context review round with
+maximum two read-only Luna reviewers (correctness/authority and coverage/bounds).
+Root alone applies findings. No implementer delegation or second coding harness.
+Current status: dependency preparation underway; TDD not yet started; dispatch0/1.

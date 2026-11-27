@@ -55,6 +55,12 @@ jobs:
           & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-positive-record.test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test scripts/qualification/pair-windows-sdk-positive-record.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-replacement-windows-build-sdk.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./scripts/qualification/pair-replacement-windows-build.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/qualification/pair-replacement-windows-build.test.mjs
           exit $LASTEXITCODE
 
   workspace-reporting:
