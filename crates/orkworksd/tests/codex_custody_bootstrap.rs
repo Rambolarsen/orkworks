@@ -3,7 +3,7 @@
 use std::io;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -27,22 +27,23 @@ fn four_empty_channels_are_sealed_before_child_exec() {
         .collect();
     assert!(descriptors.iter().all(|fd| *fd > 2));
 
-    verify_closed_in_exec_child(&descriptors, "check_sealed_descriptors_after_exec");
+    verify_closed_in_exec_child(&descriptors, "check_sealed_descriptors_after_exec")
+        .expect("fixture child must confirm all descriptor checks");
 
-    for fd in descriptors {
+    for &fd in &descriptors {
         // SAFETY: the parent still owns each of these descriptors.
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
         assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0);
     }
+
+    // Keep the negative control after sealing and the first exec. A separate
+    // libtest case could spawn concurrently with the startup check.
+    let empty_selection = verify_closed_in_exec_child(&descriptors, "no_such_descriptor_check")
+        .expect_err("empty child selection must not count as verification");
+    assert_eq!(empty_selection.code(), Some(0));
 }
 
-#[test]
-#[should_panic(expected = "fixture child did not confirm descriptor checks")]
-fn an_empty_child_test_selection_cannot_pass() {
-    verify_closed_in_exec_child(&[3; 8], "no_such_descriptor_check");
-}
-
-fn verify_closed_in_exec_child(descriptors: &[RawFd], filter: &str) {
+fn verify_closed_in_exec_child(descriptors: &[RawFd], filter: &str) -> Result<(), ExitStatus> {
     let expected_closed = descriptors
         .iter()
         .map(ToString::to_string)
@@ -60,12 +61,11 @@ fn verify_closed_in_exec_child(descriptors: &[RawFd], filter: &str) {
         match child.try_wait() {
             Ok(Some(status)) => {
                 // Libtest returns success when its filter selects no tests.
-                assert_eq!(
-                    status.code(),
-                    Some(CHILD_CHECKED),
-                    "fixture child did not confirm descriptor checks: {status}"
-                );
-                break;
+                return if status.code() == Some(CHILD_CHECKED) {
+                    Ok(())
+                } else {
+                    Err(status)
+                };
             }
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
             result => {

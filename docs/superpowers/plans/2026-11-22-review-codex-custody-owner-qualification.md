@@ -77,7 +77,8 @@ Native component evidence on macOS 26.6.2 arm64. The command
 passed the native checks, including explicit confirmation from the exec child. The fixture
 confirmed all eight endpoints were closed in the exec child and remained
 sealed in the parent. A synthetic third-pair allocation failure closed both
-earlier pairs. The codec covered both directions, changed individual fields,
+earlier pairs. An empty child test selection ran after the positive check and
+was rejected. The codec covered both directions, changed individual fields,
 every short length, and trailing bytes. Native worker binding and concurrent
 application launches still require qualification.
 
