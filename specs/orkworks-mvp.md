@@ -398,7 +398,9 @@ These retain question answer/cancel, explicit native rejection and one automatic
 command without a prompt block for each artifact. Separate source-built desktop
 checks establish 1.5.17 startup permission and 1.5.17/1.5.18 question
 attention/clearing, plus 1.5.18 question cancellation and command-permission
-attention and clearing after explicit rejection. Human-operated confirmation,
+attention and clearing after explicit rejection. One 1.5.18 exact-resume desktop
+check also establishes question cancellation and attention clearing with Peon
+disabled. Human-operated confirmation,
 published-installer behavior and complete descendant cleanup remain unverified. This limited admission does
 not claim full qualification. Other platform/version profiles require retained
 evidence and approval. Force emission with source-owned launch environment only for the

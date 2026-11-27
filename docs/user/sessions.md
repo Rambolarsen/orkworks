@@ -270,7 +270,8 @@ One automatically executed command completed without a permission wait. These
 were agent-operated trials. Separate source-build checks exercised 1.5.17 startup
 attention, 1.5.17/1.5.18 question attention and clearing, plus 1.5.18 question
 cancellation and explicit command permission rejection with attention clearing
-for each in the desktop UI.
+for each in the desktop UI. One 1.5.18 exact-resume desktop check also exercised
+question cancellation and attention clearing with Peon disabled.
 Published installers and human-operated confirmation remain unverified. Status is
 best effort and can miss or misread a wait. Explicit user/agent status stays protected.
 

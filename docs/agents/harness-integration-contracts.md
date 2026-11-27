@@ -47,10 +47,14 @@ exact-resume probe stopped at startup permission without a prompt. A later
 [trusted-workspace exact-resume trial](../validation/antigravity-native-status.md#trusted-workspace-exact-resume-native-status-2026-11-27)
 captured native Working, question Blocked, Working and Done around Escape;
 its first PreInvocation retained the fresh fixture ID and both roots exited zero.
-This is native protocol evidence, not resumed desktop clearing or authenticated
-installed-hook live delivery. Windows and other versions remain unqualified.
-The earlier 1.5.13 capture retains its own scope; integration coverage remains
-limited.
+That trial is native protocol evidence. A separate [source-built exact-resume
+desktop check](../validation/antigravity-native-status.md#source-built-exact-resume-desktop-question-check-2026-11-27)
+observed Needs You/Attention 1 during a resumed structured question and
+Working/Idle with Attention 0 after Escape/Skip, with Peon disabled. It retains
+UI-route/native-history evidence rather than independent ID equality, metadata
+origin or reporter-transport receipts. Resumed answer/command rejection,
+Windows and other versions remain unqualified. The earlier 1.5.13 capture
+retains its own scope; integration coverage remains limited.
 
 ### Short discovery probe ownership
 

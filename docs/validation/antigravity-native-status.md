@@ -702,3 +702,61 @@ installed-reporter delivery or precise attention-clearing latency. Resumed
 question answering, command rejection, continue-mode native attention, other
 platforms/versions, published installers and human-operated confirmation remain
 unqualified. Source eligibility and runtime behavior are unchanged.
+
+
+## Source-built exact-resume desktop question check, 2026-11-27
+
+Following the exact-resume native protocol trial, the owner directed verification
+of the resumed desktop row and Attention count. An isolated desktop and sidecar
+built from `67a2a59e` used a unique app identity and checkout/port-scoped profile.
+The app loaded its built renderer files directly without a development server;
+this remains a source-build check, not a packaged-installer qualification.
+Peon was disabled in the isolated process environment. The pinned installed
+1.5.18 copy matched the qualified digest, reported exactly 1.5.18 through a
+successful bounded probe, and retained its hash after the check. Inherited
+reporting capabilities and model/proxy credentials were excluded; normal native
+saved login/configuration still applied.
+
+The budget allowed two native starts and two fixture prompts within 360 seconds
+from the first Start click. The app opened the previously trusted disposable
+workspace. The operator created one new seed conversation, requested a no-tool
+acknowledgement, and observed Idle with Attention 0. Only that new session was
+closed through its row menu. Its UI then offered **Resume session**, with help
+**Reattach to this exact session**. The operator selected that control for the
+same owned row. Native history retained the seed prompt and acknowledgement.
+No foreign or earlier fixture session was resumed, no hooks were changed, and
+no trust or command approval was sent. Model-call accounting was not measured.
+
+| Time after first Start, approximate | Time after Resume, approximate | Observation |
+| --- | --- | --- |
+| 14 seconds | not yet resumed | Seed acknowledgement; row Idle; Attention 0 |
+| 81 seconds | not yet resumed | Owned seed closed; recorded output and exact-session Resume control |
+| 99 seconds | 8 seconds | Resumed native history retained seed context; row Idle; Attention 0 |
+| 112 seconds | 21 seconds | One structured-question prompt submitted in the resumed terminal |
+| 120 seconds | 29 seconds | Structured question and Escape/Skip control; row Needs you; Attention 1 |
+| 130 seconds | 39 seconds | Question still held; accessibility still reports Needs you |
+| 138 seconds | 47 seconds | Escape skipped without an answer; row Working; Attention 0 |
+| 146 seconds | 55 seconds | Skip acknowledgement and ordinary input; row Idle; Attention 0 |
+
+These are observation times, not precise transition or clearing-latency
+measurements. The [sanitized resumed UI record](antigravity-resume-ui-1518-2026-11-27.json)
+retains derived observations only. Raw screenshots, terminal output, native IDs,
+prompt/answer text, account data and reporting credentials are not committed.
+The UI route and retained native seed history establish which owned conversation
+was resumed; no independent native-ID equality or metadata-origin receipt is
+retained. This is not a raw hook transport or authenticated reporter-delivery
+trace.
+
+After the final Idle/Attention 0 observation, the isolated launcher stopped
+within budget. A follow-up executable-path inventory found no process using
+its unique task paths; the temporary native binary was removed. Native root
+exit codes were not retained by the UI launcher, and complete descendant cleanup
+is not proven. The existing user desktop and live sessions were not restarted
+or updated.
+
+This establishes agent-observed Needs You and clearing through Working to Idle
+for one exact-resumed macOS arm64 1.5.18 question cancellation in the source-built
+desktop with Peon disabled. Resumed answering/command rejection, continue-mode
+desktop behavior, Windows, other version profiles, published installers and
+human-operated confirmation remain unqualified. Runtime behavior, eligibility
+and the broader #1996 scope are unchanged.
