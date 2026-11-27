@@ -69,6 +69,20 @@ Availability does not establish action authorization or write permission.
 Task-specific ownership checks, product capability gates, and required fresh
 verification remain in force.
 
+## Searching optional paths
+
+If zsh reports `no matches found`, it expanded an unquoted path glob before
+starting the search. Pass a quoted glob to ripgrep and give it an existing
+directory to search.
+
+```bash
+rg --files --glob 'ci*' scripts/
+rg -n --glob 'attention*' -- 'query' crates/orkworksd/src/http/
+```
+
+Ripgrep exits with status 1 when the search finds no matches. For a broader
+search, remove the glob filter and keep the directory argument.
+
 ## Branch and PR workflow
 
 `main` is the trunk, not the workspace. All changes — code and docs alike — land through branches and PRs.
