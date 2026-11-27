@@ -1075,3 +1075,15 @@ scoped decision and finite allowance; the spent workflows remain unchanged.
 This completes the source review only. Dispatch remains spent 1/1, every unused
 slot remains closed, #1176 stays open and Gate1 remains Investigate. No compiler
 pin, co-availability seal, build, runtime profile or production activation follows.
+
+## Unclassified-name policy proposed (2026-11-27)
+
+The [deferred-unavailable proposal](../superpowers/specs/2026-11-27-sdk-unclassified-name-policy-design.md)
+addresses the source audit's decision boundary without accepting an unknown name
+as a nonmatch. It proposes continuing only after an in-bound DisplayName local
+decoder refusal, keeping any unclassified name fatal to overall success, while
+retaining later independently valid SDK records within unchanged caps. Schema2
+partial/count semantics, privacy and limited comparison meaning remain proposed
+for scoped acceptance before offline implementation. No consumed controller,
+workflow, accepted predicate or execution budget changes; no new SDK query or
+runner allowance. Historical subtype and build/profile qualification stay unresolved.

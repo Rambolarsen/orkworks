@@ -6,6 +6,8 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Keep SDK collection unavailable after an unclassified name](2026-11-27-sdk-unclassified-name-policy-design.md) — Proposed field-specific bounded continuation and explicit partial evidence; no implementation or live allowance.
+
 - [Pair build provenance and startup custody](2026-11-24-pair-build-startup-design.md) — Accepted shared candidate feature undefinition and early bootstrap custody; actual build/startup qualification and execution pending.
 
 - [Pair resource assurance](2026-11-24-pair-resource-assurance-design.md) — Accepted owned file-length and fixed-arena capacities with total host costs excluded; physical qualification and execution pending.
