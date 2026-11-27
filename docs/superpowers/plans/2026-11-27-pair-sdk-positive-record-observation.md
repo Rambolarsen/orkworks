@@ -4,7 +4,7 @@ title: One positive Windows SDK product observation
 description: Proposed bounded handling of unclassified registry names for a stable positive SDK record without inventory completeness or runtime qualification.
 tags: [orkworks, hierarchy, windows, sdk, qualification]
 status: draft
-workflow_status: proposed-awaiting-owner-approval
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One positive Windows SDK product observation
@@ -200,3 +200,31 @@ Total8/25. Missing positive evidence remains an acceptable unavailable outcome.
 No unresolved design choice is delegated to a live runner. Owner approval must
 cover this contract, tooling and the single exact job together; a later scope
 change needs a new decision before dependent work.
+
+## Accepted execution ledger (2026-11-27)
+
+Owner accepted the combined contract, tooling and single exact job by replying
+“keep going” to the explicit approval request after #2126. The original proposal
+above is retained as history. All earlier allowances remain spent; this new
+allowance is unused until the sole dispatch and never permits a retry.
+
+Execution: one root writer in owned sdk-positive-record worktree. Deliver
+collector semantics and synthetic checks, controller/schema/projection checks,
+workflow/CI fixtures, then repository verification and final review before merge.
+The approved plan's inline review remains applicable; no design change is needed.
+
+Review topology: one bounded round, maximum two read-only fresh reviewers after
+implementation, one checking correctness/privacy/admission and one checking
+coverage/resource limits against the merged draft. Root alone applies verdicts.
+Use the repository's current lower-cost tier first; no implementer delegation or
+other coding harness. No concurrent writers.
+
+- Setup: fresh owned worktree at b1e2e6c7; reporting bound before edits; dependency
+  preparation started for both docs and desktop before repository verification.
+- Collector and controller TDD: missing implementations failed first; new synthetic
+  collector/controller tests now pass locally. Windows-only ABI and complete
+  orchestration fixtures are routed through normal CI, with no installed SDK
+  reads. Existing consumed collector/workflow files remain unchanged.
+- Pending: final fixture checks, repository verification/review,
+  tooling PR terminal state, frozen source identities, one dispatch, receipt
+  readback and canonical terminal record.

@@ -1,0 +1,44 @@
+name: Positive Windows SDK product observation
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pair-sdk-positive-record-allowance-2026-11-27
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: windows-2022
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved positive-only observation
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:EXPECTED_SHA) { throw 'checkout-head-denied' }
+          node ./scripts/qualification/pair-windows-sdk-positive-record.mjs
+          exit $LASTEXITCODE
+      - name: Retain bounded SDK evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-windows-sdk-positive-record
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-sdk-positive-record/evidence/result.json
+            ${{ runner.temp }}/ork-pair-sdk-positive-record/evidence/positive-record.json
+            ${{ runner.temp }}/ork-pair-sdk-positive-record/evidence/diagnostics.txt
