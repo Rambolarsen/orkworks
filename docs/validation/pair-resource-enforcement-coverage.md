@@ -18,11 +18,12 @@ not backend implementation or a numerical native E/S search.
 meanings. Native host allocation, helper workspaces and stacks remain outside
 those numeric guarantees. All lower/source/lifetime/authority gates remain.
 
-Current status: the [source-only toolchain/SDK reconciliation](#toolchain-and-sdk-source-reconciliation-2026-11-27)
-joins the retained evidence limits. The frozen Windows metadata request and a
-separate positive SDK record succeeded; the fixed build stopped before compilation.
-Actual effective flags, linked artifact, startup and native mechanism remain
-unqualified; Gate 1 is still Investigate and no executable slice is unlocked.
+Current status: the [replacement batch terminal result](#replacement-build-terminal-result-2026-11-27)
+records a source-verification timeout after twelve PE pins, one named SDK pass
+and one locked fetch. No build, oracle or target execution started. The new
+allowance and every earlier allowance are spent. Actual effective flags, linked
+artifact, startup and native mechanisms remain unqualified; Gate 1 is still
+Investigate and no executable slice is unlocked.
 
 ## Result, source identity and evidence limits
 
@@ -1320,6 +1321,9 @@ work. Keep every consumed workflow/pin/history and all unused slots closed.
 
 ## Replacement build proposal (2026-11-27)
 
+This paragraph records proposal publication. Owner acceptance, execution and
+the spent allowance are recorded in the terminal section below.
+
 The [new replacement-candidate proposal](../superpowers/plans/2026-11-27-pair-replacement-windows-build.md)
 selects the observed19.44.35230.0 compiler as a proposed input, uses the retained
 exact SDK product key for two bounded reads bracketing the build, and combines
@@ -1327,3 +1331,109 @@ controlled input sealing, macro/link-custody oracles and one45-minute job in one
 owner decision. It reuses the accepted macro/startup recipe. Publication is
 proposal-only: no pin, tooling, execution or qualification is accepted by its
 merge. Every prior allowance remains spent and all existing gates remain binding.
+
+
+## Replacement build terminal result (2026-11-27)
+
+**Terminal unavailable; allowance 1/1 spent, zero retries.** The owner accepted
+the combined [replacement package](../superpowers/plans/2026-11-27-pair-replacement-windows-build.md)
+after proposal #2159. [Tooling #2168](https://github.com/Rambolarsen/orkworks/pull/2168)
+merged as a37ec6196355b795d1d7fd25a0c9a7c06ad281a4 after full repository
+verification, current-head required CI, one bounded two-Luna review round and
+Codex review of ab787965d4738975e033da3766878e158f1a6b97 without findings.
+The [source/policy/command freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7221453346)
+preceded the sole [run 46020662577](https://github.com/Rambolarsen/orkworks/actions/runs/46020662577),
+attempt 1, at that exact merged head. Workflow history independently returned
+one run and one attempt. No consumed workflow, pin or history was edited.
+
+### Observed stage boundary
+
+The [candidate job](https://github.com/Rambolarsen/orkworks/actions/runs/46020662577/job/140579169638)
+ran from 14:58:21Z to 15:00:58Z on image win22/20261123.376.1. Its controller
+receipt spans 14:58:34.005Z–15:00:53.035Z. The schema 2
+replacement-sidecar-candidate receipt reports stage=sources, reason=time-limit.
+The source-verification PowerShell invocation reached its 120-second ceiling;
+the 45-minute job ceiling and 35-minute build ceiling were not reached. The
+reader combines locked archive/member verification and the initial manifest;
+no completed manifest or internal progress record was retained, so the receipt
+does not locate the timeout within that combined pass or prove package/helper
+closure completed. Do not infer a measured installation size or a larger
+required timeout from this result.
+
+| Observation | Retained result |
+| --- | --- |
+| Installed PE preflight | All twelve selected hashes and x64 machine values match the frozen policy. cl.exe is 19.44.35230.0, SHA e87e78b3ef6580b75aebda843f8a22e874612d9f766344046551399f898eb226. Selected rustc/rc/mt numeric versions also match. These remain batch input observations, not production pins. |
+| Controllers | Node v22.23.5; PowerShell 7.6.10; isolated CPython3.12.10/x64. Exact paths and executable hashes are retained in result.json. |
+| SDK before pass | One complete exact-key read: SDK 10.1.26100.9457 and KitsRoot10=C:/Program Files (x86)/Windows Kits/10/. Installed/product write markers were stable within this pass. No after pass ran. |
+| Acquisition | One locked fetch invocation; the driver advanced to sources only after accepting its zero exit. No metadata query or acquisition retry. |
+| Later work | build_invocations=0, oracle_invocations=0, target_executions=0. No SQLite object/archive, candidate sidecar, effective macro result or linked-artifact custody exists from this batch. |
+| Termination and cleanup | Two PowerShell readers and one Python SDK invocation; one owned taskkill fallback, child drain completed, cleanup=owned-scratch-removed. No later build or second SDK/manifest pass started. |
+| Final authority | success=false, candidate_evidence_complete=false, runtime_qualified=false, production_pin_accepted=false. The incomplete SDK bracket also has success=false, positive_record_observed=false and inventory_complete=false. |
+
+The first SDK pass used 13 API calls and 1,358 charged read bytes, with zero
+enumeration and zero open handles. Its raw/framed commitment charged 1,000 hash
+bytes; the 753-byte SDK receipt brings the separate SDK hash charge to 1,753.
+The full-width Installed Roots/product write markers are 134399460646426989 and
+134399614693565521; before/after arrays within the pass are equal. Its digest is
+e7a893d99f932760873cc45a2953db960340e0ad1d960491b1025195c1cd1c28.
+This partial record supplies no cross-build bracket or SDK inventory completion.
+
+The parent reports 9,497 cumulative child stream bytes and 34,358,706,779 charged
+hash/read-for-hash bytes under the 32 GiB ceiling. **The latter is conservative
+reservation accounting, not measured hashing throughput:** hash_work_unknown=true
+because the timed-out reader supplied no final work report. The parent retained
+the entire delegated grant as spent, preserved its failure-publication reserve
+and did not refund or reuse the unknown work. SDK work accounting is separately
+known. No file/directory/manifest capacity measurement follows from this timeout.
+
+### Source checkout reconciliation and independent readback
+
+The freeze verified byte identity between reviewed and merged Git blobs for all
+nine own/imported sources (179,584 Git-blob bytes). The five new own sources
+retained those hashes on the runner. The four imported historical files used
+Windows checkout bytes: each retained runner hash exactly equals the SHA-256 of
+the corresponding frozen Git blob after LF-to-CRLF conversion. This reconciles
+the initial hashes; it is not a completed second source seal. The earlier freeze's
+179,584 figure describes Git blobs, not a measured Windows source-pass byte total.
+All existing attributes and spent source files remain unchanged.
+
+| Imported source | Frozen Git SHA-256 | Runner SHA-256, matching LF-to-CRLF conversion |
+| --- | --- | --- |
+| scripts/qualification/pair-fixed-windows-build.mjs | 4a8ce2742bf280badf6337b6f715d4739566d1d6a51a4514825dc3b2fb924baa | f3af7ca64074db7ce2bc3c30aff68af046c4147e9c4283045faf03eb288ae529 |
+| scripts/qualification/pair-fixed-windows-build.inputs.json | 6870a4482dbec425369aceadeb79837496fe181924accc70362589b15b6d4dd0 | f8eccaafd28e77966f6614c1ec4716c6cd3acb18d5bfc437fd6f3dd216c653db |
+| scripts/qualification/pair-windows-metadata-evidence.mjs | 3f4f9a7b00bc2ec49f385de3000db5610b1400f02518e36ba2fc73d734947a79 | 19aaf7a47a117951820325b33fbeb4206682e00464883990c9f81872d0e20de2 |
+| scripts/qualification/pair-windows-sdk-positive-record.py | 39fea3b40bef85121aa6dab0c7cd1dcb09910f5573ddc4a6ccdcf4548c1ee8d5 | acca2438deef46c1453a46186853e560b1c7bba03424881b015a36439978f5a8 |
+
+Artifact 15206744794, pair-replacement-windows-build, contains exactly three
+allowlisted files and 17,373 uncompressed bytes. Its 5,792-byte ZIP SHA-256 is
+478c7ef3db9a3fcda5c03b49a52f3dbbc40f23e31860c7c0b99be9ad8d57ee58,
+matching GitHub's artifact digest. Expiry is 2026-12-11T15:00:53Z (14 days).
+Independent bounded readback checked ZIP membership/sizes, every retained file
+hash, receipt identity/authority, all twelve PE pins, the initial source-hash
+reconciliation, partial SDK counters and the zero later-stage counts. Plain
+workspace/scratch prefixes are absent from retained diagnostics. No retained program was
+executed or loaded as code. The raw ZIP and temporary receipt copies are
+removed after this terminal record is published; the hosted artifact retains
+its fixed expiry.
+
+| File | Bytes | Independently checked SHA-256 |
+| --- | --- | --- |
+| result.json | 8503 | 5682d3946b77b7b602375f8a3137c5e54973eae1ffa7fef9d13aa161eaa88cc5 |
+| diagnostics.txt | 8117 | 083399452a855f4d77992121085f40881da0d54bdfcb3e852c891ebd2190795f |
+| sdk-record.json | 753 | 6939c967ad9fecccccc5b84c2452389890fc821389d0c6326f1d35a2d72af2bf |
+
+### Disposition
+
+Gate 1 remains Investigate. Gate 2/bootstrap, native mechanisms, actual macro/link
+custody, ordinary compatibility, source authority/newness/cutoff/catalog/initializer,
+recovery/durability, complete profile and activation remain gated. The production
+Connection::open refusal is unchanged. All earlier allowances and this allowance
+are spent; every unused slot is closed. This record authorizes no retry,
+replacement job, timeout/hash-budget increase, dependency/configuration change,
+new compiler pin or bootstrap implementation. #1176 remains an open umbrella.
+
+The next useful deliverable is a **source-only diagnosis proposal for the bounded
+reader's work and progress evidence**, using this timeout boundary and synthetic
+fixtures. A future executable package would need its own concrete reviewed
+scope and finite owner allowance. Do not use this failure to silently extend
+caps, edit the spent collector or repeat an availability probe.

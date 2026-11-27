@@ -4,7 +4,7 @@ title: One replacement Windows sidecar candidate build
 description: Proposed finite candidate using observed compiler bytes, a same-job named SDK record and sealed inputs, with effective macro and linked-artifact evidence only.
 tags: [orkworks, hierarchy, windows, sqlite, qualification]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: terminal-unavailable-allowance-spent
 ---
 
 # One replacement Windows sidecar candidate build
@@ -357,3 +357,27 @@ redaction in retained diagnostics; a RED/GREEN test now covers plain and
 JSON-escaped paths. Observed PE data is retained before pin admission. This
 bounded final correction requires current-head hosted review and CI before
 merge; allowance remains0/1. No additional Luna review round is opened.
+
+
+## Terminal execution record (2026-11-27)
+
+[Tooling #2168](https://github.com/Rambolarsen/orkworks/pull/2168) merged as
+a37ec6196355b795d1d7fd25a0c9a7c06ad281a4 after required CI and Codex current-head
+review without findings. The sole [run 46020662577](https://github.com/Rambolarsen/orkworks/actions/runs/46020662577),
+attempt 1 at that frozen SHA, ended unavailable: stage=sources, reason=time-limit.
+The 120-second combined archive/member/initial-manifest reader timed out after
+all twelve PE pins, one named SDK pass and the sole locked fetch. No completed
+input manifest, build, oracle, second SDK pass, sidecar or target execution.
+One owned termination/drain completed; owned working scratch was removed.
+Unknown reader hash work consumed its full delegated grant conservatively;
+the 34,358,706,779-byte charge is not measured throughput or installation size.
+
+The [canonical terminal record](../../validation/pair-resource-enforcement-coverage.md#replacement-build-terminal-result-2026-11-27)
+contains independent artifact/file hashes, partial SDK counters and exact
+source-checkout reconciliation (five new LF sources; four imported files match
+frozen LF-to-CRLF conversion). It also corrects the freeze's Git-blob size label.
+The allowance is 1/1 spent, zero retries, all unused slots closed. Final candidate,
+SDK-bracket, runtime and production-pin success flags are false. Earlier
+allowances remain spent; Gate 1 Investigate and all other source/compatibility/
+bootstrap/native/profile/recovery/durability/activation obligations remain.
+No code or budget change follows from this terminal record.
