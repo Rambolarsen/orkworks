@@ -33,7 +33,40 @@ if (process.versions.electron) {
       };
       const scenario = process.env.ORKWORKS_ARCHIVE_CASE;
       if (scenario) {
-        if (scenario === 'row-clock') {
+        if (scenario === 'menu-tab') {
+          await evaluate('document.addEventListener("keyup",event=>{if(event.key==="Tab")fixture.tabCount=(fixture.tabCount??0)+1},true)');
+          const tab = async shift => {
+            const count = await evaluate('fixture.tabCount ?? 0');
+            const modifiers = shift ? ['shift'] : [];
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers});
+            await wait(`(fixture.tabCount ?? 0) > ${count}`);
+            return evaluate('document.activeElement.id || document.activeElement.getAttribute("aria-label")');
+          };
+          for (const invoker of ['#sessions-list', '[data-session-id=closed] .session-row-more']) {
+            for (const shift of [false, true]) {
+              await evaluate(`document.querySelector(${javascriptLiteral(invoker)}).focus()`);
+              const expected = await tab(shift);
+              assert.ok(expected, 'the fixture has a focus destination in both directions');
+              await evaluate(`document.querySelector(${javascriptLiteral(invoker)}).focus()`);
+              if (invoker === '#sessions-list') {
+                win.webContents.sendInputEvent({type:'keyDown',keyCode:'F10',modifiers:['shift']});
+                win.webContents.sendInputEvent({type:'keyUp',keyCode:'F10',modifiers:['shift']});
+              } else {
+                await more('closed');
+              }
+              await wait('document.activeElement.matches("[role=menuitem]")');
+              assert.equal(await tab(shift), expected, `leaving the menu follows the Tab order from ${invoker}`);
+              await wait('!document.querySelector("[role=menu]")');
+            }
+          }
+          await more('closed');
+          await evaluate('fixture.setRows([])');
+          await wait('!document.querySelector("#sessions-list")');
+          assert.equal(await tab(false), 'Session state', 'Tab lands on the state filter when the invoker and list are gone');
+          await wait('!document.querySelector("[role=menu]")');
+          assert.deepEqual(await evaluate('fixture.calls'), [], 'Tab never activates the highlighted menu item');
+        } else if (scenario === 'row-clock') {
           const age = id => `document.querySelector('[data-session-id="${id}"] .session-row-time').textContent`;
           await wait('document.querySelector("[data-session-id=live] .session-row-time")');
           assert.equal(await evaluate(age('live')), 'just now');
@@ -198,7 +231,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  for (const scenario of ['', 'row-rendering', 'row-clock', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
+  for (const scenario of ['', 'menu-tab', 'row-rendering', 'row-clock', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
@@ -215,9 +248,9 @@ if (process.versions.electron) {
         const harnesses=[];
         const trackedRow=(id,state)=>{const value=row(id,state);Object.defineProperty(value,'harness',{enumerable:true,get(){fixture.reads[id]=(fixture.reads[id]??0)+1;return 'codex'}});return value};
         function Harness(){const[workspace,setWorkspace]=useState({path:'/tmp',workspaceIdentity:'test'});fixture.setWorkspace=setWorkspace;const[rows,setRows]=useState(()=>[trackedRow('live','active'),trackedRow('closed','closed'),trackedRow('saved','archived'),...(['row-rendering','row-clock'].includes(${javascriptLiteral(scenario)})?Array.from({length:707},(_,i)=>trackedRow('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[acknowledged,setAcknowledged]=useState(new Set());fixture.setAcknowledged=setAcknowledged;const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');const select=useCallback(id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)},[]);
-          return <SessionListPanel workspaceGeneration={generation} workspace={workspace} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={acknowledged} harnesses={harnesses}
+          return <><SessionListPanel workspaceGeneration={generation} workspace={workspace} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={acknowledged} harnesses={harnesses}
             actionsEnabled={enabled} onSelectSession={select} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
-            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>}
+            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>{${javascriptLiteral(scenario)}==='menu-tab' && <button id="after-sessions">After Sessions</button>}</>}
         createRoot(document.getElementById('root')).render(<Harness/>);
       `, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser', define: { 'process.env.NODE_ENV': '"development"' } });
       const fixture = join(directory, 'index.html');
