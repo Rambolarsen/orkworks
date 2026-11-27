@@ -305,3 +305,26 @@ This model-free change creates no live authorization.
 
 Current progress-reporting manifest SHA-256: `ea04659424846d1dd4d835d169b63a190fee8d5814e9e7518f06ce6b9aeed823`.
 The proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
+
+
+## Offline startup stderr classification
+
+For a phase-one nonzero exit with no validated session start, the observer
+retains one `startupDiagnostic` label. With process cleanup confirmed, it accepts
+existing private stderr captures of at most 16 KiB and compares only their
+initial bytes to fixed messages in the pinned Copilot 1.0.90 app. The labels
+are `auth-missing`, `auth-validation-failed`, `permission-argument-rejected`
+or `unclassified`. Unmatched, prefixed-by-other-output, missing, oversized
+or unsafe inputs and unconfirmed cleanup yield `unclassified`.
+The regular-file check uses a nonblocking open so a special file cannot delay
+classification before being rejected.
+
+The label records a matching native message. It does not establish the
+underlying authentication, network or permission failure. No stderr bytes,
+exception text, paths or credentials are retained. The primary receipt and
+owned-root deletion logic remain in place. Synthetic tests check the three
+known labels, omitted fields after startup and discovery failure, and the
+unclassified cases. No native run is authorized by this change.
+
+Current startup-classification manifest SHA-256: `46cede04a0673cd8fe53d7711da1af1d8e3c3cc5db8bb125b7cf2cf8aa00f99c`.
+The proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
