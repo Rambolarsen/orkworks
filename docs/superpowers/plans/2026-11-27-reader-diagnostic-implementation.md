@@ -4,7 +4,7 @@ title: Synthetic reader diagnostic implementation
 description: Implements the owner-accepted bounded synthetic diagnostic contract with test-first protocol and native fixture checks.
 tags: [orkworks, qualification, diagnostics, implementation]
 status: draft
-workflow_status: implementation-in-progress
+workflow_status: implementation-complete
 ---
 
 # Synthetic reader diagnostic implementation
@@ -47,19 +47,19 @@ worker enforce the same finite suite envelope; no lowered-case pool resets.
 
 ## Deliverables and checks
 
-- [ ] Strict parser and ledger in pair-reader-diagnostic-protocol.mjs; pure tests
+- [x] Strict parser and ledger in pair-reader-diagnostic-protocol.mjs; pure tests
   first in pair-reader-diagnostic.test.mjs. Test canonical framing/chunking,
   phase order, every cap, immutable prefixes, EOF/close settlement, expected
   transport failures and shared model debits. At most 64 vectors/512 KiB injected
   in the shared 1 MiB stream pool; run directly, no test-runner subprocess.
-- [ ] Owned fixture/controller in pair-reader-diagnostic.mjs; native worker and
+- [x] Owned fixture/controller in pair-reader-diagnostic.mjs; native worker and
   guard tests in pair-reader-diagnostic.ps1 / pair-reader-diagnostic.test.ps1.
   Test-first assertions compare complete sorted manifests and IDs, archive
   members, helper dispositions, independent digests, allocation counts and h.
   Three native children maximum, same positive identities, guards separate;
   one final zero-hash Node timeout child. All source/control, file, scratch,
   output, stream, hash and clock limits remain those in the contract.
-- [ ] Add the sole bounded fixture-CI step and synthetic validation record/index.
+- [x] Add the sole bounded fixture-CI step and synthetic validation record/index.
   Run direct suite locally (native explicit skip), Windows CI native suite,
   appropriate full repository verification, docs build and close-out checks.
   Inspect the verified diff, obtain fresh-context branch review under the local
@@ -149,3 +149,14 @@ Windows ordinal-insensitive semantics as native final-path checks. Each failed
 binding now has its own fixed status. No path/root/profile request field or
 live input switch is introduced. Cycle 2/3 will request one new current-head
 Codex review after native CI provides a meaningful result; no extra subagents.
+
+Implementation verification complete: native fixture passed at code head
+690ee1999b43ee8fb86f9f59965945f4276103d8, followed by a completed no-findings
+Codex review at 17:25:49Z. Full local verify-repo exited zero, including all
+Rust/Desktop/docs checks. See the canonical synthetic validation record for
+exact measurements and the independent nonrequired #2209 Windows reporter
+failure. This final evidence update changes documentation only; source code
+matches the reviewed/native-tested head. PR #2203 still follows its bounded
+required-CI/review/merge lifecycle; the implementation checkboxes describe the
+deliverables and completed local/native checks, not an assertion that an open
+PR has already merged. No qualification allowance was consumed or granted.
