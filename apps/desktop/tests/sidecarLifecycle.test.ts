@@ -414,6 +414,20 @@ test("rejects readiness when publishing a port times out", async () => {
   assert.equal(processes[0].killed, true);
 });
 
+test("waits for the complete port announcement across stdout chunks", async () => {
+  const { lifecycle, processes, ready } = createHarness();
+  const readiness = lifecycle.start("/workspace");
+
+  processes[0].stdout.emit("ORKWORKSD_PORT=43");
+  assert.deepEqual(ready, []);
+  processes[0].stdout.emit("21\r");
+  assert.deepEqual(ready, []);
+  processes[0].stdout.emit("\n");
+
+  assert.equal(await readiness, 4321);
+  assert.deepEqual(ready, [4321]);
+});
+
 test("rejects announced ports outside the valid TCP range before readiness", async () => {
   for (const announcedPort of ["0", "65536", "-1"]) {
     const { lifecycle, processes } = createHarness();
@@ -429,7 +443,7 @@ test("still discovers a valid port after noisy pre-readiness stdout", async () =
   const { lifecycle, processes } = createHarness();
   const readiness = lifecycle.start("/workspace");
 
-  processes[0].stdout.emit("x".repeat(70 * 1024));
+  processes[0].stdout.emit("x".repeat(70 * 1024) + "\n");
   processes[0].stdout.emit("ORKWORKSD_PORT=4321\n");
 
   assert.equal(await readiness, 4321);
