@@ -332,3 +332,18 @@ reader, comparing every extracted file and reviewed entrypoint. This preserves
 the accepted archive/file verification, roots, subprocess counts and hash/time
 bounds. If the archive format/runtime is unsupported, the attempt is unavailable
 rather than trusting unchecked sources or acquiring another tool.
+
+
+Implementation review: two read-only Luna reviewers completed the single planned
+round at581a1499. Both identified the post-buffer oracle cap; root added a RED
+streaming-cap regression, implemented per-command admission and set the oracle
+call to32 MiB. Coverage review also identified archive-denial fixture gaps;
+synthetic path/type/duplicate/oversize and origin/extra-file cases now await
+Windows CI. Correctness review identified case folding beyond the approved SDK
+normalization; a RED exact-case fixture preceded removal of case folding.
+No material scope change, retry, additional review round or allowance is added.
+
+Full bash scripts/verify-repo.sh completed with all repository checks passing.
+The37 targeted Node tests (new controller plus reused pure guard/oracle suites)
+and seven SDK tests pass locally, with the native HKCU case skipped on macOS.
+Final changed native fixtures and current-head required CI remain pending.

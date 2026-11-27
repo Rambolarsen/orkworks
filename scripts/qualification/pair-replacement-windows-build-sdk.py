@@ -41,7 +41,7 @@ def collect_pass(registry, budget):
             kit = value(installed, "KitsRoot10", 256)
             name = value(product, "DisplayName", 256)
             version = value(product, "DisplayVersion", 128)
-            if kit.replace("\\", "/").rstrip("/").lower() != KIT.rstrip("/").lower():
+            if kit.replace("\\", "/").rstrip("/") != KIT.rstrip("/"):
                 raise Denied("sdk-root")
             if name != NAME or version != VERSION:
                 raise Denied("sdk-record")

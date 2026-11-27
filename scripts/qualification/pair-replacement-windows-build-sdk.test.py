@@ -27,7 +27,7 @@ class Registry:
     def raw_value(self, handle, field, maximum, missing=False):
         self.trace.append(("value",handle,field)); self.budget.read(2*(maximum+1)+8); self.budget.call()
         if self.bad: return self.bad
-        values={"KitsRoot10":"C:/Program Files (x86)/Windows Kits/10/", "DisplayName":"Windows Software Development Kit - Windows 10.0.26100.9457", "DisplayVersion":"10.1.26100.9457"}
+        values={"KitsRoot10":getattr(self,"kit","C:/Program Files (x86)/Windows Kits/10/"), "DisplayName":"Windows Software Development Kit - Windows 10.0.26100.9457", "DisplayVersion":"10.1.26100.9457"}
         return 1, (values[field]+"\x00").encode("utf-16-le")
     def name(self,*args): raise AssertionError("enumeration forbidden")
 
@@ -53,6 +53,11 @@ class Tests(unittest.TestCase):
         for bad in [(4,b"abcd"),(1,b"x"),(1,b"A\x00"),(1,"private-é\x00".encode("utf-16-le")),(1,"wrong\x00".encode("utf-16-le"))]:
             out,_=self.run_fake(lambda r:setattr(r,"bad",bad))
             self.assertEqual(out["status"],"unavailable");self.assertNotIn("private",str(out));self.assertNotIn("record",out)
+    def test_sdk_root_normalizes_only_separators_and_trailing_slash(self):
+        good,_=self.run_fake(lambda r:setattr(r,"kit","C:\\Program Files (x86)\\Windows Kits\\10"))
+        self.assertEqual(good["status"],"complete")
+        bad,_=self.run_fake(lambda r:setattr(r,"kit","c:/program files (x86)/windows kits/10/"))
+        self.assertEqual(bad.get("reason"),"sdk-root")
     def test_write_drift_denies_even_with_matching_product(self):
         out,_=self.run_fake(lambda r:setattr(r,"drift",True));self.assertEqual(out["reason"],"registry-drift")
     def test_remaining_api_read_hash_and_time_caps_refuse_without_reset(self):

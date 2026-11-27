@@ -300,3 +300,25 @@ test("all twelve PE pins and selected numeric versions must match before tool ex
     assert.throws(() => m.validateTools({ success: true, tools: t }));
   }
 });
+test("oracle stdout cap rejects before retaining a larger output and drains", async () => {
+  const b = new m.WorkBudget({ streamLimit: 4096 }),
+    r = new m.CommandRunner(b);
+  await assert.rejects(
+    () =>
+      r.run(
+        process.execPath,
+        [
+          "-e",
+          "process.stdout.write('x'.repeat(256));setInterval(()=>{},1000)",
+        ],
+        {
+          env: process.env,
+          cwd: process.cwd(),
+          timeout: 1000,
+          stdoutLimit: 32,
+        },
+      ),
+    /stdout-limit/,
+  );
+  assert.equal(r.drained, true);
+});

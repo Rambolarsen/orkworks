@@ -351,7 +351,11 @@ export class CommandRunner {
     this.kills = 0;
     this.commands = [];
   }
-  async run(exe, args, { env, cwd, timeout = 30000 } = {}) {
+  async run(
+    exe,
+    args,
+    { env, cwd, timeout = 30000, stdoutLimit = 64 * MiB } = {},
+  ) {
     need(!this.stopped, "runner-stopped");
     this.budget.check();
     const duration = Math.min(timeout, this.budget.deadline - Date.now());
@@ -368,6 +372,7 @@ export class CommandRunner {
       let failure,
         closed = false,
         drainTimer;
+      let stdoutBytes = 0;
       const out = [],
         err = [];
       const stop = (reason) => {
@@ -407,9 +412,17 @@ export class CommandRunner {
           if (failure) return;
           try {
             this.budget.stream(b.length);
+            if (stream === c.stdout) {
+              stdoutBytes += b.length;
+              need(stdoutBytes <= stdoutLimit, "stdout-limit");
+            }
             parts.push(b);
-          } catch {
-            stop("stream-limit");
+          } catch (error) {
+            stop(
+              error.message === "stdout-limit"
+                ? "stdout-limit"
+                : "stream-limit",
+            );
           }
         });
       c.on("error", () => stop("process-unavailable"));
@@ -839,6 +852,14 @@ async function main() {
     readers = 0,
     sdkCalls = 0;
   const exec = async (exe, args, options = {}) => {
+    if (win(exe) === win(p.cargo)) {
+      assertConfiguration(root);
+      for (const name of ["config", "config.toml"])
+        need(
+          !fs.existsSync(path.join(env.CARGO_HOME, name)),
+          "unknown-cargo-configuration",
+        );
+    }
     const x = await runner.run(exe, args, { env, cwd: root, ...options });
     diagnostics += x.stderr;
     return x;
@@ -950,6 +971,21 @@ async function main() {
         hashed_bytes: pass.hashed_bytes,
         open_handles: pass.open_handles,
       };
+      for (const [key, cap] of [
+        ["api_calls", limits.api],
+        ["read_bytes_charged", limits.read],
+        ["open_handles", 3],
+      ])
+        need(
+          Number.isSafeInteger(pass[key]) && pass[key] >= 0 && pass[key] <= cap,
+          "sdk-work-unknown",
+        );
+      result.sdk_observed = {
+        api_calls: sdk.api + pass.api_calls,
+        read_bytes_charged: sdk.read + pass.read_bytes_charged,
+        hashed_bytes: sdk.hash + pass.hashed_bytes,
+        open_handles: pass.open_handles,
+      };
       need(x.code === 0, "sdk-unavailable");
       need(
         pass.runtime?.version === "3.12.10" &&
@@ -961,6 +997,9 @@ async function main() {
       sdk.add(pass);
       result.controllers.python.observed = pass.runtime;
       result.sdk_passes = sdk.passes.length;
+    } catch (error) {
+      if (error.message === "sdk-work-unknown") result.sdk_work_unknown = true;
+      throw error;
     } finally {
       if (!completed) {
         finish(limits.hash);
@@ -1166,6 +1205,7 @@ async function main() {
           const x = await exec(policy.paths["cl.exe"], oracleArgs, {
             cwd: sqlite,
             timeout: 120000,
+            stdoutLimit: 32 * MiB,
           });
           need(Buffer.byteLength(x.stdout) <= 32 * MiB, "oracle-output-limit");
           save("oracle.i", x.stdout);
@@ -1322,9 +1362,15 @@ async function main() {
           positive_record_observed: false,
           inventory_complete: false,
           passes: sdk.passes,
-          api_calls: sdk.api,
-          read_bytes_charged: sdk.read,
-          hashed_bytes: sdk.hash,
+          api_calls:
+            result.sdk_observed?.api_calls ?? (sdkCalls === 0 ? 0 : null),
+          read_bytes_charged:
+            result.sdk_observed?.read_bytes_charged ??
+            (sdkCalls === 0 ? 0 : null),
+          hashed_bytes:
+            result.sdk_observed?.hashed_bytes ?? (sdkCalls === 0 ? 0 : null),
+          open_handles:
+            result.sdk_observed?.open_handles ?? (sdkCalls === 0 ? 0 : null),
           enumerated_entries: 0,
           work_unknown: result.sdk_work_unknown === true,
         };
