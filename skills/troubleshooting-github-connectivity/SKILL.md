@@ -36,6 +36,36 @@ When active instructions require a wrapper, use it for every probe; here that is
 5. **Separate permission errors from rate limits.** `403` can mean missing permission or a limit; `429` can indicate rate limiting. Inspect the original safe request with the same host and authentication: for API calls, `gh api --include <same-endpoint> --hostname <host>` shows status, headers, and error body. Check `x-ratelimit-resource`, `x-ratelimit-remaining`, and `retry-after`; inspect the body locally if needed, without logging or sharing it. Do not replace the failing endpoint with an unrelated one, use unauthenticated `curl` to infer an authenticated token's quota, or use `gh api --verbose` (prints the full request). For non-API commands, inspect that command's response/context ([rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit)).
 6. **Use an authorized network-enabled path if isolated.** Retry the minimal read-only request and report which environment failed and which succeeded.
 
+## Auxiliary requests blocked during PR monitoring
+
+Retain the exact failed command, denied hostname and error. An auxiliary-host
+denial (for example, one naming `cafe.github.com`) does not establish that the
+repository API, authentication or all GitHub access failed. Do not infer which
+feature used that host when the command is missing from the evidence.
+
+If PR/check snapshots still work through the verified authorized path, continue
+with them. Set `task_repo` and `task_pr` to the exact repository and PR:
+
+```bash
+gh pr view "$task_pr" --repo "$task_repo" --json state,headRefOid,mergeStateStatus
+gh pr checks "$task_pr" --repo "$task_repo"
+```
+
+Apply the runtime's required wrapper. These are snapshots: retain the complete
+[comment inventory, head recheck and continuation contract](../babysitting-pull-requests/SKILL.md).
+Use them within the existing active polling or scheduled continuation budget;
+a successful snapshot does not establish background monitoring.
+
+A CLI hint to use `gh event listen` is not proof that its subscription transport
+is available here. Its current help describes subscriptions lasting up to 24
+hours with an account limit, so do not create subscriptions solely as a network
+probe or repeat subscription attempts after a transport denial. Check the
+installed command's help when selecting it for an actual wait. Exit 8 means
+pending checks for `gh pr checks`, but a timeout without an event for
+`gh event listen`; neither means all checks passed or proves a network failure.
+If snapshot reads also fail, return to the ordered diagnostics above rather
+than changing credentials, accounts or allowlists to bypass a denial.
+
 ## Guardrails
 
 - Never print, log, copy, or ask the user to paste tokens; check variable presence only.
