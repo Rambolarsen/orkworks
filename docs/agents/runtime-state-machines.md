@@ -132,8 +132,8 @@ keep set even when their projected lifecycle has regressed.
 ## Peon and Taskmaster
 
 Sources `crates/orkworksd/src/runtime/peon_runtime.rs`,
-`crates/orkworksd/src/taskmaster/{mod,runtime}.rs`, and
-`crates/orkworksd/src/http/taskmaster_handlers.rs`. See
+`crates/orkworksd/src/taskmaster/{mod,runtime,store}.rs`, and
+`crates/orkworksd/src/session_application/recommendation_delivery.rs`. See
 [recommendation lifecycle](../../specs/taskmaster.md#recommendation-lifecycle).
 
 | Machine and current state | Event and guard | Next state |
@@ -144,14 +144,17 @@ Sources `crates/orkworksd/src/runtime/peon_runtime.rs`,
 | Taskmaster evaluation idle | A trigger reserves an attempt | Queued, then Running when claimed |
 | Taskmaster evaluation running | Current attempt settles, or owned recovery interrupts it | Succeeded, Failed, or Interrupted |
 | Recommendation proposed | User accepts or dismisses, evaluator supersedes or expires, or rollup attaches an eligible member | Accepted, Dismissed, Superseded, Expired, or RolledUp |
-| Recommendation accepted | An approved execution starts or action resolves | Executing, Completed, or Failed as defined by the action |
-| Recommendation executing | The linked action resolves | Completed or Failed |
+| Workflow recommendation proposed | Explicit approval reserves delivery before terminal input | Executing |
+| Workflow recommendation executing | Delivery succeeds and the reservation settles | Accepted |
+| Workflow recommendation executing | Delivery fails and cancellation settles | Proposed for retry |
+| Workflow recommendation executing | Explicit dismissal recovers a stuck reservation | Dismissed |
+| Workflow recommendation accepted | Verified completion is reported for the approved action | Completed |
 
 **Invariants.** Peon results and lease cleanup are scoped to the attempt and
 runtime that own them. Taskmaster attempt state is distinct from the last
-outcome. Recommendation acceptance and execution are distinct, and unchanged
-dismissed evidence does not resurface immediately. Rollup members retain exact
-family lineage. Proposed ordinary-child orchestration is tracked separately
+outcome. Delivery contention retries settlement under the original ownership
+without repeating terminal input. Unchanged dismissed evidence does not
+resurface immediately. Rollup members retain exact family lineage. Proposed ordinary-child orchestration is tracked separately
 under [the coordinator design gate](../../specs/taskmaster.md#coordinator-design-gate).
 
 ## Desktop updates
