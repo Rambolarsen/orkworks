@@ -110,6 +110,27 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(m.decode_value("SDK\x00".encode("utf-16-le"), 1, 128), "SDK")
         for data, kind in [(b"A\x00", 1), (b"A\x00\x00", 1), (b"A\x00\x00\x00B\x00\x00\x00", 1), ("SDK\x00".encode("utf-16-le"), 2), (("A"*129+"\x00").encode("utf-16-le"), 1), (b"\x00\xd8\x00\x00", 1)]:
             with self.assertRaises(m.Denied): m.decode_value(data, kind, 128)
+    def test_empty_registry_text_retains_only_fixed_format_reason(self):
+        with self.assertRaisesRegex(m.Denied, "^value-format$"):
+            m.decode_value("\x00".encode("utf-16-le"), 1, 128)
+    def test_control_characters_retain_only_fixed_format_reason(self):
+        for value in ["private\nvalue", "private\tvalue", "private\x7fvalue"]:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(m.Denied, "^value-format$"):
+                    m.decode_value((value+"\x00").encode("utf-16-le"), 1, 128)
+    def test_non_ascii_text_retains_only_fixed_format_reason(self):
+        for value in ["private-é", "private-中文", "private-😀"]:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(m.Denied, "^value-format$"):
+                    m.decode_value((value+"\x00").encode("utf-16-le"), 1, 128)
+    def test_printable_ascii_boundaries_remain_accepted(self):
+        value = "".join(chr(code) for code in range(32,127))
+        self.assertEqual(m.decode_value((value+"\x00").encode("utf-16-le"), 1, 128), value)
+        for maximum in [128, 256]:
+            with self.subTest(maximum=maximum):
+                boundary = "x"*maximum
+                self.assertEqual(m.decode_value((boundary+"\x00").encode("utf-16-le"), 1, maximum), boundary)
+
     def test_foreign_kit_root_is_not_exported_on_failure(self):
         f = FakeRegistry()
         original = f.value
