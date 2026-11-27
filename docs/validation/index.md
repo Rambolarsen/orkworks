@@ -13,6 +13,7 @@ Capability research, validation results, and evidence fixtures.
 - [Offline workflow evidence boundary replay](workflow-evidence-replay.md) — Explicit-input current Rust policy checks, synthetic controls and unqualified historical/usefulness boundaries.
 
 - [Pair controlled enforcement coverage](pair-resource-enforcement-coverage.md) — Pinned-source file-growth, callback and allocation ownership map; exact build/configuration and native enforcement remain unqualified.
+- [Replacement reader timeout source diagnosis](pair-reader-timeout-diagnosis.md) — Combined deadline, report-loss boundary and per-file work costs; synthetic evidence does not identify the Windows hot path or renew an allowance.
 
 - [Workflow evidence candidate packet](workflow-evidence-packet.md) — Bounded candidate snapshots, executable coverage gaps and independent-evaluation limits.
 

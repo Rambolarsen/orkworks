@@ -24,6 +24,9 @@ and one locked fetch. No build, oracle or target execution started. The new
 allowance and every earlier allowance are spent. Actual effective flags, linked
 artifact, startup and native mechanisms remain unqualified; Gate 1 is still
 Investigate and no executable slice is unlocked.
+The [source-only reader diagnosis](pair-reader-timeout-diagnosis.md) traces the
+combined work and missing progress boundary; it does not identify the runtime
+hot path or authorize another attempt.
 
 ## Result, source identity and evidence limits
 
@@ -1437,3 +1440,20 @@ reader's work and progress evidence**, using this timeout boundary and synthetic
 fixtures. A future executable package would need its own concrete reviewed
 scope and finite owner allowance. Do not use this failure to silently extend
 caps, edit the spent collector or repeat an availability probe.
+
+
+## Reader timeout source diagnosis (2026-11-27)
+
+The [source-only diagnosis](pair-reader-timeout-diagnosis.md) traces the sealed
+reader's archive/member checks, manifest, sorting and serialization under one
+120-second deadline. An owned Node-only synthetic experiment confirms that
+bytes buffered before timeout are not returned to the reader caller, which
+therefore retains the full unknown-work grant. Source inspection also identifies
+repeated per-member 1 MiB buffer allocation and ancestry/identity/row-conversion
+work. These are cost candidates, not a measured explanation of the Windows
+failure. No completed per-phase/root count exists, so runtime cause remains
+unproven.
+
+The recommended separate next proposal is a bounded synthetic-only diagnostic
+reader contract, preserving admission/custody checks and all existing ceilings.
+No spent collector, workflow, policy, allowance or qualification flag changed.
