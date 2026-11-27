@@ -121,49 +121,12 @@ pub(crate) fn perform(
                 let handle = sessions_guard
                     .get_mut(id)
                     .ok_or(MetadataAccessError::Internal)?;
-                handle.info.last_activity_at = Some(updated.metadata.last_activity.clone());
-                handle.info.worktree_binding = updated.metadata.worktree_binding.clone();
-                if scope.attention {
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.observed_status = updated.metadata.observed_status.clone();
-                    handle.info.attention = updated.metadata.attention.clone();
-                    handle.info.needs_user_input = updated.metadata.needs_user_input;
-                    handle.info.detected_question = updated.metadata.detected_question.clone();
-                    handle.info.suggested_options = updated.metadata.suggested_options.clone();
-                    handle.info.provenance.attention_source =
-                        updated.metadata.provenance.attention_source.clone();
-                    handle.info.provenance.attention_confidence =
-                        updated.metadata.provenance.attention_confidence;
-                    handle.info.provenance.attention_origin =
-                        updated.metadata.provenance.attention_origin.clone();
-                    handle.info.provenance.attention_updated_at =
-                        updated.metadata.provenance.attention_updated_at.clone();
-                    if let Some(tracker) = handle.runtime.native_approval.as_mut() {
-                        tracker.invalidate();
-                    }
-                    handle.pending_work_signal = None;
-                    handle.runtime.active_prompt_kind = None;
-                }
-                if scope.work {
-                    handle.info.work_phase = updated.metadata.work_phase.clone();
-                    handle.info.next_action = updated.metadata.next_action.clone();
-                    handle.info.blocker_description = updated.metadata.blocker_description.clone();
-                    handle.info.failed_command = updated.metadata.failed_command.clone();
-                    handle.info.failed_test = updated.metadata.failed_test.clone();
-                    handle.info.metadata_source = Some(updated.metadata.metadata_source.clone());
-                    handle.info.metadata_confidence = Some(updated.metadata.metadata_confidence);
-                    handle.info.provenance.work_metadata_updated_at =
-                        updated.metadata.provenance.work_metadata_updated_at.clone();
-                }
-                if updates_summary {
-                    handle.info.summary = updated.metadata.summary.clone();
-                    handle.info.provenance.summary_source =
-                        updated.metadata.provenance.summary_source.clone();
-                    handle.info.provenance.summary_confidence =
-                        updated.metadata.provenance.summary_confidence;
-                    handle.info.provenance.summary_observed_at =
-                        updated.metadata.provenance.summary_observed_at.clone();
-                }
+                crate::runtime::observed_status::mirror_agent_metadata_patch(
+                    handle,
+                    &updated.metadata,
+                    scope,
+                    updates_summary,
+                );
                 Ok(value)
             }
         }

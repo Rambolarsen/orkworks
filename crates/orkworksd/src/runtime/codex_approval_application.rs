@@ -131,6 +131,10 @@ fn accepted_root(meta: &crate::metadata::SessionMetadata) -> Option<&str> {
 
 impl NativeApprovalState {
     #[cfg(test)]
+    pub(crate) fn hook_revision(&self) -> Option<u64> {
+        self.hook_revision
+    }
+    #[cfg(test)]
     pub(crate) fn diagnostic_disconnect(&mut self) {
         self.hook_revision = self.hook_revision.and_then(|r| r.checked_add(1));
         self.reducer.disconnected();
@@ -323,14 +327,11 @@ pub(crate) fn report_hook(
             match updated {
                 Ok(Some(record)) => {
                     meta = record.metadata;
-                    handle.runtime.attention_owner.accepted_write();
-                    handle.info.observed_status = meta.observed_status.clone();
-                    handle.info.attention = meta.attention.clone();
-                    handle.info.needs_user_input = None;
-                    handle.info.detected_question = None;
-                    handle.info.suggested_options = None;
-                    handle.info.provenance = meta.provenance.clone();
-                    handle.pending_work_signal = None;
+                    super::observed_status::mirror_committed_attention(
+                        handle,
+                        &meta,
+                        super::observed_status::AttentionMirrorOptions::codex_hook_transition(),
+                    );
                 }
                 Ok(None) => {}
                 Err(_) => return HookReportOutcome::Retry,

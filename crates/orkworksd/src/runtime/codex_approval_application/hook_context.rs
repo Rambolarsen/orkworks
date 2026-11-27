@@ -196,16 +196,14 @@ pub(crate) fn publish_transition(
             "codex_hook",
             1.0,
         );
+        handle.info.provenance = meta.provenance.clone();
     } else {
-        handle.runtime.attention_owner.accepted_write();
-        handle.info.observed_status = meta.observed_status.clone();
-        handle.info.attention = meta.attention.clone();
-        handle.info.needs_user_input = None;
-        handle.info.detected_question = None;
-        handle.info.suggested_options = None;
-        handle.pending_work_signal = None;
+        super::super::observed_status::mirror_committed_attention(
+            handle,
+            meta,
+            super::super::observed_status::AttentionMirrorOptions::codex_hook_transition(),
+        );
     }
-    handle.info.provenance = meta.provenance.clone();
     if matches!(transition, HookTransition::FallbackPermission) {
         if let Some(tracker) = handle.runtime.native_approval.as_mut() {
             tracker.record_validated_permission(&handle.runtime.attention_owner);

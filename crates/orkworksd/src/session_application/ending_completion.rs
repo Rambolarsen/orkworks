@@ -288,17 +288,12 @@ impl SessionApplication {
             .get_mut(id)
             .filter(|h| context.runtime_matches(id, h))
         {
-            h.runtime.attention_owner.accepted_write();
-            h.info.status = final_status.clone();
-            h.info.lifecycle_phase = "ended".into();
-            h.info.lifecycle = "dead".into();
-            h.info.attention = None;
-            h.info.connectivity = Some(connectivity_for_status(&final_status).into());
-            h.info.terminal_outcome = terminal_outcome_for_status(&final_status);
-            h.info.observed_status = None;
-            h.info.final_observed_status = final_snapshot.value;
-            h.info.last_activity_at = Some(now);
-            h.resume_in_progress = false;
+            crate::runtime::observed_status::mirror_ended_lifecycle(
+                h,
+                &final_status,
+                final_snapshot.value,
+                now,
+            );
             outcome.published = true;
         }
         outcome

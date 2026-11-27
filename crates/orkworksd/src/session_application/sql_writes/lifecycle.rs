@@ -324,24 +324,11 @@ impl SessionWrites {
                 Some(completion),
                 access,
                 move |_, h| {
-                    if scope.is_some_and(|scope| scope.attention) {
-                        h.runtime.attention_owner.accepted_write();
-                    }
-                    h.info.status = stored.status;
-                    h.info.lifecycle_phase = stored.lifecycle_phase;
-                    h.info.lifecycle = stored.lifecycle;
-                    h.info.attention = stored.attention;
-                    h.info.connectivity = Some(stored.connectivity);
-                    h.info.terminal_outcome = stored.terminal_outcome;
-                    h.info.observed_status = stored.observed_status;
-                    h.info.final_observed_status = stored
-                        .final_observed_status_snapshot
-                        .and_then(|snapshot| snapshot.value);
-                    h.info.last_activity_at = Some(stored.last_activity);
-                    h.info.provenance = stored.provenance;
-                    if h.info.lifecycle_phase == "ended" {
-                        h.resume_in_progress = false;
-                    }
+                    crate::runtime::observed_status::mirror_committed_lifecycle(
+                        h,
+                        &stored,
+                        scope.is_some_and(|scope| scope.attention),
+                    );
                 },
             )
             .await
