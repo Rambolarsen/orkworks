@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
-import type { UpdateDownloadedEvent } from "electron-updater";
-import { channelForVersion, createUpdateService } from "../electron/updateService.ts";
+import type { AppUpdater, UpdateDownloadedEvent } from "electron-updater";
+import {
+  createElectronUpdateEngine,
+  registerUpdateIpc,
+  type UpdateIpcSender,
+} from "../electron/electronUpdateEngine.ts";
+import { DEFAULT_SETTINGS } from "../electron/settingsMemory.ts";
+import type { SidecarProcess } from "../electron/sidecarLifecycle.ts";
+import { createUpdateService, type UpdateEngineEvent } from "../electron/updateService.ts";
+import { createWorkspaceRuntime } from "../electron/workspaceRuntime.ts";
 
 const main = await readFile(new URL("../electron/main.ts", import.meta.url), "utf8");
 const localRequire = createRequire(import.meta.url);
@@ -20,28 +26,6 @@ function loadPinnedModule(id: string, injected: Record<string, unknown>) {
   new Function("require", "module", "exports", readFileSync(filename, "utf8"))(
     (name: string) => name in injected ? injected[name] : moduleRequire(name), module, module.exports,
   );
-  return module.exports;
-}
-
-function loadMainSnippet<T>(
-  startMarker: string,
-  endMarker: string,
-  exported: string,
-  injected: Record<string, unknown> = {},
-): T {
-  const start = main.indexOf(startMarker);
-  const end = main.indexOf(endMarker, start);
-  assert.notEqual(start, -1, `missing start marker: ${startMarker}`);
-  assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
-
-  const source = `${main.slice(start, end)}\nmodule.exports = ${exported};`;
-  const compiled = transpileModule(source, {
-    compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 },
-  }).outputText;
-  const module = { exports: {} as T };
-  const names = ["require", "module", "exports", "process", "channelForVersion", ...Object.keys(injected)];
-  const values = [localRequire, module, module.exports, process, channelForVersion, ...Object.values(injected)];
-  new Function(...names, compiled)(...values);
   return module.exports;
 }
 
@@ -74,16 +58,17 @@ function pinnedNsisFixture() {
   return { updater, effects };
 }
 
-function adapterFixture(platform = "win32", configure: (updater: any) => void = () => {}) {
-  const application = new EventEmitter();
+function adapterFixture(platform: NodeJS.Platform = "win32", configure: (updater: any) => void = () => {}) {
   let intercept: ((details: { url: string }, callback: (result: { cancel?: boolean }) => void) => void) | undefined;
   class Updater extends EventEmitter {
     autoDownload = true;
     autoInstallOnAppQuit = true;
     allowDowngrade = true;
     allowPrerelease = false;
+    disableWebInstaller = false;
     channel = "latest";
-    requestHeaders = null;
+    requestHeaders: Record<string, string> | null = null;
+    feedConfig: unknown = null;
     info = {
       version: "1.0.1", tag: "v1.0.1",
       path: "OrkWorks.exe", sha512: Buffer.alloc(64, 1).toString("base64"),
@@ -105,7 +90,7 @@ function adapterFixture(platform = "win32", configure: (updater: any) => void = 
       intercept?.({ url }, ({ cancel }) => { cancelled = cancel === true; });
       if (cancelled) throw new Error("Metadata request blocked");
     }
-    setFeedURL() {}
+    setFeedURL(config: unknown) { this.feedConfig = config; }
     verifyUpdateCodeSignature = async (_publishers: string[], _file: string) => {
       this.signatureCalls++;
       if (this.signatureWarning) this.logger.warn(this.signatureWarning);
@@ -131,12 +116,8 @@ function adapterFixture(platform = "win32", configure: (updater: any) => void = 
   }
   const updater = new Updater();
   configure(updater);
-  const createAdapter = loadMainSnippet<any>(
-    "function updateCandidate", "function registerUpdateIpc", "createElectronUpdateEngine",
-    { createHash, app: application, process: { platform } },
-  );
-  const adapter = createAdapter(updater);
-  return { updater, application, ...adapter };
+  const adapter = createElectronUpdateEngine(updater as unknown as AppUpdater, { platform });
+  return { updater, ...adapter };
 }
 
 async function downloadedAdapter(overrides: (updater: any) => void = () => {}) {
@@ -155,6 +136,16 @@ async function downloadedAdapter(overrides: (updater: any) => void = () => {}) {
   await service.download();
   return { ...fixture, service, effects };
 }
+
+test("engine configures safe defaults and fixes the GitHub provider", () => {
+  const { updater } = adapterFixture("win32");
+  assert.equal(updater.autoDownload, false);
+  assert.equal(updater.autoInstallOnAppQuit, false);
+  assert.equal(updater.allowDowngrade, false);
+  assert.equal(updater.disableWebInstaller, true);
+  assert.deepEqual(updater.requestHeaders, { "Cache-Control": "no-cache" });
+  assert.deepEqual(updater.feedConfig, { provider: "github", owner: "Rambolarsen", repo: "orkworks" });
+});
 
 test("public downloaded event preserves release identity through fresh metadata verification", async () => {
   const { service, verifyCandidate, updater } = await downloadedAdapter();
@@ -265,7 +256,7 @@ test("pinned NSIS schedules quit after async failure and ignores the first direc
 
 test("Windows install fails closed before pinned NSIS can arm quit or an install latch", { timeout: 2000 }, async () => {
   const native = pinnedNsisFixture();
-  const { updater, service, effects, application } = await downloadedAdapter((updater) => {
+  const { updater, service, effects } = await downloadedAdapter((updater) => {
     updater.quitAndInstall = () => { updater.installs++; native.updater.quitAndInstall(); };
   });
   const installing = service.requestInstall();
@@ -284,24 +275,22 @@ test("Windows install fails closed before pinned NSIS can arm quit or an install
   assert.equal(updater.installs, 0);
   assert.deepEqual(effects, []);
   assert.deepEqual(native.effects, []);
-  assert.equal(application.listenerCount("quit"), 0);
   assert.equal(updater.listenerCount("error"), 0);
 });
 
-test("direct adapter install also fails closed without touching native updater or quit listeners", { timeout: 2000 }, async () => {
-  const { updater, application, engine } = adapterFixture();
+test("direct adapter install also fails closed without touching native updater listeners", { timeout: 2000 }, async () => {
+  const { updater, engine } = adapterFixture("win32");
   const installing = engine.quitAndInstall();
   const rejected = assert.rejects(installing, /Windows.*unavailable.*manually/i);
   await settle();
   assert.equal(updater.installs, 0);
   await rejected;
   await assert.rejects(engine.quitAndInstall(), /unavailable/i);
-  assert.equal(application.listenerCount("quit"), 0);
   assert.equal(updater.listenerCount("error"), 0);
 });
 
 test("nightly adapter blocks stable metadata fallback before accepting a result", async () => {
-  const { updater, engine } = adapterFixture();
+  const { updater, engine } = adapterFixture("win32");
   engine.channel = "nightly";
   updater.info.version = "1.0.1-nightly.20260917.123.1";
   updater.info.tag = `v${updater.info.version}`;
@@ -315,12 +304,12 @@ test("adapter rejects mismatched tags and non-nightly versions labeled nightly",
     ["1.0.1-beta.1", "v1.0.1-beta.1"],
     ["1.0.1-nightly.2", "v1.0.1-nightly.1"],
   ]) {
-    const { updater, engine } = adapterFixture();
+    const { updater, engine } = adapterFixture("win32");
     engine.channel = "nightly";
     updater.info.version = version;
     updater.info.tag = tag;
-    const events: any[] = [];
-    engine.onEvent((event: any) => events.push(event));
+    const events: UpdateEngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
     await engine.checkForUpdates(1).catch(() => {});
     assert.equal(events.some((event) => event.type === "update-available"), false);
     assert.equal(events.some((event) => event.type === "error"), true);
@@ -332,7 +321,7 @@ test("pinned GitHub provider cannot fetch stable fallback when nightly metadata 
   const updaterRequire = createRequire(localRequire.resolve("electron-updater/package.json"));
   const { SemVer } = updaterRequire("semver");
   for (const metadata of [null, "version: 1.0.1-nightly.2\ntag: v1.0.1-nightly.2\nfiles: []"]) {
-    const { updater, engine } = adapterFixture();
+    const { updater, engine } = adapterFixture("win32");
     engine.channel = "nightly";
     engine.allowPrerelease = true;
     const networkRequests: string[] = [];
@@ -354,8 +343,8 @@ test("pinned GitHub provider cannot fetch stable fallback when nightly metadata 
       updater.emit("update-available", info);
       return { isUpdateAvailable: true, updateInfo: info } as any;
     };
-    const events: any[] = [];
-    engine.onEvent((event: any) => events.push(event));
+    const events: UpdateEngineEvent[] = [];
+    engine.onEvent((event) => events.push(event));
     await engine.checkForUpdates(1).catch(() => {});
     assert.ok(networkRequests.some((url) => url.endsWith("/nightly.yml")));
     assert.equal(networkRequests.some((url) => url.endsWith("/latest.yml")), false);
@@ -364,31 +353,7 @@ test("pinned GitHub provider cannot fetch stable fallback when nightly metadata 
   }
 });
 
-test("main gates updater construction on app.isPackaged and keeps automatic install disabled", () => {
-  assert.match(main, /if \(app\.isPackaged\)[\s\S]*createUpdateService/);
-  assert.match(main, /if \(app\.isPackaged\)[\s\S]*registerUpdateIpc/);
-  assert.match(main, /autoDownload:\s*false/);
-  assert.match(main, /autoInstallOnAppQuit:\s*false/);
-  assert.match(main, /allowDowngrade:\s*false/);
-  assert.match(main, /stopAndWait\(10_000\)/);
-});
-
-test("main fixes the updater provider and maps public updater events", () => {
-  assert.match(main, /provider:\s*"github"/);
-  assert.match(main, /owner:\s*"Rambolarsen"/);
-  assert.match(main, /repo:\s*"orkworks"/);
-  for (const eventName of ["update-available", "update-not-available", "download-progress", "update-downloaded", "error"]) {
-    assert.match(main, new RegExp(`autoUpdater\\.on\\(\\"${eventName}\\"`));
-  }
-});
-
 test("a delayed event from an old updater operation cannot complete a newer operation", async () => {
-  // The engine gates update candidates on the platform-specific metadata
-  // file and payload extension, so the fixture must speak the same dialect
-  // as updateCandidate for the platform the test process runs on. On Linux
-  // CI this is latest.yml/OrkWorks.exe; on macOS hosts latest-mac.yml/zip.
-  const metadataFile = process.platform === "darwin" ? "latest-mac.yml" : "latest.yml";
-  const payloadName = process.platform === "darwin" ? "OrkWorks.zip" : "OrkWorks.exe";
   class FakeUpdater extends EventEmitter {
     autoDownload = true;
     autoInstallOnAppQuit = true;
@@ -399,9 +364,8 @@ test("a delayed event from an old updater operation cannot complete a newer oper
     intercept: ((details: { url: string }, callback: (result: unknown) => void) => void) | undefined;
     netSession = { webRequest: { onBeforeRequest: (_filter: unknown, listener: typeof this.intercept) => { this.intercept = listener; } } };
     requestMetadata(tag: string) {
-      this.intercept?.({ url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/${metadataFile}` }, () => {});
+      this.intercept?.({ url: `https://github.com/Rambolarsen/orkworks/releases/download/${tag}/latest.yml` }, () => {});
     }
-
     setFeedURL() {}
     checkForUpdates() {
       const check = deferred<unknown>();
@@ -412,31 +376,18 @@ test("a delayed event from an old updater operation cannot complete a newer oper
     quitAndInstall() {}
   }
 
-  const { createElectronUpdateEngine } = loadMainSnippet<{
-    createElectronUpdateEngine(updater: FakeUpdater): {
-      engine: {
-        onEvent(listener: (event: Record<string, unknown>) => void): () => void;
-        checkForUpdates(operationId: number): Promise<void>;
-      };
-    };
-  }>(
-    "function updateCandidate",
-    "function registerUpdateIpc",
-    "{ createElectronUpdateEngine }",
-    { createHash },
-  );
   const updater = new FakeUpdater();
-  const { engine } = createElectronUpdateEngine(updater);
-  const events: Record<string, unknown>[] = [];
+  const { engine } = createElectronUpdateEngine(updater as unknown as AppUpdater, { platform: "win32" });
+  const events: UpdateEngineEvent[] = [];
   engine.onEvent((event) => events.push(event));
   const firstInfo = {
     version: "1.0.1",
     tag: "v1.0.1",
-    files: [{ url: payloadName, sha512: Buffer.alloc(64, 1).toString("base64") }],
+    files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 1).toString("base64") }],
     releaseDate: "2026-09-16T00:00:00Z",
     releaseNotes: null,
   };
-  const secondInfo = { ...firstInfo, version: "1.0.2", tag: "v1.0.2", files: [{ url: payloadName, sha512: Buffer.alloc(64, 2).toString("base64") }] };
+  const secondInfo = { ...firstInfo, version: "1.0.2", tag: "v1.0.2", files: [{ url: "OrkWorks.exe", sha512: Buffer.alloc(64, 2).toString("base64") }] };
 
   const first = engine.checkForUpdates(1);
   await settle();
@@ -459,10 +410,8 @@ test("a delayed event from an old updater operation cannot complete a newer oper
   updater.checks[1].resolve({ isUpdateAvailable: true, updateInfo: secondInfo });
   await second;
   assert.deepEqual(
-    events.filter(({ type }) => type === "update-available").map(({ operationId, candidate }) => ({
-      operationId,
-      version: (candidate as { identity: { version: string } }).identity.version,
-    })),
+    events.filter((event): event is Extract<UpdateEngineEvent, { type: "update-available" }> => event.type === "update-available")
+      .map(({ operationId, candidate }) => ({ operationId, version: candidate.identity.version })),
     [
       { operationId: 1, version: "1.0.1" },
       { operationId: 2, version: "1.0.2" },
@@ -470,53 +419,51 @@ test("a delayed event from an old updater operation cannot complete a newer oper
   );
 });
 
-test("main registers only the narrow updater IPC contract", () => {
-  for (const channel of ["get-update-status", "check-for-updates", "download-update", "request-update-install"]) {
-    assert.match(main, new RegExp(`ipcMain\\.handle\\(\\"${channel}\\"`));
-  }
-  assert.match(main, /ipcMain\.on\("subscribe-update-status"/);
-  assert.match(main, /updateSubscriptions\.get\(senderId\)\?\.\(\)/);
-  assert.match(main, /event\.sender\.once\("destroyed"/);
-});
-
-test("resubscribing one renderer replaces its existing main-process subscription", () => {
-  const ipcListeners = new Map<string, (event: { sender: FakeSender }) => void>();
-  const ipcMain = {
-    handle() {},
-    on(channel: string, listener: (event: { sender: FakeSender }) => void) {
+test("registerUpdateIpc exposes only the narrow IPC contract and replaces per-sender subscriptions", async () => {
+  const handles = new Map<string, (...args: unknown[]) => unknown>();
+  const ipcListeners = new Map<string, (event: { sender: UpdateIpcSender }) => void>();
+  const ipc = {
+    handle(channel: string, listener: (...args: unknown[]) => unknown) {
+      handles.set(channel, listener);
+    },
+    on(channel: string, listener: (event: { sender: UpdateIpcSender }) => void) {
       ipcListeners.set(channel, listener);
     },
   };
-  const subscribers = new Set<(status: { phase: string }) => void>();
+  const subscribers = new Set<(status: unknown) => void>();
+  const calls: string[] = [];
   const service = {
-    getStatus: () => ({ phase: "idle" }),
-    check() {},
-    download() {},
-    requestInstall() {},
-    subscribe(listener: (status: { phase: string }) => void) {
+    getStatus: () => { calls.push("getStatus"); return { state: "never-checked" }; },
+    check: async () => { calls.push("check"); return { state: "up-to-date" }; },
+    download: async () => { calls.push("download"); return { state: "downloaded" }; },
+    requestInstall: async () => { calls.push("requestInstall"); return { state: "error" }; },
+    subscribe(listener: (status: unknown) => void) {
       subscribers.add(listener);
-      listener({ phase: "idle" });
-      return () => subscribers.delete(listener);
+      listener({ state: "never-checked" });
+      return () => { subscribers.delete(listener); };
     },
   };
-  class FakeSender extends EventEmitter {
+  class FakeSender extends EventEmitter implements UpdateIpcSender {
     id = 42;
     deliveries: unknown[] = [];
     send(channel: string, status: unknown) { this.deliveries.push({ channel, status }); }
   }
-  const { registerUpdateIpc } = loadMainSnippet<{
-    registerUpdateIpc(service: typeof service): void;
-  }>(
-    "function registerUpdateIpc",
-    "function rendererSettings",
-    "{ registerUpdateIpc }",
-    { ipcMain },
-  );
-  registerUpdateIpc(service);
-  const subscribe = ipcListeners.get("subscribe-update-status");
-  assert.ok(subscribe);
-  const sender = new FakeSender();
 
+  registerUpdateIpc(service as any, ipc);
+  assert.deepEqual(
+    [...handles.keys()].sort(),
+    ["check-for-updates", "download-update", "get-update-status", "request-update-install"],
+  );
+  assert.deepEqual([...ipcListeners.keys()], ["subscribe-update-status"]);
+
+  handles.get("get-update-status")?.();
+  await handles.get("check-for-updates")?.();
+  await handles.get("download-update")?.();
+  await handles.get("request-update-install")?.();
+  assert.deepEqual(calls, ["getStatus", "check", "download", "requestInstall"]);
+
+  const subscribe = ipcListeners.get("subscribe-update-status")!;
+  const sender = new FakeSender();
   subscribe({ sender });
   assert.equal(subscribers.size, 1);
   sender.deliveries.length = 0;
@@ -524,21 +471,127 @@ test("resubscribing one renderer replaces its existing main-process subscription
   assert.equal(subscribers.size, 1, "resubscribe must replace the previous forwarder");
 
   sender.deliveries.length = 0;
-  for (const listener of subscribers) listener({ phase: "available" });
-  assert.deepEqual(sender.deliveries, [{ channel: "update-status", status: { phase: "available" } }]);
+  for (const listener of subscribers) listener({ state: "available" });
+  assert.deepEqual(sender.deliveries, [{ channel: "update-status", status: { state: "available" } }]);
   sender.emit("destroyed");
   assert.equal(subscribers.size, 0);
 });
 
-test("main queries current sessions and routes update recovery through the workspace coordinator", () => {
-  assert.match(main, /await restoration\.getReadiness\(\)[\s\S]*listSessions\(port\)/);
-  assert.match(main, /lifecycle === "alive"/);
-  assert.match(main, /workspaceSwitchCoordinator\.runUpdate\(/);
-  assert.match(main, /sidecarLifecycle\.start\(restartCwd\)/);
-  assert.match(main, /Restart OrkWorks to recover/);
+test("macOS adapter expects -mac.yml metadata and .zip payload and fails closed on install", async () => {
+  const { updater, engine } = adapterFixture("darwin", (u) => {
+    u.metadataFile = "latest-mac.yml";
+    u.info = {
+      version: "1.0.1",
+      tag: "v1.0.1",
+      path: "OrkWorks.zip",
+      sha512: Buffer.alloc(64, 3).toString("base64"),
+      files: [{ url: "OrkWorks.zip", sha512: Buffer.alloc(64, 3).toString("base64") }],
+      releaseDate: "2026-09-17T00:00:00Z",
+    };
+  });
+  const events: UpdateEngineEvent[] = [];
+  engine.onEvent((event) => events.push(event));
+  await engine.checkForUpdates(1);
+  assert.equal(events.some((event) => event.type === "update-available"), true);
+  assert.match(engine.installationUnavailableReason ?? "", /unavailable.*manually/i);
+  await assert.rejects(engine.quitAndInstall(), /unavailable.*manually/i);
+  assert.equal(updater.installs, 0);
 });
 
-test("ordinary before-quit cleanup does not invoke the installer", () => {
+test("WorkspaceRuntime serializes update install and restarts the sidecar in the active or fallback cwd", async () => {
+  const spawnedCwds: string[] = [];
+  const procs: Array<EventEmitter & SidecarProcess & { emitReady(port: number): void; emitExit(): void }> = [];
+  let failNextStart = false;
+
+  const runtime = createWorkspaceRuntime({
+    spawnSidecar: (cwd) => {
+      spawnedCwds.push(cwd);
+      const proc = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        pid: 9000 + procs.length,
+        killed: false,
+        kill() {
+          proc.killed = true;
+          queueMicrotask(() => proc.emit("exit", 0, null));
+          return true;
+        },
+        emitReady(port: number) {
+          proc.stdout.emit("data", Buffer.from(`ORKWORKSD_PORT=${port}\n`));
+        },
+        emitExit() {
+          proc.emit("exit", 1, null);
+        },
+      });
+      procs.push(proc);
+      if (failNextStart) {
+        queueMicrotask(() => proc.emitExit());
+      }
+      return proc;
+    },
+    sidecarSend: async (_port, endpoint) => {
+      if (endpoint === "workspace") {
+        return new Response(JSON.stringify({
+          path: "/ws-update",
+          workspaceIdentity: "/ws-update",
+          repo_root: null,
+          branch: null,
+          dirty: false,
+          lastActiveSessionId: null,
+          activeHarnessIds: [],
+          activeHarnessRevision: 0,
+        }), { status: 200 });
+      }
+      if (endpoint === "providers") return new Response(JSON.stringify({ providers: [] }), { status: 200 });
+      return new Response(null, { status: 204 });
+    },
+    fetch: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    validateDestination: (candidate) => candidate,
+    canonicalizePath: (candidate) => candidate,
+    rememberWorkspacePath: () => ({ diagnostic: null }),
+    forgetWorkspacePath: async () => ({ historyDiagnostic: null }),
+    getSettings: () => structuredClone(DEFAULT_SETTINGS),
+    writeSettings: () => {},
+    enqueueSettingsWrite: (operation) => Promise.resolve(operation()),
+    clearProviderModelsCache: () => {},
+    initialHistoryDiagnostic: null,
+    logger: { log() {}, warn() {}, error() {} },
+  });
+
+  // Open a workspace, then run an update: runUpdate closes the active workspace
+  // before invoking the callback, so restartSidecarAfterUpdate falls back to home.
+  const opening = runtime.openWorkspace("/ws-update");
+  await settle();
+  procs[0].emitReady(4100);
+  assert.equal((await opening).ok, true);
+
+  await runtime.runUpdate(async (currentPath) => {
+    assert.equal(currentPath, "/ws-update");
+    await runtime.stopSidecarForUpdate(10_000);
+    const restarting = runtime.restartSidecarAfterUpdate("/fallback-home");
+    await settle();
+    procs[1].emitReady(4101);
+    await restarting;
+  });
+  assert.deepEqual(spawnedCwds, ["/ws-update", "/fallback-home"]);
+
+  // Failed restart surfaces the explicit recovery error.
+  failNextStart = true;
+  await runtime.runUpdate(async () => {
+    await runtime.stopSidecarForUpdate(10_000);
+    await assert.rejects(
+      runtime.restartSidecarAfterUpdate("/fallback-home"),
+      /Restart OrkWorks to recover/,
+    );
+  });
+  runtime.dispose();
+});
+
+test("main gates updater construction on app.isPackaged and before-quit does not invoke quitAndInstall", () => {
+  assert.match(main, /if \(app\.isPackaged\)[\s\S]*createElectronUpdateEngine[\s\S]*createUpdateService[\s\S]*registerUpdateIpc\(updateService, ipcMain\)/);
+  assert.match(main, /stopSidecarForUpdate\(10_000\)/);
+  assert.match(main, /restartSidecarAfterUpdate\(/);
+  assert.match(main, /runtime\.runUpdate\(/);
   const cleanup = main.slice(main.indexOf("function killSidecar"));
   assert.doesNotMatch(cleanup, /quitAndInstall/);
 });

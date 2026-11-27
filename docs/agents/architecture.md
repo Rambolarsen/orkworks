@@ -28,6 +28,10 @@ orkworks/
 
 ### Sidecar lifecycle and runtime recovery
 
+`electron/workspaceRuntime.ts` composes sidecar process lifecycle (`electron/sidecarLifecycle.ts`),
+restoration (`electron/backendRestoration.ts`), and serialized workspace switching
+(`electron/workspaceSwitchCoordinator.ts`) behind a single runtime facade with one
+generation/abort fence (`runReady`) for sidecar-bound IPC handlers in `electron/main.ts`.
 `electron/sidecarLifecycle.ts` owns sidecar process startup, port discovery, and
 failure recovery. Each launch is a monotonically numbered generation with its
 own readiness promise. Only the current generation may publish a port, change
@@ -133,8 +137,8 @@ when the normal renderer document is not.
 
 ## Packaging and release
 
-Packaged desktop updates use the production `electron-updater` dependency in
-Electron main. Main explicitly flags packaged preload through a window argument;
+Packaged desktop updates use the production `electron-updater` dependency via
+`electron/electronUpdateEngine.ts` in Electron main. Main explicitly flags packaged preload through a window argument;
 development update methods remain IPC-inert. The updater's own network session
 blocks cross-channel metadata fallback. Release identity excludes the public
 download event's local `downloadedFile` completion path. Both macOS and Windows
