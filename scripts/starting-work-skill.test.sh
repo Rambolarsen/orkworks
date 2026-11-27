@@ -12,6 +12,6 @@ grep -Fq '2-hour wall-clock budget' "$skill"
 grep -Fq 'let the user start' "$skill"
 grep -Fq 'separate session from the appropriate repository root' "$skill"
 grep -Fq 'sibling-worktree path' "$skill"
-grep -Fq "terminal state (merged or closed), not just through opening it" "$root_instructions"
+grep -Fq "through its PR's terminal state" "$root_instructions"
 
 echo 'Starting-work nested-session guard passed'
