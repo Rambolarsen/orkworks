@@ -3,8 +3,8 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::{
-    portable_reporter_invocation, reporter_invocation, FragmentState, JsonHookHandler,
-    ReporterInvocation, ReporterPlatform, ToolHookContract,
+    portable_reporter_invocation, reconcile_all_platforms, reporter_invocation, FragmentState,
+    JsonHookHandler, ReporterInvocation, ReporterPlatform, ToolHookContract,
 };
 use crate::harness::integration::{IntegrationActivation, IntegrationCoverage, IntegrationError};
 
@@ -36,16 +36,8 @@ pub(crate) static HANDLER: JsonHookHandler = JsonHookHandler::new(
     probe,
     merge,
     remove,
-    reconcile_reporters,
+    reconcile_all_platforms,
 );
-
-fn reconcile_reporters(
-    resolver: &crate::harness::integration::ReporterAssetResolver,
-) -> Result<std::path::PathBuf, IntegrationError> {
-    resolver.reconcile(ReporterPlatform::Posix.asset_name())?;
-    resolver.reconcile(ReporterPlatform::WindowsPowerShell.asset_name())?;
-    resolver.stable_path(ReporterPlatform::current().asset_name())
-}
 
 /// Same `$HOME`-relative POSIX command as Codex so a committed file is
 /// byte-identical for every teammate (ADR 0036); Windows keeps the resolved

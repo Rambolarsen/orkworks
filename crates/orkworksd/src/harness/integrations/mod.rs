@@ -15,6 +15,7 @@ pub(crate) mod codex_fragment;
 mod codex_fragment_tests;
 mod copilot;
 mod gemini;
+mod hooks_map;
 mod opencode;
 
 use std::path::{Path, PathBuf};
@@ -461,6 +462,14 @@ pub(crate) fn reconcile_current(
     resolver: &crate::harness::integration::ReporterAssetResolver,
 ) -> Result<PathBuf, IntegrationError> {
     resolver.reconcile(ReporterPlatform::current().asset_name())
+}
+
+pub(crate) fn reconcile_all_platforms(
+    resolver: &crate::harness::integration::ReporterAssetResolver,
+) -> Result<PathBuf, IntegrationError> {
+    resolver.reconcile(ReporterPlatform::Posix.asset_name())?;
+    resolver.reconcile(ReporterPlatform::WindowsPowerShell.asset_name())?;
+    resolver.stable_path(ReporterPlatform::current().asset_name())
 }
 
 #[allow(dead_code)] // Read by generic integration routes in Task 8.
