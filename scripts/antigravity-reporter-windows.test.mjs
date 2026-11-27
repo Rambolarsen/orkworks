@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,24 +47,45 @@ test('native Windows PowerShell replays retained Antigravity hooks silently', {
     const capture = join(directory, 'requests.jsonl');
     const runtime = join(directory, 'runtime.json');
     const wrapper = join(directory, 'fixture.ps1');
+    const progress = join(directory, 'progress.txt');
     writeFileSync(casesPath, JSON.stringify(cases));
     writeFileSync(capture, '');
+    writeFileSync(progress, '');
     writeFileSync(wrapper, String.raw`
 $ErrorActionPreference = 'Stop'
+function Write-FixtureStage([string]$Stage) {
+    [IO.File]::AppendAllText($env:ORKWORKS_PROGRESS_CAPTURE, ($Stage + [Environment]::NewLine))
+}
+Write-FixtureStage 'wrapper-start'
 function Invoke-RestMethod {
     param($Method, $Uri, $Headers, $ContentType, $Body, $TimeoutSec)
+    Write-FixtureStage "http-$global:fixtureIndex"
     $record = @{ index=$global:fixtureIndex; method=[string]$Method; uri=[string]$Uri; headers=$Headers; contentType=$ContentType; timeout=$TimeoutSec; body=($Body | ConvertFrom-Json) }
     [IO.File]::AppendAllText($env:ORKWORKS_REQUEST_CAPTURE, (($record | ConvertTo-Json -Depth 10 -Compress) + [Environment]::NewLine))
 }
-@{ version=$PSVersionTable.PSVersion.ToString(); edition=$PSVersionTable.PSEdition; is64Bit=[Environment]::Is64BitProcess } | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:ORKWORKS_RUNTIME_CAPTURE -Encoding UTF8
-$cases = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw -Encoding UTF8 | ConvertFrom-Json
+# Use this native host's modules, not an inherited PowerShell 7 search path.
+$env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
+Write-FixtureStage 'native-modules-selected'
+Write-FixtureStage 'runtime-json-start'
+$runtimeJson = @{ version=$PSVersionTable.PSVersion.ToString(); edition=$PSVersionTable.PSEdition; is64Bit=[Environment]::Is64BitProcess } | ConvertTo-Json -Compress
+Write-FixtureStage 'runtime-json-done'
+$runtimeJson | Set-Content -LiteralPath $env:ORKWORKS_RUNTIME_CAPTURE -Encoding UTF8
+Write-FixtureStage 'runtime-file-done'
+$casesJson = Get-Content -LiteralPath $env:ORKWORKS_CASES -Raw -Encoding UTF8
+Write-FixtureStage 'cases-file-read'
+$cases = $casesJson | ConvertFrom-Json
+Write-FixtureStage 'cases-loaded'
 for ($i=0; $i -lt $cases.Count; $i++) {
     $global:fixtureIndex=$i
     $payload = $cases[$i].payload | ConvertTo-Json -Depth 10 -Compress
+    Write-FixtureStage "stdin-$i"
     [Console]::SetIn([IO.StringReader]::new($payload))
+    Write-FixtureStage "invoke-$i"
     & $env:ORKWORKS_REPORTER -Marker 'orkworks:harness-integration:v2:antigravity' -Event $cases[$i].event
     if ($LASTEXITCODE -ne 0) { throw 'reporter failed' }
+    Write-FixtureStage "done-$i"
 }
+Write-FixtureStage 'wrapper-done'
 `);
     // Keep OS startup paths, replacing every reporting capability with fixture data.
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
@@ -74,6 +95,7 @@ for ($i=0; $i -lt $cases.Count; $i++) {
       ORKWORKS_REPORTER: reporter,
       ORKWORKS_REQUEST_CAPTURE: capture,
       ORKWORKS_RUNTIME_CAPTURE: runtime,
+      ORKWORKS_PROGRESS_CAPTURE: progress,
       ORKWORKS_SESSION_ID: 'fixture-session',
       ORKWORKS_PORT: '1',
       ORKWORKS_REPORT_TOKEN: 'fixture-token',
@@ -81,6 +103,9 @@ for ($i=0; $i -lt $cases.Count; $i++) {
     const result = spawnSync('powershell.exe', [
       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper,
     ], { env, encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true });
+    const stages = existsSync(progress) ? readFileSync(progress, 'utf8').slice(-4096)
+      .split(/\r?\n/).filter((line) => /^(wrapper-start|native-modules-selected|runtime-json-start|runtime-json-done|runtime-file-done|cases-file-read|cases-loaded|wrapper-done|(?:stdin|invoke|http|done)-[0-9]{1,2})$/.test(line)) : [];
+    t.diagnostic(`PowerShell stages: ${stages.join(', ') || 'none before process outcome'}`);
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, '', 'hooks must not print agent instructions');
