@@ -1201,69 +1201,229 @@ pub(crate) fn schedule_session_ending_finalization(
     });
 }
 
-pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state: Arc<AppState>) {
-    let attachment = match crate::runtime::session_runtime::claim_attachment(&state, &id) {
-        Some(claim) => claim,
-        None => {
-            tracing::warn!(session_id = %id, "rejected terminal WebSocket: session unavailable for attach");
-            let _ = ws
-                .send(Message::Text(
-                    serde_json::json!({
-                        "type": "terminal-unavailable",
-                        "reason": "already-attached"
-                    })
-                    .to_string()
-                    .into(),
-                ))
-                .await;
-            let _ = ws.close().await;
-            return;
+const TERMINAL_WS_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SocketWriteOutcome {
+    Sent,
+    Failed,
+    TimedOut,
+}
+
+trait TerminalSocket: Send {
+    fn send_msg(&mut self, msg: Message) -> impl Future<Output = Result<(), ()>> + Send;
+    fn recv_msg(&mut self) -> impl Future<Output = Option<Result<Message, ()>>> + Send;
+    fn close_socket(self) -> impl Future<Output = Result<(), ()>> + Send;
+}
+
+impl TerminalSocket for WebSocket {
+    async fn send_msg(&mut self, msg: Message) -> Result<(), ()> {
+        self.send(msg).await.map_err(|_| ())
+    }
+
+    async fn recv_msg(&mut self) -> Option<Result<Message, ()>> {
+        self.recv().await.map(|res| res.map_err(|_| ()))
+    }
+
+    async fn close_socket(self) -> Result<(), ()> {
+        self.close().await.map_err(|_| ())
+    }
+}
+
+/// Releases an attachment claim unconditionally on normal exit, write failure,
+/// timeout, or future cancellation, without disturbing the running PTY.
+struct AttachmentGuard {
+    state: Arc<AppState>,
+    id: String,
+    runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
+    generation: u64,
+    released: bool,
+}
+
+impl AttachmentGuard {
+    fn new(
+        state: Arc<AppState>,
+        id: String,
+        runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
+        generation: u64,
+    ) -> Self {
+        Self {
+            state,
+            id,
+            runtime_identity,
+            generation,
+            released: false,
         }
-    };
-    let _ = ws
-        .send(Message::Text(
+    }
+
+    fn release(&mut self) {
+        if !self.released {
+            self.released = true;
+            crate::runtime::session_runtime::release_attachment(
+                &self.state,
+                &self.id,
+                &self.runtime_identity,
+                self.generation,
+            );
+        }
+    }
+}
+
+impl Drop for AttachmentGuard {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+async fn send_with_deadline<S: TerminalSocket>(
+    ws: &mut S,
+    msg: Message,
+    deadline: tokio::time::Instant,
+) -> SocketWriteOutcome {
+    if tokio::time::Instant::now() >= deadline {
+        return SocketWriteOutcome::TimedOut;
+    }
+    match tokio::time::timeout_at(deadline, ws.send_msg(msg)).await {
+        Ok(Ok(())) => SocketWriteOutcome::Sent,
+        Ok(Err(())) => SocketWriteOutcome::Failed,
+        Err(_) => SocketWriteOutcome::TimedOut,
+    }
+}
+
+async fn send_bounded<S: TerminalSocket>(
+    ws: &mut S,
+    msg: Message,
+    timeout: Duration,
+) -> SocketWriteOutcome {
+    send_with_deadline(ws, msg, tokio::time::Instant::now() + timeout).await
+}
+
+async fn close_bounded<S: TerminalSocket>(ws: S, timeout: Duration) {
+    let _ = tokio::time::timeout(timeout, ws.close_socket()).await;
+}
+
+async fn send_live_msg<S: TerminalSocket>(
+    ws: &mut S,
+    msg: Message,
+    timeout: Duration,
+    id: &str,
+    generation: u64,
+    phase: &'static str,
+) -> bool {
+    let outcome = send_bounded(ws, msg, timeout).await;
+    if outcome == SocketWriteOutcome::TimedOut {
+        tracing::warn!(
+            session_id = %id,
+            generation,
+            phase,
+            "terminal WebSocket write timed out; releasing stalled attachment"
+        );
+    }
+    outcome == SocketWriteOutcome::Sent
+}
+
+async fn send_replay<S: TerminalSocket>(
+    ws: &mut S,
+    attachment: &crate::runtime::session_runtime::AttachmentClaim,
+    deadline: tokio::time::Instant,
+) -> SocketWriteOutcome {
+    let start_outcome = send_with_deadline(
+        ws,
+        Message::Text(
             serde_json::json!({
                 "type": "replay-start",
                 "cursor": attachment.replay_from,
             })
-            .to_string()
-            .into(),
-        ))
-        .await;
+            .to_string(),
+        ),
+        deadline,
+    )
+    .await;
+    if start_outcome != SocketWriteOutcome::Sent {
+        return start_outcome;
+    }
     for (_, chunk) in &attachment.replay_chunks {
-        if ws
-            .send(Message::Binary(chunk.clone().into()))
-            .await
-            .is_err()
-        {
-            crate::runtime::session_runtime::release_attachment(
-                &state,
-                &id,
-                &attachment.runtime_identity,
-                attachment.generation,
-            );
-            let _ = ws.close().await;
-            return;
+        let chunk_outcome = send_with_deadline(ws, Message::Binary(chunk.clone()), deadline).await;
+        if chunk_outcome != SocketWriteOutcome::Sent {
+            return chunk_outcome;
         }
     }
-    let _ = ws
-        .send(Message::Text(
+    send_with_deadline(
+        ws,
+        Message::Text(
             serde_json::json!({
                 "type": "replay-end",
                 "cursor": attachment.replay_to,
             })
-            .to_string()
-            .into(),
-        ))
-        .await;
+            .to_string(),
+        ),
+        deadline,
+    )
+    .await
+}
+
+pub(crate) async fn handle_session_terminal(ws: WebSocket, id: String, state: Arc<AppState>) {
+    handle_session_terminal_with_timeout(ws, id, state, TERMINAL_WS_WRITE_TIMEOUT).await;
+}
+
+async fn handle_session_terminal_with_timeout<S: TerminalSocket>(
+    mut ws: S,
+    id: String,
+    state: Arc<AppState>,
+    write_timeout: Duration,
+) {
+    let attachment = match crate::runtime::session_runtime::claim_attachment(&state, &id) {
+        Some(claim) => claim,
+        None => {
+            tracing::warn!(session_id = %id, "rejected terminal WebSocket: session unavailable for attach");
+            let outcome = send_bounded(
+                &mut ws,
+                Message::Text(
+                    serde_json::json!({
+                        "type": "terminal-unavailable",
+                        "reason": "already-attached"
+                    })
+                    .to_string(),
+                ),
+                write_timeout,
+            )
+            .await;
+            if outcome == SocketWriteOutcome::Sent {
+                close_bounded(ws, write_timeout).await;
+            }
+            return;
+        }
+    };
 
     let generation = attachment.generation;
+    let mut attachment_guard = AttachmentGuard::new(
+        state.clone(),
+        id.clone(),
+        attachment.runtime_identity.clone(),
+        generation,
+    );
+
+    let replay_deadline = tokio::time::Instant::now() + write_timeout;
+    let replay_outcome = send_replay(&mut ws, &attachment, replay_deadline).await;
+    if replay_outcome != SocketWriteOutcome::Sent {
+        if replay_outcome == SocketWriteOutcome::TimedOut {
+            tracing::warn!(
+                session_id = %id,
+                generation,
+                "terminal WebSocket replay write timed out; releasing stalled attachment"
+            );
+        }
+        attachment_guard.release();
+        return;
+    }
+
     let runtime_identity = attachment.runtime_identity;
     let mut events = attachment.events;
     let mut pending_command: Option<PendingCommandFuture> = None;
     let mut pending_is_input = false;
     let mut queue = PendingActionQueue::default();
     let mut draining = false;
+    let mut close_cleanly = true;
 
     loop {
         tokio::select! {
@@ -1273,26 +1433,51 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     .expect("pending command branch requires a command")
                     .await
             }, if pending_command.is_some() => {
+                // This future has already been polled to completion — clear it
+                // before any await or break so detach cleanup never re-polls it.
+                let was_input = pending_is_input;
+                pending_command = None;
+                pending_is_input = false;
+
                 if result == Err(TerminalCommandFailure::Busy) {
                     // Admission overload rejects only this input. Keep the
                     // healthy attachment draining output and future commands.
-                    let _ = ws.send(Message::Text(
-                        serde_json::json!({ "type": "input-dropped" }).to_string()
-                    )).await;
+                    if !send_live_msg(
+                        &mut ws,
+                        Message::Text(
+                            serde_json::json!({ "type": "input-dropped" }).to_string(),
+                        ),
+                        write_timeout,
+                        &id,
+                        generation,
+                        "input-dropped",
+                    )
+                    .await
+                    {
+                        close_cleanly = false;
+                        break;
+                    }
                 }
                 if result == Err(TerminalCommandFailure::Rejected) {
-                    // This future has already been polled to completion —
-                    // clear it before switching to output-only draining.
                     // Rejected commands can precede trailing output and the
                     // final runtime event. Discard queued actions and reject
                     // new ones without closing this attachment prematurely.
-                    if pending_is_input {
-                        let _ = ws.send(Message::Text(
-                            serde_json::json!({ "type": "input-dropped" }).to_string()
-                        )).await;
+                    if was_input
+                        && !send_live_msg(
+                            &mut ws,
+                            Message::Text(
+                                serde_json::json!({ "type": "input-dropped" }).to_string(),
+                            ),
+                            write_timeout,
+                            &id,
+                            generation,
+                            "input-dropped",
+                        )
+                        .await
+                    {
+                        close_cleanly = false;
+                        break;
                     }
-                    pending_command = None;
-                    pending_is_input = false;
                     let runtime_exiting = state.sessions.lock().unwrap().get(&id).is_some_and(|handle| {
                         handle.runtime.commands_closed()
                             || matches!(handle.info.lifecycle_phase.as_str(), "ending" | "ended")
@@ -1304,8 +1489,6 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     draining = true;
                     continue;
                 }
-                pending_is_input = false;
-                pending_command = None;
                 let next_action = queue.take_next();
                 if let Some(action) = next_action {
                     // The command owner captures sensitivity/output revision
@@ -1317,34 +1500,68 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             event = events.recv() => {
                 match event {
                     Ok(crate::runtime::session_runtime::RuntimeEvent::Output { chunk, .. }) => {
-                        if ws.send(Message::Binary(chunk.into())).await.is_err() {
+                        if !send_live_msg(
+                            &mut ws,
+                            Message::Binary(chunk),
+                            write_timeout,
+                            &id,
+                            generation,
+                            "output",
+                        )
+                        .await
+                        {
+                            close_cleanly = false;
                             break;
                         }
                     }
                     Ok(crate::runtime::session_runtime::RuntimeEvent::Ended { status }) => {
-                        let _ = ws.send(Message::Text(
-                            serde_json::json!({
-                                "type": "ended",
-                                "status": status,
-                            }).to_string().into()
-                        )).await;
+                        if !send_live_msg(
+                            &mut ws,
+                            Message::Text(
+                                serde_json::json!({
+                                    "type": "ended",
+                                    "status": status,
+                                })
+                                .to_string(),
+                            ),
+                            write_timeout,
+                            &id,
+                            generation,
+                            "ended",
+                        )
+                        .await
+                        {
+                            close_cleanly = false;
+                        }
                         break;
                     }
                     Ok(crate::runtime::session_runtime::RuntimeEvent::Error { code, message }) => {
-                        let _ = ws.send(Message::Text(
-                            serde_json::json!({
-                                "type": "error",
-                                "code": code,
-                                "message": message,
-                            }).to_string().into()
-                        )).await;
+                        if !send_live_msg(
+                            &mut ws,
+                            Message::Text(
+                                serde_json::json!({
+                                    "type": "error",
+                                    "code": code,
+                                    "message": message,
+                                })
+                                .to_string(),
+                            ),
+                            write_timeout,
+                            &id,
+                            generation,
+                            "error",
+                        )
+                        .await
+                        {
+                            close_cleanly = false;
+                        }
                         break;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
-            msg = ws.recv() => {
+            msg = ws.recv_msg() => {
                 match msg {
                     Some(Ok(Message::Text(text))) if !draining => {
                         let val: serde_json::Value = match serde_json::from_str(&text) {
@@ -1365,9 +1582,22 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                             // metadata doesn't claim input the PTY never received.
                             if queue.push(action) {
                                 tracing::warn!(session_id = %id, "dropped terminal input: queue cap exceeded");
-                                let _ = ws.send(Message::Text(
-                                    serde_json::json!({ "type": "input-dropped" }).to_string().into()
-                                )).await;
+                                if !send_live_msg(
+                                    &mut ws,
+                                    Message::Text(
+                                        serde_json::json!({ "type": "input-dropped" })
+                                            .to_string(),
+                                    ),
+                                    write_timeout,
+                                    &id,
+                                    generation,
+                                    "input-dropped",
+                                )
+                                .await
+                                {
+                                    close_cleanly = false;
+                                    break;
+                                }
                             }
                         } else {
                             // The owner snapshots context before enqueue, not
@@ -1378,6 +1608,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
                     }
                     Some(Ok(Message::Text(_))) => {}
                     Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(())) => {
+                        close_cleanly = false;
+                        break;
+                    }
                     _ => break,
                 }
             }
@@ -1393,8 +1627,10 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         });
     }
 
-    crate::runtime::session_runtime::release_attachment(&state, &id, &runtime_identity, generation);
-    let _ = ws.close().await;
+    attachment_guard.release();
+    if close_cleanly {
+        close_bounded(ws, write_timeout).await;
+    }
 }
 
 #[cfg(test)]
@@ -5936,6 +6172,704 @@ mod tests {
             "generation-x",
             "native-after",
         ));
+    }
+
+    #[derive(Clone)]
+    enum MockSendStep {
+        Ok,
+        Fail,
+        Stall,
+        Delay(Duration),
+    }
+
+    struct MockTerminalSocket {
+        send_steps: VecDeque<MockSendStep>,
+        sent: Arc<StdMutex<Vec<Message>>>,
+        incoming: tokio::sync::mpsc::UnboundedReceiver<Option<Result<Message, ()>>>,
+        closed: Arc<std::sync::atomic::AtomicBool>,
+        send_entered: Option<tokio::sync::mpsc::UnboundedSender<usize>>,
+        send_count: usize,
+    }
+
+    impl MockTerminalSocket {
+        fn new(
+            steps: Vec<MockSendStep>,
+        ) -> (
+            Self,
+            tokio::sync::mpsc::UnboundedSender<Option<Result<Message, ()>>>,
+            Arc<StdMutex<Vec<Message>>>,
+            Arc<std::sync::atomic::AtomicBool>,
+            tokio::sync::mpsc::UnboundedReceiver<usize>,
+        ) {
+            let (in_tx, in_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (entered_tx, entered_rx) = tokio::sync::mpsc::unbounded_channel();
+            let sent = Arc::new(StdMutex::new(Vec::new()));
+            let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            (
+                Self {
+                    send_steps: steps.into(),
+                    sent: sent.clone(),
+                    incoming: in_rx,
+                    closed: closed.clone(),
+                    send_entered: Some(entered_tx),
+                    send_count: 0,
+                },
+                in_tx,
+                sent,
+                closed,
+                entered_rx,
+            )
+        }
+    }
+
+    impl TerminalSocket for MockTerminalSocket {
+        async fn send_msg(&mut self, msg: Message) -> Result<(), ()> {
+            self.send_count += 1;
+            if let Some(tx) = &self.send_entered {
+                let _ = tx.send(self.send_count);
+            }
+            match self.send_steps.pop_front().unwrap_or(MockSendStep::Ok) {
+                MockSendStep::Ok => {
+                    self.sent.lock().unwrap().push(msg);
+                    Ok(())
+                }
+                MockSendStep::Fail => Err(()),
+                MockSendStep::Stall => std::future::pending().await,
+                MockSendStep::Delay(delay) => {
+                    tokio::time::sleep(delay).await;
+                    self.sent.lock().unwrap().push(msg);
+                    Ok(())
+                }
+            }
+        }
+
+        async fn recv_msg(&mut self) -> Option<Result<Message, ()>> {
+            self.incoming.recv().await.flatten()
+        }
+
+        async fn close_socket(self) -> Result<(), ()> {
+            self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn assert_attachment_released_and_pty_running(state: &Arc<AppState>, id: &str) {
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get(id).expect("session handle must still exist");
+        assert!(
+            handle.runtime.attached_generation.is_none(),
+            "attached_generation must be cleared after release"
+        );
+        assert!(
+            !handle.terminal_attached,
+            "terminal_attached must be false after release"
+        );
+        assert_eq!(
+            handle.info.status, "running",
+            "releasing a stalled attachment must leave the PTY running"
+        );
+        assert_eq!(handle.info.lifecycle, "alive");
+        assert!(!*handle.kill_tx.borrow(), "PTY kill signal must not be set");
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_normal_replay_delivers_chunks_and_live_output() {
+        use crate::runtime::session_runtime::{RuntimeEvent, SessionRuntime};
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+        let id = "ws-normal-replay";
+        let (state, _root) = prompted_session_state(id);
+        let (mut runtime, _commands) = SessionRuntime::live(24, 80);
+        runtime.replay.push(b"first-chunk".to_vec());
+        runtime.replay.push(b"second-chunk".to_vec());
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router = crate::build_router(state.clone());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://{addr}/sessions/{id}/terminal"))
+                .await
+                .unwrap();
+
+        let start = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(start.to_text().unwrap()).unwrap(),
+            serde_json::json!({ "type": "replay-start", "cursor": 0 })
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"first-chunk".to_vec())
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"second-chunk".to_vec())
+        );
+        let end = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(end.to_text().unwrap()).unwrap(),
+            serde_json::json!({ "type": "replay-end", "cursor": 2 })
+        );
+
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 2,
+                chunk: b"live-chunk".to_vec(),
+            })
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"live-chunk".to_vec())
+        );
+
+        socket.close(None).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.sessions.lock().unwrap()[id].terminal_attached {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("normal close must release attachment");
+        assert_attachment_released_and_pty_running(&state, id);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_replay_timeout_releases_attachment_and_keeps_pty_running() {
+        use crate::runtime::session_runtime::SessionRuntime;
+
+        let cases = [
+            ("replay-start", vec![MockSendStep::Stall]),
+            ("replay-chunk", vec![MockSendStep::Ok, MockSendStep::Stall]),
+            (
+                "replay-end",
+                vec![
+                    MockSendStep::Ok,
+                    MockSendStep::Ok,
+                    MockSendStep::Ok,
+                    MockSendStep::Stall,
+                ],
+            ),
+            (
+                "trickle-replay",
+                vec![
+                    MockSendStep::Delay(Duration::from_millis(30)),
+                    MockSendStep::Delay(Duration::from_millis(30)),
+                    MockSendStep::Delay(Duration::from_millis(30)),
+                ],
+            ),
+        ];
+
+        for (label, steps) in cases {
+            let id = format!("ws-replay-timeout-{label}");
+            let (state, _root) = prompted_session_state(&id);
+            let (mut runtime, commands) = SessionRuntime::live(24, 80);
+            runtime.replay.push(b"chunk-a".to_vec());
+            runtime.replay.push(b"chunk-b".to_vec());
+            state.sessions.lock().unwrap().get_mut(&id).unwrap().runtime = runtime;
+
+            let (mock, _in_tx, _sent, closed, _entered) = MockTerminalSocket::new(steps);
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                handle_session_terminal_with_timeout(
+                    mock,
+                    id.clone(),
+                    state.clone(),
+                    Duration::from_millis(40),
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("handler hung during {label}"));
+
+            assert!(
+                !closed.load(std::sync::atomic::Ordering::SeqCst),
+                "{label}: timed-out socket must not block on close"
+            );
+            assert_attachment_released_and_pty_running(&state, &id);
+            let next_claim = crate::runtime::session_runtime::claim_attachment(&state, &id)
+                .unwrap_or_else(|| panic!("{label}: next attachment must succeed"));
+            crate::runtime::session_runtime::release_attachment(
+                &state,
+                &id,
+                &next_claim.runtime_identity,
+                next_claim.generation,
+            );
+            drop(commands);
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_live_output_timeout_releases_stalled_attachment_for_next_client() {
+        use crate::runtime::session_runtime::{RuntimeCommand, RuntimeEvent, SessionRuntime};
+
+        let id = "ws-live-timeout-recovery";
+        let (state, _root) = prompted_session_state(id);
+        let (mut runtime, mut commands) = SessionRuntime::live(24, 80);
+        runtime.replay.push(b"initial".to_vec());
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+
+        // First client finishes replay (3 messages) then stalls on live output.
+        let (slow_socket, _slow_in_tx, _slow_sent, slow_closed, mut slow_entered) =
+            MockTerminalSocket::new(vec![
+                MockSendStep::Ok,
+                MockSendStep::Ok,
+                MockSendStep::Ok,
+                MockSendStep::Stall,
+            ]);
+        let slow_task = tokio::spawn(handle_session_terminal_with_timeout(
+            slow_socket,
+            id.to_string(),
+            state.clone(),
+            Duration::from_millis(40),
+        ));
+
+        for expected in 1..=3 {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), slow_entered.recv())
+                    .await
+                    .unwrap(),
+                Some(expected)
+            );
+        }
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 1,
+                chunk: b"stalled-live".to_vec(),
+            })
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), slow_task)
+            .await
+            .expect("stalled client task must exit on timeout")
+            .unwrap();
+        assert!(!slow_closed.load(std::sync::atomic::Ordering::SeqCst));
+        assert_attachment_released_and_pty_running(&state, id);
+
+        // Second healthy client attaches cleanly, receives replay + live output,
+        // and delivers input to the still-running PTY.
+        let (fast_socket, fast_in_tx, fast_sent, fast_closed, mut fast_entered) =
+            MockTerminalSocket::new(vec![]);
+        let fast_task = tokio::spawn(handle_session_terminal_with_timeout(
+            fast_socket,
+            id.to_string(),
+            state.clone(),
+            Duration::from_secs(1),
+        ));
+        for expected in 1..=3 {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), fast_entered.recv())
+                    .await
+                    .unwrap(),
+                Some(expected)
+            );
+        }
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 2,
+                chunk: b"recovered-live".to_vec(),
+            })
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), fast_entered.recv())
+                .await
+                .unwrap(),
+            Some(4)
+        );
+        fast_in_tx
+            .send(Some(Ok(Message::Text(
+                serde_json::json!({ "type": "input", "data": "hello" }).to_string(),
+            ))))
+            .unwrap();
+        let RuntimeCommand::Input {
+            data,
+            accepted: Some(ack),
+            ..
+        } = tokio::time::timeout(Duration::from_secs(1), commands.recv())
+            .await
+            .unwrap()
+            .unwrap()
+        else {
+            panic!("expected PTY input after slow-client recovery");
+        };
+        assert_eq!(data, "hello");
+        ack.send(Ok(())).unwrap();
+
+        fast_in_tx.send(Some(Ok(Message::Close(None)))).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), fast_task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(fast_closed.load(std::sync::atomic::Ordering::SeqCst));
+        let sent = fast_sent.lock().unwrap();
+        assert_eq!(sent.len(), 4);
+        assert_eq!(sent[1], Message::Binary(b"initial".to_vec()));
+        assert_eq!(sent[3], Message::Binary(b"recovered-live".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_send_failure_releases_attachment_and_keeps_pty_running() {
+        use crate::runtime::session_runtime::{RuntimeEvent, SessionRuntime};
+
+        let replay_cases = [
+            ("replay-start", vec![MockSendStep::Fail]),
+            ("replay-chunk", vec![MockSendStep::Ok, MockSendStep::Fail]),
+            (
+                "replay-end",
+                vec![MockSendStep::Ok, MockSendStep::Ok, MockSendStep::Fail],
+            ),
+        ];
+        for (label, steps) in replay_cases {
+            let id = format!("ws-send-fail-{label}");
+            let (state, _root) = prompted_session_state(&id);
+            let (mut runtime, _commands) = SessionRuntime::live(24, 80);
+            runtime.replay.push(b"chunk".to_vec());
+            state.sessions.lock().unwrap().get_mut(&id).unwrap().runtime = runtime;
+
+            let (mock, _in_tx, _sent, closed, _entered) = MockTerminalSocket::new(steps);
+            handle_session_terminal_with_timeout(
+                mock,
+                id.clone(),
+                state.clone(),
+                Duration::from_secs(1),
+            )
+            .await;
+            assert!(!closed.load(std::sync::atomic::Ordering::SeqCst));
+            assert_attachment_released_and_pty_running(&state, &id);
+        }
+
+        // Live output send failure.
+        let id = "ws-send-fail-live";
+        let (state, _root) = prompted_session_state(id);
+        let (runtime, _commands) = SessionRuntime::live(24, 80);
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let (mock, _in_tx, _sent, closed, mut entered) =
+            MockTerminalSocket::new(vec![MockSendStep::Ok, MockSendStep::Ok, MockSendStep::Fail]);
+        let task = tokio::spawn(handle_session_terminal_with_timeout(
+            mock,
+            id.to_string(),
+            state.clone(),
+            Duration::from_secs(1),
+        ));
+        for expected in 1..=2 {
+            assert_eq!(entered.recv().await, Some(expected));
+        }
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 0,
+                chunk: b"boom".to_vec(),
+            })
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!closed.load(std::sync::atomic::Ordering::SeqCst));
+        assert_attachment_released_and_pty_running(&state, id);
+
+        // `input-dropped` send failure after completed `Busy` command must not
+        // re-poll the completed future on detach.
+        let id = "ws-send-fail-input-dropped";
+        let (state, _root) = prompted_session_state(id);
+        let (runtime, mut commands) = SessionRuntime::live(24, 80);
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let first_state = state.clone();
+        let first =
+            tokio::spawn(
+                async move { submit_approved_input(&first_state, id, "first".into()).await },
+            );
+        let crate::runtime::session_runtime::RuntimeCommand::Input {
+            accepted: Some(first_ack),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected first input");
+        };
+        let mut second = Box::pin(submit_approved_input(&state, id, "second".into()));
+        tokio::select! {
+            biased;
+            _ = &mut second => panic!("second input should queue behind first"),
+            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+        }
+        let (mock, in_tx, _sent, closed, mut entered) =
+            MockTerminalSocket::new(vec![MockSendStep::Ok, MockSendStep::Ok, MockSendStep::Fail]);
+        let task = tokio::spawn(handle_session_terminal_with_timeout(
+            mock,
+            id.to_string(),
+            state.clone(),
+            Duration::from_secs(1),
+        ));
+        for expected in 1..=2 {
+            assert_eq!(entered.recv().await, Some(expected));
+        }
+        in_tx
+            .send(Some(Ok(Message::Text(
+                serde_json::json!({ "type": "input", "data": "third" }).to_string(),
+            ))))
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!closed.load(std::sync::atomic::Ordering::SeqCst));
+        assert_attachment_released_and_pty_running(&state, id);
+        first_ack.send(Ok(())).unwrap();
+        assert_eq!(first.await.unwrap(), Ok(()));
+        let crate::runtime::session_runtime::RuntimeCommand::Input {
+            accepted: Some(second_ack),
+            ..
+        } = commands.recv().await.unwrap()
+        else {
+            panic!("expected second input");
+        };
+        second_ack.send(Ok(())).unwrap();
+        assert_eq!(second.await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_cancellation_releases_attachment_during_replay_and_live_output() {
+        use crate::runtime::session_runtime::{RuntimeEvent, SessionRuntime};
+
+        // Case 1: cancelled while blocked mid-replay write.
+        let id = "ws-cancel-replay";
+        let (state, _root) = prompted_session_state(id);
+        let (mut runtime, _commands) = SessionRuntime::live(24, 80);
+        runtime.replay.push(b"buffered".to_vec());
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let (mock, _in_tx, _sent, _closed, mut entered) =
+            MockTerminalSocket::new(vec![MockSendStep::Ok, MockSendStep::Stall]);
+        let task = tokio::spawn(handle_session_terminal_with_timeout(
+            mock,
+            id.to_string(),
+            state.clone(),
+            Duration::from_secs(30),
+        ));
+        assert_eq!(entered.recv().await, Some(1));
+        assert_eq!(entered.recv().await, Some(2));
+        assert!(state.sessions.lock().unwrap()[id].terminal_attached);
+        task.abort();
+        let _ = task.await;
+        assert_attachment_released_and_pty_running(&state, id);
+        let claim = crate::runtime::session_runtime::claim_attachment(&state, id)
+            .expect("next attachment must succeed after replay cancellation");
+        crate::runtime::session_runtime::release_attachment(
+            &state,
+            id,
+            &claim.runtime_identity,
+            claim.generation,
+        );
+
+        // Case 2: cancelled while blocked mid-live-output write.
+        let id = "ws-cancel-live";
+        let (state, _root) = prompted_session_state(id);
+        let (runtime, _commands) = SessionRuntime::live(24, 80);
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+        let (mock, _in_tx, _sent, _closed, mut entered) = MockTerminalSocket::new(vec![
+            MockSendStep::Ok,
+            MockSendStep::Ok,
+            MockSendStep::Stall,
+        ]);
+        let task = tokio::spawn(handle_session_terminal_with_timeout(
+            mock,
+            id.to_string(),
+            state.clone(),
+            Duration::from_secs(30),
+        ));
+        assert_eq!(entered.recv().await, Some(1));
+        assert_eq!(entered.recv().await, Some(2));
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 0,
+                chunk: b"live-stall".to_vec(),
+            })
+            .unwrap();
+        assert_eq!(entered.recv().await, Some(3));
+        assert!(state.sessions.lock().unwrap()[id].terminal_attached);
+        task.abort();
+        let _ = task.await;
+        assert_attachment_released_and_pty_running(&state, id);
+        let claim = crate::runtime::session_runtime::claim_attachment(&state, id)
+            .expect("next attachment must succeed after live cancellation");
+        crate::runtime::session_runtime::release_attachment(
+            &state,
+            id,
+            &claim.runtime_identity,
+            claim.generation,
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_ws_real_slow_client_recovery_over_loopback() {
+        use crate::runtime::session_runtime::{RuntimeEvent, SessionRuntime};
+        use axum::{
+            extract::{Path, State, WebSocketUpgrade},
+            routing::get,
+            Router,
+        };
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+        let id = "ws-real-slow-client";
+        let (state, _root) = prompted_session_state(id);
+        let (mut runtime, _commands) = SessionRuntime::live(24, 80);
+        runtime.replay.push(b"replay-line-1".to_vec());
+        runtime.replay.push(b"replay-line-2".to_vec());
+        let output = runtime.output_tx.clone();
+        state.sessions.lock().unwrap().get_mut(id).unwrap().runtime = runtime;
+
+        let router = Router::new()
+            .route(
+                "/sessions/:id/terminal",
+                get(
+                    |ws: WebSocketUpgrade,
+                     Path(session_id): Path<String>,
+                     State(app_state): State<Arc<AppState>>| async move {
+                        ws.on_upgrade(move |socket| {
+                            handle_session_terminal_with_timeout(
+                                socket,
+                                session_id,
+                                app_state,
+                                Duration::from_millis(150),
+                            )
+                        })
+                    },
+                ),
+            )
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        // Slow client finishes replay, then stops reading entirely.
+        let (mut slow_client, _) =
+            tokio_tungstenite::connect_async(format!("ws://{addr}/sessions/{id}/terminal"))
+                .await
+                .unwrap();
+        for _ in 0..4 {
+            tokio::time::timeout(Duration::from_secs(2), slow_client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
+        assert!(state.sessions.lock().unwrap()[id].terminal_attached);
+
+        // Push 64 KiB output chunks until TCP backpressure triggers the bounded
+        // write timeout on the slow client.
+        let payload = vec![b'x'; 64 * 1024];
+        let released = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut cursor = 2_u64;
+            while state.sessions.lock().unwrap()[id].terminal_attached {
+                for _ in 0..4 {
+                    let _ = output.send(RuntimeEvent::Output {
+                        cursor,
+                        chunk: payload.clone(),
+                    });
+                    cursor += 1;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await;
+        assert!(
+            released.is_ok(),
+            "stalled TCP client must time out and release the attachment claim"
+        );
+        assert_attachment_released_and_pty_running(&state, id);
+
+        // A new healthy client connects over WebSocket and receives normal replay + live output.
+        let (mut next_client, _) =
+            tokio_tungstenite::connect_async(format!("ws://{addr}/sessions/{id}/terminal"))
+                .await
+                .unwrap();
+        let start = tokio::time::timeout(Duration::from_secs(2), next_client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(start.to_text().unwrap()).unwrap()["type"],
+            "replay-start"
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), next_client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"replay-line-1".to_vec())
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), next_client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"replay-line-2".to_vec())
+        );
+        let end = tokio::time::timeout(Duration::from_secs(2), next_client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(end.to_text().unwrap()).unwrap()["type"],
+            "replay-end"
+        );
+
+        output
+            .send(RuntimeEvent::Output {
+                cursor: 999,
+                chunk: b"after-recovery".to_vec(),
+            })
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), next_client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            ClientMessage::Binary(b"after-recovery".to_vec())
+        );
+
+        next_client.close(None).await.unwrap();
+        drop(slow_client);
+        server.abort();
     }
 }
 
