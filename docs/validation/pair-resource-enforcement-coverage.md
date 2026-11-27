@@ -982,3 +982,96 @@ method or live runner request needs its own exact scoped decision; this failure
 supplies no renewed credit. #1176 remains open; Gate1 stays Investigate and all
 runtime/bootstrap, allocator/VFS/context, source/cutoff/newness/catalog/
 initializer/recovery/durability, compatibility and production gates remain.
+
+
+## SDK value-format source review (2026-11-27)
+
+The owner requested source-only review after #2118. This review uses the
+[retained terminal record](#registry-only-sdk-terminal-result-2026-11-27) and
+[sealed collector source at9ee4da35](https://github.com/Rambolarsen/orkworks/blob/9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46/scripts/qualification/pair-windows-sdk-inventory.py).
+No raw receipt was reacquired and no new qualification dispatch or installed
+registry query was performed. The derivation uses source and pure integer
+arithmetic; standard PR verification remains separate. Consumed controllers/
+workflows and all numerical limits are unchanged.
+
+### The label identifies a local admission rejection
+
+In the [sealed native value wrapper](https://github.com/Rambolarsen/orkworks/blob/9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46/scripts/qualification/pair-windows-sdk-inventory.py#L127-L137),
+a missing optional DisplayName returns absent; other Win32 errors or a returned
+size larger than the fixed buffer produce registry-value. Only after those
+checks pass does the [decoder](https://github.com/Rambolarsen/orkworks/blob/9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46/scripts/qualification/pair-windows-sdk-inventory.py#L53-L65)
+produce value-format for the accepted type/string predicates. Thus the label
+identifies a local decoder rejection after the wrapper's native status/size
+checks, rather than a reported Win32 query error. It does not distinguish which
+decoder predicate failed.
+
+Printable ASCII and non-empty text are collector admission choices. Windows
+[registry value types](https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types)
+include Unicode string representations; printable ASCII is not a universal
+registry validity rule. Microsoft also warns that
+[RegQueryValueExW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regqueryvalueexw)
+can return string data without proper termination. These are possible classes
+the guard distinguishes from its accepted inputs, not diagnoses of this run's
+unretained payload. No evidence selects Unicode, empty text, an unsupported type,
+termination or another specific formatting defect as the actual cause.
+
+### Counters narrow the failed field without recovering its value
+
+The retained payload has an accepted KitsRoot10, one collecting pass, no after
+observations, 109 API calls and 26,496 precharged metadata bytes. In the sealed
+[collection schedule](https://github.com/Rambolarsen/orkworks/blob/9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46/scripts/qualification/pair-windows-sdk-inventory.py#L147-L183),
+KitsRoot10 is retained only after its successful read/normalization. Failure
+therefore occurs in an uninstall child's DisplayName or DisplayVersion read,
+before post-enumeration root queries.
+
+Let N be child-name/DisplayName visits and V be DisplayVersion queries attempted
+before the denial. Both include the failing attempt when applicable. Every
+visited child is closed during exception unwinding, and the two held uninstall
+roots are closed too. The sealed counters give:
+
+| Charged work | Source-derived expression |
+| --- | --- |
+| API calls | 9 + 4N + V: three fixed opens/closes, two root-info calls, one KitsRoot10 query, plus enum/open/DisplayName/close per child and each version query |
+| Metadata bytes | 546 + 1,038N + 266V: two 12-byte root-info buffers, one 522-byte KitsRoot10 charge,516-byte name and 522-byte DisplayName charges per child, and 266 bytes per version query |
+
+Solving 9 + 4N + V = 109 and 546 + 1,038N + 266V = 26,496 yields
+**N = 25 and V = 0**. Pure integer arithmetic enumeration over the retained 688
+root entries and at most 32 version-query attempts independently gave this unique
+bounded solution. The 25th child remains within the first root's 257 entries:
+HKLM64 SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall. The trace reconciles
+as 28 opens + 28 closes + 2 info calls + 25 enumerations + 26 value queries = 109;
+2×12 +25×516 +26×522 =26,496 charged bytes.
+
+**This is a control-flow inference conditional on the sealed implementation and
+retained counters, not an exported per-operation trace.** It identifies the
+DisplayName stage and execution ordinal, not the key, name text, registry type,
+returned length or exact decoder defect. Earlier optional names may have been
+absent; no earlier entry is promoted to a complete SDK observation. There were
+no DisplayVersion queries in this inferred prefix. The charged bytes are fixed
+buffer reservations and do not reveal the rejected value's actual length.
+
+The ordinal cannot become a new fixed selector:
+[RegEnumKeyExW](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regenumkeyexw)
+does not define a stable subkey ordering. No named SDK product key or raw value
+can be reconstructed from these counts. SDK servicing identity remains
+unavailable, and no defective SDK installation or complete registry scan is
+established.
+
+### Consequence for the next decision
+
+The collector decodes every DisplayName before applying its SDK-name filter.
+An unclassified name can therefore block SDK discovery, regardless of whether
+that unknown name belongs to an SDK. The retained failure supports reviewing
+that classification/admission boundary; it does not justify larger entry, API,
+time or artifact budgets, and repeating the same request supplies no known fix.
+
+Do not silently treat a rejected name as a proven non-SDK entry. Before another
+evidence request, define whether the goal is a fully classified inventory or a
+stable positive record for a source-backed exact SDK selector, and how bounded
+unclassified metadata is represented. Neither a new selector nor a relaxed
+format policy is accepted here. Any later method needs a separate concrete
+scoped decision and finite allowance; the spent workflows remain unchanged.
+
+This completes the source review only. Dispatch remains spent 1/1, every unused
+slot remains closed, #1176 stays open and Gate1 remains Investigate. No compiler
+pin, co-availability seal, build, runtime profile or production activation follows.
