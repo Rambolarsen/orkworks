@@ -328,3 +328,27 @@ unclassified cases. No native run is authorized by this change.
 
 Current startup-classification manifest SHA-256: `46cede04a0673cd8fe53d7711da1af1d8e3c3cc5db8bb125b7cf2cf8aa00f99c`.
 The proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
+
+
+## Offline post-start checkpoints
+
+A phase-one nonzero exit after a validated session start can report three
+more booleans in `promptProgress`. `assistantTurnStarted` and
+`firstNativeMcpCallStarted` come from already validated history after session start. The fixture
+records its first successful `tools/list` reply after MCP initialization
+and a flushed response. After confirmed process cleanup the observer checks
+the bounded helper receipt against the current phase, launch generation,
+PID and approved helper environment using complete JSONL records.
+`fixtureToolsListed` requires that
+matching checkpoint. Missing or malformed evidence and unconfirmed cleanup
+leave the flag false.
+
+These booleans describe observed checkpoints. They do not establish provider
+request success, client consumption of the tool list, or the spelling
+accepted by the CLI tool filter. No raw stderr, event messages, identifiers
+or tool payloads enter these fields. Synthetic tests exercise both fixture
+phases, repeated list requests, and mismatched launch bindings. This
+model-free change creates no live authorization.
+
+Current post-start-checkpoint manifest SHA-256: `40843ebea80d9f041d94cfeee43d46b2783b289de9b5969494b445248298710b`.
+The proposal SHA-256 remains `39bea8c908bb15f3d53ed8a8cd6fdbc38db341f0f30b53f0617b47929fdd027b`.
