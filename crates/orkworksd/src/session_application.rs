@@ -1764,43 +1764,42 @@ impl SessionApplication {
         // persisting so a replacement cannot pass the check and then receive
         // the old runtime's durable inference.
         let mut sessions_guard = self.state.sessions.lock().unwrap();
-        if let Some(context) = attempt {
-            if !sessions_guard
+        if attempt.is_some_and(|context| {
+            !sessions_guard
                 .get(session_id)
                 .is_some_and(|handle| context.is_current_with_session(handle))
+        }) {
+            return PeonInferencePersistenceResult {
+                inference_persisted: false,
+                permanent_hold: false,
+                label_update: None,
+                workspace_path: None,
+            };
+        }
+
+        if let Some(handle) = sessions_guard
+            .get_mut(session_id)
+            .filter(|handle| handle.runtime.prompt_tuple_clear_pending)
+        {
+            let user_owned = workspace
+                .metadata
+                .read_session(session_id)
+                .is_some_and(|metadata| metadata.attention_source() == "user");
+            if !user_owned
+                && !matches!(
+                    workspace.metadata.clear_prompt_authority_tuple(session_id),
+                    metadata::AttentionMergeResult::Accepted
+                        | metadata::AttentionMergeResult::Ignored
+                )
             {
                 return PeonInferencePersistenceResult {
                     inference_persisted: false,
                     permanent_hold: false,
                     label_update: None,
-                    workspace_path: None,
+                    workspace_path,
                 };
             }
-        }
-
-        if let Some(handle) = sessions_guard.get_mut(session_id) {
-            if handle.runtime.prompt_tuple_clear_pending {
-                let user_owned = workspace
-                    .metadata
-                    .read_session(session_id)
-                    .is_some_and(|metadata| metadata.attention_source() == "user");
-                if user_owned
-                    || matches!(
-                        workspace.metadata.clear_prompt_authority_tuple(session_id),
-                        metadata::AttentionMergeResult::Accepted
-                            | metadata::AttentionMergeResult::Ignored
-                    )
-                {
-                    handle.runtime.prompt_tuple_clear_pending = false;
-                } else {
-                    return PeonInferencePersistenceResult {
-                        inference_persisted: false,
-                        permanent_hold: false,
-                        label_update: None,
-                        workspace_path,
-                    };
-                }
-            }
+            handle.runtime.prompt_tuple_clear_pending = false;
         }
 
         let attention_policy = match sessions_guard.get(session_id) {
