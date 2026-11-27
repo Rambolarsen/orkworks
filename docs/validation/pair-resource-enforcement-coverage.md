@@ -847,3 +847,21 @@ dependencies; this does not claim a passed local full suite. Repository CI,
 fixed interpreter selection and final code review remain pre-dispatch gates.
 Any later SDK result is tied to its own run/image and cannot retroactively seal
 the earlier compiler snapshot. Gate1 remains Investigate; #1176 stays open.
+
+
+The [tooling review disposition](../superpowers/plans/2026-11-26-pair-sdk-servicing-inventory.md#tooling-review-disposition-2026-11-27)
+records the one bounded independent round and its regression fixes. Both own
+source passes now use fixed-size descriptor reads and reject size/type/name
+changes before hashing; actual sealed bytes are charged. Failed observations
+retain only explicitly allowed metadata fields. Enumerated child values stay
+bound to the held parent handle, and failed closes remain outstanding rather
+than reporting false closure. Returned metadata length/type fields are included
+in fixed-buffer read charges. Stream overflow retains only a failure receipt.
+
+The fixed isolated Python selector, native API fixture and complete failed
+orchestration/cleanup fixture passed normal CI on windows-2022
+(run45954970061/job140359313136, headdacfb9d9), as well as Windows-latest.
+The native fixture touches only an owned disposable HKCU test key; the
+orchestration fixture launches only a constant-output Python stub. These checks
+supply no installed SDK product observation and do not spend the sole allowance.
+Dispatch is still0/1 pending reviewed merged source freeze.

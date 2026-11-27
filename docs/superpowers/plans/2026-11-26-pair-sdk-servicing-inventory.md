@@ -111,7 +111,7 @@ Actions terminal outcome; absent JSON permits no invented inspection counts.
 ## Deliverables and checks
 
 - [x] Owner accepts this exact new registry-only allowance and tooling work.
-- [ ] Add a separate workflow/controller and offline fake-registry tests. Reuse
+- [x] Add a separate workflow/controller and offline fake-registry tests. Reuse
   existing guard tests without changing the consumed batch. Prove wrong-head/
   rerun denial,1024/1025 pre-enumeration boundary, fixed-buffer overflow and
   malformed/type/missing values,32/33 matching records, changed membership/value
@@ -157,3 +157,30 @@ Dispatch0/1; reviewed merged tooling and a frozen source head are still required
 No earlier batch is renewed and no replacement pin, build or runtime profile is
 accepted. The collector uses decimal strings for full-width registry write
 markers so the JSON/Node boundary cannot round them.
+
+## Tooling review disposition (2026-11-27)
+
+One bounded independent safety/correctness and coverage round reviewed tooling
+headfff78059fa22914326ab1696e660a5bf6797058a. The owning agent applied one tested
+fix pass: bounded source descriptor reads with pre-hash byte charging; whitelist
+projection on unavailable observations; parent-handle-relative child opens;
+name-length and value-length/type output charging; failed-close outstanding-handle
+accounting; and a sole failure receipt on stream/evidence overflow. These fixes
+preserve the accepted surface/limits rather than increase an allowance.
+
+Regression tests observed the missing collector/guard and the reviewed privacy,
+source, parent-binding and closure failures before the relevant fixes. A fake
+cross-root fixture reaches2,114 value reads across two passes with32 matches;
+the33rd match denies before its version is read. Registry timestamps use exact
+decimal strings. A Windows orchestration fixture uses mocked public history and
+an owned constant-output Python stub, never the real registry collector.
+
+The exact fixed interpreter, isolated flags, native read/overflow/type/missing/
+relative-open/failed-close handling and failure orchestration/working-scratch
+cleanup passed on windows-2022 in normal CI run45954970061, job140359313136,
+headdacfb9d9. The initial Windows orchestration fixture failed at963807d5 because
+its Node ESM import used a drive path instead of a file URL; this test-only path
+fix then passed. Windows-latest fixtures passed too. All these registry reads
+use a disposable HKCU fixture; no installed SDK/uninstall data is queried.
+Full current-head CI and hosted review remain separate pre-merge requirements.
+Dispatch remains0/1. No second local review round or deferred minor findings.
