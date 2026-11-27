@@ -23,7 +23,7 @@ function acquire(scope: string, workspacePath: string): Entry {
 export interface ActionsRecommendationSnapshot extends RecommendationSnapshot {
   scope: string;
   items: RecommendationListResponse["recommendations"];
-  refresh(): Promise<RecommendationListResponse>;
+  refresh(afterPending?: boolean): Promise<RecommendationListResponse>;
 }
 
 export function useActionsRecommendations(scope: string, enabled: boolean, workspacePath = scope): ActionsRecommendationSnapshot {
@@ -41,10 +41,10 @@ export function useActionsRecommendations(scope: string, enabled: boolean, works
       if (--entry.users === 0) { entry.unsubscribeSignal(); sources.delete(scope); }
     };
   }, [scope,enabled,workspacePath]);
-  const refresh = useCallback(() => {
+  const refresh = useCallback((afterPending = false) => {
     const current = sourceRef.current;
     if (!enabled || !current || current.scope !== scope) return Promise.reject(new Error("Workspace recommendations unavailable"));
-    return current.source.refresh();
+    return current.source.refresh(afterPending);
   }, [scope,enabled]);
   // Fast Refresh can retain the old items-only state until the subscription effect reruns.
   const current = enabled && snapshot.scope === scope && snapshot.response ? snapshot : { ...empty, status: enabled ? "loading" as const : "unavailable" as const };

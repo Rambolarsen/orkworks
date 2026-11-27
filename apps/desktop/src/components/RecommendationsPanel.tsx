@@ -284,7 +284,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
   const [assessmentMessage, setAssessmentMessage] = useState<string>();
   const [assessmentError, setAssessmentError] = useState<string>();
   const [auditBusy, setAuditBusy] = useState(false);
-  const [auditMessage, setAuditMessage] = useState<string>();
+  const [auditNotice, setAuditNotice] = useState<{ message: string; recommendationId?: string }>();
   const [auditError, setAuditError] = useState<string>();
   const [blockedRecommendation, setBlockedRecommendation] = useState<WorkflowRecommendation>();
   const [blockedRecommendationId, setBlockedRecommendationId] = useState<string>();
@@ -338,14 +338,14 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     return () => { cancelled = true; ++runStatusGeneration.current; };
   }, [hasWorkspace, taskmasterReady, workspacePath, refreshRunStatus, source.revision]);
 
-  const refresh = useCallback(async (provided?: Awaited<ReturnType<typeof refreshList>>) => {
+  const refresh = useCallback(async ({ provided, afterPending = false }: { provided?: Awaited<ReturnType<typeof refreshList>>; afterPending?: boolean } = {}) => {
     if (!hasWorkspace || !taskmasterReady) return;
     const generation = ++refreshGeneration.current;
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current || workspacePathRef.current !== workspacePath) return;
       if (!provided) refreshRunStatus(baseUrl);
-      const response = provided ?? await refreshList();
+      const response = provided ?? await refreshList(afterPending);
       let nextRecommendations = response.recommendations;
       if (blockedRecommendationId) {
         try {
@@ -414,7 +414,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     setAssessmentMessage(undefined);
     setAssessmentError(undefined);
     setAuditBusy(false);
-    setAuditMessage(undefined);
+    setAuditNotice(undefined);
     setAuditError(undefined);
     setError(undefined);
     setOriginFilter("all");
@@ -445,7 +445,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       setAssessmentMessage(undefined);
       setAssessmentError(undefined);
       setAuditBusy(false);
-      setAuditMessage(undefined);
+      setAuditNotice(undefined);
       setAuditError(undefined);
       setRunStatus(null);
       setRunStatusError(undefined);
@@ -469,7 +469,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       setAssessmentMessage(undefined);
       setAssessmentError(undefined);
       setAuditBusy(false);
-      setAuditMessage(undefined);
+      setAuditNotice(undefined);
       setAuditError(undefined);
       setRunStatus(null);
       setRunStatusError(undefined);
@@ -477,9 +477,16 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       setError(undefined);
       return;
     }
-    if (source.status === "ready" || source.status === "partial") void refresh(source.response);
+    if (source.status === "ready" || source.status === "partial") void refresh({ provided: source.response });
     else if (source.status === "unavailable") setError(source.error ?? "Couldn't load recommendations.");
   }, [refresh, hasWorkspace, taskmasterReady, source.response, source.status, source.error]);
+
+  useEffect(() => {
+    setDismissing(undefined);
+    setDismissErrors({});
+    setCleanupRunning(undefined);
+    setCleanupErrors({});
+  }, [workspacePath, hasWorkspace, taskmasterReady]);
 
   async function analyzeNow() {
     if (!hasWorkspace || !taskmasterReady || analysisRequestBusy) return;
@@ -571,16 +578,19 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
     const generation = workspaceGeneration.current;
     setAuditBusy(true);
     setAuditError(undefined);
-    setAuditMessage(undefined);
+    setAuditNotice(undefined);
     try {
       const baseUrl = await window.orkworks.getBackendUrl();
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
       const result = await runTaskmasterAudit(baseUrl, workspacePath ?? "");
       if (!hasWorkspace || !taskmasterReady || generation !== workspaceGeneration.current) return;
       setOriginFilter("cleanup");
-      setAuditMessage(result.recommendation
-        ? "Audit proposed a cleanup card — review it below and run cleanup to apply it."
-        : "Audit complete — all proposed recommendations are healthy.");
+      setAuditNotice({
+        recommendationId: result.recommendation?.id,
+        message: result.recommendation
+          ? "Audit proposed a cleanup card — review it below and run cleanup to apply it."
+          : "Audit complete — all proposed recommendations are healthy.",
+      });
       await refresh();
     } catch (cause) {
       if (generation !== workspaceGeneration.current) return;
@@ -592,46 +602,46 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
 
   async function dismiss(id: string) {
     if (!hasWorkspace || !taskmasterReady) return;
-    const generation = refreshGeneration.current;
+    const generation = workspaceGeneration.current;
+    const isCurrent = () => generation === workspaceGeneration.current && workspacePathRef.current === workspacePath;
     setDismissing(id);
     setDismissErrors((current) => ({ ...current, [id]: "" }));
     try {
-      if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
       await dismissTaskmasterRecommendation(id, undefined, workspacePath ?? "");
-      if (generation !== refreshGeneration.current) return;
-      // A dismissed cleanup card may have been announced by Run audit; drop
-      // the announcement instead of leaving it pointing at a gone card.
-      setAuditMessage(undefined);
-      await refresh();
+      if (!isCurrent()) return;
+      setAuditNotice((current) => current?.recommendationId === id ? undefined : current);
+      await refresh({ afterPending: true });
     } catch (cause) {
+      if (!isCurrent()) return;
       setDismissErrors((current) => ({
         ...current,
         [id]: cause instanceof Error ? cause.message : "Couldn't dismiss recommendation.",
       }));
     } finally {
-      setDismissing(undefined);
+      if (isCurrent()) setDismissing((current) => current === id ? undefined : current);
     }
   }
 
   async function runCleanup(recommendation: WorkflowRecommendation) {
     if (!hasWorkspace || !taskmasterReady || cleanupRunning) return;
-    const generation = refreshGeneration.current;
-    setCleanupRunning(recommendation.id);
-    setCleanupErrors((current) => ({ ...current, [recommendation.id]: "" }));
+    const generation = workspaceGeneration.current;
+    const isCurrent = () => generation === workspaceGeneration.current && workspacePathRef.current === workspacePath;
+    const { id } = recommendation;
+    setCleanupRunning(id);
+    setCleanupErrors((current) => ({ ...current, [id]: "" }));
     try {
       await onRunCleanup?.(recommendation);
-      if (!hasWorkspace || !taskmasterReady || generation !== refreshGeneration.current) return;
-      // The cleanup card is now terminal, so any Run audit announcement of
-      // it is stale; the refreshed list states the outcome on its own.
-      setAuditMessage(undefined);
-      await refresh();
+      if (!isCurrent()) return;
+      setAuditNotice((current) => current?.recommendationId === id ? undefined : current);
+      await refresh({ afterPending: true });
     } catch (cause) {
+      if (!isCurrent()) return;
       setCleanupErrors((current) => ({
         ...current,
-        [recommendation.id]: cause instanceof Error ? cause.message : "Couldn't run the cleanup.",
+        [id]: cause instanceof Error ? cause.message : "Couldn't run the cleanup.",
       }));
     } finally {
-      setCleanupRunning(undefined);
+      if (isCurrent()) setCleanupRunning(undefined);
     }
   }
 
@@ -722,7 +732,7 @@ function RecommendationsPanel({ recommendationSource, hasWorkspace, workspacePat
       )}
       {assessmentMessage && <p className="recommendation-analysis-run" role="status">{assessmentMessage}</p>}
       {assessmentError && <p className="recommendation-error" role="alert">{assessmentError}</p>}
-      {auditMessage && <div className="recommendation-analysis-status" role="status"><p>{auditMessage}</p></div>}
+      {auditNotice && <div className="recommendation-analysis-status" role="status"><p>{auditNotice.message}</p></div>}
       {auditError && <p className="recommendation-error" role="alert">{auditError}</p>}
       {error && <p className="recommendation-error" role="alert">{error}</p>}
       <DiagnosticList diagnostics={diagnostics} />

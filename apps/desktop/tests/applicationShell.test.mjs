@@ -1034,6 +1034,32 @@ if (process.versions.electron) {
         assert.equal(await evaluate('fixture.prompts'),0);
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
+      } else if (scenario.startsWith('recommendation-action-')) {
+        await evaluate('fixture.command("recommendations",true)');
+        await waitFor('!!document.querySelector(".recommendation-menu:not(.recommendation-menu--primary) summary")');
+        await evaluate('document.querySelector(".recommendation-menu:not(.recommendation-menu--primary) summary").click()');
+        await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Check recommendation backlog").click()');
+        await waitFor('document.querySelector(".recommendation-card h3")?.textContent==="Review stale recommendation"');
+        await waitFor('document.querySelector(".recommendation-analysis-status")?.textContent.includes("Audit proposed")');
+        const action = scenario.includes('-dismiss') ? '.recommendation-dismiss' : '.recommendation-fix';
+        await evaluate('document.querySelector('+javascriptLiteral(action)+').click()');
+        await waitFor('typeof fixture.finishRecommendationAction==="function"');
+        await evaluate('fixture.refreshPendingRecommendation()');
+        await waitFor('document.querySelector(".recommendation-card h3")?.textContent==="Refreshed pending recommendation"');
+        if (scenario.endsWith('-pending-read')) {
+          await evaluate('fixture.startPendingRecommendationRead()');
+          await waitFor('typeof fixture.finishRecommendationRead==="function"');
+        }
+        await evaluate('fixture.finishRecommendationAction()');
+        if (scenario.endsWith('-pending-read')) {
+          await waitFor('fixture.actionReachedRefresh');
+          await evaluate('fixture.finishRecommendationRead()');
+        }
+        await waitFor('!document.querySelector(".recommendation-card")');
+        assert.equal(await evaluate('document.querySelector(".recommendation-analysis-status")?.textContent ?? null'), null);
+        assert.equal(await evaluate('fixture.recommendationActionCalls'), 1);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'recommendations-inbox') {
         await evaluate('fixture.command("recommendations",true)');
         await waitFor('document.querySelector(".readiness-overview-score strong")?.textContent === "50"');
@@ -2922,7 +2948,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -2943,6 +2969,7 @@ if (process.versions.electron) {
           import {WorkspaceHistoryDropdown} from './src/components/WorkspaceHistoryDropdown';
           import ShellPreferencesNotice from './src/components/ShellPreferencesNotice';
           import {useShellPreferences} from './src/useShellPreferences';
+          import {publishWorkspaceUpdateSignal} from './src/workspaceUpdateSignals';
           import './src/styles/tokens.css';
           import './src/App.css';
           import {getTerminal, getLiveTerminalCount} from './src/terminalStore';
@@ -3138,6 +3165,44 @@ if (process.versions.electron) {
               return fetchBase(url,options);
             };
           }
+          if (${javascriptLiteral(scenario)}.startsWith('recommendation-action-')) {
+            let items=[];
+            let pauseRead=false;
+            let actionFinished=false;
+            const getBackendUrl=window.orkworks.getBackendUrl;
+            window.orkworks.getBackendUrl=()=>{
+              if (actionFinished) fixture.actionReachedRefresh=true;
+              return getBackendUrl();
+            };
+            const cleanup={workspaceId:'/tmp/test',id:'cleanup-fixture',type:'cleanup',status:'proposed',priority:'medium',title:'Review stale recommendation',updatedAt:'2026-11-13T10:00:00Z',dedupeKey:'cleanup:v1:fixture',reason:[],workflowImprovement:{proposedImprovement:'Dismiss stale items'},audit:null};
+            fixture.recommendationActionCalls=0;
+            fixture.refreshPendingRecommendation=()=>{
+              items=[{...cleanup,title:'Refreshed pending recommendation'}];
+              publishWorkspaceUpdateSignal('/tmp/test',true);
+            };
+            fixture.deferRecommendationAction=async()=>{
+              fixture.recommendationActionCalls++;
+              await new Promise(resolve=>{fixture.finishRecommendationAction=()=>{items=[];actionFinished=true;resolve();};});
+              return {protocolVersion:3};
+            };
+            fixture.startPendingRecommendationRead=()=>{
+              pauseRead=true;
+              publishWorkspaceUpdateSignal('/tmp/test');
+            };
+            window.orkworks.getAdviceRecommendations=async()=>{
+              const recommendations=items;
+              if (pauseRead) {
+                pauseRead=false;
+                await new Promise(resolve=>{fixture.finishRecommendationRead=resolve;});
+              }
+              return {protocolVersion:3,recommendations,diagnostics:[]};
+            };
+            window.orkworks.runAdviceAudit=async()=>{
+              items=[cleanup];
+              return {protocolVersion:3,recommendation:cleanup};
+            };
+            window.orkworks.dismissAdviceRecommendation=fixture.deferRecommendationAction;
+          }
           if (${javascriptLiteral(scenario)}==='recommendations-inbox') {
             fixture.assessmentCalls=[];fixture.auditCalls=0;fixture.cleanupCalls=0;fixture.settingsSections=[];
             const ids=['context-discovery','progressive-disclosure','instruction-scoping','architecture-awareness','domain-knowledge','environment-reproducibility','tool-accessibility','task-decomposition','verification','observability','change-safety','feedback-loops','durable-memory','human-oversight'];
@@ -3254,11 +3319,11 @@ if (process.versions.electron) {
               }}
               recommendations={{
                 canFixWithAi:true,
-                taskmasterReady:['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)}),
+                taskmasterReady:${javascriptLiteral(scenario)}.startsWith('recommendation-action-') || ['actions-sources','recommendation-status-error','recommendations-inbox'].includes(${javascriptLiteral(scenario)}),
                 focusedId:null,
                 onOpen:id=>fixture.openedRecommendations.push(id),
                 onFixWithAi:()=>fixture.prompts++,
-                onRunCleanup:()=>fixture.prompts++,
+                onRunCleanup:()=>fixture.deferRecommendationAction ? fixture.deferRecommendationAction() : fixture.prompts++,
               }}
               preferences={{
                 value:preferences,
@@ -3280,7 +3345,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(scenario)) && args.path === './SessionDetailPanel') || (['app-review-inert-improvement','inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(scenario)) && args.path === './SessionDetailPanel') || ((scenario.startsWith('recommendation-action-') || ['app-review-inert-improvement','inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario)) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

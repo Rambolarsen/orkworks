@@ -745,7 +745,7 @@ test("a successful audit lands the user on Cleanup and reports the outcome", () 
   // the filter to Cleanup and refresh so the result is on screen.
   assert.match(handler, /setOriginFilter\("cleanup"\)/);
   assert.match(handler, /await refresh\(\)/);
-  assert.match(handler, /setAuditMessage/);
+  assert.match(handler, /setAuditNotice/);
   assert.match(handler, /all proposed recommendations are healthy/);
 
   // Failures surface in the panel without wiping its state.
@@ -753,21 +753,6 @@ test("a successful audit lands the user on Cleanup and reports the outcome", () 
   // Re-entry is guarded by the busy flag and the workspace generation.
   assert.match(handler, /auditBusy\) return/);
   assert.match(handler, /generation !== workspaceGeneration\.current\) return/);
-});
-
-test("dismissing or running the cleanup card clears a stale audit status", () => {
-  // Codex P2 on #815: after the audit message announced a proposed cleanup
-  // card, accepting (Run cleanup) or dismissing that card refreshed the list
-  // but left the announcement behind — the panel then claimed a card was
-  // "review it below" while the Cleanup view was empty.
-  const panel = readFileSync(
-    new URL("../src/components/RecommendationsPanel.tsx", import.meta.url),
-    "utf8",
-  );
-  const start = panel.indexOf("async function dismiss");
-  const end = panel.indexOf("\n  const visibleRecommendations", start);
-  const handlers = panel.slice(start, end);
-  assert.match(handlers, /setAuditMessage\(undefined\)/);
 });
 
 test("the Cleanup filter's empty state can check the backlog directly", () => {
