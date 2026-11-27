@@ -1004,7 +1004,7 @@ impl SessionApplication {
         let mut replacements = BTreeMap::new();
         let assigned_member_ids = clusters
             .iter()
-            .flat_map(|cluster| cluster.member_recommendation_ids.iter().cloned())
+            .flat_map(|cluster| cluster.member_recommendation_ids.iter().map(String::as_str))
             .collect::<BTreeSet<_>>();
         let add_expected = |id: &String, expected: &mut BTreeMap<String, Option<String>>| {
             expected
@@ -1013,16 +1013,13 @@ impl SessionApplication {
         };
         let supplied_member_ids = supplied_snapshots
             .iter()
-            .map(|snapshot| snapshot.recommendation_id.clone())
+            .map(|snapshot| snapshot.recommendation_id.as_str())
             .collect::<BTreeSet<_>>();
         let supplied_parent_ids = supplied_snapshots
             .iter()
-            .filter_map(|snapshot| snapshot.active_parent_id.clone())
+            .filter_map(|snapshot| snapshot.active_parent_id.as_deref())
             .collect::<BTreeSet<_>>();
-        let retained_parent_ids = clusters
-            .iter()
-            .map(|cluster| stable_rollup_id(&cluster.member_recommendation_ids))
-            .collect::<BTreeSet<_>>();
+        let mut retained_parent_ids = BTreeSet::new();
         let mut expected = BTreeMap::new();
         for update in legacy_updates {
             add_expected(&update.id, &mut expected);
@@ -1161,17 +1158,19 @@ impl SessionApplication {
                 add_expected(&member.id, &mut expected);
                 replacements.insert(member.id.clone(), member);
             }
+            retained_parent_ids.insert(parent_id);
         }
         // A valid clustering result is authoritative for the complete active
         // groups supplied to it, including groups omitted from an empty result.
         for old_parent in current.values().filter(|parent| {
-            supplied_parent_ids.contains(&parent.id) && !retained_parent_ids.contains(&parent.id)
+            supplied_parent_ids.contains(parent.id.as_str())
+                && !retained_parent_ids.contains(&parent.id)
         }) {
             if old_parent.status != RecommendationStatus::Proposed
                 || !old_parent
                     .rollup_member_ids
                     .iter()
-                    .all(|id| supplied_member_ids.contains(id))
+                    .all(|id| supplied_member_ids.contains(id.as_str()))
             {
                 return false;
             }
@@ -1183,7 +1182,7 @@ impl SessionApplication {
             for old_member_id in old_parent
                 .rollup_member_ids
                 .iter()
-                .filter(|id| !assigned_member_ids.contains(*id))
+                .filter(|id| !assigned_member_ids.contains(id.as_str()))
             {
                 let Some(old_member) = current.get(old_member_id) else {
                     return false;
