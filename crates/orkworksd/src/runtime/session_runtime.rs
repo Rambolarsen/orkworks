@@ -1273,12 +1273,19 @@ pub(crate) fn claim_attachment(state: &Arc<AppState>, id: &str) -> Option<Attach
     })
 }
 
-pub(crate) fn release_attachment(state: &Arc<AppState>, id: &str, generation: u64) {
+pub(crate) fn release_attachment(
+    state: &Arc<AppState>,
+    id: &str,
+    runtime_identity: &RuntimeIdentity,
+    generation: u64,
+) {
     let mut sessions = state.sessions.lock().unwrap();
     let Some(handle) = sessions.get_mut(id) else {
         return;
     };
-    if handle.runtime.attached_generation == Some(generation) {
+    if handle.runtime.matches_identity(runtime_identity)
+        && handle.runtime.attached_generation == Some(generation)
+    {
         handle.runtime.attached_generation = None;
         handle.terminal_attached = false;
     }
@@ -4555,7 +4562,7 @@ mod tests {
             match scenario {
                 1 => {
                     let claim = claim_attachment(&state, &id).unwrap();
-                    release_attachment(&state, &id, claim.generation);
+                    release_attachment(&state, &id, &claim.runtime_identity, claim.generation);
                     tokio::time::sleep(std::time::Duration::from_millis(350)).await;
                     assert_eq!(unsafe { libc::kill(tui_pid, 0) }, 0, "detach killed TUI");
                     assert_eq!(
@@ -5268,7 +5275,12 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
         let first = claim_attachment(&state, "runtime-release").unwrap();
         let wrong_generation = first.generation + 1;
 
-        release_attachment(&state, "runtime-release", wrong_generation);
+        release_attachment(
+            &state,
+            "runtime-release",
+            &first.runtime_identity,
+            wrong_generation,
+        );
         let still_attached = state
             .sessions
             .lock()
@@ -5279,7 +5291,12 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
             .attached_generation();
         assert_eq!(still_attached, Some(first.generation));
 
-        release_attachment(&state, "runtime-release", first.generation);
+        release_attachment(
+            &state,
+            "runtime-release",
+            &first.runtime_identity,
+            first.generation,
+        );
         let detached = state
             .sessions
             .lock()
@@ -5289,6 +5306,32 @@ printf '%s\n' "$@" > "$ORKWORKS_SESSION_ID.args.tmp" &&
             .runtime
             .attached_generation();
         assert_eq!(detached, None);
+    }
+
+    #[test]
+    fn stale_attachment_cleanup_cannot_detach_replacement_runtime() {
+        let id = "runtime-replacement-release";
+        let state = test_state_with_runtime_session(id);
+        let original = claim_attachment(&state, id).unwrap();
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut(id).unwrap();
+            handle.runtime = SessionRuntime::detached_test();
+            handle.terminal_attached = false;
+        }
+        let replacement = claim_attachment(&state, id).unwrap();
+        assert_ne!(original.runtime_identity, replacement.runtime_identity);
+        assert_eq!(original.generation, replacement.generation);
+
+        release_attachment(&state, id, &original.runtime_identity, original.generation);
+
+        let sessions = state.sessions.lock().unwrap();
+        let handle = &sessions[id];
+        assert_eq!(
+            handle.runtime.attached_generation(),
+            Some(replacement.generation)
+        );
+        assert!(handle.terminal_attached);
     }
 
     #[test]

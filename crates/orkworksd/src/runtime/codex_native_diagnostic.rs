@@ -786,7 +786,7 @@ async fn diagnostic_fake_owned_runtime_disconnect_input_and_drain_cleanup() {
         0,
         "input transition is not native clear"
     );
-    release_attachment(&state, &id, claim.generation);
+    release_attachment(&state, &id, &claim.runtime_identity, claim.generation);
 }
 
 /// Operator-only. Compile normally, then run only this exact test in a clean
@@ -888,7 +888,7 @@ async fn installed_codex_native_approval_diagnostic() {
     )
     .await;
     let clean = cleanup(&state, &id, Instant::now() + CLEANUP_DEADLINE).await;
-    release_attachment(&state, &id, claim.generation);
+    release_attachment(&state, &id, &claim.runtime_identity, claim.generation);
     let restored = terminal.restore();
     drop(terminal);
     eprintln!("Diagnostic exit={exit:?} teardown_acknowledged={clean} tty_restored={restored}; installed gates still require operator evidence.");

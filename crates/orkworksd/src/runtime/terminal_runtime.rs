@@ -1499,7 +1499,12 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
             .await
             .is_err()
         {
-            crate::runtime::session_runtime::release_attachment(&state, &id, attachment.generation);
+            crate::runtime::session_runtime::release_attachment(
+                &state,
+                &id,
+                &attachment.runtime_identity,
+                attachment.generation,
+            );
             let _ = ws.close().await;
             return;
         }
@@ -1651,7 +1656,7 @@ pub(crate) async fn handle_session_terminal(mut ws: WebSocket, id: String, state
         });
     }
 
-    crate::runtime::session_runtime::release_attachment(&state, &id, generation);
+    crate::runtime::session_runtime::release_attachment(&state, &id, &runtime_identity, generation);
     let _ = ws.close().await;
 }
 
