@@ -4,7 +4,7 @@ title: One replacement Windows sidecar candidate build
 description: Proposed finite candidate using observed compiler bytes, a same-job named SDK record and sealed inputs, with effective macro and linked-artifact evidence only.
 tags: [orkworks, hierarchy, windows, sqlite, qualification]
 status: draft
-workflow_status: proposed-awaiting-owner-approval
+workflow_status: accepted-tooling-in-progress
 ---
 
 # One replacement Windows sidecar candidate build
@@ -298,3 +298,62 @@ cover input candidate, exact-key SDK method, tooling and this exact job together
 material changes after approval require a new decision before dependent work.
 Gate1 remains Investigate, Gate2/bootstrap implementation and Gates3–4 remain
 gated. All source/compatibility/recovery/durability/activation obligations persist.
+
+## Accepted execution ledger (2026-11-27)
+
+Owner replied “keep going” to the explicit combined request after #2159, accepting
+this named candidate/SDK method/tooling and one exact finite job. Original
+proposal language above is preserved as history. The new allowance is unused;
+all earlier allowances remain spent. No repeat policy approval is needed within
+this scope. Verification, current-diff review, required CI, tooling merge and
+source freeze precede the sole dispatch.
+
+Root owns one writer worktree replacement-windows-build at9d0d869e. Execute SDK
+reader/shared-ledger tests, bounded reader/manifest and controller tests, workflow
+fixtures, full verification, then one bounded fresh-context review round with
+maximum two read-only Luna reviewers (correctness/authority and coverage/bounds).
+Root alone applies findings. No implementer delegation or second coding harness.
+Current status: implementation and fixture verification in progress; dispatch0/1.
+
+SDK reader: six Windows fixtures passed. Policy primitives: seven local Node
+tests passed after their initial missing-controller failures. Windows bounded
+reader fixture failed on the deliberately missing implementation, then passed
+after implementation in draft CI. Locked archive verification likewise reached
+a missing-function failure before passing the Windows fixture. Its initial fixture
+stream-name collision was corrected before observing that meaningful failure.
+The controller entry point and manual workflow are now wired; ten local Node
+checks pass, including full twelve-PE admission and manifest drift refusal.
+Final native CI, full verification and fresh review remain pending.
+
+Ruling: do not reuse the old helper's .cargo-checksum.json assumption; the
+inspected local Cargo registry cache lacks that vendor-side file. Derive member
+checksums from the actual lock-hashed crate archive with the own standard-runtime
+reader, comparing every extracted file and reviewed entrypoint. This preserves
+the accepted archive/file verification, roots, subprocess counts and hash/time
+bounds. If the archive format/runtime is unsupported, the attempt is unavailable
+rather than trusting unchecked sources or acquiring another tool.
+
+
+Implementation review: two read-only Luna reviewers completed the single planned
+round at581a1499. Both identified the post-buffer oracle cap; root added a RED
+streaming-cap regression, implemented per-command admission and set the oracle
+call to32 MiB. Coverage review also identified archive-denial fixture gaps;
+synthetic path/type/duplicate/oversize and origin/extra-file cases now await
+Windows CI. Correctness review identified case folding beyond the approved SDK
+normalization; a RED exact-case fixture preceded removal of case folding.
+No material scope change, retry, additional review round or allowance is added.
+
+Full bash scripts/verify-repo.sh completed with all repository checks passing.
+The37 targeted Node tests (new controller plus reused pure guard/oracle suites)
+and seven SDK tests pass locally, with the native HKCU case skipped on macOS.
+Final changed native fixtures and current-head required CI remain pending.
+
+
+Current native fixture3a2b0fc0 passed, including seven SDK tests and synthetic
+archive denials. The malformed-name fixture now writes raw USTAR bytes so a
+writer cannot normalize the path under test. Hosted Codex reviewed3a2b0fc0
+without findings. Root's final source check then found missing root-label
+redaction in retained diagnostics; a RED/GREEN test now covers plain and
+JSON-escaped paths. Observed PE data is retained before pin admission. This
+bounded final correction requires current-head hosted review and CI before
+merge; allowance remains0/1. No additional Luna review round is opened.

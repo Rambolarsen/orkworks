@@ -119,3 +119,7 @@ docs/validation/root-preparation-effects.json text eol=lf
 /crates/orkworksd/Cargo.toml text eol=lf
 /crates/orkworksd/Cargo.lock text eol=lf
 /crates/orkworksd/build.rs text eol=lf
+
+# Replacement qualification controllers are sealed as checkout bytes.
+scripts/qualification/pair-replacement-windows-build* text eol=lf
+.github/workflows/pair-replacement-windows-build.yml text eol=lf
