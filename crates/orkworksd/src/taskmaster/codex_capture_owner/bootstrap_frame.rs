@@ -1,7 +1,7 @@
 //! Fixed startup messages for the macOS custody qualification.
 
 const HEADER: [u8; 5] = *b"OWCO\x01";
-const FRAME_SIZE: usize = 54;
+pub(super) const FRAME_SIZE: usize = 54;
 
 #[derive(Clone, Copy)]
 #[repr(u8)]

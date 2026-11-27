@@ -13,6 +13,9 @@ mod channels;
 #[path = "../src/taskmaster/codex_capture_owner/bootstrap_frame.rs"]
 mod bootstrap_frame;
 
+#[path = "support/custody_worker_probe.rs"]
+mod worker_probe;
+
 const FIXTURE_FDS: &str = "ORKWORKS_CUSTODY_FIXTURE_FDS";
 const CHILD_CHECKED: i32 = 42;
 
@@ -41,6 +44,9 @@ fn four_empty_channels_are_sealed_before_child_exec() {
     let empty_selection = verify_closed_in_exec_child(&descriptors, "no_such_descriptor_check")
         .expect_err("empty child selection must not count as verification");
     assert_eq!(empty_selection.code(), Some(0));
+
+    worker_probe::check_owned_workers(&pairs);
+    worker_probe::verify_exact_stream_frames();
 }
 
 fn verify_closed_in_exec_child(descriptors: &[RawFd], filter: &str) -> Result<(), ExitStatus> {
@@ -112,6 +118,12 @@ fn check_sealed_descriptors_after_exec() {
         assert_closed(fd);
     }
     std::process::exit(CHILD_CHECKED);
+}
+
+#[test]
+#[ignore = "runs only as a selected synthetic worker"]
+fn check_selected_worker_channel() {
+    worker_probe::run_child();
 }
 
 fn assert_closed(fd: RawFd) {

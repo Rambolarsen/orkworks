@@ -82,6 +82,40 @@ was rejected. The codec covered both directions, changed individual fields,
 every short length, and trailing bytes. Native worker binding and concurrent
 application launches still require qualification.
 
+## Synthetic worker startup check
+
+Extend the macOS fixture with a serial worker check using the same four
+presealed pairs. Each attempt retains its exact child handle and sends the
+challenge over its selected channel. The child checks the selected channel,
+closure of the other seven registered endpoints, null standard streams, and
+the fixture-only environment. The child returns the ready frame for the same
+nonce and fixture build tag.
+
+Use half-closed stream directions to validate one exactly sized message in each
+direction. This closes the synthetic exchange at EOF. The persistent worker
+will need message-boundary handling that preserves the channel for later lease
+operations. Share one three-second deadline across the four attempts. Require
+both a valid response and confirmation from the owned child. Check rejected
+nonce and missing response paths without publishing readiness. Kill and reap
+the exact child when the response times out.
+
+Plan review for this check: **Ready.** It adds a test-only same-binary exec
+path, a fixed close boundary for the synthetic exchange, and exact local child
+cleanup. The child environment carries only fixture data. A fixed test build
+tag exercises matching. Build identity for the real sidecar executable, full
+inherited descriptor inventory, persistent transport, delayed native spawn,
+and actual application launch measurements remain in step 1.
+
+On macOS 26.6.2 arm64, the fixture launched the four attempts serially
+within the shared deadline. Two matching responses confirmed readiness. The
+third exec completed its checks and its response was rejected for a different
+expected nonce. The fourth received no challenge. The controller timed out,
+sent SIGKILL to the retained child, and reaped its signaled exit. Successful
+exec checks verified the seven other registered descriptors were closed,
+standard streams were null, and the worker environment held only fixture
+data. The parent verified all eight close-on-exec flags after the attempts.
+Exact-length, truncated, and trailing-data stream cases also passed.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin
