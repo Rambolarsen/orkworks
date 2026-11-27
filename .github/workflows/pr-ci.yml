@@ -51,6 +51,10 @@ jobs:
           & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test scripts/qualification/pair-windows-sdk-inventory.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-positive-record.test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test scripts/qualification/pair-windows-sdk-positive-record.test.mjs
           exit $LASTEXITCODE
 
   workspace-reporting:
@@ -84,6 +88,17 @@ jobs:
             & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
           } else {
             python3 -I -S -B scripts/qualification/pair-windows-sdk-inventory.test.py
+          }
+          exit $LASTEXITCODE
+      - name: Verify positive-only SDK policy and collector without installed SDK reads
+        shell: pwsh
+        run: |
+          node --test scripts/qualification/pair-windows-sdk-positive-record.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($IsWindows) {
+            & 'C:\hostedtoolcache\windows\Python\3.12.10\x64\python.exe' -I -S -B scripts/qualification/pair-windows-sdk-positive-record.test.py
+          } else {
+            python3 -I -S -B scripts/qualification/pair-windows-sdk-positive-record.test.py
           }
           exit $LASTEXITCODE
       - name: Test Windows inventory reader with synthetic data only

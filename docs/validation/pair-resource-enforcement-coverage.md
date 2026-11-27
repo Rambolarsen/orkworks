@@ -1086,3 +1086,14 @@ new finite job under the existing caps. It is awaiting owner approval of the
 contract, tooling and exact allowance together. Proposal publication authorizes
 no implementation or dispatch. Every earlier allowance remains spent; no new
 registry observation or runner qualification occurred for this proposal.
+
+### Accepted positive-record tooling scope
+
+The owner subsequently accepted the proposal's combined contract, isolated
+tooling and one exact finite job by replying “keep going” to the explicit
+approval request after #2126. Implementation and synthetic verification are
+tracked in the linked plan's execution ledger and #1176. The allowance is one
+three-minute windows-2022 job, two passes of at most1,024 aggregate entries, with
+no retries and unchanged resource caps. Tooling review/merge and a frozen source
+record must precede its sole dispatch; no new runner observation has occurred
+at this tooling checkpoint. Earlier allowances remain spent.
