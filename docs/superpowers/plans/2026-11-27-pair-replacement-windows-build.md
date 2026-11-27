@@ -347,3 +347,13 @@ Full bash scripts/verify-repo.sh completed with all repository checks passing.
 The37 targeted Node tests (new controller plus reused pure guard/oracle suites)
 and seven SDK tests pass locally, with the native HKCU case skipped on macOS.
 Final changed native fixtures and current-head required CI remain pending.
+
+
+Current native fixture3a2b0fc0 passed, including seven SDK tests and synthetic
+archive denials. The malformed-name fixture now writes raw USTAR bytes so a
+writer cannot normalize the path under test. Hosted Codex reviewed3a2b0fc0
+without findings. Root's final source check then found missing root-label
+redaction in retained diagnostics; a RED/GREEN test now covers plain and
+JSON-escaped paths. Observed PE data is retained before pin admission. This
+bounded final correction requires current-head hosted review and CI before
+merge; allowance remains0/1. No additional Luna review round is opened.

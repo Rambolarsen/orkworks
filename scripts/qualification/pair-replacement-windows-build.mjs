@@ -759,6 +759,25 @@ async function dispatchHistory(e) {
     e.EXPECTED_SHA,
   );
 }
+export function redactDiagnostics(value, roots) {
+  const replacements = [];
+  for (const [label, root] of Object.entries(roots))
+    if (root) {
+      for (const variant of new Set([
+        root,
+        root.replaceAll("\\", "/"),
+        root.replaceAll("/", "\\"),
+      ])) {
+        replacements.push(
+          [variant, "[" + label + "]"],
+          [JSON.stringify(variant).slice(1, -1), "[" + label + "]"],
+        );
+      }
+    }
+  replacements.sort((a, b) => b[0].length - a[0].length);
+  for (const [from, to] of replacements) value = value.replaceAll(from, to);
+  return value;
+}
 async function main() {
   const e = process.env;
   assertDispatch(e, process.platform);
@@ -1030,7 +1049,8 @@ async function main() {
           await dispatchHistory(e);
           result.dispatch_history_count = 1;
           const preflight = await reader("Preflight");
-          result.tools = validateTools(preflight);
+          result.tools = preflight.tools;
+          validateTools(preflight);
           result.controllers = {
             node: {
               path: process.execPath,
@@ -1166,7 +1186,14 @@ async function main() {
           );
           cargoOut = x.stdout;
           cargoLog = x.stderr;
-          save("cargo.jsonl", cargoOut);
+          save(
+            "cargo.jsonl",
+            redactDiagnostics(cargoOut, {
+              source: root,
+              scratch,
+              home: e.USERPROFILE,
+            }),
+          );
           need(x.code === 0, "build-failed");
         },
         prepareOracle: async () => {
@@ -1323,7 +1350,14 @@ async function main() {
   // Snapshot evidence before removing all owned working inputs. Never clean up a live child tree.
   const data = {};
   try {
-    save("diagnostics.txt", diagnostics);
+    save(
+      "diagnostics.txt",
+      redactDiagnostics(diagnostics, {
+        source: root,
+        scratch,
+        home: e.USERPROFILE,
+      }),
+    );
     let total = 0;
     for (const [name, file] of Object.entries(files)) {
       if (!fs.existsSync(file)) continue;

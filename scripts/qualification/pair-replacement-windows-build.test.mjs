@@ -322,3 +322,16 @@ test("oracle stdout cap rejects before retaining a larger output and drains", as
   );
   assert.equal(r.drained, true);
 });
+test("diagnostic redaction preserves labels in plain and JSON-escaped paths", () => {
+  const roots = {
+    source: "D:\\a\\orkworks\\orkworks",
+    scratch: "D:\\a\\_temp\\owned",
+    home: "C:\\Users\\runneradmin",
+  };
+  const original =
+    "D:\\a\\orkworks\\orkworks\\crate C:/Users/runneradmin/tool " +
+    JSON.stringify("D:\\a\\_temp\\owned\\target");
+  const result = m.redactDiagnostics(original, roots);
+  assert.equal(result, '[source]\\crate [home]/tool "[scratch]\\\\target"');
+  assert.ok(!result.includes("runneradmin"));
+});
