@@ -1097,3 +1097,120 @@ three-minute windows-2022 job, two passes of at most1,024 aggregate entries, wit
 no retries and unchanged resource caps. Tooling review/merge and a frozen source
 record must precede its sole dispatch; no new runner observation has occurred
 at this tooling checkpoint. Earlier allowances remain spent.
+
+## Positive SDK record terminal result (2026-11-27)
+
+**Outcome: positive product observation succeeded; allowance spent1/1.** Owner
+accepted the [exact proposal](../superpowers/plans/2026-11-27-pair-sdk-positive-record-observation.md)
+after #2126. [Tooling #2134](https://github.com/Rambolarsen/orkworks/pull/2134)
+merged as93be0f10b83c92ffefaafcb58a0fbd0e359b6fb6 after full local repository
+verification, required CI and current-head review. The
+[pre-dispatch freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7217216937)
+confirmed zero prior runs and source/workflow identity with reviewed
+head49e9ede8eb4586f5418c37b51bd4fb586668c554. Existing consumed workflows and
+collectors were not changed.
+
+Sole [run45991524648](https://github.com/Rambolarsen/orkworks/actions/runs/45991524648),
+attempt1, succeeded at that frozen merged SHA. Its only
+[job140480267131](https://github.com/Rambolarsen/orkworks/actions/runs/45991524648/job/140480267131)
+ran11:34:06–11:34:27Z; receipt interval11:34:19.236–11:34:21.730Z. Runner:
+Windows X64, win22 image20261123.376.1. One isolated CPython3.12.10 X64 collector
+ran at C:/hostedtoolcache/windows/Python/3.12.10/x64/python.exe; exit0. No
+inspected tool, fetch, build or target execution occurred. Controller count1,
+dispatch-history count1, problems empty, owned working scratch removed.
+
+### Scoped positive fact and retained unknowns
+
+Schema2, evidence_kind sdk-positive-product-observation reports success=true and
+positive_record_observed=true. **inventory_complete=false, runtime_qualified=false
+and replacement_pin_accepted=false.** Both complete passes reported identical
+products, counts, root markers and canonical digest
+19d4f8f0183282ff6bca181bf3d15509f1d3c7c21e7312d83956d837cdc5f09d.
+KitsRoot10 normalized to C:/Program Files (x86)/Windows Kits/10/.
+
+The local HKLM64 roots retained these equal before/after observations in both
+passes (paths use the collector's separator convention):
+
+| Root | Count per pass | Before and after write marker |
+| --- | ---: | --- |
+| SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall | 257 | 134399551354776438 |
+| SOFTWARE/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall | 431 | 134399565468708431 |
+
+All five matching public SDK records were in the second root. The table gives
+the immediate child component; prepend that root and a separator for the key.
+
+| Child component | DisplayName | DisplayVersion |
+| --- | --- | --- |
+| {45e335f3-c807-43b8-9ed1-43666cfcf939} | Windows Software Development Kit - Windows 10.0.26100.9457 | 10.1.26100.9457 |
+| {5f4dc51d-f151-4325-8ba1-8b26169529a9} | Windows Software Development Kit - Windows 10.0.19041.5609 | 10.1.19041.5609 |
+| {5fe95b9d-9219-4d8b-a031-71323ae48a81} | Windows Software Development Kit - Windows 10.0.17763.132 | 10.1.17763.132 |
+| {b72d4013-dd88-405a-9f9d-e88c278dcefe} | Windows Software Development Kit - Windows 10.0.22621.5040 | 10.1.22621.5040 |
+| {c0b93b80-d0a4-47fc-a4d1-21a4008a63ca} | Windows Software Development Kit - Windows 10.0.26100.7705 | 10.1.26100.7705 |
+
+Per pass, the688 entries comprised659 accepted ASCII names,27 absent names and
+**two unclassified names**. The659 admitted names comprised five literal SDK
+predicate matches and654 predicate nonmatches. Unclassified reasons were one
+unsupported_type and one non_ascii_or_nonprintable. Those are local admission
+categories, not identified keys, exact native types, raw bytes, or declarations
+of invalid Windows metadata. No unrelated names or individual value digests
+were retained. An unclassified name could describe another SDK record. These
+new aggregate counts do not identify the prior batch's rejected25th name or
+retroactively resolve its exact format cause.
+
+### Bounded work and independent readback
+
+The receipt reports5,536 registry API calls,1,432,088 charged metadata bytes and
+zero open handles. There were1,376 child visits and ten matching-version queries
+over two passes; counts reconstruct the API/read ledgers under the reviewed
+collector:2×(4 root open/close calls +4 info calls +2 installed-root open/close
+calls +1 KitsRoot10 query +688×4 enum/open/name-query/close calls +5 version
+queries)=5,536;2×(4×12 +688×516 +688×522 +5×266 +522)=1,432,088 bytes.
+All existing caps held; no retry, fallback, repair or quota increase occurred.
+
+Collector hashing charged371,402 bytes: raw values102,104, canonical rows266,518
+and pass envelopes2,780. The four physical Windows source files total60,595
+bytes; two sealing passes charged121,190. Hashing the retained3,965-byte
+observation gives **496,557 total charged hash bytes**, below8 MiB.
+
+| Physical Windows source | Bytes | SHA-256 |
+| --- | ---: | --- |
+| pair-windows-sdk-positive-record.mjs | 17882 | 7b26e55b3d60d271000a87fc004a7f57405748f4d163cca2eb429168cec32d85 |
+| pair-windows-sdk-positive-record.py | 14786 | acca2438deef46c1453a46186853e560b1c7bba03424881b015a36439978f5a8 |
+| pair-windows-metadata-evidence.mjs | 13145 | 19aaf7a47a117951820325b33fbeb4206682e00464883990c9f81872d0e20de2 |
+| pair-windows-toolchain-inventory.mjs | 14782 | 7d87e22d69ec189474cf4f6f4b6938fdb1501d61c0d71aa0ad0a5cdbeff6aa43 |
+
+Independent readback reconciled all four hashes/sizes with the committed source
+at the frozen SHA using CRLF checkout bytes; the freeze separately records LF
+identities. It verified the archive and three file hashes, schema/authority
+flags, pass equality, exact positive record, counter arithmetic, hash ledgers
+and cleanup. The private raw registry inputs were intentionally not retained,
+so readback could compare the reported pass digests but could not independently
+recompute those private observation digests. No extra registry or tool read was
+performed to fill that limitation.
+
+Artifact15194520150, pair-windows-sdk-positive-record, expires2026-12-11T11:34:22Z.
+The2,201-byte archive SHA-256 was independently checked against the Actions
+digest9a7a4a45fe19ed0f0599d01dbecfc448472f7a0ee7288a8f3dceeb2e40c4a152.
+The three uncompressed files total5,860 bytes, below256 KiB:
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| result.json | 1895 | 92ba627200b2f5648a46c42f81497aa3b02a92f7447059f63ee06148dfaa6e7a |
+| positive-record.json | 3965 | 74aef004c2185f067950141cd525ba60ce211c204051d51dc3c9899b5d5e5f74 |
+| diagnostics.txt | 0 | e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 |
+
+### Authority closure
+
+The exact SDK servicing record is now a stable positive observation for this
+job. It does not establish complete SDK inventory, absence, package authenticity,
+compiler/SDK co-availability with earlier jobs, helper/source closure, accepted
+replacement build pins, a successful build or runtime qualification. Image and
+root-marker equality with earlier receipts do not supply those missing facts.
+
+This allowance is terminal and spent1/1; every unused slot is closed. No rerun,
+replacement selector/image, repair or follow-on job is authorized. Earlier
+allowances remain spent. #1176 stays open; Gate1 remains Investigate and later
+source/custody/compatibility/recovery/durability/activation gates remain closed.
+Next useful work is a source-only reconciliation of the retained toolchain and
+SDK facts against the remaining qualification requirements, before proposing
+any further acquisition or build allowance.

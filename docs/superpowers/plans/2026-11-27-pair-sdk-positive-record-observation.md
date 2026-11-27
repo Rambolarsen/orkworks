@@ -4,7 +4,7 @@ title: One positive Windows SDK product observation
 description: Proposed bounded handling of unclassified registry names for a stable positive SDK record without inventory completeness or runtime qualification.
 tags: [orkworks, hierarchy, windows, sdk, qualification]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: completed-positive-observation
 ---
 
 # One positive Windows SDK product observation
@@ -225,7 +225,7 @@ other coding harness. No concurrent writers.
   collector/controller tests now pass locally. Windows-only ABI and complete
   orchestration fixtures are routed through normal CI, with no installed SDK
   reads. Existing consumed collector/workflow files remain unchanged.
-- Pending: final fixture checks, repository verification/review,
+- At the tooling checkpoint, pending: final fixture checks, repository verification/review,
   tooling PR terminal state, frozen source identities, one dispatch, receipt
   readback and canonical terminal record.
 
@@ -246,3 +246,25 @@ other coding harness. No concurrent writers.
   policy tests are green (59 pass,3 skips), new collector28 pass,1 skip. This
   preserves the approved enumeration-order-independent contract. Substantial
   hosted feedback cycle1/3 requires one fresh current-head review after push.
+
+## Terminal execution record (2026-11-27)
+
+Completed the accepted finite work. Tooling #2134 merged as
+93be0f10b83c92ffefaafcb58a0fbd0e359b6fb6. Full local verify-repo passed; all
+required CI passed. Final-head Windows2022 fixtures ran29 collector tests and22
+controller tests with no skips. Hosted review of49e9ede8 completed without
+findings after the single documented feedback cycle; the original thread was
+resolved. Owned tooling branch/worktree were cleaned.
+
+After source freeze, sole run45991524648, attempt1, succeeded with two stable
+passes and an exact10.1.26100.9457 SDK product record. Two DisplayNames remained
+unclassified, so inventory_complete=false throughout. All API/read/hash/output
+caps held, all inspected-tool/fetch/build/target counts were zero, and owned
+working scratch was removed. Independent bounded archive/receipt/source readback
+passed. See the [canonical terminal record](../../validation/pair-resource-enforcement-coverage.md#positive-sdk-record-terminal-result-2026-11-27)
+for identities, exact fields, counters, hashes, limitations and authority closure.
+
+Allowance spent1/1, all unused slots closed, no retries or follow-on job. Every
+earlier allowance remains spent. No replacement pin or runtime qualification is
+accepted; #1176 and the existing qualification gates remain open/closed as stated
+in the canonical record. Result publication completes this task only.
