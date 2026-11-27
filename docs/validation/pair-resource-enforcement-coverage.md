@@ -827,7 +827,7 @@ Investigate.
 
 The owner accepted the [exact #2092 allowance](../superpowers/plans/2026-11-26-pair-sdk-servicing-inventory.md#scoped-allowance-accepted-2026-11-27)
 for separate tooling, one three-minute job and its terminal evidence record.
-Dispatch is0/1 while tooling is prepared and reviewed. Every earlier batch stays
+At the tooling preparation stage, dispatch was0/1. Every earlier batch stays
 spent; no installed compiler/SDK PE, SDK directory or default-toolset read is
 part of this request.
 
@@ -864,4 +864,121 @@ orchestration/cleanup fixture passed normal CI on windows-2022
 The native fixture touches only an owned disposable HKCU test key; the
 orchestration fixture launches only a constant-output Python stub. These checks
 supply no installed SDK product observation and do not spend the sole allowance.
-Dispatch is still0/1 pending reviewed merged source freeze.
+At that reviewed tooling stage, dispatch was0/1 pending the merged source freeze.
+
+
+## Registry-only SDK terminal result (2026-11-27)
+
+**Terminal unavailable: value-format validation.** The sole accepted registry-only
+job stopped during its first observation and retained no SDK product record.
+This is incomplete servicing evidence, not evidence that the required SDK is
+absent. No second observation, retry, fallback query or build ran.
+
+Tooling [#2100](https://github.com/Rambolarsen/orkworks/pull/2100) merged as
+9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46. Its four controller/helper files,
+workflow and byte-preservation rules matched reviewed final head
+3db5d8ee8f7856cbda95e9f40d628a2994648221. All applicable checks passed, including
+the single diagnosed normal-CI rerun of an unchanged process-ownership fixture;
+hosted Codex review found no issues on that exact head. The
+[pre-dispatch freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7212333086)
+recorded this merged source and the unused0/1 counter before dispatch.
+
+The sole manual run
+[45957491349](https://github.com/Rambolarsen/orkworks/actions/runs/45957491349),
+job140367246111, attempt1, used that frozen head and ended in failure. Job
+start/end:2026-11-27 at07:17:58–07:18:14 UTC. Receipt start/end:
+07:18:07.856–07:18:10.037 UTC. Public workflow history independently showed exactly
+one dispatch. Neither the three-minute job bound nor60-second collector bound
+was exhausted.
+
+### Available observation and denial meaning
+
+The runner reported Windows/X64, ImageOS win22 and ImageVersion20261123.376.1.
+One own isolated CPython3.12.10 X64 collector ran at
+C:/hostedtoolcache/windows/Python/3.12.10/x64/python.exe and returned0 while
+reporting success false, reason value-format. The Node result denied success
+with sdk-unavailable. An exit code0 from this controller is not a successful SDK
+inventory; the structured status governs that distinction.
+
+| Registry observation | Retained value |
+| --- | --- |
+| KitsRoot10 | C:/Program Files (x86)/Windows Kits/10/ after approved normalization |
+| HKLM64 SOFTWARE/Microsoft/Windows/CurrentVersion/Uninstall | 257 immediate children; before-write marker134399551354776438 |
+| HKLM64 SOFTWARE/WOW6432Node/Microsoft/Windows/CurrentVersion/Uninstall | 431 immediate children; before-write marker134399565468708431 |
+| First pass | collecting at denial; no completed digest or after-count/write markers |
+| Matching SDK product records | none retained before denial |
+| Second pass | not performed |
+
+The aggregate688-entry preflight fit this new1,024-entry cap. The collector then
+rejected a bounded value under its accepted type/string-format rules. The source
+label value-format covers an unsupported registry type, invalid length/UTF-16,
+missing/embedded termination, empty text or non-printable/non-ASCII text. The
+receipt does not export the rejected key/value, type, length or exact subtype;
+no particular cause or defective SDK installation is established. Unrelated
+product names and the rejected raw payload are not retained.
+
+The Node validator's additional incomplete-pass/product/observation and
+hashed_bytes-limit labels reflect missing complete observations and zero
+completed observation hashing. They are not evidence of registry drift or hash
+budget exhaustion. No runtime/ABI or image-version cause is inferred from them.
+The old thirteen-file observations and published image inventories do not fill
+this missing SDK product record or supply same-run compiler co-availability.
+
+### Controller identities and work counters
+
+Independent literal readback checked the exact run/head, sole history,
+allowlisted files, receipt bytes/hashes, available registry metadata and counters.
+All four physical source hashes match CRLF checkout forms of the committed blobs
+at the frozen head. These are distinct from the committed source references in
+the freeze comment; no installed executable was hashed or uploaded.
+
+| Controller/helper | Physical bytes | SHA-256 |
+| --- | --- | --- |
+| pair-windows-sdk-inventory.mjs | 13,642 | `3a5637501a70a6b5f618b6ee1a8e76a1cea1569a69bae23d7950f7b1d6a71920` |
+| pair-windows-sdk-inventory.py | 11,042 | `e4e7da919448634e06ab29c533ee28caadcede183fb4890aebc0a9f6372e278e` |
+| pair-windows-metadata-evidence.mjs | 13,145 | `19aaf7a47a117951820325b33fbeb4206682e00464883990c9f81872d0e20de2` |
+| pair-windows-toolchain-inventory.mjs | 14,782 | `7d87e22d69ec189474cf4f6f4b6938fdb1501d61c0d71aa0ad0a5cdbeff6aa43` |
+
+The collector reported109 registry API calls (limit10,000),26,496 precharged
+metadata bytes (limit4MiB), zero open handles and zero completed observation-hash
+bytes. Fixed-buffer charges are conservative upper bounds, not measured native
+heap costs or a claim about actual returned string lengths. Partial entry/value
+work is not reconstructed as a complete scan from the root counts.
+
+Controller/helper sources total52,611 bytes, below1MiB. Their two stable hash
+passes charge105,222 bytes; adding the598-byte retained inventory hash yields
+105,820 total hashed bytes, below8MiB. Owned working scratch was removed after
+the collector process and references closed. No complete SDK observation digest,
+full registry tree, inspected PE bytes, compiler output or executable candidate
+exists from this batch.
+
+### Terminal receipt and authority closure
+
+[Artifact15179437123](https://github.com/Rambolarsen/orkworks/actions/runs/45957491349/artifacts/15179437123)
+contains only result.json, sdk-inventory.json and diagnostics.txt:1,658 compressed
+and2,558 uncompressed bytes, below256KiB. Its API archive digest is
+6bcbd201a8c40158e0dcefbd8bad6e107d759153b66da9090106dfe1cd2af3b3.
+It expires2026-12-11 at07:18:10 UTC under14-day retention. Individual file hashes
+were independently recomputed:
+
+| File | Bytes | SHA-256 |
+| --- | --- | --- |
+| diagnostics.txt | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| result.json | 1,960 | `d88b16a042fd809250a0b28526164856a9636078beadee7486c366e6ff258ea2` |
+| sdk-inventory.json | 598 | `b842e70ebffac345b2999061a399ae8e146f5dde1b1ddea0f594b737ca1981f2` |
+
+The raw receipt stays in the expiring provider artifact; this summary preserves
+its available observations without extending raw retention.
+
+**Dispatch1/1 consumed; inspected-tool executions0, fetches0, builds0 and target
+executions0. Every unused slot is closed.** The receipt records runtime_qualified
+false and replacement_pin_accepted false. Earlier metadata/compiler/native
+batches stay spent. No retry, alternate selector, repair, quota increase, package
+probe, Cargo metadata or replacement build is authorized.
+
+A useful separate prerequisite is a source-only review of this strict validation
+boundary and what the retained receipt can distinguish. Any changed evidence
+method or live runner request needs its own exact scoped decision; this failure
+supplies no renewed credit. #1176 remains open; Gate1 stays Investigate and all
+runtime/bootstrap, allocator/VFS/context, source/cutoff/newness/catalog/
+initializer/recovery/durability, compatibility and production gates remain.

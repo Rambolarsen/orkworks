@@ -4,7 +4,7 @@ title: One registry-only Windows SDK servicing inventory
 description: Proposed finite registry-only observation of the missing SDK servicing identity after the consumed component inventory exceeded its entry budget.
 tags: [orkworks, hierarchy, windows, sdk, qualification]
 status: draft
-workflow_status: accepted-tooling-in-progress
+workflow_status: completed-unavailable
 ---
 
 # One registry-only Windows SDK servicing inventory
@@ -16,8 +16,8 @@ identified cl.exe19.44.35230.0 and13 stable file identities, but its256-entry
 pre-enumeration cap rejected688 aggregate uninstall entries. It scanned zero
 entries. Its dispatch and all earlier allowances remain spent.
 
-**This is a new proposal. Its merge authorizes no tooling implementation or runner
-job.** The owner requested this narrower evidence proposal after #2088; no new
+**Original proposal: its initial merge authorized no tooling implementation or
+runner job.** Later scoped acceptance and the terminal record appear below. The owner requested this narrower evidence proposal after #2088; no new
 registry read, runner query, acquisition or inspected-tool execution occurred.
 The [resource qualification plan](2026-11-24-pair-resource-assurance-qualification.md)
 and its source/runtime/compatibility gates remain unchanged.
@@ -118,7 +118,7 @@ Actions terminal outcome; absent JSON permits no invented inspection counts.
   digests, operation/byte/time/output caps and closure/cleanup. Windows tests
   use isolated synthetic data or fakes, never installed SDK/uninstall inventory.
   Review selectors and fixed runtime path before dispatch; normal CI is separate.
-- [ ] Freeze merged heads/counters, dispatch once, independently read the terminal
+- [x] Freeze merged heads/counters, dispatch once, independently read the terminal
   receipt and retain its hashes/observations in the existing coverage concept
   via PR. No inspected binary or raw registry tree is retained.
 
@@ -153,7 +153,8 @@ The owner answered “keep going” to the explicit #2092 tooling-plus-one-job
 question. Proposal merge20bac1523d09e4aa89d59a3f703475a36756dccd. This accepts only
 the exact registry-only surface, limits, tooling and terminal-result work above.
 The original proposal/no-execution statements describe the pre-acceptance stage.
-Dispatch0/1; reviewed merged tooling and a frozen source head are still required.
+At acceptance, dispatch was0/1; reviewed merged tooling and a frozen source head
+were required before dispatch.
 No earlier batch is renewed and no replacement pin, build or runtime profile is
 accepted. The collector uses decimal strings for full-width registry write
 markers so the JSON/Node boundary cannot round them.
@@ -183,4 +184,32 @@ its Node ESM import used a drive path instead of a file URL; this test-only path
 fix then passed. Windows-latest fixtures passed too. All these registry reads
 use a disposable HKCU fixture; no installed SDK/uninstall data is queried.
 Full current-head CI and hosted review remain separate pre-merge requirements.
-Dispatch remains0/1. No second local review round or deferred minor findings.
+At that tooling review stage, dispatch was0/1. No second local review round or
+deferred minor findings.
+
+## Terminal execution record (2026-11-27)
+
+Tooling [#2100](https://github.com/Rambolarsen/orkworks/pull/2100) merged as
+9ee4da352d48a326c6bc87d7f11a23dd7ca3ab46. The reviewed controller/helper/workflow
+scope matched the merge exactly; [the pre-dispatch freeze](https://github.com/Rambolarsen/orkworks/issues/1176#issuecomment-7212333086)
+recorded that head and dispatch0/1. The sole run
+[45957491349](https://github.com/Rambolarsen/orkworks/actions/runs/45957491349),
+attempt1, ended in failure after retaining all three allowlisted receipt files.
+Independent readback verified source identities against committed CRLF checkout
+forms, receipt hashes, budgets, zero inspected-tool/fetch/build/target counters
+and working-scratch cleanup. The [canonical result](../../validation/pair-resource-enforcement-coverage.md#registry-only-sdk-terminal-result-2026-11-27)
+retains the complete available metadata summary.
+
+The collector stopped during its first pass with value-format. It reported109
+registry API calls,26,496 charged metadata bytes and zero open handles. The two
+uninstall roots reported257 and431 entries before collection. No matching SDK
+product, completed pass digest, second pass or post-enumeration root observation
+was retained. The rejected payload/field and exact formatting defect were not
+exported; the SDK servicing identity remains unavailable, not absent.
+
+**Dispatch1/1 consumed; every unused slot closed.** No inspected tool executed,
+no acquisition/build ran, and no replacement pin/profile was accepted. There is
+no retry, repair, fallback or quota-increase authority. This acquisition task
+closes with an unavailable result; #1176 remains open and Gate1 stays Investigate.
+A source-only review may examine the retained validation boundary before any
+separate, exact new evidence request. No further runner work or build follows.
