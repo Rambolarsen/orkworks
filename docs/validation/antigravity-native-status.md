@@ -10,6 +10,10 @@ status: draft
 
 Supports [the approved design](../superpowers/specs/2026-11-24-antigravity-native-attention-design.md)
 and [#1996](https://github.com/Rambolarsen/orkworks/issues/1996).
+For separate headless resume identity captures and the interrupted interactive
+resume probe, see [resume identity evidence](antigravity-resume-identity.md).
+Those trials do not qualify resumed native attention.
+
 The owner accepted the limited 1.5.16 and 1.5.17 macOS arm64 profiles below for
 source activation on 2026-11-26. The untested cases remain unqualified.
 

@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Antigravity resume identity evidence](antigravity-resume-identity.md) — Pinned 1.5.18 headless continue/exact identity captures, reporter replay, and unqualified interactive resume attention.
+
 - [Antigravity native status qualification](antigravity-native-status.md) — Native terminal evidence for macOS arm64 1.5.16–1.5.18 plus source-build desktop checks: startup permission for 1.5.17, question answering for 1.5.17/1.5.18, and question cancellation/command rejection for 1.5.18; source eligibility and remaining limits stay explicit.
 
 - [Offline workflow evidence boundary replay](workflow-evidence-replay.md) — Explicit-input current Rust policy checks, synthetic controls and unqualified historical/usefulness boundaries.
