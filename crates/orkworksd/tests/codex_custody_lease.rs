@@ -17,10 +17,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use codex_capture_owner::channels::{self, SlotChannels};
-use codex_capture_owner::framing::{self, BindStatus, ControlFrame, ProbeCommitment};
+use codex_capture_owner::framing::{
+    self, BindStatus, ControlFrame, ProbeCommitment, RevalidateVerdict, RootIdentity,
+};
 use codex_capture_owner::lease::{
-    DescriptorLedger, LeaseError, LeasePool, LeaseRoots, RevalidateOutcome,
-    CONTROLLER_DESCRIPTORS_PER_SLOT, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE, GLOBAL_DESCRIPTOR_CAP,
+    DescriptorLedger, LeaseError, LeasePool, RevalidateOutcome, CONTROLLER_DESCRIPTORS_PER_SLOT,
+    DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE, GLOBAL_DESCRIPTOR_CAP,
     MAX_RESOURCE_DESCRIPTORS_PER_SLOT, SLOT_DESCRIPTOR_RESERVATION,
 };
 use codex_capture_owner::pool::{CustodyPool, OwnedChild, MAX_SLOTS, STARTUP_BUDGET};
@@ -78,8 +80,30 @@ impl TempRoots {
         fs::write(self.workspace.join("custody-probe.txt"), contents).unwrap();
     }
 
-    fn open(&self) -> LeaseRoots {
-        LeaseRoots::open(&self.workspace, &self.home, &self.packaged).unwrap()
+    fn identities(&self) -> [RootIdentity; 3] {
+        let (d0, i0) = file_identity(&self.workspace);
+        let (d1, i1) = file_identity(&self.home);
+        let (d2, i2) = file_identity(&self.packaged);
+        [
+            RootIdentity { dev: d0, ino: i0 },
+            RootIdentity { dev: d1, ino: i1 },
+            RootIdentity { dev: d2, ino: i2 },
+        ]
+    }
+
+    fn bind(
+        &self,
+        pool: &mut LeasePool,
+        ttl: Duration,
+        op_deadline: Duration,
+    ) -> Result<codex_capture_owner::lease::LeaseHandle, LeaseError> {
+        pool.bind_and_observe(
+            &self.workspace,
+            &self.home,
+            &self.packaged,
+            ttl,
+            op_deadline,
+        )
     }
 }
 
@@ -243,30 +267,35 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     assert_eq!(init.controller_fds, 16);
     assert_eq!(init.resource_fds, 0);
 
-    let roots = temp.open();
-    let handle1 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let expected_ids = temp.identities();
+    let handle1 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .expect("bind_and_observe on real orkworksd worker");
     let first_pid = handle1.worker_pid();
     let first_expiry = handle1.expires_at();
     assert_eq!(handle1.lease_seq(), 1);
-    assert_eq!(handle1.root_identities(), roots.identities());
+    assert_eq!(handle1.root_identities(), expected_ids);
     assert!(handle1.commitments()[0].present);
     assert_eq!(handle1.commitments()[0].byte_len, 26);
 
     let bound_acct = pool.accounting();
     assert_eq!(bound_acct.bound, 1);
     assert_eq!(bound_acct.idle, 3);
-    assert!(bound_acct.resource_fds > 0);
+    assert_eq!(bound_acct.resource_fds, 6);
 
     // Kernel-bound transfer proof:
-    // 1. Parent NEVER opens or receives the synthetic probe file descriptor.
+    // 1. Parent retains its live root descriptor while bound, and NEVER opens or receives
+    //    the synthetic probe file descriptor.
+    let ws_id = expected_ids[0];
+    assert!(
+        process_has_inode(std::process::id() as i32, ws_id.dev, ws_id.ino),
+        "parent BoundLease must retain live workspace root descriptor while bound"
+    );
     assert!(
         !process_has_inode(std::process::id() as i32, probe_dev, probe_ino),
         "parent must never hold synthetic resource file descriptors"
     );
     // 2. Worker holds the exact transferred workspace root directory inode and 8 open FDs (5 baseline + 3 roots).
-    let ws_id = roots.identities()[0];
     assert!(
         process_has_inode(first_pid as i32, ws_id.dev, ws_id.ino),
         "worker must hold kernel-bound workspace root descriptor while bound"
@@ -290,7 +319,8 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
         probe_ino
     ));
 
-    // Explicit release of Fresh lease #1: worker closes all 3 roots BEFORE ReleaseAck.
+    // Explicit release of Fresh lease #1: worker closes all 3 roots BEFORE ReleaseAck
+    // and parent closes its 3 retained roots BEFORE clearing the ledger charge.
     pool.release(handle1, DEFAULT_OP_DEADLINE)
         .expect("qualified ReleaseAck");
     let after_release = pool.accounting();
@@ -298,7 +328,11 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     assert_eq!(after_release.bound, 0);
     assert_eq!(after_release.resource_fds, 0);
 
-    // Confirm worker's open FDs returned to the exact 5 baseline entries (close-before-ACK).
+    // Confirm both parent and worker closed their root descriptors on release.
+    assert!(
+        !process_has_inode(std::process::id() as i32, ws_id.dev, ws_id.ino),
+        "parent must close its retained root descriptors before clearing ledger charges"
+    );
     let worker_fds_idle = process_open_fds(first_pid as i32).unwrap();
     assert_eq!(
         worker_fds_idle.len(),
@@ -311,8 +345,8 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     );
 
     // Reuse: next bind reuses the EXACT SAME worker PID on slot 0 with lease_seq == 2.
-    let handle2 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle2 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .expect("reuse same worker without restart");
     assert_eq!(handle2.slot(), 0);
     assert_eq!(handle2.worker_pid(), first_pid);
@@ -334,10 +368,15 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     assert_eq!(pool.accounting().idle, MAX_SLOTS);
     assert_eq!(pool.accounting().resource_fds, 0);
     assert_eq!(process_open_fds(first_pid as i32).unwrap().len(), 5);
+    assert!(!process_has_inode(
+        std::process::id() as i32,
+        ws_id.dev,
+        ws_id.ino
+    ));
 
     // Third bind still reuses the exact same worker PID with lease_seq == 3.
-    let handle3 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle3 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(handle3.slot(), 0);
     assert_eq!(handle3.worker_pid(), first_pid);
@@ -349,9 +388,8 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     let target = symlink_temp.base.join("outside.txt");
     fs::write(&target, b"outside").unwrap();
     std::os::unix::fs::symlink(&target, symlink_temp.workspace.join("custody-probe.txt")).unwrap();
-    let symlink_roots = symlink_temp.open();
     assert_eq!(
-        pool.bind_and_observe(&symlink_roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
+        symlink_temp.bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
         Err(LeaseError::ObservationRejected)
     );
     assert_eq!(pool.accounting().idle, MAX_SLOTS);
@@ -360,19 +398,22 @@ fn bind_observe_revalidate_release_and_reuse_same_worker_without_restart() {
     // Oversized probe (> 256 KiB) must be rejected without crashing or leaking worker roots.
     let oversize_temp = TempRoots::create("oversize-reject");
     oversize_temp.write_workspace_probe(&vec![b'x'; 256 * 1024 + 1]);
-    let oversize_roots = oversize_temp.open();
     assert_eq!(
-        pool.bind_and_observe(&oversize_roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
+        oversize_temp.bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
         Err(LeaseError::ObservationRejected)
     );
     assert_eq!(pool.accounting().idle, MAX_SLOTS);
     assert_eq!(pool.accounting().resource_fds, 0);
 
-    // Global 256-FD cap on the live pool rejects bind without evicting or crashing workers.
+    // Global 256-FD cap on the live pool rejects bind BEFORE opening any parent root FDs.
     pool.set_external_fd_charge_for_test(235).unwrap(); // 16 controller + 235 = 251; +7 bind > 256.
     assert_eq!(
-        pool.bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
+        temp.bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE),
         Err(LeaseError::GlobalDescriptorCapExceeded)
+    );
+    assert!(
+        !process_has_inode(std::process::id() as i32, ws_id.dev, ws_id.ino),
+        "rejected bind must not open parent root descriptors"
     );
     assert_eq!(pool.accounting().idle, MAX_SLOTS);
     pool.set_external_fd_charge_for_test(0).unwrap();
@@ -388,7 +429,6 @@ fn nonblocking_saturation_denies_fifth_lease_without_queue_or_eviction() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("saturation");
     temp.write_workspace_probe(b"sat-check");
-    let roots = temp.open();
 
     let mut pool = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -399,7 +439,7 @@ fn nonblocking_saturation_denies_fifth_lease_without_queue_or_eviction() {
     let mut handles = Vec::new();
     for _ in 0..MAX_SLOTS {
         handles.push(
-            pool.bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+            temp.bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
                 .unwrap(),
         );
     }
@@ -410,7 +450,7 @@ fn nonblocking_saturation_denies_fifth_lease_without_queue_or_eviction() {
 
     // 5th acquisition fails immediately (nonblocking, no queue, no eviction).
     let start = Instant::now();
-    let fifth = pool.bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE);
+    let fifth = temp.bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE);
     assert_eq!(fifth, Err(LeaseError::Unavailable));
     assert!(
         start.elapsed() < Duration::from_millis(200),
@@ -429,8 +469,8 @@ fn nonblocking_saturation_denies_fifth_lease_without_queue_or_eviction() {
     let freed = handles.remove(1);
     let freed_pid = freed.worker_pid();
     pool.release(freed, DEFAULT_OP_DEADLINE).unwrap();
-    let replacement = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let replacement = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(replacement.worker_pid(), freed_pid);
     handles.push(replacement);
@@ -452,7 +492,6 @@ fn forged_stale_and_cross_pool_handles_are_rejected() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("forged");
     temp.write_workspace_probe(b"forged-check");
-    let roots = temp.open();
 
     let mut pool_a = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -465,11 +504,11 @@ fn forged_stale_and_cross_pool_handles_are_rejected() {
         STARTUP_BUDGET,
     );
 
-    let handle_a = pool_a
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle_a = temp
+        .bind(&mut pool_a, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
-    let handle_b = pool_b
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle_b = temp
+        .bind(&mut pool_b, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
 
     // Cross-pool (restart / different sidecar) handle must be rejected.
@@ -526,7 +565,6 @@ fn checked_sequence_overflow_retires_slot_permanently() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("seq-overflow");
     temp.write_workspace_probe(b"seq-overflow-payload");
-    let roots = temp.open();
 
     let mut pool = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -536,8 +574,8 @@ fn checked_sequence_overflow_retires_slot_permanently() {
 
     // 1. Lease sequence exhaustion: bind with lease_seq == u64::MAX, release -> slot 0 retires cleanly.
     pool.set_slot_next_lease_seq_for_test(0, Some(u64::MAX));
-    let h0 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let h0 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(h0.slot(), 0);
     assert_eq!(h0.lease_seq(), u64::MAX);
@@ -554,8 +592,8 @@ fn checked_sequence_overflow_retires_slot_permanently() {
     assert_eq!(acct_after_lease_overflow.controller_fds, 12);
 
     // 2. Op sequence exhaustion on slot 1: next revalidate fails closed and permanently retires slot 1.
-    let h1 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let h1 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(h1.slot(), 1);
     pool.set_slot_last_op_seq_for_test(1, u64::MAX);
@@ -580,7 +618,6 @@ fn expired_lease_refuses_revalidate_invalidates_first_and_drains() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("expiry");
     temp.write_workspace_probe(b"expiry-check");
-    let roots = temp.open();
 
     let mut pool = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -589,8 +626,8 @@ fn expired_lease_refuses_revalidate_invalidates_first_and_drains() {
     );
 
     // 1. Parent-enforced expiry: invalidates immediately, refuses Revalidate, drains slot back to Idle.
-    let handle = pool
-        .bind_and_observe(&roots, Duration::from_millis(80), DEFAULT_OP_DEADLINE)
+    let handle = temp
+        .bind(&mut pool, Duration::from_millis(80), DEFAULT_OP_DEADLINE)
         .unwrap();
     let pid = handle.worker_pid();
     thread::sleep(Duration::from_millis(120));
@@ -603,8 +640,8 @@ fn expired_lease_refuses_revalidate_invalidates_first_and_drains() {
     assert_eq!(pool.accounting().resource_fds, 0);
 
     // Worker process was cleanly drained and is reusable.
-    let reused = pool
-        .bind_and_observe(&roots, Duration::from_millis(80), DEFAULT_OP_DEADLINE)
+    let reused = temp
+        .bind(&mut pool, Duration::from_millis(80), DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(reused.worker_pid(), pid);
 
@@ -628,7 +665,6 @@ fn cancel_invalidates_immediately_and_drains_worker_to_idle() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("cancel");
     temp.write_workspace_probe(b"cancel-check");
-    let roots = temp.open();
 
     let mut pool = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -636,8 +672,8 @@ fn cancel_invalidates_immediately_and_drains_worker_to_idle() {
         STARTUP_BUDGET,
     );
 
-    let handle = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     let copy = handle.clone();
     pool.cancel_and_drain(handle, DEFAULT_OP_DEADLINE).unwrap();
@@ -658,7 +694,6 @@ fn hung_real_worker_during_bind_revalidate_and_release_is_terminated_reaped_and_
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("hung");
     temp.write_workspace_probe(b"hung-check");
-    let roots = temp.open();
 
     let mut pool = LeasePool::start_for_executable(
         orkworksd_bin(),
@@ -670,7 +705,7 @@ fn hung_real_worker_during_bind_revalidate_and_release_is_terminated_reaped_and_
     let pid0 = pool.slot_pid(0).unwrap();
     // SAFETY: pid0 is our owned child process.
     assert_eq!(unsafe { libc::kill(pid0 as i32, libc::SIGSTOP) }, 0);
-    let err0 = pool.bind_and_observe(&roots, DEFAULT_LEASE_TTL, Duration::from_millis(150));
+    let err0 = temp.bind(&mut pool, DEFAULT_LEASE_TTL, Duration::from_millis(150));
     assert!(
         matches!(err0, Err(LeaseError::OperationTimedOut)),
         "expected timeout on stopped worker 0, got {err0:?}"
@@ -680,8 +715,8 @@ fn hung_real_worker_during_bind_revalidate_and_release_is_terminated_reaped_and_
     assert_eq!(pool.accounting().resource_fds, 0);
 
     // 2. Bind worker 1, then SIGSTOP before Revalidate -> invalidate first, timeout, SIGKILL + reap, retire.
-    let h1 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let h1 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(h1.slot(), 1);
     let pid1 = h1.worker_pid();
@@ -698,8 +733,8 @@ fn hung_real_worker_during_bind_revalidate_and_release_is_terminated_reaped_and_
     assert_eq!(pool.accounting().resource_fds, 0);
 
     // 3. Bind worker 2, then SIGSTOP before Release -> invalidate first, timeout, SIGKILL + reap, retire.
-    let h2 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let h2 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(h2.slot(), 2);
     let h2_copy = h2.clone();
@@ -717,8 +752,8 @@ fn hung_real_worker_during_bind_revalidate_and_release_is_terminated_reaped_and_
     assert_eq!(pool.accounting().resource_fds, 0);
 
     // 4. Surviving slot 3 remains completely functional and never replaced any retired slot.
-    let h3 = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let h3 = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(h3.slot(), 3);
     assert_eq!(
@@ -737,8 +772,7 @@ fn stale_release_ack_is_rejected_and_quarantines_worker_permanently() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("stale-ack");
     temp.write_workspace_probe(b"stale-ack-check");
-    let roots = temp.open();
-    let expected_ids = roots.identities();
+    let expected_ids = temp.identities();
     let build = codex_capture_owner::build_identity();
 
     // Spawn 1 synthetic misbehaving worker on slot 0 (real sleep child + in-process
@@ -861,8 +895,8 @@ fn stale_release_ack_is_rejected_and_quarantines_worker_permanently() {
     let mut pool = LeasePool::from_custody_pool(custody);
     assert_eq!(pool.accounting().idle, 1);
 
-    let handle = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    let handle = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     let err = pool.release(handle, DEFAULT_OP_DEADLINE);
     assert_eq!(err, Err(LeaseError::StaleReleaseAck));
@@ -1073,7 +1107,6 @@ fn booting_and_cleanup_unconfirmed_slots_retain_charges_until_reconciled() {
     let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
     let temp = TempRoots::create("reconcile");
     temp.write_workspace_probe(b"reconcile-check");
-    let roots = temp.open();
     let bin = orkworksd_bin().to_path_buf();
     let build = codex_capture_owner::build_identity();
 
@@ -1136,11 +1169,11 @@ fn booting_and_cleanup_unconfirmed_slots_retain_charges_until_reconciled() {
     assert_eq!(after_boot_reconcile.retired, 3);
     assert_eq!(after_boot_reconcile.controller_fds, 4);
 
-    // Now bind slot 0 (charging 6 resource FDs) and quarantine with zero wait budget
-    // so if cleanup is initially unconfirmed, BOTH controller (4) and resource (6) FDs
-    // stay charged until reconcile_unconfirmed() confirms reap.
-    let _handle = pool
-        .bind_and_observe(&roots, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
+    // Now bind slot 0 (charging 6 resource FDs: 3 parent + 3 worker) and quarantine
+    // with zero wait budget. Parent roots close immediately while unconfirmed worker
+    // cleanup retains 4 controller + 3 worker root FDs until reconcile_unconfirmed() confirms reap.
+    let _handle = temp
+        .bind(&mut pool, DEFAULT_LEASE_TTL, DEFAULT_OP_DEADLINE)
         .unwrap();
     assert_eq!(pool.accounting().bound, 1);
     assert_eq!(pool.accounting().resource_fds, 6);
@@ -1148,8 +1181,8 @@ fn booting_and_cleanup_unconfirmed_slots_retain_charges_until_reconciled() {
     let after_zero_wait = pool.accounting();
     if after_zero_wait.cleanup_unconfirmed == 1 {
         assert_eq!(after_zero_wait.controller_fds, 4);
-        assert_eq!(after_zero_wait.resource_fds, 6);
-        assert_eq!(after_zero_wait.total_fds, 10);
+        assert_eq!(after_zero_wait.resource_fds, 3);
+        assert_eq!(after_zero_wait.total_fds, 7);
     }
 
     let reap_deadline = Instant::now() + Duration::from_secs(2);
@@ -1163,4 +1196,168 @@ fn booting_and_cleanup_unconfirmed_slots_retain_charges_until_reconciled() {
     assert_eq!(final_acct.controller_fds, 0);
     assert_eq!(final_acct.resource_fds, 0);
     assert_eq!(final_acct.total_fds, 0);
+}
+
+#[test]
+fn late_fresh_revalidate_reply_after_parent_expiry_is_rejected_and_drains() {
+    let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempRoots::create("late-fresh");
+    temp.write_workspace_probe(b"late-fresh-check");
+    let expected_ids = temp.identities();
+    let build = codex_capture_owner::build_identity();
+
+    // Synthetic peer thread delays its Revalidate(Fresh) reply past the parent's
+    // 100ms lease expiry, then handles Release cleanly.
+    let (peer_tx, peer_rx) = std::sync::mpsc::channel();
+    let custody = CustodyPool::start_with_slot_hook(
+        build,
+        Duration::from_secs(3),
+        Duration::from_millis(250),
+        move |slot, request_rx_fd, response_tx_fd| {
+            if slot != 0 {
+                return Err(io::Error::other("unused test slot"));
+            }
+            // SAFETY: request_rx_fd and response_tx_fd are open during hook invocation.
+            let dup_req = unsafe { libc::fcntl(request_rx_fd, libc::F_DUPFD_CLOEXEC, 3) };
+            let dup_res = unsafe { libc::fcntl(response_tx_fd, libc::F_DUPFD_CLOEXEC, 3) };
+            assert!(dup_req >= 3 && dup_res >= 3);
+            // SAFETY: dup_req and dup_res are newly allocated FDs owned here.
+            let req_stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(dup_req) });
+            let res_fd = unsafe { OwnedFd::from_raw_fd(dup_res) };
+
+            let child = Command::new("/bin/sleep")
+                .arg("30")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let pid = child.id() as libc::pid_t;
+            std::mem::forget(child);
+            let owned_child = OwnedChild::try_from_pid(pid)?;
+
+            let join = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                let challenge =
+                    framing::read_bootstrap_frame(req_stream.as_fd(), deadline).unwrap();
+                let mut ready = challenge;
+                ready[5] = 2;
+                framing::write_bootstrap_frame(res_fd.as_fd(), &ready, deadline).unwrap();
+
+                let (frame, fds) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                        .unwrap()
+                        .unwrap();
+                let ControlFrame::BindAndObserve {
+                    lease_id,
+                    lease_seq,
+                    op_seq,
+                    ..
+                } = frame
+                else {
+                    panic!("expected BindAndObserve");
+                };
+                framing::write_control_frame(
+                    res_fd.as_fd(),
+                    &ControlFrame::BindObserved {
+                        lease_id,
+                        lease_seq,
+                        op_seq,
+                        status: BindStatus::Observed,
+                        root_identities: expected_ids,
+                        probe_commitments: [ProbeCommitment::absent(); 3],
+                    },
+                    deadline,
+                )
+                .unwrap();
+
+                // Receive Revalidate before parent expiry, sleep past expiry, then reply Fresh.
+                let (rev_frame, _) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                        .unwrap()
+                        .unwrap();
+                let ControlFrame::Revalidate {
+                    lease_id,
+                    lease_seq,
+                    op_seq,
+                } = rev_frame
+                else {
+                    panic!("expected Revalidate");
+                };
+                thread::sleep(Duration::from_millis(160));
+                framing::write_control_frame(
+                    res_fd.as_fd(),
+                    &ControlFrame::Revalidated {
+                        lease_id,
+                        lease_seq,
+                        op_seq,
+                        verdict: RevalidateVerdict::Fresh,
+                    },
+                    deadline,
+                )
+                .unwrap();
+
+                // Parent must immediately drain via Release; respond with qualified ReleaseAck.
+                let (rel_frame, _) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                        .unwrap()
+                        .unwrap();
+                let ControlFrame::Release {
+                    lease_id,
+                    lease_seq,
+                    op_seq,
+                } = rel_frame
+                else {
+                    panic!("expected Release after post-RPC expiry rejection");
+                };
+                drop(fds);
+                framing::write_control_frame(
+                    res_fd.as_fd(),
+                    &ControlFrame::ReleaseAck {
+                        lease_id,
+                        lease_seq,
+                        op_seq,
+                    },
+                    deadline,
+                )
+                .unwrap();
+
+                // Wait for Shutdown or EOF cleanly.
+                if let Ok(Some((ControlFrame::Shutdown, _))) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                {
+                    let _ = framing::write_control_frame(
+                        res_fd.as_fd(),
+                        &ControlFrame::ShutdownAck,
+                        deadline,
+                    );
+                }
+            });
+            peer_tx.send(join).unwrap();
+            Ok(owned_child)
+        },
+    );
+
+    let mut pool = LeasePool::from_custody_pool(custody);
+    let handle = temp
+        .bind(&mut pool, Duration::from_millis(100), DEFAULT_OP_DEADLINE)
+        .unwrap();
+    assert!(pool.is_handle_usable(&handle));
+
+    // Revalidate starts before 100ms expiry, but Fresh arrives at ~160ms (> 100ms).
+    assert_eq!(
+        pool.revalidate(&handle, DEFAULT_OP_DEADLINE),
+        Err(LeaseError::Expired)
+    );
+    assert!(!pool.is_handle_usable(&handle));
+    assert_eq!(pool.accounting().idle, 1);
+    assert_eq!(pool.accounting().bound, 0);
+    assert_eq!(pool.accounting().resource_fds, 0);
+    assert!(!process_has_inode(
+        std::process::id() as i32,
+        expected_ids[0].dev,
+        expected_ids[0].ino
+    ));
+
+    let _ = pool.shutdown(Duration::from_secs(2));
+    peer_rx.recv().unwrap().join().unwrap();
 }

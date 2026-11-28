@@ -329,21 +329,25 @@ Endpoint, EOF, and extra-data rules:
 
 Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
 `cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_lease`,
-17 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+18 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
 `codex_custody_slots`, `codex_custody_entry`, and `codex_custody_worker`):
 
 - `DescriptorLedger` and live `LeasePool` enforced the 16-descriptor per-slot
   reservation (4 controller + up to 12 resource FDs with no cross-slot
   borrowing) and the 256 global descriptor ceiling across active, booting,
-  draining, and unconfirmed charges without evicting live leases, including
-  nonblocking reconciliation of late `Booting` and `CleanupUnconfirmed` slots.
+  draining, and unconfirmed charges without evicting live leases, reserving
+  quota before opening parent root descriptors, binding parent-root ownership
+  into the live lease (closing them before clearing ledger charges), and
+  nonblockingly reconciling late `Booting` and `CleanupUnconfirmed` slots.
 - Real `orkworksd` workers completed `BindAndObserve` (3 kernel-bound
   `O_DIRECTORY` roots via `SCM_RIGHTS`, matched by `(st_dev, st_ino)`),
-  `Revalidate` (`Fresh` unchanged without renewing expiry; `Changed` after
-  workspace probe mutation immediately invalidating handle usability and
-  draining the worker back to `Idle`), `Release` (verified via child
-  `PROC_PIDLISTFDS` returning from 8 open FDs back to the exact 5 baseline FDs
-  `{0, 1, 2, request_rx, response_tx}` before `ReleaseAck`), and immediate
+  `Revalidate` (`Fresh` unchanged without renewing expiry, with post-RPC
+  parent expiry recheck rejecting late `Fresh` replies arriving past expiry;
+  `Changed` after workspace probe mutation immediately invalidating handle
+  usability and draining the worker back to `Idle`), `Release` (verified via
+  child `PROC_PIDLISTFDS` returning from 8 open FDs back to the exact 5
+  baseline FDs `{0, 1, 2, request_rx, response_tx}` before `ReleaseAck`, and
+  parent closing its retained roots before clearing charges), and immediate
   reuse on the same worker PID (`lease_seq` advancing `1 -> 2 -> 3`) without
   restart. Parent `PROC_PIDLISTFDS` never contained the synthetic probe file
   inode.

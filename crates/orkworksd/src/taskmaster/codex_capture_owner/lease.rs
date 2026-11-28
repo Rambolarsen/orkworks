@@ -37,6 +37,9 @@ pub(crate) const DEFAULT_OP_DEADLINE: Duration = Duration::from_secs(3);
 const SYNTHETIC_BIND_PEAK_RESOURCE_FDS: usize = 7;
 /// Steady-state bound charge: parent-retained roots (3) + worker copies (3).
 const SYNTHETIC_BOUND_RESOURCE_FDS: usize = 6;
+/// Worker-held roots (3) retained in ledger if parent roots are closed while
+/// worker cleanup remains unconfirmed.
+const WORKER_HELD_ROOT_FDS: usize = ROOT_ROLE_COUNT;
 const QUARANTINE_CLEANUP_WAIT: Duration = Duration::from_millis(250);
 const RETIRE_SHUTDOWN_BUDGET: Duration = Duration::from_millis(500);
 
@@ -45,6 +48,7 @@ pub(crate) enum LeaseError {
     Unavailable,
     SlotDescriptorQuotaExceeded,
     GlobalDescriptorCapExceeded,
+    RootOpenFailed,
     InvalidHandle,
     Expired,
     ObservationRejected,
@@ -309,6 +313,9 @@ struct BoundLease {
     lease_seq: u64,
     last_op_seq: u64,
     expires_at: Instant,
+    /// Parent-retained live root directory descriptors owned for the exact
+    /// lifetime of this lease and closed before releasing their ledger charge.
+    _roots: LeaseRoots,
 }
 
 enum SlotLeaseState {
@@ -415,12 +422,15 @@ impl LeasePool {
             && Instant::now() < bound.expires_at
     }
 
-    /// Nonblocking acquisition of an `Idle` worker slot, transferring the exact
-    /// three parent-opened root directories via `SCM_RIGHTS` and reading pure
-    /// commitment bytes back from the slot's OS `pipe()`.
+    /// Nonblocking acquisition of an `Idle` worker slot. Reserves slot and global
+    /// descriptor quota before opening the three parent root directories,
+    /// transfers them via `SCM_RIGHTS`, binds ownership of the parent roots into
+    /// the live lease, and reads pure commitment bytes back from the slot's OS `pipe()`.
     pub(crate) fn bind_and_observe(
         &mut self,
-        roots: &LeaseRoots,
+        workspace: &Path,
+        home: &Path,
+        packaged: &Path,
         ttl: Duration,
         op_deadline: Duration,
     ) -> Result<LeaseHandle, LeaseError> {
@@ -443,7 +453,8 @@ impl LeasePool {
             return Err(LeaseError::Unavailable);
         };
 
-        // Reserve peak synthetic resource descriptors under slot (<=12) and global (<=256) caps.
+        // Reserve peak synthetic resource descriptors under slot (<=12) and global (<=256)
+        // caps BEFORE opening any parent root descriptors.
         self.ledger
             .try_charge_slot_resources(slot, SYNTHETIC_BIND_PEAK_RESOURCE_FDS)?;
 
@@ -452,6 +463,14 @@ impl LeasePool {
             self.states[slot] = SlotLeaseState::Retired;
             self.ledger.release_controller_slot(slot);
             return Err(LeaseError::Unavailable);
+        };
+
+        let roots = match LeaseRoots::open(workspace, home, packaged) {
+            Ok(roots) => roots,
+            Err(_) => {
+                self.ledger.release_slot_resources(slot);
+                return Err(LeaseError::RootOpenFailed);
+            }
         };
 
         let lease_seq = self.next_lease_seq[slot].expect("checked non-None");
@@ -490,10 +509,12 @@ impl LeasePool {
         let reply = match rpc {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
+                drop(roots);
                 self.quarantine_and_record(slot);
                 return Err(err);
             }
             None => {
+                drop(roots);
                 self.quarantine_and_record(slot);
                 return Err(LeaseError::WorkerExited);
             }
@@ -509,6 +530,7 @@ impl LeasePool {
                 probe_commitments,
             } if ack_id == lease_id && ack_lease_seq == lease_seq && ack_op_seq == op_seq => {
                 if root_identities != roots.identities() {
+                    drop(roots);
                     self.quarantine_and_record(slot);
                     return Err(LeaseError::ProtocolViolation);
                 }
@@ -523,6 +545,7 @@ impl LeasePool {
                             lease_seq,
                             last_op_seq: op_seq,
                             expires_at,
+                            _roots: roots,
                         });
                         Ok(LeaseHandle {
                             pool_id: self.pool_id,
@@ -537,6 +560,8 @@ impl LeasePool {
                         })
                     }
                     BindStatus::Rejected => {
+                        // Close parent root descriptors before releasing their ledger charge.
+                        drop(roots);
                         self.ledger.release_slot_resources(slot);
                         if self.next_lease_seq[slot].is_none() {
                             self.retire_exhausted_slot(slot);
@@ -548,6 +573,7 @@ impl LeasePool {
                 }
             }
             _ => {
+                drop(roots);
                 self.quarantine_and_record(slot);
                 Err(LeaseError::ProtocolViolation)
             }
@@ -577,6 +603,7 @@ impl LeasePool {
 
         let mut bound = self.take_bound_into_busy(slot);
         let Some(op_seq) = bound.last_op_seq.checked_add(1) else {
+            drop(bound);
             self.quarantine_and_record(slot);
             return Err(LeaseError::SequenceExhausted);
         };
@@ -608,10 +635,12 @@ impl LeasePool {
         let reply = match rpc {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 return Err(err);
             }
             None => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 return Err(LeaseError::WorkerExited);
             }
@@ -632,6 +661,14 @@ impl LeasePool {
             {
                 match verdict {
                     RevalidateVerdict::Fresh => {
+                        // Recheck parent-authoritative expiry AFTER receiving the response
+                        // so a reply arriving past expiry never restores Bound or reports Fresh.
+                        if Instant::now() >= bound.expires_at {
+                            self.states[slot] = SlotLeaseState::Draining;
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+                            let _ = self.execute_release(slot, bound, remaining);
+                            return Err(LeaseError::Expired);
+                        }
                         self.states[slot] = SlotLeaseState::Bound(bound);
                         Ok(RevalidateOutcome::Fresh)
                     }
@@ -652,12 +689,14 @@ impl LeasePool {
                         Err(LeaseError::Expired)
                     }
                     RevalidateVerdict::Invalid => {
+                        drop(bound);
                         self.quarantine_and_record(slot);
                         Err(LeaseError::ProtocolViolation)
                     }
                 }
             }
             _ => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 Err(LeaseError::ProtocolViolation)
             }
@@ -718,11 +757,17 @@ impl LeasePool {
     }
 
     pub(crate) fn quarantine_slot_for_test(&mut self, slot: usize, cleanup_wait: Duration) {
+        if matches!(self.states.get(slot), Some(SlotLeaseState::Bound(_))) {
+            // Drop parent-retained roots immediately; unconfirmed worker retains its 3 roots.
+            self.states[slot] = SlotLeaseState::Draining;
+        }
         if self.custody.quarantine_slot(slot, cleanup_wait) {
             self.states[slot] = SlotLeaseState::Retired;
             self.ledger.release_slot_resources(slot);
             self.ledger.release_controller_slot(slot);
         } else {
+            self.ledger
+                .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
             self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
         }
     }
@@ -788,6 +833,7 @@ impl LeasePool {
         op_deadline: Duration,
     ) -> Result<(), LeaseError> {
         let Some(op_seq) = bound.last_op_seq.checked_add(1) else {
+            drop(bound);
             self.quarantine_and_record(slot);
             return Err(LeaseError::SequenceExhausted);
         };
@@ -819,10 +865,12 @@ impl LeasePool {
         let reply = match rpc {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 return Err(err);
             }
             None => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 return Err(LeaseError::WorkerExited);
             }
@@ -837,6 +885,8 @@ impl LeasePool {
                 && lease_seq == bound.lease_seq
                 && ack_op_seq == op_seq =>
             {
+                // Close parent-retained root descriptors BEFORE clearing their ledger charge.
+                drop(bound);
                 self.ledger.release_slot_resources(slot);
                 if self.next_lease_seq[slot].is_none() {
                     self.retire_exhausted_slot(slot);
@@ -846,10 +896,12 @@ impl LeasePool {
                 Ok(())
             }
             ControlFrame::ReleaseAck { .. } => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 Err(LeaseError::StaleReleaseAck)
             }
             _ => {
+                drop(bound);
                 self.quarantine_and_record(slot);
                 Err(LeaseError::ProtocolViolation)
             }
@@ -875,7 +927,10 @@ impl LeasePool {
             self.ledger.release_slot_resources(slot);
             self.ledger.release_controller_slot(slot);
         } else {
-            // Retain controller and unconfirmed resource charges until confirmed reap.
+            // Parent root descriptors have been closed; retain controller (4)
+            // and unconfirmed worker root charges (3) until confirmed reap.
+            self.ledger
+                .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
             self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
         }
     }
@@ -885,6 +940,8 @@ impl LeasePool {
             if self.custody.slot_is_pending_spawn(slot) {
                 self.states[slot] = SlotLeaseState::Booting;
             } else if self.custody.slot_is_cleanup_unconfirmed(slot) {
+                self.ledger
+                    .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
                 self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
             } else {
                 self.states[slot] = SlotLeaseState::Retired;
