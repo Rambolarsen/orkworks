@@ -586,7 +586,7 @@ export default function ApplicationShell(props: Props) {
           if (!(event.target instanceof HTMLElement)) return;
           const fromList = event.target.id === "sessions-list"
             || (event.target.closest(".session-context-menu") && document.activeElement?.id === "sessions-list");
-          if (!fromList) return;
+          if (!fromList || !event.currentTarget.querySelector('#sessions-list [data-selected="true"]')) return;
           const resume = rootRef.current?.querySelector<HTMLButtonElement>(enabledResumeButton);
           if (!resume) return;
           resume.focus();
