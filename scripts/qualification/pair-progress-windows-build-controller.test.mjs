@@ -335,3 +335,21 @@ test('unconfirmed termination cannot authorize scratch cleanup',async()=>{
  const b=new m.WorkBudget({streamLimit:0}),r=new m.CommandRunner(b,{spawnProcess:()=>{child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();child.pid=44;child.exitCode=null;child.signalCode=null;return child;},terminate:()=>false});
  const p=r.run('owned',[],{timeout:1000});child.stdout.emit('data',Buffer.from('x'));child.emit('close',1);await assert.rejects(p);assert.equal(r.drained,false);
 });
+
+test('success publication rejects active expiry before and during commit',()=>{
+ need();for(const crossDuringWrite of [false,true]){
+  let now=0;const b=new m.WorkBudget({clock:()=>now,seconds:1});const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'progress-expiry-'))),source=path.join(dir,'source'),out=path.join(dir,'out');fs.mkdirSync(out);fs.writeFileSync(source,'abc');
+  const result={schema:3,evidence_kind:'progress-sidecar-candidate',success:true,reader_traces:[]};
+  const write=fs.writeFileSync;
+  try{if(crossDuringWrite)fs.writeFileSync=(file,...rest)=>{const x=write(file,...rest);if(String(file)===path.join(out,'inputs.json'))now=1000;return x;};else now=1000;
+   m.publishEvidence(out,result,crossDuringWrite?{'inputs.json':source}:{},b);
+   const receipt=JSON.parse(fs.readFileSync(path.join(out,'result.json')));assert.equal(receipt.success,false);assert.equal(receipt.candidate_evidence_complete,false);assert.equal(fs.existsSync(path.join(out,'inputs.json')),false);
+  }finally{fs.writeFileSync=write;fs.rmSync(dir,{recursive:true});}
+ }
+});
+test('publication precharges commitments before hashing bytes',async()=>{
+ need();const crypto=(await import('node:crypto')).default,original=crypto.createHash,events=[];const b=new m.WorkBudget(),charge=b.hash.bind(b);b.hash=n=>{events.push(['charge',n]);charge(n);};
+ const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'progress-precharge-'))),source=path.join(dir,'source'),out=path.join(dir,'out');fs.mkdirSync(out);fs.writeFileSync(source,'abc');
+ try{crypto.createHash=(...args)=>{events.push(['digest']);return original(...args);};m.publishEvidence(out,{schema:3,success:true},{'inputs.json':source},b);assert.ok(events.findIndex(e=>e[0]==='charge'&&e[1]===65539)<events.findIndex(e=>e[0]==='digest'));}
+ finally{crypto.createHash=original;fs.rmSync(dir,{recursive:true});}
+});

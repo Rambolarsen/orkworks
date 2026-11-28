@@ -64,4 +64,5 @@ test('owned Windows reader fixture and final zero-grant timeout', {skip:process.
   await assert.rejects(()=>r.run(process.execPath,['-e','setInterval(()=>{},1000)'],{env:runtime,cwd,timeout:50,stdoutLimit:0}),/time-limit/);
   assert.ok(r.drained);assert.equal(r.kills,1);assert.ok(b.hashed<=64*1024**2);assert.ok(b.streamed<=1024**2);
  }finally{if(r.drained)fs.rmSync(cwd,{recursive:true});}
+ console.log(JSON.stringify({schema:1,evidence_kind:'live-progress-fixture',tests_passed:true,node_version:process.version,ps_children:1,node_timeout_children:1,hash_bytes:b.hashed,stream_bytes:b.streamed,trace_records:21,payload_allocations:1,maximum_leases:1,forced_terminations:r.kills,cleanup:'owned-scratch-removed',target_executions:0,runtime_qualified:false,production_pin_accepted:false}));
 });

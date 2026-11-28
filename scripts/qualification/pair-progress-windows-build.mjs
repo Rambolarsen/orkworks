@@ -374,29 +374,37 @@ export function publishEvidence(directory,result,files,budget,limit=256*MiB,sdk)
 }
 function publishBuffers(directory,result,data,budget,limit=256*MiB,sdk){
  let resultCharged=false;
- const publish=(buffers)=>{
-  let total=0;const commitments={};
+ const clock=()=>result.success?budget.check():budget.emergency();
+ const publish=buffers=>{
+  clock();let total=0;const commitments={};
   for(const [name,bytes]of Object.entries(buffers)){
-   need(allowed.includes(name),'foreign-evidence');total+=bytes.length;need(total+65536<=limit,'evidence-limit');
-   if(name==='sdk-record.json')sdk?.receipt(bytes.length);commitments[name]={bytes:bytes.length,sha256:sha(bytes)};
+   need(allowed.includes(name)&&Buffer.isBuffer(bytes),'foreign-evidence');total+=bytes.length;need(total+65536<=limit,'evidence-limit');
   }
+  // One atomic precharge precedes every commitment hash and final-result encoding.
   budget.hash(total+65536);resultCharged=true;
+  for(const [name,bytes]of Object.entries(buffers)){
+   clock();if(name==='sdk-record.json')sdk?.receipt(bytes.length);
+   commitments[name]={bytes:bytes.length,sha256:sha(bytes)};
+  }
   Object.assign(result,authority(result.success));result.files=commitments;result.stream_bytes=budget.streamed;
   if(sdk)result.sdk_hash_bytes_charged=sdk.hash;
-  // Charge the full bounded result commitment allowance before encoding/publication.
   result.hash_bytes_charged=budget.hashed;const bytes=encodeResult(result);
-  need(total+bytes.length<=limit,'evidence-limit');
-  for(const [name,value]of Object.entries(buffers))fs.writeFileSync(path.join(directory,name),value,{flag:'wx'});
-  fs.writeFileSync(path.join(directory,'result.json'),bytes,{flag:'wx'});
+  need(total+bytes.length<=limit,'evidence-limit');clock();
+  for(const [name,value]of Object.entries(buffers)){clock();fs.writeFileSync(path.join(directory,name),value,{flag:'wx'});clock();}
+  clock();fs.writeFileSync(path.join(directory,'result.json'),bytes,{flag:'wx'});clock();
  };
- try{if(!result.success){for(const n of Object.keys(data))if(n!=='sdk-record.json')delete data[n];budget.emergency();}publish(data);}
- catch{
-  result.success=false;Object.assign(result,authority(false));result.reason='evidence-limit';if(!publicationAvailable(budget,result)){unavailablePublication(result);return;}
+ try{
+  if(!result.success){for(const n of Object.keys(data))if(n!=='sdk-record.json')delete data[n];budget.emergency();}
+  publish(data);
+ }catch(error){
+  result.success=false;Object.assign(result,authority(false));result.reason=error.message==='time-limit'?'active-publication-expired':'evidence-limit';
+  if(!publicationAvailable(budget,result)){unavailablePublication(result);return;}
   for(const n of [...allowed,'result.json']){try{fs.rmSync(path.join(directory,n),{force:true});}catch{}}
-  // Full trace is retained; bulk command/manifest details may be omitted from a failed receipt.
+  // Full trace and bounded SDK observations survive receipt-only publication.
   const receipt={schema:3,evidence_kind:'progress-sidecar-candidate',success:false,...authority(false),reason:result.reason,run_id:result.run_id,implementation_sha:result.implementation_sha,cleanup:result.cleanup,sdk_observed:result.sdk_observed,sdk_last_report:result.sdk_last_report,sdk_invocations:result.sdk_invocations,sdk_work_unknown:result.sdk_work_unknown===true,reader_traces:result.reader_traces??[],hash_work_unknown:result.hash_work_unknown===true,hash_bytes_charged:budget.hashed,stream_bytes:budget.streamed};
   if(!resultCharged)budget.hash(65536);receipt.hash_bytes_charged=budget.hashed;
-  fs.writeFileSync(path.join(directory,'result.json'),encodeResult(receipt),{flag:'wx'});
+  budget.emergency();fs.writeFileSync(path.join(directory,'result.json'),encodeResult(receipt),{flag:'wx'});
+  if(!publicationAvailable(budget,result))unavailablePublication(result);
  }
 }
 export function assertDispatch(e, platform) {
