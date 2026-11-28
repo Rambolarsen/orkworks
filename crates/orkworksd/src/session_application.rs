@@ -7531,14 +7531,10 @@ async fn create_session_workflow(
                 }
             }
             match workspace.as_ref() {
-                Some(ws) if ws.path != metadata_git_cwd => {
-                    if image_bundle.is_some() {
-                        return Err(SessionError::Conflict);
-                    }
-                    ws.path.clone()
-                }
-                None if image_bundle.is_some() => return Err(SessionError::Conflict),
-                _ => break workspace,
+                Some(ws) if ws.path == metadata_git_cwd => break workspace,
+                _ if image_bundle.is_some() => return Err(SessionError::Conflict),
+                Some(ws) => ws.path.clone(),
+                None => break workspace,
             }
         };
         meta_git_ctx = scan_git(next_cwd.clone()).await?;
