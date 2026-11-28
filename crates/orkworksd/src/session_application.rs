@@ -6867,16 +6867,14 @@ async fn resume_session_workflow(
         resume_in_progress: false,
         capacity: crate::capacity_state::CapacityState::pending(capacity_check_pending),
     };
-    let mut admission = match try_install_claimed_resume_handle(
+    let mut admission = try_install_claimed_resume_handle(
         &state,
         &id,
         replacement,
         meta.lifecycle_phase == "ended",
         expected_generation,
-    ) {
-        Ok(admission) => admission,
-        Err(()) => return Err(crate::session_application::SessionError::Conflict),
-    };
+    )
+    .map_err(|()| SessionError::Conflict)?;
     let run_generation = admission.generation();
 
     {
@@ -6894,8 +6892,7 @@ async fn resume_session_workflow(
             // would replay the new run's output against a stale grid. Clearing
             // falls back to documented fit-to-container replay for that case.
             ws.metadata.clear_terminal_size(&id);
-            let stored = ws
-                .metadata
+            ws.metadata
                 .mutate_session(&id, WriteScope::ATTENTION, |stored_meta| {
                     stored_meta.status = "creating".to_string();
                     stored_meta.lifecycle_phase = "creating".to_string();
@@ -6930,10 +6927,8 @@ async fn resume_session_workflow(
                     }
                     stored_meta.resumed_from = meta.resumed_from.clone();
                     Ok(())
-                });
-            if stored.is_err() {
-                return Err(SessionError::Internal("resume metadata write failed"));
-            }
+                })
+                .map_err(|_| SessionError::Internal("resume metadata write failed"))?;
         }
     }
 
