@@ -4,7 +4,7 @@ title: Isolated root reader diagnostics on owned fixtures
 description: Delivers accepted v3 sparse checkpoints with disabled live entry and bounded synthetic verification.
 tags: [orkworks, qualification, diagnostics, implementation]
 status: draft
-workflow_status: active
+workflow_status: implemented
 ---
 
 # Isolated root reader diagnostics on owned fixtures
@@ -44,45 +44,45 @@ Keep fixture vector/stream/work/process accounting cumulative, not per-case.
 
 ### Task 1: Closed v3 wire and accounting
 
-- [ ] Write literal successful/full/empty/nested and refused prefix vectors,
+- [x] Write literal successful/full/empty/nested and refused prefix vectors,
   legacy/domain/framing/order/counter/late/size controls and reserve/settlement
   cases before implementing the codec. Watch assertions fail for missing v3
   behavior, then implement the minimal new codec.
-- [ ] Preserve 21 structural meanings, contiguous samples and counter-proven
+- [x] Preserve 21 structural meanings, contiguous samples and counter-proven
   omissions; validate final sample cardinality from complete MSVC rows. Bound
   32 records/128-byte LF lines, 127-byte tail, 144-byte immutable arrival rows,
   2,048-byte aggregate non-row metadata, 18 KiB traces and 64 KiB result.
-- [ ] Verify dedicated Node tests (at most 64 pure vectors/512 KiB injected,
+- [x] Verify dedicated Node tests (at most 64 pure vectors/512 KiB injected,
   8 KiB/vector), strict source/output/terminal settlement and decreasing grants.
 
 ### Task 2: Reader, admission and disabled live entry
 
-- [ ] Add failing tests for v3 complete output/sample admission and rejection
+- [x] Add failing tests for v3 complete output/sample admission and rejection
   before creating scratch, installed probes or children. Then implement new
   controller/library and SDK wrapper with all live CLI entries denied.
-- [ ] Copy exact policy and full reader custody checks, changing own namespace,
+- [x] Copy exact policy and full reader custody checks, changing own namespace,
   envelope/request domain, numeric emitter and accepted sample sites only.
   Seal every transitive own/imported source/policy within 1 MiB per pass.
-- [ ] Test held source/output admission with real owned files and transport
+- [x] Test held source/output admission with real owned files and transport
   fakes, full-grant failure and bounded receipt-only prefixes. Preserve complete
   manifest/PE/helper/archive validation and all flags false/false/zero.
 
 ### Task 3: Bounded owned Windows evidence and integration
 
-- [ ] Write native fixture assertions against the new reader before it exists;
+- [x] Write native fixture assertions against the new reader before it exists;
   retain the existing literal hash/lease/archive/helper/path refusal coverage,
   then exercise empty, nested, first-file/milestone and controlled stopped
   samples. Native work uses at most three 30-second PowerShell workers plus
   one final zero-hash Node timeout child and one termination.
-- [ ] Enforce the contract's one cumulative fixture pool: 120 seconds active
+- [x] Enforce the contract's one cumulative fixture pool: 120 seconds active
   plus 120 seconds shared drain/publication, 64 MiB hash, 1 MiB streams,
   4 MiB inputs/8 MiB scratch, 18 KiB traces/64 KiB result. Native cases skip
   explicitly off Windows. Add only the approved CI step and LF entries.
-- [ ] Run dedicated tests, then bash scripts/verify-repo.sh with pinned Node
+- [x] Run dedicated tests, then bash scripts/verify-repo.sh with pinned Node
   and installed desktop/docs dependencies. Review the current diff and wait
   for applicable CI including owned Windows evidence before merge. Record
   actual evidence/limits; no native capacity or historical-cause claim.
-- [ ] Tie off a matching active Taskmaster recommendation if present; keep
+PR close-out protocol: tie off a matching active Taskmaster recommendation if present; keep
   #1176/gates open, update #2274, run doc/worktree close-out checks and clean
   only the owned merged branch/worktree through finish-pr.sh.
 
@@ -101,3 +101,15 @@ must be observed in owned Windows CI); total 8. No runtime state or rollback
 migration. One fixed final read-only review round, maximum two lower-cost Luna reviewers,
 checks correctness and coverage independently against the same merged draft.
 Root remains sole writer; no writer delegation or additional coding harness.
+
+## Execution disposition
+
+The isolated tooling and owned-fixture verification are implemented. Final code
+4f0fbe78217374c2d1848ab02ecfec1a33ce584a passed the Windows suite and hosted
+no-findings review; full host verification passed. The
+[canonical evidence](../../validation/root-reader-diagnostics.md) records exact
+limits, fixed-review dispositions and remaining native-capacity uncertainty.
+Active Taskmaster recommendations did not match the verified diff. Required CI
+and the ordinary guarded PR cleanup remain publication gates, not a new live
+qualification allowance. No implementation or execution beyond the accepted
+scope was added.

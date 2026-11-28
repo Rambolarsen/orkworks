@@ -4,7 +4,7 @@ title: Bounded checkpoints inside the MSVC reader root
 description: Proposes an isolated sparse reader wire domain and owned-fixture verification without renewing any installed-input allowance.
 tags: [orkworks, hierarchy, qualification, windows, diagnostics]
 status: draft
-workflow_status: accepted-tooling-owned-fixtures-only
+workflow_status: implemented-owned-fixtures-only
 ---
 
 # Bounded checkpoints inside the MSVC reader root
@@ -15,9 +15,10 @@ This follows the [source audit](../../validation/msvc-reader-source-audit.md)
 merged in #2258 and the
 [spent live-reader package](2026-11-27-live-reader-integration-design.md#accepted-package-terminal-state-2026-11-28).
 Inspection base 22c86d0124fd549cfe15d48c30ba744eaef9fd34.
-All choices below are the author's proposal, not owner acceptance. Publishing
-or merging this document authorizes no code or execution. All earlier allowances
-remain spent; the terminal unavailable result stays unchanged.
+The original choices below were published as a proposal in #2267. The later
+owner acceptance and tooling-only implementation are recorded at the end;
+proposal publication alone authorized neither. All earlier installed-input
+allowances remain spent; the terminal unavailable result stays unchanged.
 
 **Requested future owner decision:** accept the isolated diagnostic tooling,
 new representations and finite owned-fixture verification below. This decision
@@ -320,3 +321,14 @@ fixture suite above. [Implementation #2274](https://github.com/Rambolarsen/orkwo
 and the [delivery plan](../plans/2026-11-28-root-reader-diagnostics.md) track that
 scope. Live entry stays disabled; no installed-input/candidate allowance or
 qualification workflow is accepted. Every earlier allowance remains spent.
+
+## Tooling verification — 2026-11-28
+
+[Implementation PR #2278](https://github.com/Rambolarsen/orkworks/pull/2278)
+delivers the accepted tooling/owned-fixture scope. The
+[canonical evidence](../../validation/root-reader-diagnostics.md) records native
+red-to-green assertions, sparse/retained prefix checks, exact custody comparison,
+full host verification and review dispositions. All live CLI entries remain
+disabled and no qualification workflow or installed-input allowance is created.
+Any later finite attempt still requires its own concrete proposal and owner
+decision; no runtime cost, capacity or timeout cause is established here.

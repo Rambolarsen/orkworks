@@ -3,8 +3,8 @@ type: Verification Record
 title: Isolated root reader diagnostics on owned fixtures
 description: Records v3 sparse checkpoint verification without an installed-input or qualification allowance.
 tags: [orkworks, qualification, windows, diagnostics, validation]
-status: draft
-workflow_status: implementation-validation-in-progress
+status: stable
+workflow_status: verified-owned-fixtures-only
 ---
 
 # Isolated root reader diagnostics on owned fixtures
@@ -75,8 +75,51 @@ heads with an empty retained-descendant snapshot/NotRunning. It is tracked in
 No ownership code, assertion or timeout is changed, and a later passing run
 would not explain those occurrences.
 
-Final host verifier, current-head Windows suite, fixed read-only reviews and
-hosted review/CI disposition are pending in this record. Native installed-input
+Final code [4f0fbe78217374c2d1848ab02ecfec1a33ce584a](https://github.com/Rambolarsen/orkworks/commit/4f0fbe78217374c2d1848ab02ecfec1a33ce584a)
+passed [the final owned Windows job](https://github.com/Rambolarsen/orkworks/actions/runs/46127277161/job/140924629783):
+Node v22.23.5, 64 total wire/storage-model vectors, 85,427 injected bytes,
+41 native assertions including empty root/first-empty-file, 29 live records and
+seven controlled refusals. It charged 47,840,847 conservative hash bytes and
+76,468 streams, with exactly three PowerShell workers, one final zero-hash Node
+timeout, one drained termination and owned scratch removal. Runtime/production
+flags stayed false and target executions zero.
+
+Pre-effect storage partitions cover the whole suite: parent 32 files/16 dirs/
+1 MiB inputs/2 MiB scratch; each worker 512 files/64 dirs/2 MiB scratch, with
+2 MiB inputs for checks and 512 KiB for each other worker. Their combined maxima
+are 1,568 files/208 dirs/4 MiB inputs/8 MiB scratch. Four exact memory-only
+storage overflow controls do not create a large filesystem. The pure suite also
+checks the maximum-field-width literal, exact tail capacity and overflow,
+69-row aggregate and over-cardinality refusal, lower-threshold bounded encoding,
+and shared-drain expiry/latching. Unreachable outer byte boundaries are not
+fabricated as valid domain records: stronger closed types/cardinality already
+fit below them. Future domain expansion must update this compositional proof;
+the actual hard limits remain independently enforced.
+
+The fixed read-only correctness review found no material defect. Coverage
+review gaps in storage/boundary tests were corrected in one pass. Additional
+self-review regressions closed early-error omitted-sample refunds, typed receipt
+metadata/nonce uniqueness and launched-fixture/test source sealing, with observed
+red-to-green tests. The source seal covers all fifteen own/imported inputs below
+1 MiB per pass. Hosted Codex completed the final-code review with no findings at
+2026-11-28T08:55:47.738775Z
+([summary](https://github.com/Rambolarsen/orkworks/pull/2278#issuecomment-7236891757)).
+Copilot quota was already exhausted; no blind request was repeated. No review
+finding remains undispositioned and no minor finding was deferred.
+
+Full host verification passed: 3,758 Rust unit tests (25 ignored) plus integration
+suites, 59 reporter cases, desktop type-check/native setup, 1,827 desktop tests
+(5 skipped), desktop build, 2,583 docs tests and rendered build, doc/diff/worktree
+checks. Changes made during that run were confined to the new qualification
+profile/tests/evidence; dedicated local and exact-head Windows tests cover them.
+Rust/Desktop source remained unchanged. The informational foreign-worktree
+warning was reviewed and left to its owner; existing build/unused-code warnings
+do not describe this diff. Required CI remains a merge gate; the
+[PR check inventory](https://github.com/Rambolarsen/orkworks/pull/2278/checks)
+records final status. The unchanged ownership job passed on the final code head;
+this does not classify its earlier #2211 failures.
+
+Native installed-input
 capacity, CPU/I/O distribution, throughput, RSS and the historical timeout cause
 remain UNVERIFIED. The next possible installed-input step requires a separate
 concrete finite proposal and owner decision after tooling verification; this
