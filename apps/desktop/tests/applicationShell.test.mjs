@@ -514,6 +514,7 @@ if (process.versions.electron) {
           Object.defineProperty(navigator, "clipboard", { value: {
             writeText: async text => {
               if (fixture.clipboardUnavailable) throw new Error("Clipboard unavailable");
+              if (fixture.deferClipboard) await new Promise(resolve => { fixture.finishClipboard = resolve; });
               fixture.clipboardWrites.push(text);
             }
           } });
@@ -521,11 +522,32 @@ if (process.versions.electron) {
         `);
         await waitFor(`document.querySelector("${button}")`);
         assert.equal(await evaluate(`document.querySelector("${button}").getAttribute("aria-label")`), "Copy continuation prompt");
-        await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("${button}").click()`);
+        await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("[data-shell-terminal-focus]").focus();document.querySelector("${button}").click()`);
         await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Could not copy")`);
-        await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("${button}").click()`);
+        assert.equal(await evaluate('document.activeElement.matches("[data-shell-terminal-focus]")'), true,
+          'a failed copy leaves focus alone');
+        await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("[data-shell-terminal-focus]").focus();document.querySelector("${button}").click()`);
         await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Prompt copied")`);
+        assert.equal(await evaluate('document.activeElement.matches(".xterm-helper-textarea")'), true,
+          'successful copy focuses the selected terminal');
         assert.deepEqual(await evaluate('fixture.clipboardWrites'), ['Keep going with the current task.']);
+
+        for (const [change, writeCount] of [['fixture.select("other")', 2], ['fixture.advanceWorkspace()', 3]]) {
+          await evaluate(`
+            fixture.deferClipboard = true;
+            fixture.finishClipboard = null;
+            fixture.copyInvoker = document.querySelector("${button}");
+            fixture.copyInvoker.click();
+          `);
+          await waitFor('fixture.finishClipboard');
+          await evaluate(change);
+          await waitFor('!fixture.copyInvoker.isConnected');
+          await evaluate('document.querySelector("[data-shell-terminal-focus]").focus();fixture.finishClipboard()');
+          await waitFor(`fixture.clipboardWrites.length === ${writeCount}`);
+          assert.equal(await evaluate('document.activeElement.matches("[data-shell-terminal-focus]")'), true,
+            'a copy from a previous selection or workspace must leave current focus alone');
+        }
+
         assert.deepEqual(await evaluate('fixture.input'), []);
         await evaluate('fixture.setSessionState({attention:"needs_you"})');
         await waitFor(`!document.querySelector("${button}")`);

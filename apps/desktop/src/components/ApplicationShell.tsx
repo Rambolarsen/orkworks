@@ -37,17 +37,21 @@ export type { ShellCommand, ShellDestination };
 type TerminalFocusIntent = "terminal" | { resumeSessionId: string; workspaceGeneration: number };
 const enabledResumeButton = "button[data-shell-resume]:enabled";
 
-function CopyContinuationPrompt() {
+function CopyContinuationPrompt({ onCopied }: { onCopied: () => void }) {
   const [status, setStatus] = useState<"ready" | "copying" | "copied" | "failed">("ready");
 
-  async function copyPrompt() {
+  async function copyPrompt(button: HTMLButtonElement) {
     setStatus("copying");
     try {
       await navigator.clipboard.writeText("Keep going with the current task.");
-      setStatus("copied");
     } catch {
       setStatus("failed");
+      return;
     }
+    // A selection or workspace change replaces the keyed button.
+    if (!button.isConnected) return;
+    setStatus("copied");
+    onCopied();
   }
 
   const notice = status === "copied"
@@ -56,7 +60,7 @@ function CopyContinuationPrompt() {
   const Icon = status === "copied" ? Check : status === "failed" ? CircleAlert : Copy;
   return <>
     <button type="button" data-copy-continuation-prompt aria-label="Copy continuation prompt"
-      title={notice || "Copy continuation prompt"} disabled={status === "copying"} onClick={() => void copyPrompt()}>
+      title={notice || "Copy continuation prompt"} disabled={status === "copying"} onClick={event => void copyPrompt(event.currentTarget)}>
       <Icon size={16} aria-hidden="true" />
     </button>
     <span className="sr-only" role="status">{notice}</span>
@@ -660,7 +664,7 @@ export default function ApplicationShell(props: Props) {
             workspaceIdentity={workspace.info.workspaceIdentity || workspace.info.path} onUpdated={sessions.onTitleUpdated}
             onTaskStarted={sessions.onFocusTerminal} onDialogOpenChange={setStartTaskDialogOpen} />}
           {showTerminal && sourcesReady && isSessionAlive(session) && session.attention === "idle" &&
-            <CopyContinuationPrompt key={`copy-prompt:${actionsScope}:${session.id}`} />}
+            <CopyContinuationPrompt key={`copy-prompt:${actionsScope}:${session.id}`} onCopied={sessions.onFocusTerminal} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${workspaceGeneration}:${session.id}`} header compact={compact}
             pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => sessions.onResume(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && review.onOpen && !showComposer && <button type="button" data-shell-command="review"
