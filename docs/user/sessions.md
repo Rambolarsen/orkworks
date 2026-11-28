@@ -142,8 +142,9 @@ Details. Published installers may not include this action yet.
 
 In current source builds, the Terminal header for a live session shown as
 Idle offers **Copy continuation prompt**. It copies “Keep going with the
-current task.” Paste it in the terminal and submit when ready. Published
-installers may lack this action.
+current task.” and focuses the selected terminal after a successful copy.
+Paste the prompt and submit when ready. Published installers may lag this
+source behavior.
 
 ## Resume an ended session
 
