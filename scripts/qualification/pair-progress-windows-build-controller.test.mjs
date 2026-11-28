@@ -329,3 +329,9 @@ test('expired publication reserve returns explicit unavailable state',()=>{
  const result={success:true,candidate_evidence_complete:true};assert.equal(m.publicationAvailable(b,result),false);
  assert.equal(result.publication,'unavailable-reserve-expired');assert.equal(result.success,false);assert.equal(result.candidate_evidence_complete,false);
 });
+
+test('unconfirmed termination cannot authorize scratch cleanup',async()=>{
+ need();const {EventEmitter}=await import('node:events');let child;
+ const b=new m.WorkBudget({streamLimit:0}),r=new m.CommandRunner(b,{spawnProcess:()=>{child=new EventEmitter();child.stdout=new EventEmitter();child.stderr=new EventEmitter();child.pid=44;child.exitCode=null;child.signalCode=null;return child;},terminate:()=>false});
+ const p=r.run('owned',[],{timeout:1000});child.stdout.emit('data',Buffer.from('x'));child.emit('close',1);await assert.rejects(p);assert.equal(r.drained,false);
+});

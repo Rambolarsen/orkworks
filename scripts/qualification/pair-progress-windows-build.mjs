@@ -308,8 +308,8 @@ export class CommandRunner {
     drainTimer=setTimeout(()=>{clearTimeout(timer);reject(Error('process-drain-unavailable'));},Math.max(1,this.failureDeadline-this.budget.clock()));
     if(c&&!closed&&c.exitCode===null&&c.signalCode===null&&c.pid){
      if(this.kills===0){this.kills++;
-      if(this.terminate)this.terminate(c);
-      else if(process.platform==='win32')spawnSync('C:\\Windows\\System32\\taskkill.exe',['/PID',String(c.pid),'/T','/F'],{env:{SystemRoot:'C:\\Windows',PATH:'C:\\Windows\\System32'},stdio:'ignore',timeout:Math.min(10000,Math.max(1,this.failureDeadline-this.budget.clock())),windowsHide:true});
+      if(this.terminate){if(this.terminate(c)===false)this.terminationUnknown=true;}
+      else if(process.platform==='win32'){const killed=spawnSync('C:\\Windows\\System32\\taskkill.exe',['/PID',String(c.pid),'/T','/F'],{env:{SystemRoot:'C:\\Windows',PATH:'C:\\Windows\\System32'},stdio:'ignore',timeout:Math.min(10000,Math.max(1,this.failureDeadline-this.budget.clock())),windowsHide:true});if(killed.status!==0||killed.error)this.terminationUnknown=true;}
       else c.kill('SIGKILL');
      }
     }
@@ -326,7 +326,7 @@ export class CommandRunner {
     }catch(e){stop(e.message);}
    });
    c.on('error',()=>stop('process-unavailable'));
-   c.on('close',code=>{closed=true;this.drained=true;clearTimeout(timer);clearTimeout(drainTimer);
+   c.on('close',code=>{closed=true;this.drained=!this.terminationUnknown;clearTimeout(timer);clearTimeout(drainTimer);
     if(!failed&&this.budget.clock()>=end){failed='time-limit';this.stopped=true;}
     if(failed)reject(Error(failed));else resolve({code,stdout:Buffer.concat(out).toString('utf8'),stderr:Buffer.concat(err).toString('utf8')});
    });
@@ -764,7 +764,7 @@ async function main() {
     const nonce=crypto.randomBytes(16).toString('hex');need(!usedNonces.has(nonce),'nonce-reuse');usedNonces.add(nonce);
     const decoder=new Decoder({nonce,mode,grant,ledger:budget});
     const request=path.join(scratch,'requests',nonce+'.json'),output=path.join(scratch,'outputs',nonce+'.json');
-    let sourceValid=false,outputValid=false,x,data,observation;
+    let sourceValid=false,outputValid=false,x,data,observation={metrics:null,metrics_status:'unavailable'};
     try{
       fs.writeFileSync(request,JSON.stringify([2,'pinned-windows-candidate-v1',mode,nonce,grant,policySha]),{flag:'wx'});
       x=await exec(powershell,['-NoProfile','-NonInteractive','-WorkingDirectory',scratch,'-File',path.join(root,'scripts/qualification/pair-progress-windows-build.ps1'),'-Nonce',nonce],{
@@ -774,7 +774,7 @@ async function main() {
       decoder.end();budget.check();verifySources();sourceValid=true;
       if(!decoder.failure&&decoder.terminal==='ok'&&x.code===0){
         const held=readOutput(output,budget);data=validateOutput(held.value,decoder);outputValid=true;
-        observation={metrics:held.value.metrics,output_sha256:held.sha256,output_bytes:held.bytes};
+        observation={metrics:held.value.metrics,metrics_status:'admitted',output_sha256:held.sha256,output_bytes:held.bytes};
       }
     }finally{
       const disposition=settle(decoder,{code:x?.code,drained:runner.drained,sourceValid,outputValid});

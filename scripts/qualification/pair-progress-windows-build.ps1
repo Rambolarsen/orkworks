@@ -91,6 +91,7 @@ function Read-SealedFile([string]$File,$Budget,[switch]$PE,[switch]$Text) {
     $expected=[long]$named.Length
     if ($Budget.hashed+$expected -gt $Budget.maximum) {throw 'hash-limit'}
     $Budget.hashed+=$expected
+    $capture=$null
     $stream=[IO.FileStream]::new($full,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
     try {
         $before=Get-HandleInfo $stream.SafeFileHandle $full
@@ -130,7 +131,7 @@ function Read-SealedFile([string]$File,$Budget,[switch]$PE,[switch]$Text) {
         try {$current=Get-HandleInfo $again.SafeFileHandle $full}finally{$again.Dispose()}
         if ($before.id -cne $after.id -or $before.id -cne $current.id -or $before.bytes -ne $after.bytes -or $before.bytes -ne $current.bytes -or $before.write -cne $after.write -or $before.write -cne $current.write) {throw 'file-drift'}
         return $result
-    }finally{$stream.Dispose()}
+    }finally{if($null -ne $capture){$capture.Dispose()};$stream.Dispose()}
 }
 function Get-SealedManifest($Roots,$Budget,[int]$FileLimit=200000,[int]$DirectoryLimit=50000,[long]$EncodedLimit=67108864) {
     $files=[Collections.Generic.List[object]]::new();$dirs=[Collections.Generic.List[object]]::new();$bytes=[long]0;$encoded=[long]4096

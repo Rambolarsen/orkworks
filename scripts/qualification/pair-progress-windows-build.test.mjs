@@ -57,7 +57,7 @@ test('owned Windows reader fixture and final zero-grant timeout', {skip:process.
   assert.equal(ps.code,0,ps.stderr);assert.equal(ps.stderr,'');const lines=ps.stdout.trimEnd().split('\n');const summary=JSON.parse(lines.pop());
   const decoder=new Decoder({nonce:'a'.repeat(32),mode:'before',grant:4194304,ledger:{stream:()=>{},active:()=>b.check(),elapsed:()=>b.elapsed()}});
   // CommandRunner already charged these exact observed bytes to the shared fixture ledger.
-  decoder.feed(Buffer.from(lines.join('\n')+'\n'));assert.equal(decoder.end(),true);assert.equal(decoder.trace.length,21);
+  decoder.feed(Buffer.from(lines.join('\n')+'\n'));assert.equal(decoder.end(),true,JSON.stringify({failure:decoder.failure,trace:decoder.trace,bytes:Buffer.byteLength(ps.stdout)}));assert.equal(decoder.trace.length,21);
   assert.equal(validateOutput(summary.envelope,decoder).files[0].sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   assert.equal(summary.tests_passed,true);b.hash(summary.hash_bytes);assert.equal(summary.scratch_allocations,1);assert.equal(summary.maximum_leases,1);assert.equal(summary.target_executions,0);
   // The sole real Node child is final and performs no payload/hash work.

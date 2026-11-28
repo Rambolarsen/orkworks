@@ -105,5 +105,5 @@ try {
     Assert ($envelope.data.hash_bytes -eq $script:budget.hashed -and $script:LiveSequence -eq 21) 'terminal settled encoding debit'
     $denied=$false;try{Write-ReaderOutput $output $data 'before' ('a'*32) $envelope.policy_sha256 $script:budget -EncodedLimit 32768}catch{$denied=$true};Assert $denied 'exclusive output'
     $total=0;foreach($b in $script:FixtureBudgets){$total+=$b.hashed};Assert ($total -le 67108864) 'suite cumulative work'
-    [ordered]@{tests_passed=$true;envelope=$envelope;hash_bytes=$total;scratch_allocations=[OrkProgress.Payload]::Allocations;maximum_leases=[OrkProgress.Payload]::MaximumLeases;target_executions=0;runtime_qualified=$false;production_pin_accepted=$false}|ConvertTo-Json -Compress
+    [ordered]@{tests_passed=$true;envelope=$envelope;hash_bytes=$total;scratch_allocations=[OrkProgress.Payload]::Allocations;maximum_leases=[OrkProgress.Payload]::MaximumLeases;target_executions=0;runtime_qualified=$false;production_pin_accepted=$false}|ConvertTo-Json -Depth 14 -Compress
 } finally {Remove-Item -LiteralPath $dir -Recurse -Force}
