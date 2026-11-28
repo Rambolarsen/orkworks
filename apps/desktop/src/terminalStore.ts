@@ -54,7 +54,7 @@ export function getTerminal(id: string): TerminalHandle | undefined {
 
 export function getReusableTerminal(id: string): TerminalHandle | undefined {
   const handle = getTerminal(id);
-  if (handle && handle.ws.readyState === WebSocket.CLOSED && !handle.ended) return undefined;
+  if (handle && !handle.ended && handle.ws.readyState >= WebSocket.CLOSING) return undefined;
   return handle;
 }
 
