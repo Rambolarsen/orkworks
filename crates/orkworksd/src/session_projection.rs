@@ -18,6 +18,84 @@ use std::time::{Duration, Instant};
 
 const GIT_CONTEXT_TTL: Duration = Duration::from_secs(5);
 const MAX_GIT_CONTEXT_ENTRIES: usize = 512;
+const RACY_STAT_WINDOW: Duration = Duration::from_secs(2);
+
+#[cfg(test)]
+thread_local! {
+    static REMEMBERED_SESSION_DISK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SessionFileStamp {
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+    len: u64,
+    #[cfg(unix)]
+    mtime_sec: i64,
+    #[cfg(unix)]
+    mtime_nsec: i64,
+    #[cfg(unix)]
+    ctime_sec: i64,
+    #[cfg(unix)]
+    ctime_nsec: i64,
+    #[cfg(not(unix))]
+    modified: Option<std::time::SystemTime>,
+    #[cfg(not(unix))]
+    created: Option<std::time::SystemTime>,
+}
+
+impl SessionFileStamp {
+    fn from_metadata(meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Self {
+                dev: meta.dev(),
+                ino: meta.ino(),
+                len: meta.len(),
+                mtime_sec: meta.mtime(),
+                mtime_nsec: meta.mtime_nsec(),
+                ctime_sec: meta.ctime(),
+                ctime_nsec: meta.ctime_nsec(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                len: meta.len(),
+                modified: meta.modified().ok(),
+                created: meta.created().ok(),
+            }
+        }
+    }
+
+    /// Reuse cached metadata only for ordinary (non-symlink, non-reparse-point)
+    /// files whose mtime is older than the racy-stat window so same-tick
+    /// overwrites always re-read.
+    fn is_cache_eligible(meta: &std::fs::Metadata, now: std::time::SystemTime) -> bool {
+        #[cfg(windows)]
+        let ordinary_file = {
+            use std::os::windows::fs::MetadataExt;
+            use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+            meta.is_file() && meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
+        };
+        #[cfg(not(windows))]
+        let ordinary_file = meta.is_file();
+        ordinary_file
+            && meta
+                .modified()
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= RACY_STAT_WINDOW)
+    }
+}
+
+struct CachedSessionFile {
+    stamp: SessionFileStamp,
+    metadata: metadata::SessionMetadata,
+}
 
 /// A fresh workspace may have no session directory. Once observed, its
 /// disappearance is an incomplete read, including across stream reconnects.
@@ -26,6 +104,7 @@ pub(crate) struct SessionDirectoryState {
     directory: Option<PathBuf>,
     established: bool,
     analysis: Arc<std::sync::Mutex<CapacityAnalysisCache>>,
+    cached_sessions: HashMap<String, CachedSessionFile>,
 }
 
 impl SessionDirectoryState {
@@ -33,6 +112,7 @@ impl SessionDirectoryState {
         if self.directory.as_deref() != Some(directory) {
             self.directory = Some(directory.to_owned());
             self.established = false;
+            self.cached_sessions.clear();
         }
         match std::fs::metadata(directory) {
             Ok(metadata) if metadata.is_dir() => {
@@ -54,9 +134,32 @@ impl SessionDirectoryState {
     ) -> io::Result<Vec<metadata::SessionMetadata>> {
         let directory = store.sessions_dir();
         self.observe(&directory)?;
-        let sessions = read_remembered_sessions(store)?;
+        let sessions = read_remembered_sessions(store, &mut self.cached_sessions)?;
         self.observe(&directory)?;
         Ok(sessions)
+    }
+
+    fn cached_location(
+        &self,
+        sessions_dir: &Path,
+        id: &str,
+        now: std::time::SystemTime,
+    ) -> Option<(String, Option<crate::session_location::WorktreeBinding>)> {
+        if self.directory.as_deref() != Some(sessions_dir) {
+            return None;
+        }
+        let entry = self.cached_sessions.get(id)?;
+        let path = sessions_dir.join(format!("{id}.json"));
+        let meta = std::fs::symlink_metadata(&path).ok()?;
+        if !SessionFileStamp::is_cache_eligible(&meta, now)
+            || SessionFileStamp::from_metadata(&meta) != entry.stamp
+        {
+            return None;
+        }
+        Some((
+            entry.metadata.cwd.clone(),
+            entry.metadata.worktree_binding.clone(),
+        ))
     }
 }
 
@@ -282,6 +385,176 @@ impl LocationInputs {
             pid,
             runtime,
         })
+    }
+
+    fn is_valid_session_id(id: &str) -> bool {
+        !id.is_empty()
+            && id.len() <= 256
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c))
+    }
+
+    /// Capture location inputs using the racy-safe session directory cache for
+    /// untouched remembered files, falling back to `SessionReader::read` outside
+    /// workspace/session locks.
+    pub(crate) fn capture_cached(state: &AppState, id: &str) -> Option<Self> {
+        if !Self::is_valid_session_id(id) {
+            return None;
+        }
+        let (sessions_dir, reader) = {
+            let ws = state.workspace.lock().unwrap();
+            let ws = ws.as_ref()?;
+            (ws.metadata.sessions_dir(), ws.metadata.session_reader())
+        };
+        let (cwd, binding, runtime) = {
+            let live = state.sessions.lock().unwrap();
+            if let Some(handle) = live.get(id) {
+                (
+                    handle.info.cwd.clone(),
+                    handle.info.worktree_binding.clone(),
+                    Some(handle.runtime.identity()),
+                )
+            } else {
+                drop(live);
+                let cached = state
+                    .session_directory_state
+                    .lock()
+                    .unwrap()
+                    .cached_location(&sessions_dir, id, std::time::SystemTime::now());
+                let (cwd, binding) = match cached {
+                    Some(pair) => pair,
+                    None => {
+                        let meta = reader.read(id)?;
+                        (meta.cwd, meta.worktree_binding)
+                    }
+                };
+                (cwd, binding, None)
+            }
+        };
+        let reported_cwd = state.peon.reported_cwd.read().unwrap().get(id).cloned();
+        let pid = state.session_pids.lock().unwrap().get(id).copied();
+        Some(Self {
+            cwd,
+            binding,
+            reported_cwd,
+            pid,
+            runtime,
+        })
+    }
+
+    /// Batch-validate captured location inputs under the projection fence without
+    /// acquiring workspace/session locks per row or re-parsing aged untouched
+    /// remembered session files.
+    pub(crate) fn matches_captured(
+        state: &AppState,
+        expected: &HashMap<String, Option<LocationInputs>>,
+    ) -> bool {
+        if expected.is_empty() {
+            return true;
+        }
+        let Some((sessions_dir, reader)) = ({
+            let ws = state.workspace.lock().unwrap();
+            ws.as_ref()
+                .map(|ws| (ws.metadata.sessions_dir(), ws.metadata.session_reader()))
+        }) else {
+            return expected.values().all(Option::is_none);
+        };
+        let live_snapshot: HashMap<
+            String,
+            (
+                String,
+                Option<crate::session_location::WorktreeBinding>,
+                crate::runtime::session_runtime::RuntimeIdentity,
+            ),
+        > = {
+            let live = state.sessions.lock().unwrap();
+            live.iter()
+                .filter(|(id, _)| expected.contains_key(id.as_str()))
+                .map(|(id, handle)| {
+                    (
+                        id.clone(),
+                        (
+                            handle.info.cwd.clone(),
+                            handle.info.worktree_binding.clone(),
+                            handle.runtime.identity(),
+                        ),
+                    )
+                })
+                .collect()
+        };
+        let reported_cwds: HashMap<String, String> = {
+            let reported = state.peon.reported_cwd.read().unwrap();
+            reported
+                .iter()
+                .filter(|(id, _)| expected.contains_key(id.as_str()))
+                .map(|(id, cwd)| (id.clone(), cwd.clone()))
+                .collect()
+        };
+        let pids: HashMap<String, u32> = {
+            let session_pids = state.session_pids.lock().unwrap();
+            session_pids
+                .iter()
+                .filter(|(id, _)| expected.contains_key(id.as_str()))
+                .map(|(id, pid)| (id.clone(), *pid))
+                .collect()
+        };
+
+        let now = std::time::SystemTime::now();
+        let mut remembered_misses: Vec<(&str, &Option<LocationInputs>)> = Vec::new();
+        {
+            let dir_state = state.session_directory_state.lock().unwrap();
+            for (id, expected_value) in expected {
+                if !Self::is_valid_session_id(id) {
+                    if expected_value.is_some() {
+                        return false;
+                    }
+                    continue;
+                }
+                let reported_cwd = reported_cwds.get(id).cloned();
+                let pid = pids.get(id).copied();
+                if let Some((cwd, binding, runtime)) = live_snapshot.get(id) {
+                    let current = Some(Self {
+                        cwd: cwd.clone(),
+                        binding: binding.clone(),
+                        reported_cwd,
+                        pid,
+                        runtime: Some(runtime.clone()),
+                    });
+                    if current != *expected_value {
+                        return false;
+                    }
+                    continue;
+                }
+                if let Some((cwd, binding)) = dir_state.cached_location(&sessions_dir, id, now) {
+                    let current = Some(Self {
+                        cwd,
+                        binding,
+                        reported_cwd,
+                        pid,
+                        runtime: None,
+                    });
+                    if current != *expected_value {
+                        return false;
+                    }
+                } else {
+                    remembered_misses.push((id.as_str(), expected_value));
+                }
+            }
+        }
+        for (id, expected_value) in remembered_misses {
+            let current = reader.read(id).map(|meta| Self {
+                cwd: meta.cwd,
+                binding: meta.worktree_binding,
+                reported_cwd: reported_cwds.get(id).cloned(),
+                pid: pids.get(id).copied(),
+                runtime: None,
+            });
+            if current != *expected_value {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -785,11 +1058,7 @@ impl SessionProjection {
                 "workspace changed during document inspection",
             ));
         }
-        if !context_matches
-            || captured
-                .iter()
-                .any(|(id, inputs)| LocationInputs::capture(&self.state, id) != *inputs)
-        {
+        if !context_matches || !LocationInputs::matches_captured(&self.state, &captured) {
             return Err(ProjectionError::SessionLocationChanged);
         }
         drop(_fence);
@@ -1009,7 +1278,7 @@ impl SessionProjection {
                             // tuple; only repository/document inspection is shared.
                             if let Some(captured) = captured {
                                 let _fence = self.state.projection_lock.lock().unwrap();
-                                if LocationInputs::capture(&self.state, &info.id)
+                                if LocationInputs::capture_cached(&self.state, &info.id)
                                     != captured[&info.id]
                                 {
                                     return None;
@@ -1040,7 +1309,8 @@ impl SessionProjection {
                         let _fence = self.state.projection_lock.lock().unwrap();
                         if !context_matches
                             || captured.is_some_and(|captured| {
-                                LocationInputs::capture(&self.state, &info.id) != captured[&info.id]
+                                LocationInputs::capture_cached(&self.state, &info.id)
+                                    != captured[&info.id]
                             })
                         {
                             return None;
@@ -1069,8 +1339,9 @@ impl SessionProjection {
                 if let Some(mut projection) = projection {
                     if let Some(snapshot) = projection.recovery_id.take() {
                         let _fence = self.state.projection_lock.lock().unwrap();
-                        projection.recovery_id = LocationInputs::capture(&self.state, &info.id)
-                            .map(|inputs| inputs.bind_recovery(&snapshot));
+                        projection.recovery_id =
+                            LocationInputs::capture_cached(&self.state, &info.id)
+                                .map(|inputs| inputs.bind_recovery(&snapshot));
                     }
                     if projection.steps.iter().any(|step| step.available) {
                         info.has_openable_plan = Some(true);
@@ -1470,13 +1741,19 @@ impl SessionProjection {
 /// listed by the directory must remain readable and valid for this response.
 fn read_remembered_sessions(
     store: &metadata::MetadataStore,
+    cache: &mut HashMap<String, CachedSessionFile>,
 ) -> io::Result<Vec<metadata::SessionMetadata>> {
     let entries = match std::fs::read_dir(store.sessions_dir()) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            cache.clear();
+            return Ok(Vec::new());
+        }
         Err(error) => return Err(error),
     };
+    let now = std::time::SystemTime::now();
     let mut sessions = Vec::new();
+    let mut next_cache = HashMap::with_capacity(cache.len());
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
@@ -1489,11 +1766,48 @@ fn read_remembered_sessions(
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "invalid session filename")
             })?;
+        let stat_before = std::fs::symlink_metadata(&path).ok();
+        if let Some(meta) = stat_before
+            .as_ref()
+            .filter(|meta| SessionFileStamp::is_cache_eligible(meta, now))
+        {
+            let stamp = SessionFileStamp::from_metadata(meta);
+            if let Some(cached) = cache.get(id).filter(|cached| cached.stamp == stamp) {
+                sessions.push(cached.metadata.clone());
+                next_cache.insert(
+                    id.to_owned(),
+                    CachedSessionFile {
+                        stamp,
+                        metadata: cached.metadata.clone(),
+                    },
+                );
+                continue;
+            }
+        }
+        #[cfg(test)]
+        REMEMBERED_SESSION_DISK_READS.with(|count| count.set(count.get() + 1));
         let record = store.try_read_revisioned_session(id)?.ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "listed session record disappeared")
         })?;
+        if let (Some(before), Ok(after)) = (stat_before, std::fs::symlink_metadata(&path)) {
+            if SessionFileStamp::is_cache_eligible(&before, now)
+                && SessionFileStamp::is_cache_eligible(&after, now)
+            {
+                let stamp = SessionFileStamp::from_metadata(&before);
+                if stamp == SessionFileStamp::from_metadata(&after) {
+                    next_cache.insert(
+                        id.to_owned(),
+                        CachedSessionFile {
+                            stamp,
+                            metadata: record.metadata.clone(),
+                        },
+                    );
+                }
+            }
+        }
         sessions.push(record.metadata);
     }
+    *cache = next_cache;
     sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
     Ok(sessions)
 }
@@ -1727,6 +2041,148 @@ mod tests {
         let fresh = super::LocationInputs::capture(&state, id);
         assert!(fresh.is_some());
         assert_eq!(result.locations.get(id), Some(&fresh));
+    }
+
+    #[tokio::test]
+    async fn aged_remembered_sessions_reuse_stat_cache_for_refresh_and_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "aged-remembered";
+        let mut metadata = test_session_metadata(
+            id,
+            "Initial label",
+            dir.path().to_str().unwrap(),
+            "ended",
+            "2026-11-19T10:00:00Z",
+            "2026-11-19T10:00:00Z",
+        );
+        metadata.cwd = dir.path().to_str().unwrap().into();
+        metadata.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(&metadata.cwd, &metadata.cwd)
+                .unwrap(),
+        );
+        let path = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            store.sessions_dir().join(format!("{id}.json"))
+        };
+        let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old_time)
+            .unwrap();
+
+        // Warm the session directory cache with one enriched projection.
+        let initial = SessionProjection::new(state.clone())
+            .stream_projection(true)
+            .unwrap();
+        assert_eq!(initial.infos.len(), 1);
+        assert_eq!(initial.infos[0].label, "Initial label");
+
+        // A subsequent enriched projection must not re-read the aged unchanged file via
+        // either SessionReader or read_remembered_sessions.
+        let mut reread = crate::metadata::session_reader::testing::hold_nth_read(&path, 1);
+        let projection_state = state.clone();
+        let mut projection = tokio::task::spawn_blocking(move || {
+            super::REMEMBERED_SESSION_DISK_READS.with(|count| count.set(0));
+            let result = SessionProjection::new(projection_state).stream_projection(true);
+            let disk_reads = super::REMEMBERED_SESSION_DISK_READS.with(|count| count.get());
+            (result, disk_reads)
+        });
+        let second = tokio::select! {
+            _ = reread.entered() => None,
+            result = &mut projection => Some(result.unwrap()),
+        };
+        drop(reread);
+        let Some((second_result, disk_reads)) = second else {
+            projection.await.unwrap().0.unwrap();
+            panic!(
+                "enriched projection re-read unchanged aged remembered session via SessionReader"
+            );
+        };
+        let second = second_result.unwrap();
+        assert_eq!(
+            disk_reads, 0,
+            "unchanged aged remembered session must hit the stat cache instead of re-parsing disk"
+        );
+        assert_eq!(second.infos[0].label, "Initial label");
+
+        // Updating the aged session file must be observed immediately.
+        metadata.label = "Updated label".into();
+        {
+            let workspace = state.workspace.lock().unwrap();
+            workspace
+                .as_ref()
+                .unwrap()
+                .metadata
+                .write_session(&metadata);
+        }
+        let updated = SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
+        assert_eq!(updated.infos[0].label, "Updated label");
+
+        // In-place corruption must still fail closed rather than serving stale cached data.
+        std::fs::write(&path, b"not json").unwrap();
+        assert!(SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .is_err());
+
+        // Deletion must remove the session from subsequent projections.
+        std::fs::remove_file(&path).unwrap();
+        let after_delete = SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
+        assert!(after_delete.infos.is_empty());
+    }
+
+    #[test]
+    fn fresh_remembered_session_inside_racy_window_rereads_even_with_same_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::test_app_state_with_workspace(dir.path());
+        let id = "fresh-racy";
+        let metadata = test_session_metadata(
+            id,
+            "Alpha",
+            dir.path().to_str().unwrap(),
+            "ended",
+            "2026-11-19T10:00:00Z",
+            "2026-11-19T10:00:00Z",
+        );
+        let path = {
+            let workspace = state.workspace.lock().unwrap();
+            let store = &workspace.as_ref().unwrap().metadata;
+            store.write_session(&metadata);
+            store.sessions_dir().join(format!("{id}.json"))
+        };
+        let first = SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
+        assert_eq!(first.infos[0].label, "Alpha");
+        assert!(
+            !state
+                .session_directory_state
+                .lock()
+                .unwrap()
+                .cached_sessions
+                .contains_key(id),
+            "fresh file inside racy-stat window must not be inserted into stat cache"
+        );
+
+        // Overwrite in-place with an identical byte length inside the racy-mtime window.
+        let original = std::fs::read_to_string(&path).unwrap();
+        let replaced = original.replacen("\"Alpha\"", "\"Bravo\"", 1);
+        assert_eq!(original.len(), replaced.len());
+        std::fs::write(&path, replaced).unwrap();
+
+        let second = SessionProjection::new(state.clone())
+            .stream_projection(false)
+            .unwrap();
+        assert_eq!(second.infos[0].label, "Bravo");
     }
 
     #[test]

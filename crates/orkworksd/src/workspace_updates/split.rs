@@ -381,9 +381,26 @@ async fn publish(
                 let Ok(Ok(prepared)) = result else { break; };
                 if !owner.current(&state) { break; }
                 // The capture happened before this await. Dirty inputs are checked
-                // again under the same admission fence before becoming a baseline.
-                let _fence = state.projection_lock.lock().unwrap();
-                if status_epoch != state.updates.revisions.borrow().enrichment || prepared.locations.iter().any(|(id, value)| LocationInputs::capture(&state, id) != *value) {
+                // again under the same admission fence off the async worker thread,
+                // and the fence is dropped before serializing display rows.
+                let validate_state = state.clone();
+                let validate_owner = owner.clone();
+                let (valid, prepared) = match tokio::task::spawn_blocking(move || {
+                    let valid = {
+                        let _fence = validate_state.projection_lock.lock().unwrap();
+                        validate_owner.current(&validate_state)
+                            && status_epoch == validate_state.updates.revisions.borrow().enrichment
+                            && LocationInputs::matches_captured(&validate_state, &prepared.locations)
+                    };
+                    (valid, prepared)
+                })
+                .await
+                {
+                    Ok(pair) => pair,
+                    Err(_) => break,
+                };
+                if !owner.current(&state) { break; }
+                if !valid {
                     status_dirty = true; continue;
                 }
                 inspection_dirty |= display.status(&prepared, status_epoch);
@@ -394,18 +411,37 @@ async fn publish(
             result = async { inspection.as_mut().unwrap().await }, if inspection.is_some() => {
                 inspection = None;
                 if !owner.current(&state) { break; }
-                let _fence = state.projection_lock.lock().unwrap();
-                let publication_epoch = state.updates.revisions.borrow().enrichment;
                 match result {
-                    Ok(Ok(prepared)) if publication_epoch == inspection_epoch
-                        && prepared.locations.iter().all(|(id, value)| LocationInputs::capture(&state, id) == *value) => {
-                        consecutive_stale_inspections = 0;
-                        display.inspect(&prepared, inspection_epoch, inspection_started);
-                        publish_dirty = true;
-                    }
-                    Ok(Ok(_)) => {
-                        inspection_dirty = true;
-                        status_dirty = true;
+                    Ok(Ok(prepared)) => {
+                        let validate_state = state.clone();
+                        let validate_owner = owner.clone();
+                        let (valid, prepared) = match tokio::task::spawn_blocking(move || {
+                            let valid = {
+                                let _fence = validate_state.projection_lock.lock().unwrap();
+                                validate_owner.current(&validate_state)
+                                    && validate_state.updates.revisions.borrow().enrichment
+                                        == inspection_epoch
+                                    && LocationInputs::matches_captured(
+                                        &validate_state,
+                                        &prepared.locations,
+                                    )
+                            };
+                            (valid, prepared)
+                        })
+                        .await
+                        {
+                            Ok(pair) => pair,
+                            Err(_) => break,
+                        };
+                        if !owner.current(&state) { break; }
+                        if valid {
+                            consecutive_stale_inspections = 0;
+                            display.inspect(&prepared, inspection_epoch, inspection_started);
+                            publish_dirty = true;
+                        } else {
+                            inspection_dirty = true;
+                            status_dirty = true;
+                        }
                     }
                     Ok(Err(error))
                         if error.is_transient_location_change()
@@ -1445,5 +1481,72 @@ mod tests {
         assert_eq!(display.status.len(), 31);
         assert_eq!(display.status[0]["label"], "Newer");
         assert!(display.enrichment.values().all(|e| e["state"] == "pending"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn adaptive_status_publish_validates_aged_remembered_locations_without_rereading() {
+        let (dir, state, metadata) = fixture_with_layout(4, 1);
+        let old_time = std::time::SystemTime::now() - Duration::from_secs(10);
+        for n in 0..4 {
+            let path = metadata.sessions_dir().join(format!("row-{n}.json"));
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(old_time)
+                .unwrap();
+        }
+        let (_, required, mut rx) = subscribe_shared(
+            state.clone(),
+            dir.path().display().to_string(),
+            metadata.root_path(),
+        )
+        .unwrap();
+        display_where(&mut rx, |d| {
+            d.captured_request == Some(required)
+                && d.enrichment.values().all(|e| e["state"] != "pending")
+        })
+        .await;
+
+        // Add a live session whose output ticks while row-0 stays aged and untouched.
+        let (kill_tx, _) = tokio::sync::watch::channel(false);
+        let mut live = crate::test_support::test_session_info(
+            "live-output",
+            "Live",
+            dir.path().display().to_string(),
+            "running",
+            "2026-11-28T00:00:00Z",
+        );
+        live.last_output_at = Some("2026-11-28T00:00:01Z".into());
+        state.sessions.lock().unwrap().insert(
+            "live-output".into(),
+            crate::SessionHandle {
+                info: live,
+                active_work_hook: false,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
+                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
+                ),
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+            },
+        );
+        let aged_path = metadata.sessions_dir().join("row-0.json");
+        let mut reread = crate::metadata::session_reader::testing::hold_nth_read(&aged_path, 1);
+        state.updates.output_changed();
+        let published = tokio::select! {
+            _ = reread.entered() => None,
+            display = display_where(&mut rx, |d| d.status.iter().any(|r| r["id"] == "live-output")) => Some(display),
+        };
+        drop(reread);
+        assert!(
+            published.is_some(),
+            "status publish must not re-read untouched aged remembered sessions via SessionReader"
+        );
     }
 }

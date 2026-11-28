@@ -186,3 +186,39 @@ async fn resumed_runtime_keeps_task_binding_and_launch_directory() {
         task.canonicalize().unwrap()
     );
 }
+
+#[tokio::test]
+async fn subject_info_releases_workspace_and_session_locks_before_reading_disk() {
+    let (dir, task) = persisted_fixture();
+    let launch = dir.path().join("launch");
+    let state = test_app_state_with_workspace(&launch);
+    let path = state
+        .workspace
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .metadata
+        .sessions_dir()
+        .join(format!("{SESSION}.json"));
+    let mut held = crate::metadata::session_reader::testing::hold_nth_read(&path, 1);
+    let lookup_state = state.clone();
+    let lookup = tokio::task::spawn_blocking(move || subject_info(&lookup_state, SESSION, None));
+    tokio::time::timeout(std::time::Duration::from_secs(5), held.entered())
+        .await
+        .expect("remembered subject_info must read from disk");
+    let workspace_unlocked = state.workspace.try_lock().is_ok();
+    let sessions_unlocked = state.sessions.try_lock().is_ok();
+    drop(held);
+    let info = lookup.await.unwrap().unwrap();
+    assert!(
+        workspace_unlocked,
+        "subject_info must release workspace lock before reading session file from disk"
+    );
+    assert!(
+        sessions_unlocked,
+        "subject_info must release sessions lock before reading session file from disk"
+    );
+    assert_eq!(Path::new(&info.cwd), launch);
+    assert_eq!(Path::new(&info.worktree_binding.unwrap().root), task);
+}
