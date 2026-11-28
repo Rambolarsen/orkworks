@@ -117,8 +117,11 @@ Files: `crates/orkworksd/src/http/session_handlers.rs`;
   resumes while stripping both names case-insensitively on all launches;
   suppress `worktree-instructions` injection on managed sessions.
 - [ ] Update `agent_patch.rs` to reject modifying or clearing `worktreeBinding`
-  on sessions with an active `managedWorktree`, and update Resume admission to
-  refuse cleanly (no primary-checkout fallback) when `cleanupStatus == "removed"`.
+  on sessions with an active `managedWorktree`, and ensure post-removal
+  worktree-backed actions (**Resume**, **Changes**, and **Review** plan file)
+  fail closed with a clear removed-worktree message (noting the preserved Git
+  branch, with no primary-checkout fallback) when `cleanupStatus == "removed"`,
+  while session metadata and terminal replay remain readable.
 - [ ] Update `skills/starting-work/SKILL.md` with the
   `ORKWORKS_MANAGED_WORKTREE=1` preflight check (skip double-worktree creation
   and close-out self-deletion while keeping repo-specific setup).

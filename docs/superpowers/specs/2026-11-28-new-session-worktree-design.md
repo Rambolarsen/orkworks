@@ -436,10 +436,12 @@ Archived (or restored) sessions with `cleanupStatus = "retained_dirty"` or
 - **Worktree still present (`active` / `retained_dirty` / `removal_failed`):**
   Exact resume launches in `managedWorktree.root` with
   `ORKWORKS_MANAGED_WORKTREE=1` restored and `worktree-instructions` suppressed.
-- **Worktree removed (`removed`):** Session metadata, terminal replay, and plan
-  review remain readable. If restored to `Closed`, Resume reports clearly that
-  the managed worktree was removed on archive and refuses to silently fall back
-  to the primary checkout.
+- **Worktree removed (`removed`):** Session metadata and terminal replay remain
+  readable, and the Git branch/commits remain intact in the repository.
+  Worktree-backed surfaces (**Review** plan file, **Changes**, and **Resume**
+  after Restore) report clearly that the managed worktree was removed on archive
+  (noting the preserved Git branch) and refuse to silently fall back to the
+  primary checkout.
 
 ## Decisions made by the designer (for owner review)
 
