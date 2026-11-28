@@ -37,7 +37,7 @@ fn persisted_fixture() -> (tempfile::TempDir, PathBuf) {
     meta.resume = Some(ResumeMemory {
         state: ResumeState::Available,
         preferred_strategy: ResumeStrategy::LatestCwd,
-        harness_session_id: None,
+        harness_session_id: Some("ses_previous_conversation".into()),
         latest_fallback: true,
         last_seen_at: Some("before".into()),
     });
@@ -169,6 +169,10 @@ async fn resumed_runtime_keeps_task_binding_and_launch_directory() {
     );
     assert_eq!(Path::new(&info.cwd), launch);
     assert_eq!(Path::new(&info.worktree_binding.unwrap().root), task);
+    assert_eq!(info.resume_strategy, ResumeStrategy::LatestCwd);
+    let resume = info.resume.unwrap();
+    assert_eq!(resume.harness_session_id, None);
+    assert_eq!(resume.last_seen_at, None);
     let (live_root, live_source) = live_location.unwrap();
     assert_eq!(live_root, task);
     assert_eq!(live_source, GitLocationSource::Agent);
