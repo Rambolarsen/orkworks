@@ -760,7 +760,7 @@ function App() {
       )}
       {workspace && backendStatus === "connected" && sessionAdmissionEnabled && !isSwitchingWorkspace && (
         <WorkspaceHookNotice
-          key={shellNavigation.workspaceGeneration}
+          key={JSON.stringify([shellNavigation.workspaceGeneration, activeHarnessIds])}
           activeHarnessIds={activeHarnessIds}
           settingsOpen={settingsOpen}
           onOpenSettings={() => void openSettings("tools")}

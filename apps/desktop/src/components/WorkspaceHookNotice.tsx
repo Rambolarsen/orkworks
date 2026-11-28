@@ -21,6 +21,9 @@ export default function WorkspaceHookNotice({ activeHarnessIds, settingsOpen, on
 
     let request: AbortController | undefined;
     let refreshTimer: number | undefined;
+    function scheduleRefresh() {
+      refreshTimer = window.setTimeout(() => void refresh(), 15_000);
+    }
     async function refresh() {
       window.clearTimeout(refreshTimer);
       request?.abort();
@@ -37,9 +40,10 @@ export default function WorkspaceHookNotice({ activeHarnessIds, settingsOpen, on
         const next = workspaceHookNotices(groups);
         setNotices(next);
         // Trust can be granted in a terminal without changing app focus.
-        if (next.length) refreshTimer = window.setTimeout(() => void refresh(), 15_000);
+        if (next.length) scheduleRefresh();
       } catch {
-        if (!controller.signal.aborted) setNotices([]);
+        // A failed check leaves the last confirmed hook status in place.
+        if (!controller.signal.aborted) scheduleRefresh();
       }
     }
 
