@@ -115,16 +115,20 @@ pub(crate) fn inspect(
             }
             // HTTP inference is code-owned and is not an interactive harness.
             for native in crate::providers::builtin_provider_registry() {
+                let Some(profile) = NativeProfile::from_provider_definition(&native) else {
+                    continue;
+                };
                 if !providers.iter().any(|provider| provider.id == native.id) {
+                    let models = native.static_models().to_vec();
                     providers.push(TaskmasterProvider {
                         id: native.id,
                         label: native.label,
                         state: Availability::Ready,
-                        models: native.static_models,
+                        models,
                         supports_reasoning_effort: false,
                         transport: Transport::Native(NativeRevision {
                             document_revision: snapshot.document_revision.clone(),
-                            profile: NativeProfile::Ollama,
+                            profile,
                         }),
                     });
                 }

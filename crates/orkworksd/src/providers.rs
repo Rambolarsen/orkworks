@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use crate::harness::definition::{BuiltinDocument, HarnessUserDocument, EMBEDDED_BUILTINS};
-use crate::harness::definition::{DefinitionOrigin, PromptTransport};
+use crate::harness::definition::{DefinitionOrigin, ModelCapability, PromptTransport};
 #[cfg(test)]
 use crate::harness::registry::resolve_document;
 use crate::harness::registry::HarnessCatalog;
@@ -468,6 +468,8 @@ fn failed_ollama_verification(
 
 // --- Registry types ---
 
+const CODEX_APP_SERVER_ARGS: [&str; 2] = ["app-server", "--stdio"];
+
 #[derive(Clone, Debug)]
 pub struct ProviderDefinition {
     pub id: String,
@@ -479,10 +481,41 @@ pub struct ProviderDefinition {
     pub timeout_secs: u64,
     pub prompt_transport: PromptTransport,
     pub reasoning_effort_args: Vec<String>,
-    pub list_models_command: Option<String>,
-    pub list_models_args: Vec<String>,
-    pub static_models: Vec<String>,
-    pub http_list_models: bool,
+    pub(crate) model_discovery: Option<ModelCapability>,
+}
+
+impl ProviderDefinition {
+    pub(crate) fn supports_model_discovery(&self) -> bool {
+        match &self.model_discovery {
+            Some(ModelCapability::Static { models }) => !models.is_empty(),
+            Some(ModelCapability::Command { command, .. }) => !command.trim().is_empty(),
+            Some(ModelCapability::CodexAppServer) => self.codex_app_server_command().is_some(),
+            Some(ModelCapability::Http) => true,
+            None => false,
+        }
+    }
+
+    pub(crate) fn is_codex_app_server(&self) -> bool {
+        matches!(self.model_discovery, Some(ModelCapability::CodexAppServer))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_http_model_discovery(&self) -> bool {
+        matches!(self.model_discovery, Some(ModelCapability::Http))
+    }
+
+    pub(crate) fn static_models(&self) -> &[String] {
+        match &self.model_discovery {
+            Some(ModelCapability::Static { models }) => models.as_slice(),
+            _ => &[],
+        }
+    }
+
+    pub(crate) fn codex_app_server_command(&self) -> Option<&str> {
+        self.is_codex_app_server()
+            .then_some(self.command.as_str())
+            .filter(|command| !command.trim().is_empty())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -563,7 +596,7 @@ fn parse_codex_model_list(payload: &str) -> Result<Vec<ProviderModelOption>, Str
 }
 
 pub(crate) fn supports_inference_definition(definition: &ProviderDefinition) -> bool {
-    definition.id == "ollama" || inference::supports(definition)
+    native_inference::NativeProfile::from_provider_definition(definition).is_some()
 }
 
 pub(crate) fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOption> {
@@ -578,20 +611,11 @@ pub(crate) fn simple_model_options(models: Vec<String>) -> Vec<ProviderModelOpti
         .collect()
 }
 
-fn is_codex_app_server(definition: &ProviderDefinition) -> bool {
-    definition
-        .list_models_command
-        .as_deref()
-        .and_then(|command| std::path::Path::new(command).file_name())
-        .and_then(|name| name.to_str())
-        == Some("codex")
-        && definition.list_models_args == ["app-server", "--stdio"]
-}
-
 pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
+    let ollama = native_inference::NativeProfile::Ollama;
     vec![ProviderDefinition {
-        id: "ollama".into(),
-        label: "Ollama".into(),
+        id: ollama.id().into(),
+        label: ollama.label().into(),
         command: String::new(),
         default_args: vec![],
         model_arg_template: None,
@@ -599,10 +623,7 @@ pub fn builtin_provider_registry() -> Vec<ProviderDefinition> {
         timeout_secs: 30,
         prompt_transport: PromptTransport::Stdin,
         reasoning_effort_args: vec![],
-        list_models_command: None,
-        list_models_args: vec![],
-        static_models: vec![],
-        http_list_models: true,
+        model_discovery: ollama.model_discovery(),
     }]
 }
 
@@ -2976,9 +2997,7 @@ impl ProviderManager {
         let definition = self.definition(provider_id)?;
         Ok(ProviderCapabilities {
             connectivity: true,
-            model_discovery: definition.http_list_models
-                || definition.list_models_command.is_some()
-                || !definition.static_models.is_empty(),
+            model_discovery: definition.supports_model_discovery(),
             provider_default: definition.id != "ollama",
             test_inference: self.validate_apply_capability(&definition).is_ok(),
         })
@@ -2991,8 +3010,7 @@ impl ProviderManager {
         executable: &str,
     ) -> Result<Vec<ProviderModelOption>, String> {
         let mut definition = native_inference::NativeProfile::Codex.definition();
-        definition.list_models_command = Some(executable.to_owned());
-        definition.list_models_args = vec!["app-server".into(), "--stdio".into()];
+        definition.command = executable.to_owned();
         self.discover_codex_models(&definition)
     }
 
@@ -3012,7 +3030,7 @@ impl ProviderManager {
             }
             return Ok(simple_model_options(response.models));
         }
-        let discovered = if is_codex_app_server(&definition) {
+        let discovered = if definition.is_codex_app_server() {
             self.discover_codex_models(&definition)
         } else {
             self.discover_models(&definition.id)
@@ -3031,7 +3049,13 @@ impl ProviderManager {
         profile: native_inference::NativeProfile,
         ollama_base_url: Option<&str>,
     ) -> Result<Vec<ProviderModelOption>, ProviderOperationError> {
-        self.discover_taskmaster_models_with_codex_command(profile, ollama_base_url, "codex")
+        self.discover_taskmaster_models_with_codex_command(
+            profile,
+            ollama_base_url,
+            native_inference::NativeProfile::Codex
+                .cli_command()
+                .expect("Codex profile defines a CLI command"),
+        )
     }
 
     fn discover_taskmaster_models_with_codex_command(
@@ -3043,8 +3067,7 @@ impl ProviderManager {
         match profile {
             native_inference::NativeProfile::Codex => {
                 let mut definition = profile.definition();
-                definition.list_models_command = Some(codex_command.to_string());
-                definition.list_models_args = vec!["app-server".into(), "--stdio".into()];
+                definition.command = codex_command.to_string();
                 self.discover_codex_models(&definition)
                     .map_err(|message| ProviderOperationError {
                         code: classify_invocation_error(&message),
@@ -3103,7 +3126,7 @@ impl ProviderManager {
                 self.ensure_current_generation(request.generation)?;
                 return Err(error);
             }
-            let discovered = if is_codex_app_server(&definition) {
+            let discovered = if definition.is_codex_app_server() {
                 self.discover_codex_models(&definition)
             } else {
                 self.discover_models(&definition.id)
@@ -3111,7 +3134,7 @@ impl ProviderManager {
             };
             match discovered {
                 Ok(models) => models,
-                Err(error) if is_codex_app_server(&definition) => {
+                Err(error) if definition.is_codex_app_server() => {
                     // A live Codex process is still usable with its own default
                     // when an older CLI cannot answer model/list yet.
                     tracing::warn!("Codex model discovery unavailable: {error}");
@@ -3310,22 +3333,17 @@ impl ProviderManager {
             .find(|d| d.id == provider_id)
             .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
 
-        if definition.http_list_models {
-            return self.discover_models_http(provider_id);
-        }
-
-        if is_codex_app_server(definition) {
-            return self
-                .discover_codex_models(definition)
-                .map(|models| models.into_iter().map(|model| model.id).collect());
-        }
-
-        if definition.list_models_command.is_none() {
-            return Ok(definition.static_models.clone());
-        }
-
-        let command = definition.list_models_command.as_deref().unwrap();
-        let args = &definition.list_models_args;
+        let (command, args) = match &definition.model_discovery {
+            Some(ModelCapability::Http) => return self.discover_models_http(provider_id),
+            Some(ModelCapability::CodexAppServer) => {
+                return self
+                    .discover_codex_models(definition)
+                    .map(|models| models.into_iter().map(|model| model.id).collect());
+            }
+            Some(ModelCapability::Static { models }) => return Ok(models.clone()),
+            Some(ModelCapability::Command { command, args }) => (command.as_str(), args.as_slice()),
+            None => return Ok(Vec::new()),
+        };
 
         let mut child = std::process::Command::new(command)
             .args(args)
@@ -3416,8 +3434,7 @@ impl ProviderManager {
         definition: &ProviderDefinition,
     ) -> Result<Vec<ProviderModelOption>, String> {
         let command = definition
-            .list_models_command
-            .as_deref()
+            .codex_app_server_command()
             .ok_or_else(|| "Codex app-server command is not configured".to_string())?;
         #[cfg(windows)]
         let executable = crate::harness::detect::probe_installed_tool(command)
@@ -3426,7 +3443,7 @@ impl ProviderManager {
         #[cfg(not(windows))]
         let executable = std::path::PathBuf::from(command);
         let mut child = Command::new(executable)
-            .args(&definition.list_models_args)
+            .args(CODEX_APP_SERVER_ARGS)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -4718,10 +4735,7 @@ mod tests {
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Argument,
                     reasoning_effort_args: vec![],
-                    list_models_command: None,
-                    list_models_args: vec![],
-                    static_models: vec![],
-                    http_list_models: false,
+                    model_discovery: None,
                 },
                 ProviderDefinition {
                     id: "copilot-local".into(),
@@ -4733,10 +4747,7 @@ mod tests {
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Argument,
                     reasoning_effort_args: vec![],
-                    list_models_command: None,
-                    list_models_args: vec![],
-                    static_models: vec![],
-                    http_list_models: false,
+                    model_discovery: None,
                 },
                 ProviderDefinition {
                     id: "new-provider".into(),
@@ -4748,10 +4759,7 @@ mod tests {
                     timeout_secs: 30,
                     prompt_transport: PromptTransport::Stdin,
                     reasoning_effort_args: vec![],
-                    list_models_command: None,
-                    list_models_args: vec![],
-                    static_models: vec![],
-                    http_list_models: false,
+                    model_discovery: None,
                 },
             ],
             settings,
@@ -4820,10 +4828,7 @@ mod tests {
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             settings,
             vec![],
@@ -5255,10 +5260,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             ProviderSettingsPayload {
                 peon_model: Some("global-model".into()),
@@ -5330,10 +5332,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             ProviderSettingsPayload {
                 peon_model: Some(" global-model ".into()),
@@ -5377,10 +5376,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             ProviderSettingsPayload {
                 peon_model: Some("global-model".into()),
@@ -5779,10 +5775,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Argument,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             sample_settings(vec![entry("copilot")]),
             vec![fake_provider("copilot")
@@ -5824,10 +5817,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Argument,
                 reasoning_effort_args: vec!["--config".into(), "reasoning={effort}".into()],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             ProviderSettingsPayload {
                 peon_model: Some("claude-sonnet-4.6".into()),
@@ -6052,10 +6042,7 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: None,
             }],
             sample_settings(vec![]),
             vec![],
@@ -6078,10 +6065,9 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec!["sonnet".into(), "opus".into(), "haiku".into()],
-                http_list_models: false,
+                model_discovery: Some(ModelCapability::Static {
+                    models: vec!["sonnet".into(), "opus".into(), "haiku".into()],
+                }),
             }],
             sample_settings(vec![]),
             vec![],
@@ -6104,10 +6090,9 @@ exit 17
                 timeout_secs: 7,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: None,
-                list_models_args: vec![],
-                static_models: vec!["custom-small".into(), "custom-large".into()],
-                http_list_models: false,
+                model_discovery: Some(ModelCapability::Static {
+                    models: vec!["custom-small".into(), "custom-large".into()],
+                }),
             }],
             sample_settings(vec![]),
             vec![],
@@ -6141,10 +6126,10 @@ exit 17
                 timeout_secs: 30,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: Some(command.to_string_lossy().into_owned()),
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: Some(ModelCapability::Command {
+                    command: command.to_string_lossy().into_owned(),
+                    args: vec![],
+                }),
             }],
             ProviderSettingsPayload::default(),
             vec![],
@@ -6216,7 +6201,7 @@ for line in sys.stdin:
             vec![ProviderDefinition {
                 id: "codex".into(),
                 label: "Codex".into(),
-                command: "codex".into(),
+                command: command.display().to_string(),
                 default_args: vec!["exec".into()],
                 model_arg_template: Some("--model={model}".into()),
                 supports_model: true,
@@ -6226,10 +6211,7 @@ for line in sys.stdin:
                     "--config".into(),
                     "model_reasoning_effort={effort}".into(),
                 ],
-                list_models_command: Some(command.display().to_string()),
-                list_models_args: vec!["app-server".into(), "--stdio".into()],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: Some(ModelCapability::CodexAppServer),
             }],
             sample_settings(vec![]),
             vec![],
@@ -6282,10 +6264,10 @@ done
                 timeout_secs: 2,
                 prompt_transport: PromptTransport::Stdin,
                 reasoning_effort_args: vec![],
-                list_models_command: Some(override_command.display().to_string()),
-                list_models_args: vec![],
-                static_models: vec![],
-                http_list_models: false,
+                model_discovery: Some(ModelCapability::Command {
+                    command: override_command.display().to_string(),
+                    args: vec![],
+                }),
             }],
             sample_settings(vec![]),
             vec![],
@@ -6318,7 +6300,12 @@ done
         assert!(ollama.is_some());
         let ollama = ollama.unwrap();
         assert_eq!(ollama.label, "Ollama");
-        assert!(ollama.http_list_models);
+        assert!(ollama.is_http_model_discovery());
+        assert!(ollama.supports_model_discovery());
+        assert_eq!(
+            native_inference::NativeProfile::from_provider_definition(ollama),
+            Some(native_inference::NativeProfile::Ollama)
+        );
     }
 
     #[test]
@@ -6387,7 +6374,7 @@ done
             },
             vec![],
         );
-        // This bypasses FakeRunner — discover_models() dispatches on http_list_models
+        // This bypasses FakeRunner — discover_models() dispatches on ModelCapability::Http
         let result = manager.discover_models("ollama");
         assert!(
             result.is_err(),
@@ -6610,10 +6597,9 @@ done
             timeout_secs: 1,
             prompt_transport: PromptTransport::Stdin,
             reasoning_effort_args: vec![],
-            list_models_command: None,
-            list_models_args: vec![],
-            static_models: vec!["discovered-model".into()],
-            http_list_models: false,
+            model_discovery: Some(ModelCapability::Static {
+                models: vec!["discovered-model".into()],
+            }),
         }
     }
 
@@ -6628,10 +6614,9 @@ done
             timeout_secs: 1,
             prompt_transport: PromptTransport::Stdin,
             reasoning_effort_args: vec![],
-            list_models_command: None,
-            list_models_args: vec![],
-            static_models: vec!["other-model".into()],
-            http_list_models: false,
+            model_discovery: Some(ModelCapability::Static {
+                models: vec!["other-model".into()],
+            }),
         }
     }
 
@@ -6695,7 +6680,7 @@ done
         let mut definition = custom_provider_definition();
         definition.model_arg_template = None;
         definition.supports_model = false;
-        definition.static_models.clear();
+        definition.model_discovery = None;
         let manager = ProviderManager::for_tests_with_registry(
             vec![definition],
             ProviderSettingsPayload::default(),
@@ -7456,5 +7441,112 @@ done
 
         assert!(!result.success);
         assert!(result.stderr.contains("output exceeded"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_app_server_capability_does_not_depend_on_codex_binary_name() {
+        use crate::test_support::make_test_executable;
+
+        let dir = tempfile::tempdir().unwrap();
+        let nightly = dir.path().join("codex-nightly");
+        std::fs::write(
+            &nightly,
+            r#"#!/bin/sh
+[ "$1" = "app-server" ] && [ "$2" = "--stdio" ] || exit 22
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"model/list"'*) printf '%s\n' '{"id":2,"result":{"data":[{"id":"gpt-nightly","displayName":"GPT Nightly"}]}}'; break ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        make_test_executable(&nightly);
+
+        let plain_codex = dir.path().join("codex");
+        std::fs::write(&plain_codex, "#!/bin/sh\nprintf 'plain-line-model\\n'\n").unwrap();
+        make_test_executable(&plain_codex);
+
+        let manager = ProviderManager::for_tests_with_registry(
+            vec![
+                ProviderDefinition {
+                    id: "codex-custom".into(),
+                    label: "Codex Nightly".into(),
+                    command: nightly.display().to_string(),
+                    default_args: vec!["exec".into()],
+                    model_arg_template: Some("--model={model}".into()),
+                    supports_model: true,
+                    timeout_secs: 10,
+                    prompt_transport: PromptTransport::Stdin,
+                    reasoning_effort_args: vec![],
+                    model_discovery: Some(ModelCapability::CodexAppServer),
+                },
+                ProviderDefinition {
+                    id: "command-named-codex".into(),
+                    label: "Command Named Codex".into(),
+                    command: "other".into(),
+                    default_args: vec![],
+                    model_arg_template: Some("--model={model}".into()),
+                    supports_model: true,
+                    timeout_secs: 10,
+                    prompt_transport: PromptTransport::Stdin,
+                    reasoning_effort_args: vec![],
+                    model_discovery: Some(ModelCapability::Command {
+                        command: plain_codex.display().to_string(),
+                        args: vec!["app-server".into(), "--stdio".into()],
+                    }),
+                },
+            ],
+            ProviderSettingsPayload::default(),
+            vec![],
+        );
+
+        let nightly_options = manager
+            .discover_provider_model_options("codex-custom", None)
+            .unwrap();
+        assert_eq!(nightly_options.len(), 1);
+        assert_eq!(nightly_options[0].id, "gpt-nightly");
+        assert_eq!(nightly_options[0].display_name, "GPT Nightly");
+
+        let plain_def = manager.definition("command-named-codex").unwrap();
+        assert!(!plain_def.is_codex_app_server());
+        assert_eq!(
+            manager.discover_models("command-named-codex").unwrap(),
+            vec!["plain-line-model"]
+        );
+
+        let mut empty_codex = manager.definition("codex-custom").unwrap();
+        empty_codex.command = "   ".into();
+        assert!(empty_codex.is_codex_app_server());
+        assert_eq!(empty_codex.codex_app_server_command(), None);
+        assert!(!empty_codex.supports_model_discovery());
+    }
+
+    #[test]
+    fn native_profile_and_inference_support_agree_across_registry() {
+        let manager = ProviderManager::new();
+        for definition in manager.definitions() {
+            let profile = native_inference::NativeProfile::from_provider_definition(&definition);
+            assert_eq!(
+                supports_inference_definition(&definition),
+                profile.is_some(),
+                "provider {}",
+                definition.id
+            );
+            assert_eq!(
+                inference::supports(&definition),
+                matches!(
+                    profile,
+                    Some(
+                        native_inference::NativeProfile::Codex
+                            | native_inference::NativeProfile::Claude
+                    )
+                ),
+                "provider {}",
+                definition.id
+            );
+        }
     }
 }
