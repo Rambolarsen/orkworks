@@ -190,3 +190,7 @@ installer or production behavior changes here. All allowances remain spent;
 Gate 1 is Investigate and all source/compatibility/bootstrap/native/recovery/
 durability/activation gates remain open. The audit closes only the source-only
 #2253 deliverable; a separate proposal remains the next decision.
+
+The [within-root diagnostic proposal](../superpowers/specs/2026-11-28-within-root-reader-diagnostics-design.md)
+under #2263 makes the next design choices concrete. It remains proposed; neither
+tooling implementation nor an installed-input attempt follows from publication.

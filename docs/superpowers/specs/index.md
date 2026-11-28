@@ -397,3 +397,5 @@ Dated design records; these do not establish current product behavior.
 - [Live reader integration for one Windows candidate batch](2026-11-27-live-reader-integration-design.md) — Accepted isolated v2 tooling and sole candidate attempt; terminal unavailable, allowance spent.
 
 - [Synthetic reader progress and buffer reuse](2026-11-27-reader-diagnostic-contract-design.md) — Proposed bounded diagnostic framing, timeout retention and paired buffer evidence on owned fixtures only; implementation acceptance required, no qualification allowance.
+
+- [Within-root reader diagnostic proposal](2026-11-28-within-root-reader-diagnostics-design.md) — Sparse MSVC checkpoints in an isolated wire domain; no renewed execution allowance.
