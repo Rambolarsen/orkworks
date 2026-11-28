@@ -8,6 +8,8 @@ Capability research, validation results, and evidence fixtures.
 
 ## Documents
 
+- [Initial evaluation publication trace in the fresh pair](initial-evaluation-publication-trace.md) — Exact core key and proof map, with the original accepted result as the first unsupported join.
+
 - [Fresh-pair evidence inventory for evaluation publication](evaluation-publication-profile-inventory.md) — Source-only mapping of the accepted pair to #1176 evidence requirements and open qualification gaps.
 
 - [Antigravity resume identity evidence](antigravity-resume-identity.md) — Pinned 1.5.18 continue/exact identity captures, reporter replay, exact-resume native question status, and one source-built resumed desktop question cancellation with explicit limits.
