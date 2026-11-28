@@ -410,3 +410,23 @@ appeared in the shutdown report and reconciled after release. A separate
 test dropped the pool before release and observed reap of the resulting
 child. Moving cleanup ownership after a child has already been handed to
 the pool remains a separate shutdown boundary.
+
+## Cleanup ownership after pool drop
+
+Create a cleanup task before any launch and keep its handoff endpoint in the
+dormant pool. If task creation fails, no child starts. Pool drop closes the
+channels and attempts bounded termination and reap. Transfer the unresolved
+owned children together, retaining a maximum of four handles and polling
+each independently until its exit is confirmed. An `ECHILD` report permanently
+ends operations on the old PID and retains an unconfirmed outcome.
+
+The native fixture holds two already-owned children behind separate reap
+gates. Shutdown reports both as unconfirmed and pool drop returns while both
+gates are held. Non-consuming observations in an isolated process verify the
+second reaps while the first is still waitable. Releasing the first then
+confirms its exact reap.
+
+The original implementation failed the single-child regression. The updated
+macOS 26.6.2 arm64 target passed all 19 cases, and the two-child regression
+passed six additional runs. The fixture gates observation of reap. An actual
+kernel delay and application startup or shutdown integration stay open.
