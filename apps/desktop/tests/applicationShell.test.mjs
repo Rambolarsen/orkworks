@@ -2373,8 +2373,16 @@ if (process.versions.electron) {
           assert.equal(await evaluate('fixture.input.length'),0);
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'resume-session') {
+          const pressSessionEnter = async () => {
+            await evaluate('document.querySelector("#sessions-list").focus()');
+            win.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});
+          };
           assert.equal(await evaluate('!!document.querySelector("[data-shell-resume]")'),false,'live sessions have no resume action');
-          await evaluate('fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",sessionState:"closed",sessionActionToken:"fixture-token",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
+          await pressSessionEnter();
+          await waitFor('document.activeElement.matches(".xterm-helper-textarea")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[]);
+          await evaluate('fixture.keepOtherLive=true;fixture.setSessionState({lifecycle:"dead",status:"ended",memoryState:"resumable",resumeStrategy:"exact",sessionState:"closed",sessionActionToken:"fixture-token",resumeOptions:[{strategy:"exact",available:true,label:"Exact",preferred:true},{strategy:"latest_cwd",available:true,label:"Latest in folder"},{strategy:"latest_repo",available:false,label:"Latest in repo",reason:"Not supported"}]})');
           await waitFor('document.querySelector("[data-shell-resume]")');
           await evaluate('document.querySelector("#sessions-list").focus()');
           win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
@@ -2405,8 +2413,24 @@ if (process.versions.electron) {
               && parseFloat(dropdown.borderTopRightRadius) > 0
               && main.getBoundingClientRect().right === arrow.getBoundingClientRect().left;
           })()`), 'Resume and its options form one accent split button with a divider and rounded outer edge');
-          await evaluate('document.querySelector("[data-shell-resume]").click()');
-          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'main button resumes the preferred exact session');
+          const setSessionFilter = async value => {
+            await evaluate(`(() => {
+              const filter = document.querySelector('.session-state-filter select');
+              filter.value = ${javascriptLiteral(value)};
+              filter.dispatchEvent(new Event('change', {bubbles:true}));
+            })()`);
+          };
+          await setSessionFilter('active');
+          await waitFor('!document.querySelector("[data-session-id=coding]")');
+          await pressSessionEnter();
+          await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus")');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'Enter does not resume a session hidden by the filter');
+          await setSessionFilter('all');
+          await waitFor('document.querySelector("[data-session-id=coding]")');
+          await evaluate('fixture.keepOtherLive=false');
+          await pressSessionEnter();
+          await waitFor('fixture.resumed.length===1');
+          assert.deepEqual(await evaluate('fixture.resumed'),[{id:'coding',strategy:'exact'}],'Enter resumes the preferred exact session');
           await evaluate('fixture.setResuming(["coding"])');
           await waitFor('document.querySelector("[data-shell-resume]").disabled');
           await evaluate('document.querySelector("#sessions-list").focus()');
@@ -2416,8 +2440,9 @@ if (process.versions.electron) {
           assert.match(await evaluate('document.querySelector("[data-shell-resume]").textContent'),/Resuming/);
           assert.match(await evaluate('document.querySelector("[data-session-id=coding]").textContent'),/Resuming/);
           assert.equal(await evaluate('document.querySelector("[data-resume-toggle]").disabled'),true);
-          await evaluate('document.querySelector("[data-shell-resume]").click()');
-          assert.equal(await evaluate('fixture.resumed.length'),1,'pending resume suppresses duplicate clicks');
+          await pressSessionEnter();
+          await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus")');
+          assert.equal(await evaluate('fixture.resumed.length'),1,'pending resume suppresses another Enter');
           await click('details');
           await waitFor('document.querySelector(".session-detail .resume-split-button")');
           assert.equal(await evaluate('[...document.querySelectorAll(".session-detail .resume-split-button button")].every(button=>button.disabled)'),true,'Details uses the same pending state');
@@ -2489,13 +2514,29 @@ if (process.versions.electron) {
           assert.equal(await evaluate('!!document.querySelector("[data-shell-region=utility]")'),false,'choices do not navigate to Details');
           await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"resumable",resumeStrategy:"latest_cwd",resumeOptions:[{strategy:"latest_cwd",available:true,label:"Latest in folder",preferred:true}]})');
           await waitFor('document.querySelector("[data-shell-resume]").textContent.includes("Latest in folder")');
-          await evaluate('document.querySelector("[data-shell-resume]").click()');
+          await click('sessions');
+          await waitFor('document.activeElement.id==="sessions-list" && !document.querySelector("[data-shell-resume]")');
+          await pressSessionEnter();
           await waitFor('document.querySelector("[data-resume-warning]")?.open');
-          assert.equal(await evaluate('fixture.resumed.length'),2,'main-button fallback also requires confirmation');
+          assert.equal(await evaluate('document.activeElement.textContent'),'Cancel');
+          assert.equal(await evaluate('fixture.resumed.length'),2,'Enter from compact Sessions still requires fallback confirmation');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+          await waitFor('!document.querySelector("[data-resume-warning]") && document.activeElement.hasAttribute("data-shell-resume")');
+          assert.equal(await evaluate('fixture.resumed.length'),2,'Escape cancels the requested fallback');
+          await click('sessions');
+          await waitFor('document.activeElement.id==="sessions-list"');
+          await pressSessionEnter();
+          await waitFor('document.querySelector("[data-resume-warning]")?.open');
           await evaluate('fixture.select("coding")');
           await waitFor('!document.querySelector("[data-resume-warning]")');
           await evaluate('fixture.setSessionState({lifecycle:"dead",memoryState:"unsupported",resumeStrategy:"none",resumeOptions:[{strategy:"exact",available:false,label:"Exact",reason:"Missing ID"}]})');
           await waitFor('!document.querySelector("[data-shell-resume]")');
+          await click('sessions');
+          await waitFor('document.activeElement.id==="sessions-list"');
+          await pressSessionEnter();
+          await waitFor('!document.querySelector("#sessions-list") && document.activeElement.hasAttribute("data-shell-terminal-focus")');
+          assert.equal(await evaluate('fixture.resumed.length'),2,'unavailable resume keeps the existing terminal action');
           assert.deepEqual(await evaluate('fixture.errors'),[]);
         } else if (scenario === 'new-session') {
           await evaluate('fixture.originalRuntime=fixture.runtime();document.querySelector("[data-shell-create]").click()');
@@ -3484,7 +3525,7 @@ if (process.versions.electron) {
                 onRetryBackend:()=>{},
               }}
               sessions={{
-                items:empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))),
+                items:empty ? [] : ((${javascriptLiteral(scenario)}==='sidebar-controls'?['coding','other',...Array.from({length:80},(_,i)=>'history-'+i)]:['coding','other',...Array.from({length:extraActionCount},(_,i)=>'extra-'+i)]).map((id,i)=>({id,name:id,cwd:'/tmp/test',harnessId:'codex',harness:'codex',lifecycle:'alive',status:'running',attention:(['actions','toolbar-summary'].includes(${javascriptLiteral(scenario)}) && id==='other'?'needs_you':'idle'),...sessionState,...(fixture.keepOtherLive && id==='other' ? {lifecycle:'alive',status:'running',sessionState:'active'} : {}),label:${javascriptLiteral(scenario)}==='actions'&&id==='other'?'Inspect a long action title '+'UnbrokenActionTitle'.repeat(8):id,createdAt:'2026-10-10T10:00:00Z',lastActivityAt:i?'2026-10-10T09:00:00Z':'2026-10-10T10:00:00Z'}))),
                 sourceStatus:sessionsSourceStatus,
                 activeId:activeSessionId,
                 unreadIds:new Set(${javascriptLiteral(scenario)}==='actions'?['other']:[]),

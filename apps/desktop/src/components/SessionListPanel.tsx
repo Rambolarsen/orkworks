@@ -39,7 +39,7 @@ interface SessionListPanelProps {
   onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
   resumingSessionIds?: ReadonlySet<string>;
   onResumeSession?: (id: string) => void;
-  onFocusTerminal: () => void;
+  onActivateSession: (visibleSessionId?: string) => void;
   onOpenWorkspace: () => void;
 }
 
@@ -169,7 +169,7 @@ function SessionListPanel({
   onSessionAction,
   onResumeSession,
   resumingSessionIds,
-  onFocusTerminal,
+  onActivateSession,
   onOpenWorkspace,
 }: SessionListPanelProps) {
   const [filter, setFilter] = useState<"all" | "active" | "closed" | "archived">("all");
@@ -277,7 +277,7 @@ function SessionListPanel({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      onFocusTerminal();
+      if (!e.repeat) onActivateSession(orderedSessions.find(session => session.id === activeSessionId)?.id);
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;

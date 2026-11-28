@@ -867,7 +867,10 @@ The first useful MVP should include:
 - An ended session with an available resume option exposes a split Resume
   button in the selected-session header and Details. The main action resumes
   the preferred available strategy; its arrow exposes all existing options and
-  unavailable reasons. Exact resume starts directly. Folder/repository fallback
+  unavailable reasons. Enter from the Sessions list invokes the main action for
+  its selected ended session when that row is visible and Resume is available.
+  Otherwise Enter opens the selected session's Terminal or history. Exact resume
+  starts directly. Folder/repository fallback
   actions first show a modal warning that another conversation may open, with
   Cancel focused by default and explicit confirmation naming the chosen scope.
   Selecting a session or switching workspaces discards an open menu/warning.

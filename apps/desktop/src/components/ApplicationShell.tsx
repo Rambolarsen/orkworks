@@ -34,6 +34,9 @@ import { useSessionAttentionAlerts } from "../useSessionAttentionAlerts";
 
 export type { ShellCommand, ShellDestination };
 
+type TerminalFocusIntent = "terminal" | { resumeSessionId: string; workspaceGeneration: number };
+const enabledResumeButton = "button[data-shell-resume]:enabled";
+
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
   const harnessId = session?.harnessId?.trim() || session?.harness?.trim();
   return Boolean(harnessId) && harnessId !== "generic-shell";
@@ -146,7 +149,7 @@ export default function ApplicationShell(props: Props) {
   }, [sessions.onSelect]);
   const workspaceGenerationRef = useRef(workspaceGeneration);
   workspaceGenerationRef.current = workspaceGeneration;
-  const focusIntent = useRef<"composer" | "page" | "return" | "review-return" | "terminal" | "sessions" | null>(null);
+  const focusIntent = useRef<"composer" | "page" | "return" | "review-return" | "sessions" | TerminalFocusIntent | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth);
   const [sessionsPage, setSessionsPage] = useState(false);
   const [toolbarResumeWarningOpen, setToolbarResumeWarningOpen] = useState(false);
@@ -225,6 +228,20 @@ export default function ApplicationShell(props: Props) {
     review.onClose?.();
     requestFocus("review-return");
   };
+  const openTerminal = (intent: TerminalFocusIntent = "terminal") => {
+    review.onClose?.();
+    creationReturn.current = null;
+    composer.onCancel?.();
+    setSessionsPage(false);
+    navigation.onInspect(null);
+    requestFocus(intent);
+  };
+  const activateSelectedSession = (visibleSessionId?: string) => {
+    beginNavigation();
+    openTerminal(visibleSessionId && visibleSessionId === session?.id && canResume && !isResuming
+      ? { resumeSessionId: visibleSessionId, workspaceGeneration }
+      : "terminal");
+  };
   const runCommand = (command: ShellCommand, reveal = false, toggleSessions = false) => {
     const intent = beginNavigation();
     if (command === "next-action") {
@@ -271,12 +288,7 @@ export default function ApplicationShell(props: Props) {
       navigation.onInspect(target?.inspector ?? null);
       requestFocus(target?.sessionsPage ? "sessions" : "return");
     } else if (command === "terminal") {
-      review.onClose?.();
-      creationReturn.current = null;
-      composer.onCancel?.();
-      setSessionsPage(false);
-      navigation.onInspect(null);
-      requestFocus("terminal");
+      openTerminal();
     } else if (command === "sessions") {
       const list = document.getElementById("sessions-list");
       const focused = list?.contains(document.activeElement) === true;
@@ -401,7 +413,15 @@ export default function ApplicationShell(props: Props) {
       invokerSelectorRef.current = null;
     } else if (intent === "sessions") {
       (document.getElementById("sessions-list") ?? root.querySelector<HTMLElement>("[data-shell-sessions-heading]"))?.focus({ preventScroll: true });
-    } else if (intent === "terminal" || intent === "review-return") {
+    } else if (intent === "terminal" || intent === "review-return" || typeof intent === "object") {
+      if (typeof intent === "object" && intent.workspaceGeneration === workspaceGeneration && intent.resumeSessionId === session?.id) {
+        // Compact Sessions replaces the toolbar. Activate Resume after Terminal is visible.
+        const resume = root.querySelector<HTMLButtonElement>(enabledResumeButton);
+        if (resume) {
+          resume.click();
+          return;
+        }
+      }
       root.querySelector<HTMLElement>("[data-shell-terminal-focus]")?.focus({ preventScroll: true });
       sessions.onFocusTerminal();
     } else if (intent === "return" && focusTarget) {
@@ -567,7 +587,7 @@ export default function ApplicationShell(props: Props) {
           const fromList = event.target.id === "sessions-list"
             || (event.target.closest(".session-context-menu") && document.activeElement?.id === "sessions-list");
           if (!fromList) return;
-          const resume = rootRef.current?.querySelector<HTMLButtonElement>("[data-shell-resume]:enabled");
+          const resume = rootRef.current?.querySelector<HTMLButtonElement>(enabledResumeButton);
           if (!resume) return;
           resume.focus();
           if (document.activeElement === resume) event.preventDefault();
@@ -582,7 +602,7 @@ export default function ApplicationShell(props: Props) {
           resumingSessionIds={sessions.resumingIds}
           actionsEnabled={backendStatus === "connected" && !isSwitchingWorkspace}
           onSessionAction={sessions.onAction} onResumeSession={sessions.onRowResume ?? sessions.onResume}
-          onFocusTerminal={() => runCommand("terminal")} onOpenWorkspace={workspace.onOpen} />
+          onActivateSession={activateSelectedSession} onOpenWorkspace={workspace.onOpen} />
         <footer className="shell-sidebar-footer">{settingsAndStatus}</footer>
       </section>}
       {layout.sessionsVisible && <RegionSeparator label="Sessions" minimum={200} maximum={layout.sessionsMaximum} value={layout.sessionsWidth}

@@ -53,7 +53,10 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
     };
   }, [pending, onWarningOpenChange]);
   const optionsSignature = JSON.stringify(options);
+  const previousOptionsSignature = useRef(optionsSignature);
   useEffect(() => {
+    if (previousOptionsSignature.current === optionsSignature) return;
+    previousOptionsSignature.current = optionsSignature;
     setOpen(false);
     setPending(null);
   }, [optionsSignature]);
@@ -65,7 +68,11 @@ export default function ResumeChooser({ options, onSelect, header = false, pendi
     if (option.strategy === "exact") onSelect(option);
     else setPending(option);
   };
-  const cancel = () => { setPending(null); trigger.current?.focus(); };
+  const cancel = () => {
+    warning.current?.close();
+    setPending(null);
+    trigger.current?.focus();
+  };
 
   return <div className={header ? "resume-menu" : "resume-menu resume-menu--details"} ref={root} onKeyDown={event => {
     if (event.key === "Escape" && open) {

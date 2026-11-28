@@ -141,7 +141,10 @@ Details. Published installers may not include this action yet.
 
 In current source builds, select an ended session and use the Resume split
 button beside its title or in Details. The main button resumes the preferred
-available option; the arrow opens other choices and explains unavailable ones.
+available option. Press **Enter** in the Sessions list to run the same action
+for the selected ended session. When Resume is unavailable, **Enter** opens the
+terminal or saved output. The arrow opens other choices and explains
+unavailable ones.
 Exact resume starts directly. A folder or repository fallback may open a
 different conversation, so it first shows a warning with **Cancel** and a
 confirmation naming the chosen scope. Cancel leaves the session unchanged.
