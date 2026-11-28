@@ -900,6 +900,9 @@ impl PlatformAdapter for OwnerDomain {
                     matches_registered_pid: registered_identities
                         .iter()
                         .any(|registered| registered.diagnostic_pid == pid),
+                    matches_registered_identity: capture_identity(process.as_raw_handle(), pid)
+                        .ok()
+                        .map(|identity| registered_identities.contains(&identity)),
                 });
             }
             let identity = capture_identity(process.as_raw_handle(), pid).map_err(|error| {

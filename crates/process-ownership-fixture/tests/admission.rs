@@ -570,10 +570,17 @@ fn descendant_census_failure_keeps_the_snapshot_unresolved_with_its_context() {
         DescendantObservationFailure::NotRunning {
             diagnostic_pid: 1856,
             matches_registered_pid: true,
+            matches_registered_identity: None,
+        },
+        DescendantObservationFailure::NotRunning {
+            diagnostic_pid: 1856,
+            matches_registered_pid: true,
+            matches_registered_identity: Some(true),
         },
         DescendantObservationFailure::NotRunning {
             diagnostic_pid: 4216,
             matches_registered_pid: false,
+            matches_registered_identity: Some(false),
         },
     ] {
         let mut supervisor = prepared_with_fault(AdapterFault::DescendantCensusFailure(failure));
