@@ -13,6 +13,7 @@ use std::os::fd::{AsFd, AsRawFd, OwnedFd, RawFd};
 use std::os::unix::{ffi::OsStrExt, net::UnixStream, process::ExitStatusExt};
 use std::path::Path;
 use std::process::ExitStatus;
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -130,10 +131,20 @@ struct ReadyWorker {
     pid: u32,
 }
 
+struct SpawnedWorker {
+    request_tx: UnixStream,
+    response_rx: OwnedFd,
+    child: OwnedChild,
+}
+
+type PendingSpawn = mpsc::Receiver<io::Result<SpawnedWorker>>;
+
 enum SlotState {
     Ready(ReadyWorker),
     Retired,
     CleanupUnconfirmed(OwnedChild),
+    PendingSpawn(PendingSpawn),
+    LaunchUnconfirmed,
 }
 
 pub(crate) struct CustodyPool {
@@ -146,21 +157,23 @@ impl CustodyPool {
         expected_build: [u8; 32],
         budget: Duration,
     ) -> Self {
+        let executable = executable.to_owned();
         Self::start_with_slot_hook(
             expected_build,
             budget,
             DEFAULT_CLEANUP_WAIT,
-            |_slot, request_rx_fd, response_tx_fd| {
-                spawn_worker_process(executable, request_rx_fd, response_tx_fd)
+            move |_slot, request_rx_fd, response_tx_fd| {
+                spawn_worker_process(&executable, request_rx_fd, response_tx_fd)
             },
         )
     }
 
+    /// A successful hook hands off its child. An error must leave no live child.
     pub(crate) fn start_with_slot_hook(
         expected_build: [u8; 32],
         budget: Duration,
         cleanup_wait: Duration,
-        mut spawn_slot: impl FnMut(usize, RawFd, RawFd) -> io::Result<OwnedChild>,
+        spawn_slot: impl Fn(usize, RawFd, RawFd) -> io::Result<OwnedChild> + Send + Sync + 'static,
     ) -> Self {
         let mut slots = [
             SlotState::Retired,
@@ -184,34 +197,39 @@ impl CustodyPool {
             return Self { slots };
         }
 
+        let spawn_slot = Arc::new(spawn_slot);
         for (slot, channels) in channel_set.into_iter().enumerate() {
-            let SlotChannels {
-                request_tx,
-                request_rx,
-                response_rx,
-                response_tx,
-            } = channels;
-
             if Instant::now() >= deadline {
-                drop((request_tx, request_rx, response_rx, response_tx));
                 break;
             }
 
-            let spawn_result = spawn_slot(slot, request_rx.as_raw_fd(), response_tx.as_raw_fd());
-            // Drop the parent's copies of both worker endpoints immediately
-            // after spawn so worker exit surfaces immediately as EOF/POLLHUP
-            // on `response_rx` and `EPIPE` on `request_tx`.
-            drop(request_rx);
-            drop(response_tx);
-
-            let Ok(child) = spawn_result else {
-                drop((request_tx, response_rx));
+            let spawn_slot = Arc::clone(&spawn_slot);
+            let Ok(pending) = supervise_spawn(channels, deadline, move |request, response| {
+                spawn_slot(slot, request, response)
+            }) else {
                 continue;
             };
-
+            let spawned =
+                match pending.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(Ok(spawned)) => spawned,
+                    Ok(Err(_)) => continue,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        slots[slot] = SlotState::PendingSpawn(pending);
+                        break;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        slots[slot] = SlotState::LaunchUnconfirmed;
+                        break;
+                    }
+                };
+            let SpawnedWorker {
+                request_tx,
+                response_rx,
+                child,
+            } = spawned;
             if Instant::now() >= deadline {
                 drop((request_tx, response_rx));
-                slots[slot] = terminate_bounded(child, cleanup_wait);
+                slots[slot] = terminate_bounded(child, Duration::ZERO);
                 break;
             }
 
@@ -228,7 +246,8 @@ impl CustodyPool {
                     slots[slot] = SlotState::Ready(ready);
                 }
                 Err(child) => {
-                    slots[slot] = terminate_bounded(child, cleanup_wait);
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    slots[slot] = terminate_bounded(child, cleanup_wait.min(remaining));
                 }
             }
         }
@@ -246,7 +265,11 @@ impl CustodyPool {
             match slot {
                 SlotState::Ready(_) => counts.ready += 1,
                 SlotState::Retired => counts.retired += 1,
-                SlotState::CleanupUnconfirmed(_) => counts.cleanup_unconfirmed += 1,
+                SlotState::CleanupUnconfirmed(_)
+                | SlotState::PendingSpawn(_)
+                | SlotState::LaunchUnconfirmed => {
+                    counts.cleanup_unconfirmed += 1;
+                }
             }
         }
         counts
@@ -257,7 +280,7 @@ impl CustodyPool {
             .iter()
             .filter_map(|slot| match slot {
                 SlotState::Ready(worker) => Some(worker.pid),
-                SlotState::Retired | SlotState::CleanupUnconfirmed(_) => None,
+                _ => None,
             })
             .collect()
     }
@@ -339,6 +362,22 @@ impl CustodyPool {
                 SlotState::CleanupUnconfirmed(child) => {
                     pending_unconfirmed[idx] = Some(child);
                 }
+                SlotState::PendingSpawn(pending) => match pending.try_recv() {
+                    Ok(Ok(spawned)) => pending_unconfirmed[idx] = Some(spawned.child),
+                    Ok(Err(_)) => {}
+                    Err(mpsc::TryRecvError::Empty) => {
+                        *slot = SlotState::PendingSpawn(pending);
+                        report.cleanup_unconfirmed += 1;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        *slot = SlotState::LaunchUnconfirmed;
+                        report.cleanup_unconfirmed += 1;
+                    }
+                },
+                SlotState::LaunchUnconfirmed => {
+                    *slot = SlotState::LaunchUnconfirmed;
+                    report.cleanup_unconfirmed += 1;
+                }
             }
         }
 
@@ -372,7 +411,7 @@ impl CustodyPool {
                         report.cleanup_unconfirmed += 1;
                         self.slots[idx] = SlotState::CleanupUnconfirmed(child);
                     }
-                    SlotState::Ready(_) => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
         }
@@ -389,7 +428,7 @@ impl CustodyPool {
                     report.cleanup_unconfirmed += 1;
                     self.slots[idx] = SlotState::CleanupUnconfirmed(child);
                 }
-                SlotState::Ready(_) => unreachable!(),
+                _ => unreachable!(),
             }
         }
         report
@@ -409,9 +448,54 @@ impl Drop for CustodyPool {
                 SlotState::CleanupUnconfirmed(child) => {
                     let _ = terminate_bounded(child, DEFAULT_CLEANUP_WAIT);
                 }
+                // Dropping the receiver sends any late result to the launch
+                // task's cleanup path without waiting on the spawn operation.
+                SlotState::PendingSpawn(_) | SlotState::LaunchUnconfirmed => {}
             }
         }
     }
+}
+
+fn supervise_spawn(
+    channels: SlotChannels,
+    deadline: Instant,
+    spawn: impl FnOnce(RawFd, RawFd) -> io::Result<OwnedChild> + Send + 'static,
+) -> io::Result<PendingSpawn> {
+    // No buffered result can be abandoned on receiver drop. A failed
+    // rendezvous leaves the exact process owned by this background task.
+    let (complete, pending) = mpsc::sync_channel(0);
+    thread::Builder::new().spawn(move || {
+        if Instant::now() >= deadline {
+            let _ = complete.send(Err(ErrorKind::TimedOut.into()));
+            return;
+        }
+        let SlotChannels {
+            request_tx,
+            request_rx,
+            response_rx,
+            response_tx,
+        } = channels;
+        let child = spawn(request_rx.as_raw_fd(), response_tx.as_raw_fd());
+        drop((request_rx, response_tx));
+        let result = child.map(|child| SpawnedWorker {
+            request_tx,
+            response_rx,
+            child,
+        });
+        if let Err(mpsc::SendError(Ok(spawned))) = complete.send(result) {
+            // The pool is gone. Close the channels and reap off the caller's
+            // thread, even if the operating system takes longer to settle.
+            let SpawnedWorker {
+                request_tx,
+                response_rx,
+                mut child,
+            } = spawned;
+            drop((request_tx, response_rx));
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    })?;
+    Ok(pending)
 }
 
 struct SpawnFileActions(libc::posix_spawn_file_actions_t);
@@ -630,6 +714,17 @@ fn terminate_bounded(mut child: OwnedChild, wait_budget: Duration) -> SlotState 
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+
+    #[test]
+    fn expired_queued_spawn_skips_native_launch() {
+        let [channels, _one, _two, _three] = channels::seal_split_channels().unwrap();
+        let pending = supervise_spawn(channels, Instant::now(), |_, _| {
+            panic!("expired launch entered the native operation")
+        })
+        .unwrap();
+        let result = pending.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(result.err().unwrap().kind(), ErrorKind::TimedOut);
+    }
 
     #[test]
     fn owned_child_rejects_non_positive_pids_and_preserves_real_exit_status() {

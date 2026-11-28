@@ -388,3 +388,25 @@ tests passed. The late-launch case passed three additional runs. Startup
 closed while the launch was waiting for its gate. After the gate opened,
 the exact child reaped and the healthy peer exited normally. The source
 qualification uses the existing empty worker channels.
+
+## Split-channel pool deadline handoff
+
+Run the pool startup against a launch hook held beyond the shared deadline
+while one native worker is ready. Startup must return with the pending
+attempt charged and the ready worker usable. Start later slots only while
+the budget remains and the preceding launch has reported back.
+
+Transfer the exact late child and the sealed channel owners to cleanup.
+Shutdown must report an unresolved launch while it is pending and allow
+later reconciliation. If the pool is dropped before handoff, the launch
+task owns cleanup of any child it obtains. The test uses empty channels and
+a gate immediately before the native spawn call.
+
+On macOS 26.6.2 arm64, the deadline regression failed on the previous
+synchronous implementation and passed with supervised launch. All 17
+tests in the native worker target passed. One test skipped a task first
+scheduled at the deadline. A second test confirmed the pending launch
+appeared in the shutdown report and reconciled after release. A separate
+test dropped the pool before release and observed reap of the resulting
+child. Moving cleanup ownership after a child has already been handed to
+the pool remains a separate shutdown boundary.
