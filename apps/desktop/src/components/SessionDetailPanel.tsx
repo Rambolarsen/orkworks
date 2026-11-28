@@ -2,10 +2,10 @@ import { gitLocationLabel } from "../gitLocationLabel";
 import { isSessionAlive } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, ChevronRight, Clock, FileText, GitBranch, History, MessageCircle, Star, StarOff } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, GitBranch, History, MessageCircle, Star, StarOff } from "lucide-react";
 import { getSessionWorkflowObservations, getSummaryLog } from "../api";
 import type { SessionAction, SessionAttention, SessionInfo, SummaryLogEntry, WorkflowObservationEntry } from "../api";
-import { formatAutoArchiveRemaining, nextAutoArchiveCountdownRefreshMs } from "../autoArchiveWarning";
+import AutoArchiveWarningBanner from "./AutoArchiveWarningBanner";
 import type { HarnessConfig } from "../harnessTypes";
 import { nativeVoicePresentation } from "../nativeVoicePresentation";
 import { sessionCodingTool, sessionProviderContext } from "../sessionProviderContext";
@@ -85,15 +85,12 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.archivedAt ?? undefined, currentNow));
-    if (active.sessionState === "active" && !active.favorited && active.autoArchiveWarning) {
-      nextRefresh = minDelay(nextRefresh, nextAutoArchiveCountdownRefreshMs(active.autoArchiveWarning.scheduledAt, currentNow));
-    }
     // The aged Capped display (#1082) must advance at its own boundaries —
     // an inactive capped session updates none of the other timestamps.
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitLatchedAt, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitEvidence?.observedAt, currentNow));
     return nextRefresh;
-  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.archivedAt, active?.sessionState, active?.favorited, active?.autoArchiveWarning?.scheduledAt, active?.usageLimitLatchedAt, active?.usageLimitEvidence?.observedAt]));
+  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.archivedAt, active?.usageLimitLatchedAt, active?.usageLimitEvidence?.observedAt]));
 
   // Reset synchronously (during render, not in an effect) so a session
   // switch never paints the previous session's task history under the new
@@ -223,9 +220,6 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
       });
   };
   const showAutoArchiveWarning = active.sessionState === "active" && !active.favorited && !!active.autoArchiveWarning;
-  const archiveCountdown = showAutoArchiveWarning && active.autoArchiveWarning
-    ? formatAutoArchiveRemaining(active.autoArchiveWarning.scheduledAt, now)
-    : null;
 
   return (
     <div className="session-detail" data-attention={tone}>
@@ -244,31 +238,15 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
           </button>
         </div>
       )}
-      {!showingActivity && showAutoArchiveWarning && archiveCountdown && (
-        <div className="auto-archive-warning-banner" role="status" data-auto-archive-warning>
-          <div className="auto-archive-warning-copy">
-            <Clock size={14} aria-hidden="true" />
-            <span>Idle — closes and archives in {archiveCountdown}</span>
-          </div>
-          <div className="auto-archive-warning-actions">
-            <button
-              type="button"
-              data-auto-archive-keep
-              disabled={!actionsEnabled || !onSessionAction || !active.sessionActionToken || isPendingForActive}
-              onClick={() => runDetailAction("favorite")}
-            >
-              Favorite (keep)
-            </button>
-            <button
-              type="button"
-              data-auto-archive-now
-              disabled={!actionsEnabled || !onSessionAction || !active.sessionActionToken || isPendingForActive}
-              onClick={() => runDetailAction("archive")}
-            >
-              Archive now
-            </button>
-          </div>
-        </div>
+      {!showingActivity && showAutoArchiveWarning && active.autoArchiveWarning && (
+        <AutoArchiveWarningBanner
+          key={active.autoArchiveWarning.scheduledAt}
+          scheduledAt={active.autoArchiveWarning.scheduledAt}
+          variant="detail"
+          disabled={!actionsEnabled || !onSessionAction || !active.sessionActionToken || isPendingForActive}
+          onKeep={() => runDetailAction("favorite")}
+          onArchiveNow={() => runDetailAction("archive")}
+        />
       )}
       {showingActivity ? (
         <button type="button" className="session-menu-back" data-session-menu-back ref={backButton}

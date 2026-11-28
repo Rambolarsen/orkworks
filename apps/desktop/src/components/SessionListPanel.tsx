@@ -225,7 +225,8 @@ function SessionListPanel({
     for (const session of sessions) {
       nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(lastActivityTimestamp(session), currentNow));
       if (session.sessionState === "active" && !session.favorited && session.autoArchiveWarning) {
-        nextRefresh = minDelay(nextRefresh, nextAutoArchiveCountdownRefreshMs(session.autoArchiveWarning.scheduledAt, currentNow));
+        const warningNow = new Date(Math.max(currentNow.getTime(), Date.now()));
+        nextRefresh = minDelay(nextRefresh, nextAutoArchiveCountdownRefreshMs(session.autoArchiveWarning.scheduledAt, warningNow));
       }
     }
     return nextRefresh;
@@ -351,7 +352,10 @@ function SessionListPanel({
               </li>
               {group.items.map((s) => {
                 const archiveCountdown = s.sessionState === "active" && !s.favorited && s.autoArchiveWarning
-                  ? formatAutoArchiveRemaining(s.autoArchiveWarning.scheduledAt, now)
+                  ? formatAutoArchiveRemaining(
+                    s.autoArchiveWarning.scheduledAt,
+                    new Date(Math.max(now.getTime(), Date.now())),
+                  )
                   : null;
                 return <SessionListRow key={s.id} session={s} selected={s.id === activeSessionId}
                   isUnread={unreadIds.has(s.id)} acknowledged={acknowledgedIds.has(s.id)}

@@ -1,8 +1,7 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert, Clock } from "lucide-react";
-import { formatAutoArchiveRemaining, nextAutoArchiveCountdownRefreshMs } from "../autoArchiveWarning";
-import { useStableRelativeTimeNow } from "../useStableRelativeTimeNow";
+import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert } from "lucide-react";
+import AutoArchiveWarningBanner from "./AutoArchiveWarningBanner";
 import { pushToast } from "../feedback";
 import type {
   CentralSurface,
@@ -211,13 +210,6 @@ export default function ApplicationShell(props: Props) {
   const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && inspector !== null;
   const session = sessions.items.find(s => s.id === sessions.activeId) ?? null;
   const [pendingBannerSessionIds, setPendingBannerSessionIds] = useState<Set<string>>(() => new Set());
-  const terminalWarningScheduledAt = session && session.sessionState === "active" && !session.favorited
-    ? session.autoArchiveWarning?.scheduledAt ?? null
-    : null;
-  const terminalWarningNow = useStableRelativeTimeNow(useCallback(
-    (currentNow: Date) => nextAutoArchiveCountdownRefreshMs(terminalWarningScheduledAt, currentNow),
-    [terminalWarningScheduledAt],
-  ));
   const isResuming = !!session && !!sessions.resumingIds?.has(session.id);
   const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
     && backendStatus === "connected" && !isSwitchingWorkspace
@@ -722,30 +714,14 @@ export default function ApplicationShell(props: Props) {
                 });
             };
             return (
-              <div className="auto-archive-warning-banner auto-archive-warning-banner--terminal" role="status" data-terminal-auto-archive-warning>
-                <div className="auto-archive-warning-copy">
-                  <Clock size={14} aria-hidden="true" />
-                  <span>Idle — closes and archives in {formatAutoArchiveRemaining(session.autoArchiveWarning.scheduledAt, terminalWarningNow)}</span>
-                </div>
-                <div className="auto-archive-warning-actions">
-                  <button
-                    type="button"
-                    data-auto-archive-keep
-                    disabled={!sourcesReady || !sessions.onAction || !targetToken || bannerPending}
-                    onClick={() => runBannerAction("favorite", "Could not favorite session.")}
-                  >
-                    Favorite (keep)
-                  </button>
-                  <button
-                    type="button"
-                    data-auto-archive-now
-                    disabled={!sourcesReady || !sessions.onAction || !targetToken || bannerPending}
-                    onClick={() => runBannerAction("archive", "Could not archive session.")}
-                  >
-                    Archive now
-                  </button>
-                </div>
-              </div>
+              <AutoArchiveWarningBanner
+                key={session.autoArchiveWarning.scheduledAt}
+                scheduledAt={session.autoArchiveWarning.scheduledAt}
+                variant="terminal"
+                disabled={!sourcesReady || !sessions.onAction || !targetToken || bannerPending}
+                onKeep={() => runBannerAction("favorite", "Could not favorite session.")}
+                onArchiveNow={() => runBannerAction("archive", "Could not archive session.")}
+              />
             );
           })()}
           <TerminalPanel key={`${session?.id ?? "none"}-${sessions.resumeTick}`} backendStatus={backendStatus} session={session}
