@@ -114,7 +114,9 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Resume pending | Backend URL resolves while admission and the row reservation are current | Send the resume to the sidecar |
 | Resume pending | Backend URL resolves after admission or the reservation is invalidated | Skip the stale dispatch |
 | Resume pending | Duplicate request, or old operation finishes after replacement | Current pending operation is unchanged |
-| Resume pending | Current success | Update the row, fence older list reads, and select the resumed row if no newer session was selected |
+| Resume pending | Success still owns its row and workspace admission | Update that row and fence older list reads |
+| Resume pending | Successful resume also owns the foreground and no intervening selection occurred | Focus the resumed row |
+| Resume pending | Archive, delete, or another organization action supersedes the same row | The older resume cannot publish or focus the row |
 | Resume pending | Current failure or admission closes | Clear progress for the owned operation; recover current data on failure |
 | Shell Terminal or Review | Explicit session selection | Terminal for the selected session |
 | Shell Terminal | Current selected session opens an available review artifact | Review with a return target |
@@ -331,6 +333,16 @@ ready. The coordinator tests defer selection and restoration to reproduce both
 orderings. Requests now share the first chooser through settlement, and the
 workspace history controls disable Open other folder while switching.
 [Issue #2233](https://github.com/Rambolarsen/orkworks/issues/2233)
+
+### Concurrent resumes dropped a successful row update
+
+Two Resume requests could dispatch for different rows, but the second request
+changed the foreground generation and discarded the first successful reply.
+The controller tests defer both replies, settle them in either order, and
+check each row before a new list arrives. The result now updates the row
+while it owns the reservation. Foreground and selection checks still govern
+focus, and a newer organization action invalidates an older resume on that row.
+[Issue #2244](https://github.com/Rambolarsen/orkworks/issues/2244)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

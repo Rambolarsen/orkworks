@@ -1234,6 +1234,45 @@ test("resumes for separate sessions can both dispatch after a shared backend loo
   controller.dispose();
 });
 
+for (const firstReply of ["one", "two"] as const) {
+  test(`concurrent resumes both publish their rows when ${firstReply} settles first`, async () => {
+    const rows = [session("one", "dead", "ended"), session("two", "dead", "ended")];
+    const replies = { one: deferred<SessionInfo>(), two: deferred<SessionInfo>() };
+    const dispatched: string[] = [];
+    const selections: Array<string | null> = [];
+    let latest: readonly SessionInfo[] = [];
+    const controller = createWorkspaceSessionController({
+      deps: deps({
+        listSessions: async () => rows,
+        resumeSession: (_url, id) => {
+          dispatched.push(id);
+          return id === "one" ? replies.one.promise : replies.two.promise;
+        },
+      }),
+      onSessions: rows => { latest = rows; },
+      onActiveSession: id => selections.push(id),
+    });
+
+    await controller.refreshSessions();
+    const operations = { one: controller.resumeSession("one"), two: controller.resumeSession("two") };
+    await Promise.resolve();
+    assert.deepEqual(dispatched, ["one", "two"]);
+    const secondReply = firstReply === "one" ? "two" : "one";
+
+    replies[firstReply].resolve(session(firstReply));
+    await operations[firstReply];
+    assert.equal(latest.find(row => row.id === firstReply)?.lifecycle, "alive");
+    assert.equal(latest.find(row => row.id === secondReply)?.lifecycle, "dead");
+    assert.deepEqual(selections, firstReply === "two" ? ["two"] : []);
+
+    replies[secondReply].resolve(session(secondReply));
+    await operations[secondReply];
+    assert.deepEqual(latest.map(row => row.lifecycle), ["alive", "alive"]);
+    assert.deepEqual(selections, ["two"], "only the latest Resume intent can move focus");
+    controller.dispose();
+  });
+}
+
 test("workspace replacement clears resume progress and an old response cannot clear a new resume", async () => {
   const oldResponse = deferred<SessionInfo>();
   const newResponse = deferred<SessionInfo>();
