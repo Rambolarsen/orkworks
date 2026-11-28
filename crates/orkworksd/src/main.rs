@@ -252,6 +252,10 @@ fn main() {
     if let Some(code) = codex_custody_qualification::run_if_selected() {
         std::process::exit(code);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(code) = taskmaster::codex_capture_owner::run_private_worker() {
+        std::process::exit(code);
+    }
     if git::run_scan_worker() {
         return;
     }

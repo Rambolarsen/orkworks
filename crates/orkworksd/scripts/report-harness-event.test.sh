@@ -651,3 +651,6 @@ check_antigravity missing-id '[{"status":"working","source":"antigravity_hook","
 
 run_antigravity unknown-event PostInvocation "$conversation"
 check_antigravity unknown-event '[]'
+
+# Real curl/HTTP coverage for the opt-in Antigravity receipt boundary.
+python3 "$script_dir/antigravity-receipts.test.py"

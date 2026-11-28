@@ -271,34 +271,123 @@ esac
 # that steers the agent, so the reporter prints nothing. Needs-You is not a
 # hook signal, so no waiting status is ever reported here.
 if [ "$session_source" = "antigravity_hook" ]; then
+  # Receipts are opt-in diagnostics, never attention or permission authority.
+  antigravity_capture="${ORKWORKS_ANTIGRAVITY_RECEIPT_DIR:-}"
+  harness_session_post_kind="not_applicable"
+  if [ "$event" = "SessionStart" ] || { [ "$event" = "PreInvocation" ] && [ "$antigravity_first_invocation" = "yes" ]; }; then
+    harness_session_post_kind="missing_identity"
+    if [ -n "$harness_session_id" ]; then harness_session_post_kind="missing_environment"; fi
+  fi
+  case "$event" in
+    PreInvocation) attention_post_kind="missing_environment" ;;
+    Stop) [ "$antigravity_fully_idle" = "yes" ] && attention_post_kind="missing_environment" ;;
+  esac
   if [ -n "${ORKWORKS_SESSION_ID:-}" ] && [ -n "${ORKWORKS_PORT:-}" ]; then
     antigravity_curl_config=""
     if [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
       antigravity_curl_config="header = \"Authorization: Bearer $ORKWORKS_REPORT_TOKEN\"\nheader = \"Content-Type: application/json\"\n"
     fi
     antigravity_post() {
-      printf '%b' "$antigravity_curl_config" |
+      antigravity_result_args=(--output /dev/null)
+      if [ -n "$antigravity_capture" ]; then
+        antigravity_result_args+=(--write-out '%{http_code}')
+      fi
+      antigravity_curl_exit=0
+      antigravity_http_status=$(printf '%b' "$antigravity_curl_config" |
         curl --config - -sS --max-time 5 --connect-timeout 2 -X POST \
           "http://127.0.0.1:$ORKWORKS_PORT/sessions/$ORKWORKS_SESSION_ID/$1" \
-          -H "Content-Type: application/json" -d "$2" --output /dev/null >/dev/null || true
+          -H "Content-Type: application/json" -d "$2" "${antigravity_result_args[@]}") || antigravity_curl_exit=$?
     }
     if [ -n "$harness_session_id" ] && { [ "$event" = "SessionStart" ] || { [ "$event" = "PreInvocation" ] && [ "$antigravity_first_invocation" = "yes" ]; }; }; then
       antigravity_post harness-session "$(python3 -c 'import json,sys; data={"harnessSessionId":sys.argv[1],"source":"antigravity_hook","confidence":0.98}
 if sys.argv[2]: data["cwd"]=sys.argv[2]
 print(json.dumps(data,separators=(",",":")))' "$harness_session_id" "$reported_cwd")"
+      harness_session_post_kind="posted"
+      session_curl_exit="${antigravity_curl_exit:-}"
+      session_http_status="${antigravity_http_status:-}"
     fi
     antigravity_status=""
     case "$event" in
       PreInvocation) antigravity_status="working" ;;
       Stop) [ "$antigravity_fully_idle" = "yes" ] && antigravity_status="idle" ;;
     esac
+    if [ -n "$antigravity_status" ]; then attention_post_kind="missing_token"; fi
     if [ -n "$antigravity_status" ] && [ -n "${ORKWORKS_REPORT_TOKEN:-}" ]; then
       antigravity_post attention "$(python3 -c 'import json,sys
 from datetime import datetime, timezone
 data={"status":sys.argv[1],"source":"antigravity_hook","event":sys.argv[2],"observedAt":datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z")}
 if sys.argv[3]: data["cwd"]=sys.argv[3]
 print(json.dumps(data,separators=(",",":")))' "$antigravity_status" "$event" "$reported_cwd")"
+      attention_post_kind="posted"
+      attention_curl_exit="${antigravity_curl_exit:-}"
+      attention_http_status="${antigravity_http_status:-}"
     fi
+  fi
+  if [ -n "$antigravity_capture" ]; then
+    # Never read old receipts, share Codex diagnostics, or emit hook output.
+    # Walk with directory descriptors: reject symlinks in every component and
+    # validate the opened leaf, not a pathname that could have been replaced.
+    python3 -c '
+import json, os, re, stat, sys, uuid
+from datetime import datetime, timezone
+path, event = sys.argv[1:3]
+if event not in ("SessionStart", "PreInvocation", "Stop"):
+    raise SystemExit(0)
+parts = path.split("/")
+if not path.startswith("/") or any(p in ("", ".", "..") for p in parts[1:]):
+    raise SystemExit(0)
+
+def result(kind, code, status):
+    if kind == "posted":
+        if not re.fullmatch(r"[0-9]{1,3}", code) or not re.fullmatch(r"[0-9]{3}", status):
+            raise ValueError("invalid transport result")
+        return {"curlExit": int(code), "httpStatus": status}
+    if kind not in ("not_applicable", "missing_identity", "missing_environment", "missing_token"):
+        raise ValueError("invalid skip")
+    return {"result": kind}
+
+record = {
+    "schemaVersion": 1, "receiptId": uuid.uuid4().hex,
+    "observedAt": datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+    "event": event,
+    "harnessSessionPost": result(*sys.argv[3:6]),
+    "attentionPost": result(*sys.argv[6:9]),
+}
+encoded = (json.dumps(record, separators=(",", ":")) + "\n").encode()
+if len(encoded) > 1024:
+    raise SystemExit(0)
+flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+folder = os.open("/", flags)
+temporary = None
+try:
+    for part in parts[1:]:
+        child = os.open(part, flags, dir_fd=folder)
+        os.close(folder)
+        folder = child
+    info = os.fstat(folder)
+    if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise SystemExit(0)
+    pending = ".pending-" + uuid.uuid4().hex
+    fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
+    temporary = pending
+    with os.fdopen(fd, "wb") as output:
+        output.write(encoded)
+        output.flush()
+        os.fsync(output.fileno())
+    for slot in range(32):
+        try:
+            os.link(temporary, "receipt-%02d.json" % slot,
+                    src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
+            break
+        except FileExistsError:
+            continue
+finally:
+    if temporary is not None:
+        os.unlink(temporary, dir_fd=folder)
+    os.close(folder)
+' "$antigravity_capture" "$event" \
+      "$harness_session_post_kind" "$session_curl_exit" "$session_http_status" \
+      "$attention_post_kind" "$attention_curl_exit" "$attention_http_status" >/dev/null 2>&1 || true
   fi
   exit 0
 fi

@@ -654,12 +654,40 @@ age is between zero and 1,209,600 seconds inclusive at one server-owned UTC
 evaluation instant. Missing, malformed or future timestamps do not qualify;
 both Peon and agent sources use this age rule. Derive new evidence, recurrence,
 affected sessions, impact and confidence only from that recent set. Existing
-lineage and dismissal-watermark conditions remain necessary. Existing proposed
-IDs and members of live proposed rollups retain their update/merge rules and
-embedded history; no age-based list/get/accept/complete rejection, automatic
-cleanup or retroactive count rewrite is introduced. Invalid evaluation time
-permits no proposed writes. The accepted [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+lineage and dismissal-watermark conditions remain necessary. Existing proposed IDs and members of live proposed rollups retain their
+update/merge rules and embedded history; no age-based list/get/accept/complete
+rejection, automatic cleanup or retroactive count rewrite is introduced. Invalid
+evaluation time permits no proposed writes. The accepted
+[first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
 defines precise compatibility and ordinary Brain application fences.
+
+Carried and newly qualifying evidence on an exact-family `improve_workflow` card
+is deterministically bounded during evaluation so pre-trim evaluations cannot
+accumulate unbounded embedded snapshots while a card stays `proposed` (or as an
+active `rolled_up` member):
+
+- **Pre-trim anti-spam compaction:** Within each session, non-first, non-latest,
+  non-highest-impact `peon`-origin entries arriving within the 30-minute
+  (`1,800`s) anti-spam window of the previous kept `peon` entry for that session
+  are compacted out. `agent`-origin reports, negative clock steps, and
+  unparseable timestamps are never dropped by compaction.
+- **Snapshot cap:** Each exact-family card retains at most **64** embedded
+  evidence entries and **128 KiB** of compact serialized JSON (matching the
+  rollup parent evidence cap). When capping drops entries, the evaluator
+  deterministically preserves the latest, highest-impact (tie-broken by newest
+  `sequence`), and earliest entries in that priority order, fills remaining
+  capacity from newest to oldest by `sequence`, and restores ascending
+  `sequence` order.
+- **Truthful counts and terminal checks:** `recurrenceCount`, `observationIds`,
+  `affectedSessionIds`, `sourceSessionIds`, `priority`/`impact`, `confidence`,
+  and `reason` are derived strictly from the bounded retained `evidence` so a
+  card never claims more recurrences or sessions than its evidence contains.
+  When the 64-entry or 128 KiB cap drops entries, `reason` states
+  `"<N> retained qualifying observations (capped) across <M> sessions..."`.
+  Because every compacted or capped card preserves its highest `sequence`, a
+  retained observation triggers a new generation after a terminal predecessor
+  only when its `observationId` is absent from the predecessor's evidence and
+  its `sequence` exceeds the predecessor's maximum retained `sequence`.
 
 ### Identity and rollup contract
 
@@ -759,14 +787,20 @@ clusters can exceed it; that is an oversized response, which remains a
 whole-response failure. The implementation plan must size real provider
 responses against the cap before relying on it. `verification` is prose describing a check, never a command for
 OrkWorks or the sidecar to run. All text fields, including `path`, use the same
-generated-text validation as `title` and `summary` and additionally reject `<`
-and `>`, so the prompt reference cleaner never alters a stored value.
+generated-text validation as `title` and `summary` and additionally reject `<`,
+`>`, Unicode bidirectional control characters (`U+061C`, `U+200E`–`U+200F`,
+`U+202A`–`U+202E`, `U+2066`–`U+2069`), and zero-width format characters
+(`U+200B`–`U+200D`, `U+2060`, `U+FEFF`), so visual spoofing cannot pass
+validation and the prompt reference cleaner never alters a stored value. Both
+sidecar and desktop prompt/display helpers strip those same invisible characters
+as defense in depth for any previously stored record.
 
 The sidecar validates each target path against the canonical root of the
 active workspace.
 Path length is at most 260 bytes. Reject:
 
-- control characters (including NUL), backslashes, any `:`, a leading `/`, and
+- control characters (including NUL), Unicode bidirectional controls,
+  zero-width format characters, backslashes, any `:`, a leading `/`, and
   empty, `.` or `..` segments;
 - a segment with a trailing dot or space, or a Windows reserved device name
   (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), with or without an
@@ -825,19 +859,36 @@ has appeared, and reports the difference instead of forcing the change.
 
 Instruction and configuration surfaces such as `AGENTS.md`, `CLAUDE.md`, and
 skills are legitimate targets and are allowed. The sidecar sets
-`sensitive: true`, comparing case-insensitively, on a target under `.claude/`,
-`.codex/`, `.opencode/`, `.agents/`, `.cursor/`, `.vscode/`, `.devcontainer/`,
-`.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or whose final path
-segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
-`package.json`, `Cargo.toml`, `build.rs`, `Makefile`, `justfile`, or `Dockerfile`, at any depth, because those paths can run code or
-change hooks, permissions, or CI. A Markdown file under `skills/`, `.claude/skills/`,
-`.agents/skills/`, or `.codex/skills/` is never flagged, even beneath a flagged
-directory; other files there, such as skill scripts, follow the normal rules.
-`AGENTS.md`, `CLAUDE.md`, and skills are not flagged by name: the flag marks
-paths that execute or change permissions, and these are the primary intended
-targets. The directory rule takes precedence, so `.claude/CLAUDE.md` or
-`scripts/AGENTS.md` is flagged because of the directory it sits under. The model
-never sets this flag.
+`sensitive: true`, comparing case-insensitively, on any target that matches at
+least one of the following execution or configuration surfaces:
+
+- under `.claude/`, `.codex/`, `.opencode/`, `.agents/`, `.cursor/`,
+  `.vscode/`, `.devcontainer/`, `.husky/`, `.githooks/`, `.github/`, `.cargo/`,
+  or `scripts/`;
+- whose final path segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`,
+  `opencode.json`, `apm.yml`, `package.json`, `Cargo.toml`, `build.rs`,
+  `Makefile`, `justfile`, or `Dockerfile`, at any depth;
+- any `.json`, `.yml`, `.yaml`, or `.toml` file directly in the repository root
+  (such as `.pre-commit-config.yaml`, `lefthook.yml`, `pnpm-workspace.yaml`, or
+  `rust-toolchain.toml`), because root-level configuration files are tooling and
+  execution surfaces by construction;
+- inside a test directory segment (`tests`, `test`, `__tests__`, or `spec` at
+  any parent depth): `conftest.py`, shell/command scripts (`*.sh`, `*.bash`,
+  `*.zsh`, `*.ps1`, `*.cmd`, `*.bat`), and non-documentation/non-data setup or
+  teardown scripts whose stem contains a dot-separated token starting with
+  `setup`, `teardown`, `global-setup`, `global_setup`, `globalsetup`,
+  `global-teardown`, `global_teardown`, or `globalteardown` (such as
+  `setupTests.ts`, `globalSetup.ts`, `jest.setup.js`, or `vitest.setup.ts`,
+  excluding `.md`, `.mdx`, `.rst`, `.txt`, `.json`, `.yml`, `.yaml`, `.toml`).
+
+A Markdown file under `skills/`, `.claude/skills/`, `.agents/skills/`, or
+`.codex/skills/` is never flagged, even beneath a flagged directory; other
+files there, such as skill scripts, follow the normal rules. `AGENTS.md`,
+`CLAUDE.md`, skills, ordinary test files, and passive test fixtures are not
+flagged by name: the flag marks paths that execute code or change hooks,
+toolchain configuration, permissions, or CI. The directory rule takes
+precedence, so `.claude/CLAUDE.md` or `scripts/AGENTS.md` is flagged because of
+the directory it sits under. The model never sets this flag.
 
 **Failure behavior.** Rollup failures degrade instead of rejecting the
 response. The rollups section is parsed leniently and validated as a unit,

@@ -65,3 +65,21 @@ enrollment or production-role activation. The initial native descriptor test
 leaves concurrent-spawn inheritance unqualified under #1981; no broad spawn fence
 or separate owner process is accepted by implication. Physical/source/native and
 prepared Start gates remain binding.
+
+## Amendment — 2026-11-28: single capability ownership across tool and provider adapters
+
+Issue #214 removes duplicated capability projections between the harness
+registry and the inference provider boundary without merging the two roles:
+
+- `HarnessDefinition` remains the single authoritative owner for coding-tool
+  capabilities, including `ModelCapability` and `PeonCapability`.
+- `ProviderDefinition` preserves `Option<ModelCapability>` directly instead of
+  flattening it into separate command/args/static/HTTP fields and re-inferring
+  `ModelCapability::CodexAppServer` from executable filenames.
+- `NativeProfile` is the single authoritative owner for code-owned native
+  inference profile identity (`codex`, `claude-code`, `ollama`), shared across
+  native profile resolution, inference transport validation, standalone built-in
+  provider registration, and Taskmaster provider catalog projection.
+- Coding tools and inference-only backends remain distinct: standalone providers
+  such as Ollama require no artificial `HarnessDefinition`, and Peon/Taskmaster
+  provider configuration stays independent of interactive session selection.

@@ -56,6 +56,58 @@ origin or reporter-transport receipts. Resumed answer/command rejection,
 Windows and other versions remain unqualified. The earlier 1.5.13 capture
 retains its own scope; integration coverage remains limited.
 
+### Opt-in POSIX Antigravity transport receipts
+
+For a separately authorized, bounded qualification trial, the source POSIX
+reporter accepts `ORKWORKS_ANTIGRAVITY_RECEIPT_DIR`. Create a fresh private
+trial directory first; pass its absolute physical path (without symlink
+components) in the intended trial environment. For example:
+
+```bash
+trial_receipts="$(mktemp -d "${TMPDIR:-/tmp}/orkworks-agy-receipts.XXXXXX")"
+trial_receipts="$(cd "$trial_receipts" && pwd -P)"
+export ORKWORKS_ANTIGRAVITY_RECEIPT_DIR="$trial_receipts"
+```
+
+Select that environment only for the owned trial. The reporter does not create
+or repair the destination: it must already belong to the effective user and
+have no group/other permission bits. The writer rejects relative paths,
+symlink components and unsafe destinations; it uses opened directory descriptors
+and never overwrites existing slots. It atomically publishes up to 32 private
+`receipt-NN.json` records, each at most 1 KiB, then stops retaining new records.
+A full directory, invalid result or write failure leaves transport and reporter
+exit behavior unchanged and produces no hook stdout. Missing receipts mean
+missing evidence; stop the qualification rather than infer delivery. Interrupted
+writes may leave private `.pending-*` files; do not reuse a trial directory.
+
+Each schema-version-1 record contains an independent random `receiptId`, a
+local `observedAt` timestamp taken after report attempts, the recognized
+`SessionStart`/`PreInvocation`/`Stop` event and fixed `harnessSessionPost` and
+`attentionPost` results. An attempted POST retains numeric `curlExit` and a
+three-digit `httpStatus` (`000` when no response arrived). A skipped route
+retains only `not_applicable`, `missing_identity`, `missing_environment` or
+`missing_token`. Raw payloads, credentials, session/native IDs, paths, URLs,
+response bodies and free-text errors are excluded. Slot order and timestamps
+do not prove invocation order across concurrent hooks. These local diagnostics
+are neither signed receipts nor proof of the originating OS process.
+
+Capture is off when the variable is absent or empty; request bodies, endpoints,
+timeouts and authentication are unchanged. Existing normal integration
+reconciliation must install the updated reporter before use; repository source
+alone does not establish installed bytes. This option is POSIX-only and does
+not enable Windows capture. Reconcile owned reporter assets through the normal
+Settings flow and record the installed fingerprint before a separately authorized
+trial; do not edit global hooks or another session to enable it.
+
+A successful HTTP response establishes the route response, not an applied
+attention mutation. The native Antigravity terminal profile can accept a late
+hook while preserving native attention. Pair receipts with independently
+retained own-session metadata/provenance and installed-hook evidence. Synthetic
+loopback tests qualify only reporter transport capture and file handling;
+[#1996](https://github.com/Rambolarsen/orkworks/issues/1996) remains open and
+Antigravity coverage remains limited. This diagnostic option grants no native
+launch budget or permission authority.
+
 ### Short discovery probe ownership
 
 Source version/help probes, Codex isolation help and the OpenCode exact-resume

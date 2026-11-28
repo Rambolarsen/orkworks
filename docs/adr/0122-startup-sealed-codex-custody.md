@@ -25,3 +25,14 @@ Use one three-second publication budget for startup. Late or uncertain attempts 
 ## Consequences
 
 Capture needs native evidence for sealed channels, exact worker binding, lease release, both concurrent launch orders, and cleanup. The qualification also measures startup, idle memory, and idle CPU costs. Production rollout remains a separate decision.
+
+## Amendment — 2026-11-28
+
+Native macOS 26.6.2 arm64 qualification hit the unexpected-ancillary-rights gate on a single bidirectional `AF_UNIX` `SOCK_STREAM` channel: when a peer sends `SCM_RIGHTS`, XNU invokes `unp_externalize()` and installs a new, inheritable (`FD_CLOEXEC == false`), leaked descriptor into the parent across plain `read()`, `recvmsg(msg_controllen = 0)`, and `recvmsg(msg_controllen = 1)` (which reports `MSG_CTRUNC` only after installation).
+
+With owner approval, each of the four custody slots is amended to pre-seal **two** unidirectional channels during exclusive startup before any controlled child starts:
+
+1. An `AF_UNIX` `SOCK_STREAM` request channel (`parent -> worker`), with the reverse direction shut down at both ends (`SHUT_RD` on the parent, `SHUT_WR` on the worker) so only parent-to-worker requests and resource descriptors cross it.
+2. An OS `pipe()` response channel (`worker -> parent`, sealed `FD_CLOEXEC`), where `sendmsg` fails with `ENOTSOCK` so descriptor installation into the parent is kernel-impossible.
+
+This uses 4 of the 16 reserved descriptors per slot (16 pre-sealed endpoints across 4 slots), leaving 12 root/resource descriptors per slot. Custody workers launch via macOS `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` and `posix_spawn_file_actions_addinherit_np` for only the two selected endpoints plus `/dev/null` standard streams (`0..=2`), closing ambient host descriptors in the child without modifying parent descriptor flags. The worker still enforces an exact `PROC_PIDLISTFDS` inherited-descriptor check and capability-free environment check (allowing only CoreFoundation's pre-`main` `__CF_USER_TEXT_ENCODING` triple on `orkworksd`).

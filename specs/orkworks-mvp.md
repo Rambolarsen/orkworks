@@ -867,8 +867,10 @@ The first useful MVP should include:
 - The Terminal header for a live session shown as Idle offers **Copy
   continuation prompt**. The explicit click copies the fixed text “Keep going
   with the current task.” to the clipboard and reports success or failure.
-  The user chooses where to paste it and when to submit. The action uses
-  the displayed attention state for visibility and sends no terminal input.
+  A successful copy focuses the same terminal if its session and workspace
+  are still selected. The user chooses where to paste it and when to submit.
+  The action uses the displayed attention state for visibility and sends no
+  terminal input.
 - The [proposed one-click Keep going action](../docs/superpowers/specs/2026-11-27-session-task-actions-design.md#atomic-admission-for-keep-going)
   requires a reviewed and qualified native operation that can start one turn
   in the exact selected conversation only while it is idle and ready. Rejection

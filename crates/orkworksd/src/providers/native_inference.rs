@@ -1,6 +1,9 @@
 //! Code-owned native Taskmaster profiles; no user-JSON deserialization.
 
-use crate::harness::{definition::DefinitionOrigin, store::HarnessSnapshot};
+use crate::harness::{
+    definition::{DefinitionOrigin, ModelCapability},
+    store::HarnessSnapshot,
+};
 use serde::Serialize;
 
 /// Code-owned response shapes; neither user JSON nor evidence can define one.
@@ -59,17 +62,51 @@ impl NativeProfile {
         }
     }
 
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::Claude => "Claude Code",
+            Self::Ollama => "Ollama",
+        }
+    }
+
+    /// Fixed executable name for CLI-backed native inference profiles; `None`
+    /// for HTTP-backed inference-only providers such as Ollama.
+    pub(crate) fn cli_command(self) -> Option<&'static str> {
+        match self {
+            Self::Codex => Some("codex"),
+            Self::Claude => Some("claude"),
+            Self::Ollama => None,
+        }
+    }
+
+    pub(crate) fn model_discovery(self) -> Option<ModelCapability> {
+        match self {
+            Self::Codex => Some(ModelCapability::CodexAppServer),
+            Self::Claude => None,
+            Self::Ollama => Some(ModelCapability::Http),
+        }
+    }
+
+    /// Maps a `ProviderDefinition` to its code-owned native profile only when
+    /// both its provider ID and (for CLI-backed profiles) exact executable name
+    /// match the compiled profile contract. An arbitrary command wrapper cannot
+    /// claim the safety properties of a built-in CLI.
+    pub(crate) fn from_provider_definition(definition: &super::ProviderDefinition) -> Option<Self> {
+        match (definition.id.as_str(), definition.command.as_str()) {
+            ("codex", "codex") => Some(Self::Codex),
+            ("claude-code", "claude") => Some(Self::Claude),
+            ("ollama", _) => Some(Self::Ollama),
+            _ => None,
+        }
+    }
+
     /// Fixed inference inputs, never projected from mutable Peon metadata.
     pub(super) fn definition(self) -> super::ProviderDefinition {
-        let (label, command) = match self {
-            Self::Codex => ("Codex", "codex"),
-            Self::Claude => ("Claude Code", "claude"),
-            Self::Ollama => ("Ollama", ""),
-        };
         super::ProviderDefinition {
             id: self.id().into(),
-            label: label.into(),
-            command: command.into(),
+            label: self.label().into(),
+            command: self.cli_command().unwrap_or("").into(),
             default_args: vec![],
             model_arg_template: None,
             supports_model: false,
@@ -79,10 +116,7 @@ impl NativeProfile {
             timeout_secs: 90,
             prompt_transport: super::PromptTransport::Stdin,
             reasoning_effort_args: vec![],
-            list_models_command: None,
-            list_models_args: vec![],
-            static_models: vec![],
-            http_list_models: self == Self::Ollama,
+            model_discovery: self.model_discovery(),
         }
     }
 }
@@ -378,5 +412,36 @@ mod tests {
             before
         );
         assert!(manager.runtime.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn native_profile_from_provider_definition_round_trips_and_rejects_wrappers() {
+        for profile in [
+            NativeProfile::Codex,
+            NativeProfile::Claude,
+            NativeProfile::Ollama,
+        ] {
+            let def = profile.definition();
+            assert_eq!(NativeProfile::from_provider_definition(&def), Some(profile));
+            assert_eq!(def.model_discovery, profile.model_discovery());
+        }
+
+        let mut wrapped_codex = NativeProfile::Codex.definition();
+        wrapped_codex.command = "/tmp/codex".into();
+        assert_eq!(
+            NativeProfile::from_provider_definition(&wrapped_codex),
+            None
+        );
+
+        let mut wrapped_claude = NativeProfile::Claude.definition();
+        wrapped_claude.command = "/tmp/claude".into();
+        assert_eq!(
+            NativeProfile::from_provider_definition(&wrapped_claude),
+            None
+        );
+
+        let mut unknown = NativeProfile::Codex.definition();
+        unknown.id = "custom-codex".into();
+        assert_eq!(NativeProfile::from_provider_definition(&unknown), None);
     }
 }

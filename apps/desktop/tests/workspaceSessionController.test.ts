@@ -164,6 +164,52 @@ test("a list started during creation cannot remove the new card or prune its ter
   controller.dispose();
 });
 
+for (const status of ["running", "error"] as const) {
+  test(`a late create receipt preserves the observed ${status} row`, async () => {
+    const released = deferred<SessionInfo>();
+    const started = deferred<void>();
+    const observed: SessionInfo = status === "running"
+      ? { ...session("created"), label: "Current title" }
+      : {
+        ...session("created", "dead", "error"),
+        startupFailure: { code: "process_spawn_failed", operation: "launch", occurredAt: "2026-11-07T12:00:00.000Z" },
+      };
+    const errors: string[] = [];
+    const selected: Array<string | null> = [];
+    let rows: readonly SessionInfo[] = [];
+    const controller = createWorkspaceSessionController({
+      deps: deps({
+        createSession: () => {
+          started.resolve();
+          return released.promise;
+        },
+        listSessions: async () => [observed],
+      }),
+      onSessions: next => { rows = next; },
+      onError: error => errors.push(error.message),
+      onActiveSession: id => selected.push(id),
+    });
+
+    const creating = controller.createSession({});
+    await started.promise;
+    await controller.refreshSessions();
+    assert.deepEqual(rows, [observed]);
+    assert.deepEqual(errors, [], "the create receipt has not arrived");
+
+    released.resolve(session("created", "creating", "creating"));
+    assert.equal(await creating, true);
+    assert.deepEqual(rows, [observed], "the pre-spawn receipt cannot replace the observed row");
+    assert.deepEqual(selected, ["created"], "the current composer can still select the result");
+    const expectedErrors = status === "error"
+      ? ["Could not start the coding tool. Check its configured executable and working directory, then retry."]
+      : [];
+    assert.deepEqual(errors, expectedErrors);
+    await controller.refreshSessions();
+    assert.deepEqual(errors, expectedErrors, "repeated snapshots cannot report the failure again");
+    controller.dispose();
+  });
+}
+
 test("publishes a newly created session alongside the current snapshot before the next poll", async () => {
   let listCalls = 0;
   const snapshots: string[][] = [];
@@ -420,6 +466,52 @@ test("the delete action disposes and deliberately clears the active session befo
   events.length = 0;
   await controller.sessionAction("active", "delete", "captured-token");
   assert.deepEqual(events, ["dispose:active", "active:null:deliberate", "sessions"]);
+  controller.dispose();
+});
+
+test("a Delete receipt removes its row before a failed refresh and preserves newer selection", async () => {
+  const target = { ...session("target", "dead", "ended"), sessionState: "closed" as const };
+  const initialRows = [target, session("other")];
+  const receipt = deferred<void>();
+  const oldRead = deferred<SessionInfo[]>();
+  const refresh = deferred<SessionInfo[]>();
+  const refreshStarted = deferred<void>();
+  const disposed: string[] = [];
+  const selections: Array<string | null> = [];
+  let rows: readonly SessionInfo[] = [];
+  let listCalls = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: () => receipt.promise,
+      listSessions: async () => {
+        if (++listCalls === 1) return initialRows;
+        if (listCalls === 2) return oldRead.promise;
+        refreshStarted.resolve();
+        return refresh.promise;
+      },
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onSessions: list => { rows = list; },
+    onActiveSession: id => selections.push(id),
+  });
+
+  await controller.refreshSessions();
+  controller.selectSession("target");
+  const deleting = controller.sessionAction("target", "delete", "token");
+  const stale = controller.refreshSessions();
+  controller.selectSession("other");
+  receipt.resolve();
+  await refreshStarted.promise;
+  const beforeRefresh = rows.map(row => row.id);
+  refresh.reject(new Error("list unavailable"));
+  await deleting;
+  oldRead.resolve(initialRows);
+  await stale;
+
+  assert.deepEqual(beforeRefresh, ["other"], "the receipt removes the row without waiting for a list");
+  assert.deepEqual(rows.map(row => row.id), ["other"], "a stale list cannot restore the deleted row");
+  assert.deepEqual(disposed, ["target"]);
+  assert.deepEqual(selections, ["target", "other"]);
   controller.dispose();
 });
 

@@ -890,32 +890,14 @@ impl PlatformAdapter for OwnerDomain {
             let state = self
                 .lock_state()
                 .map_err(|_| DescendantObservationFailure::OwnerState)?;
-            confirm_job_membership(process.as_raw_handle(), state.job.as_raw_handle())?;
-            if wait_result(process.as_raw_handle(), 0)
-                .map_err(|error| DescendantObservationFailure::Wait(win32_error(&error)))?
-                != WAIT_TIMEOUT
-            {
-                return Err(DescendantObservationFailure::NotRunning {
-                    diagnostic_pid: pid,
-                    matches_registered_pid: registered_identities
-                        .iter()
-                        .any(|registered| registered.diagnostic_pid == pid),
-                });
+            if let Some(descendant) = observe_census_member(
+                process.as_raw_handle(),
+                state.job.as_raw_handle(),
+                pid,
+                registered_identities,
+            )? {
+                descendants.push(descendant);
             }
-            let identity = capture_identity(process.as_raw_handle(), pid).map_err(|error| {
-                DescendantObservationFailure::CaptureIdentity(win32_error(&error))
-            })?;
-            if registered_identities
-                .iter()
-                .any(|registered| registered == &identity)
-            {
-                continue;
-            }
-            descendants.push(ProcessObservation {
-                identity,
-                containment_membership: ContainmentMembership::Confirmed,
-                exit_state: ExitState::Running,
-            });
         }
         Ok(descendants)
     }
@@ -924,6 +906,40 @@ impl PlatformAdapter for OwnerDomain {
         self.terminate_owned_before(deadline)
             .map_err(|_| SpawnError::ContainmentFailed)
     }
+}
+
+// Inspect one handle opened from the bounded census. Keeping this operation
+// separate lets native tests hold the census member fixed across process exit.
+fn observe_census_member(
+    process: HANDLE,
+    job: HANDLE,
+    pid: u32,
+    registered_identities: &[NativeIdentity],
+) -> Result<Option<ProcessObservation>, DescendantObservationFailure> {
+    confirm_job_membership(process, job)?;
+    let identity = capture_identity(process, pid)
+        .map_err(|error| DescendantObservationFailure::CaptureIdentity(win32_error(&error)))?;
+    // Roots are observed independently through their retained handles. A root
+    // may exit after the Job census; exclude only its exact native birth identity.
+    if registered_identities.contains(&identity) {
+        return Ok(None);
+    }
+    if wait_result(process, 0)
+        .map_err(|error| DescendantObservationFailure::Wait(win32_error(&error)))?
+        != WAIT_TIMEOUT
+    {
+        return Err(DescendantObservationFailure::NotRunning {
+            diagnostic_pid: pid,
+            matches_registered_pid: registered_identities
+                .iter()
+                .any(|registered| registered.diagnostic_pid == pid),
+        });
+    }
+    Ok(Some(ProcessObservation {
+        identity,
+        containment_membership: ContainmentMembership::Confirmed,
+        exit_state: ExitState::Running,
+    }))
 }
 
 fn confirm_job_membership(
@@ -1168,6 +1184,104 @@ mod tests {
     use super::*;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
+    struct CensusProcess(std::process::Child);
+
+    impl Drop for CensusProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = wait_for_process(self.0.as_raw_handle(), COMPLETION_TIMEOUT);
+        }
+    }
+
+    fn exited_census_member() -> (OwnerDomain, CensusProcess, NativeIdentity) {
+        let domain = OwnerDomain::create(23).expect("create private test job");
+        // This test executable never runs: assign it suspended, take the native
+        // census, then terminate it while retaining the census handle.
+        let mut process = CensusProcess(
+            Command::new(std::env::current_exe().expect("locate test image"))
+                .creation_flags(CREATE_SUSPENDED)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("create suspended census member"),
+        );
+        let identity = capture_identity(process.0.as_raw_handle(), process.0.id())
+            .expect("capture native birth identity before exit");
+        {
+            let state = domain.lock_state().expect("inspect test job");
+            // SAFETY: both handles are retained; the suspended child belongs to
+            // this test and has not executed or been assigned to this private job.
+            assert_ne!(
+                unsafe {
+                    AssignProcessToJobObject(state.job.as_raw_handle(), process.0.as_raw_handle())
+                },
+                0,
+                "assign suspended member to private test job"
+            );
+            assert!(query_process_ids(state.job.as_raw_handle())
+                .expect("take bounded native census before exit")
+                .contains(&process.0.id()));
+        }
+        process.0.kill().expect("terminate member after census");
+        wait_for_process(process.0.as_raw_handle(), COMPLETION_TIMEOUT)
+            .expect("observe member exit within the existing budget");
+        (domain, process, identity)
+    }
+
+    #[test]
+    fn exited_registered_census_member_is_not_a_descendant() {
+        let (domain, process, identity) = exited_census_member();
+        let state = domain.lock_state().expect("inspect retained test job");
+        assert_eq!(
+            observe_census_member(
+                process.0.as_raw_handle(),
+                state.job.as_raw_handle(),
+                process.0.id(),
+                &[identity],
+            ),
+            Ok(None),
+            "an exited registered root must not abort descendant observation"
+        );
+    }
+
+    #[test]
+    fn exited_member_with_only_a_matching_pid_remains_unresolved() {
+        let (domain, process, mut identity) = exited_census_member();
+        identity.birth_identity.push_str("-different-birth");
+        let state = domain.lock_state().expect("inspect retained test job");
+        assert_eq!(
+            observe_census_member(
+                process.0.as_raw_handle(),
+                state.job.as_raw_handle(),
+                process.0.id(),
+                &[identity],
+            ),
+            Err(DescendantObservationFailure::NotRunning {
+                diagnostic_pid: process.0.id(),
+                matches_registered_pid: true,
+            })
+        );
+    }
+
+    #[test]
+    fn exited_unregistered_census_member_remains_unresolved() {
+        let (domain, process, _) = exited_census_member();
+        let state = domain.lock_state().expect("inspect retained test job");
+        assert_eq!(
+            observe_census_member(
+                process.0.as_raw_handle(),
+                state.job.as_raw_handle(),
+                process.0.id(),
+                &[],
+            ),
+            Err(DescendantObservationFailure::NotRunning {
+                diagnostic_pid: process.0.id(),
+                matches_registered_pid: false,
+            })
+        );
+    }
+
     #[test]
     fn membership_validation_rejects_a_foreign_process() {
         // SAFETY: a null security descriptor/name requests one private Job
@@ -1179,7 +1293,15 @@ mod tests {
 
         // SAFETY: the current-process pseudo-handle is valid for this call,
         // and this process was never assigned to the fresh test Job Object.
-        let result = confirm_job_membership(unsafe { GetCurrentProcess() }, job.as_raw_handle());
+        let current = unsafe { GetCurrentProcess() };
+        let identity = capture_identity(current, std::process::id())
+            .expect("capture current process birth identity");
+        let result = observe_census_member(
+            current,
+            job.as_raw_handle(),
+            std::process::id(),
+            &[identity],
+        );
 
         assert_eq!(result, Err(DescendantObservationFailure::NotInJob));
     }

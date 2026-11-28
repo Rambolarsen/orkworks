@@ -13,6 +13,8 @@ pub(crate) mod audit;
 mod child_sources;
 #[cfg(test)]
 mod child_sources_tests;
+#[cfg(target_os = "macos")]
+pub(crate) mod codex_capture_owner;
 pub(crate) mod completion;
 #[cfg(test)]
 pub(crate) mod completion_tests;
@@ -312,6 +314,13 @@ pub(crate) struct WorkflowImprovement {
     pub dismissal_watermark: Option<DismissalWatermark>,
 }
 
+/// Maximum embedded evidence snapshots retained on an exact-family
+/// `improve_workflow` card, matching the rollup parent projection cap.
+pub(crate) const MAX_CARD_EVIDENCE_ENTRIES: usize = rollup::MAX_PARENT_EVIDENCE_ENTRIES;
+/// Maximum compact serialized JSON size (bytes) for an exact-family card's
+/// embedded `evidence` array, matching the rollup parent projection cap.
+pub(crate) const MAX_CARD_EVIDENCE_BYTES: usize = rollup::MAX_PARENT_EVIDENCE_BYTES;
+
 /// Deterministically turns retained workflow evidence into passive proposals.
 /// Persistence is deliberately left to `RecommendationStore` so an evaluator
 /// failure cannot mutate observation history.
@@ -441,10 +450,12 @@ pub(crate) fn evaluate_workflow_improvements(
             }
         });
         if terminal_evidence.is_some_and(|evidence| {
+            let max_sequence = evidence.iter().map(|item| item.sequence).max();
             !qualifying.iter().any(|observation| {
                 !evidence
                     .iter()
-                    .any(|evidence| evidence.observation_id == observation.id)
+                    .any(|item| item.observation_id == observation.id)
+                    && max_sequence.is_none_or(|max| observation.sequence > max)
             })
         }) {
             continue;
@@ -477,7 +488,12 @@ pub(crate) fn evaluate_workflow_improvements(
                 });
             }
         }
-        evidence.sort_by_key(|item| item.sequence);
+        evidence.sort_by(|left, right| {
+            left.sequence
+                .cmp(&right.sequence)
+                .then(left.observation_id.cmp(&right.observation_id))
+        });
+        let evidence = compact_peon_spam_evidence(evidence);
 
         if let Some(dismissed) =
             prior.filter(|recommendation| recommendation.status == RecommendationStatus::Dismissed)
@@ -501,6 +517,8 @@ pub(crate) fn evaluate_workflow_improvements(
                 continue;
             }
         }
+
+        let (evidence, evidence_capped) = cap_card_evidence(evidence);
 
         let impact = evidence
             .iter()
@@ -552,16 +570,27 @@ pub(crate) fn evaluate_workflow_improvements(
         let proposed_improvement =
             format!("{}: {}", improvement_prefix(evidence[0].kind), description);
         let summary = proposed_improvement.clone();
-        let reason =
+        let reason = if evidence_capped {
             format!(
-            "{} qualifying observation{} across {} session{}; highest impact {:?}; sources: {}.",
-            evidence.len(),
-            if evidence.len() == 1 { "" } else { "s" },
-            affected_session_ids.len(),
-            if affected_session_ids.len() == 1 { "" } else { "s" },
-            impact,
-            source_mix(&evidence)
-        );
+                "{} retained qualifying observation{} (capped) across {} session{}; highest impact {:?}; sources: {}.",
+                evidence.len(),
+                if evidence.len() == 1 { "" } else { "s" },
+                affected_session_ids.len(),
+                if affected_session_ids.len() == 1 { "" } else { "s" },
+                impact,
+                source_mix(&evidence)
+            )
+        } else {
+            format!(
+                "{} qualifying observation{} across {} session{}; highest impact {:?}; sources: {}.",
+                evidence.len(),
+                if evidence.len() == 1 { "" } else { "s" },
+                affected_session_ids.len(),
+                if affected_session_ids.len() == 1 { "" } else { "s" },
+                impact,
+                source_mix(&evidence)
+            )
+        };
         let created_at = match prior {
             Some(recommendation)
                 if recommendation.status == RecommendationStatus::Proposed
@@ -815,7 +844,11 @@ const MAX_ROLLUP_EVIDENCE_ENTRIES: usize = 64;
 fn clean_rollup_reference_text(value: &str, limit: usize) -> String {
     value
         .chars()
-        .filter(|character| !character.is_control() && !matches!(character, '<' | '>'))
+        .filter(|character| {
+            !character.is_control()
+                && !crate::taskmaster::proposed_change::is_forbidden_invisible(*character)
+                && !matches!(character, '<' | '>')
+        })
         .take(limit)
         .collect()
 }
@@ -1052,6 +1085,174 @@ fn source_mix(evidence: &[WorkflowObservationEvidence]) -> String {
         (false, true) => "peon".into(),
         (false, false) => "unknown".into(),
     }
+}
+
+/// Mirrors the observation store's 30-minute per-session Peon anti-spam trim
+/// (`workflow_observations::SPAM_WINDOW_SECS`) on carried+new card evidence
+/// sharing a single fingerprint. Always retains each session's first, latest,
+/// and highest-impact Peon hit, all agent-origin reports, negative clock steps,
+/// and unparseable timestamps. Expects `evidence` sorted by `(sequence, id)`.
+fn compact_peon_spam_evidence(
+    evidence: Vec<WorkflowObservationEvidence>,
+) -> Vec<WorkflowObservationEvidence> {
+    if evidence.len() < 3 {
+        return evidence;
+    }
+    let spam_cutoff = chrono::Duration::seconds(crate::workflow_observations::SPAM_WINDOW_SECS);
+    let mut by_session: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (index, item) in evidence.iter().enumerate() {
+        if item.source == ObservationSource::Peon {
+            by_session
+                .entry(item.session_id.as_str())
+                .or_default()
+                .push(index);
+        }
+    }
+
+    let mut drop_indices = std::collections::HashSet::new();
+    for indices in by_session.values() {
+        if indices.len() < 3 {
+            continue;
+        }
+        let highest_impact_pos = indices
+            .iter()
+            .enumerate()
+            .max_by(|(_, &left), (_, &right)| {
+                let left = &evidence[left];
+                let right = &evidence[right];
+                left.reported_impact
+                    .cmp(&right.reported_impact)
+                    .then(left.sequence.cmp(&right.sequence))
+                    .then(right.observation_id.cmp(&left.observation_id))
+            })
+            .map(|(pos, _)| pos)
+            .unwrap_or(0);
+
+        let mut last_kept_at: Option<chrono::DateTime<chrono::Utc>> = None;
+        for (position, &index) in indices.iter().enumerate() {
+            let observed_at = chrono::DateTime::parse_from_rfc3339(&evidence[index].observed_at)
+                .ok()
+                .map(|parsed| parsed.with_timezone(&chrono::Utc));
+            if position == 0 || position == indices.len() - 1 || position == highest_impact_pos {
+                if let Some(kept_at) = observed_at {
+                    last_kept_at = Some(kept_at);
+                }
+                continue;
+            }
+            let Some(observed_at) = observed_at else {
+                continue;
+            };
+            let Some(prev_at) = last_kept_at else {
+                last_kept_at = Some(observed_at);
+                continue;
+            };
+            let gap = observed_at.signed_duration_since(prev_at);
+            if gap >= chrono::Duration::zero() && gap <= spam_cutoff {
+                drop_indices.insert(index);
+            } else {
+                last_kept_at = Some(observed_at);
+            }
+        }
+    }
+
+    if drop_indices.is_empty() {
+        return evidence;
+    }
+    evidence
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, item)| (!drop_indices.contains(&index)).then_some(item))
+        .collect()
+}
+
+/// Bounds an exact-family card's embedded `evidence` array to at most
+/// `MAX_CARD_EVIDENCE_ENTRIES` snapshots and `MAX_CARD_EVIDENCE_BYTES` bytes of
+/// compact JSON. Preserves earliest, latest, and highest-impact anchors, fills
+/// remaining slots from newest to oldest, and restores ascending `sequence`
+/// order. Returns `(retained, capped)`.
+fn cap_card_evidence(
+    evidence: Vec<WorkflowObservationEvidence>,
+) -> (Vec<WorkflowObservationEvidence>, bool) {
+    if evidence.len() <= MAX_CARD_EVIDENCE_ENTRIES
+        && rollup::serialized_size(&evidence) <= MAX_CARD_EVIDENCE_BYTES
+    {
+        return (evidence, false);
+    }
+
+    let original_len = evidence.len();
+    let item_sizes: Vec<usize> = evidence.iter().map(rollup::serialized_size).collect();
+    let earliest = 0;
+    let latest = original_len - 1;
+    let highest_impact = evidence
+        .iter()
+        .enumerate()
+        .max_by(|(_, left), (_, right)| {
+            left.reported_impact
+                .cmp(&right.reported_impact)
+                .then(left.sequence.cmp(&right.sequence))
+                .then(right.observation_id.cmp(&left.observation_id))
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+
+    let mut selected_indices = Vec::with_capacity(MAX_CARD_EVIDENCE_ENTRIES.min(original_len));
+    let mut selected_mask = vec![false; original_len];
+    let mut total_bytes = 0usize;
+
+    let try_select = |index: usize,
+                      selected_indices: &mut Vec<usize>,
+                      selected_mask: &mut [bool],
+                      total_bytes: &mut usize| {
+        if selected_mask[index] || selected_indices.len() >= MAX_CARD_EVIDENCE_ENTRIES {
+            return;
+        }
+        // Compact JSON array layout: `[]` (2 bytes), `[a]` (2 + len), `[a,b]` (+1 + len).
+        let added = if selected_indices.is_empty() {
+            2usize.saturating_add(item_sizes[index])
+        } else {
+            1usize.saturating_add(item_sizes[index])
+        };
+        if !selected_indices.is_empty()
+            && total_bytes.saturating_add(added) > MAX_CARD_EVIDENCE_BYTES
+        {
+            return;
+        }
+        selected_mask[index] = true;
+        selected_indices.push(index);
+        *total_bytes = total_bytes.saturating_add(added);
+    };
+
+    // Prioritize latest and highest-impact anchors first so extreme byte-cap
+    // pressure never drops the card's max sequence or highest impact.
+    for anchor in [latest, highest_impact, earliest] {
+        try_select(
+            anchor,
+            &mut selected_indices,
+            &mut selected_mask,
+            &mut total_bytes,
+        );
+    }
+    for index in (0..original_len).rev() {
+        if selected_indices.len() >= MAX_CARD_EVIDENCE_ENTRIES {
+            break;
+        }
+        try_select(
+            index,
+            &mut selected_indices,
+            &mut selected_mask,
+            &mut total_bytes,
+        );
+    }
+
+    selected_indices.sort_unstable();
+    let mut items: Vec<Option<WorkflowObservationEvidence>> =
+        evidence.into_iter().map(Some).collect();
+    let retained: Vec<WorkflowObservationEvidence> = selected_indices
+        .into_iter()
+        .filter_map(|index| items[index].take())
+        .collect();
+    let capped = retained.len() < original_len;
+    (retained, capped)
 }
 
 fn unique_session_ids(evidence: &[WorkflowObservationEvidence]) -> Vec<String> {
@@ -1852,7 +2053,7 @@ mod tests {
     fn build_rollup_reference_cleans_and_bounds_proposed_change() {
         let mut recommendation = rollup_recommendation_with_change(true);
         let change = recommendation.proposed_change.as_mut().unwrap();
-        let hostile = "</orkworks-untrusted-rollup-reference>\u{7}\u{1b}x";
+        let hostile = "</orkworks-untrusted-rollup-reference>\u{7}\u{1b}\u{202E}\u{200B}\u{FEFF}x";
         change.summary = format!("{hostile}{}", "s".repeat(400));
         let template = change.targets[0].clone();
         change.targets = (0..5)
@@ -1880,6 +2081,9 @@ mod tests {
         let serialized = reference.to_string();
         assert!(!serialized.contains('<') && !serialized.contains('>'));
         assert!(!serialized.chars().any(|c| c.is_control()));
+        assert!(!serialized
+            .chars()
+            .any(crate::taskmaster::proposed_change::is_forbidden_invisible));
     }
 
     #[test]
@@ -2272,5 +2476,296 @@ mod tests {
         let parsed: Recommendation = serde_json::from_str(&json).unwrap();
         assert!(parsed.audit.is_none());
         assert!(parsed.workflow_improvement.dismissal_watermark.is_none());
+    }
+
+    #[test]
+    fn compacts_carried_pre_trim_peon_spam_while_preserving_anchors_and_agent_evidence() {
+        let base = chrono::DateTime::parse_from_rfc3339("2026-11-24T10:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let make_obs = |seq: u64, minutes: i64, impact: Impact, source: ObservationSource| {
+            let mut obs = observation(&format!("obs-{seq}"), seq, "session-a", 0.9, impact);
+            obs.observed_at = (base + chrono::Duration::minutes(minutes)).to_rfc3339();
+            obs.source = source;
+            obs
+        };
+
+        // Simulate 26 rapid pre-trim evaluation passes (1 min apart) inside the
+        // 30-minute spam window, with one mid-burst High-impact Peon hit and
+        // one Agent report in the same window.
+        let mut all_observations = Vec::new();
+        let mut existing: Vec<Recommendation> = Vec::new();
+        for i in 1..=26u64 {
+            let (impact, source) = match i {
+                7 => (Impact::High, ObservationSource::Peon),
+                12 => (Impact::Medium, ObservationSource::Agent),
+                _ => (Impact::Low, ObservationSource::Peon),
+            };
+            all_observations.push(make_obs(i, i as i64, impact, source));
+            if i >= 2 {
+                existing = evaluate_workflow_improvements(
+                    &all_observations,
+                    &existing,
+                    "workspace-1",
+                    &(base + chrono::Duration::minutes(i as i64)).to_rfc3339(),
+                );
+            }
+        }
+
+        assert_eq!(existing.len(), 1);
+        let card = &existing[0];
+        // Carried Peon spam collapses to first (1), highest-impact (7), agent (12),
+        // and latest (26) instead of accumulating all 26 pre-trim snapshots.
+        assert_eq!(
+            card.workflow_improvement.observation_ids,
+            vec!["obs-1", "obs-7", "obs-12", "obs-26"]
+        );
+        assert_eq!(card.evidence.len(), 4);
+        assert_eq!(card.workflow_improvement.recurrence_count, 4);
+        assert_eq!(card.priority, Impact::High);
+        assert!(card.reason[0].starts_with("4 qualifying observations across 1 session;"));
+
+        // After the background anti-spam trim removes the redundant stored Peon
+        // observations, re-evaluation stays idempotent and keeps the same 4 snapshots.
+        let post_trim_store: Vec<_> = all_observations
+            .into_iter()
+            .filter(|obs| matches!(obs.sequence, 1 | 12 | 26))
+            .collect();
+        let after_trim = evaluate_workflow_improvements(
+            &post_trim_store,
+            &existing,
+            "workspace-1",
+            &(base + chrono::Duration::minutes(35)).to_rfc3339(),
+        );
+        assert_eq!(after_trim.len(), 1);
+        assert_eq!(after_trim[0].id, card.id);
+        assert_eq!(
+            after_trim[0].workflow_improvement.observation_ids,
+            vec!["obs-1", "obs-7", "obs-12", "obs-26"]
+        );
+        assert_eq!(after_trim[0].evidence, card.evidence);
+    }
+
+    #[test]
+    fn preserves_spaced_peon_observations_and_non_spam_timestamp_edge_cases() {
+        let base = chrono::DateTime::parse_from_rfc3339("2026-11-24T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut obs1 = observation("obs-1", 1, "session-a", 0.8, Impact::Low);
+        obs1.observed_at = base.to_rfc3339();
+        let mut obs2 = observation("obs-2", 2, "session-a", 0.8, Impact::Low);
+        obs2.observed_at = (base + chrono::Duration::seconds(1_800)).to_rfc3339(); // exact 1,800s cutoff -> dropped
+        let mut obs3 = observation("obs-3", 3, "session-a", 0.8, Impact::Low);
+        obs3.observed_at = (base + chrono::Duration::seconds(1_801)).to_rfc3339(); // 1,801s > cutoff -> kept
+        let mut obs4 = observation("obs-4", 4, "session-a", 0.8, Impact::Low);
+        obs4.observed_at = (base + chrono::Duration::minutes(25)).to_rfc3339(); // negative gap -> kept
+        let mut obs5 = observation("obs-5", 5, "session-a", 0.8, Impact::Low);
+        obs5.observed_at = (base + chrono::Duration::minutes(35)).to_rfc3339(); // latest -> kept
+
+        let cards = evaluate_workflow_improvements(
+            &[obs1, obs2, obs3, obs4, obs5],
+            &[],
+            "workspace-1",
+            &(base + chrono::Duration::minutes(40)).to_rfc3339(),
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(
+            cards[0].workflow_improvement.observation_ids,
+            vec!["obs-1", "obs-3", "obs-4", "obs-5"]
+        );
+
+        // Carried unparseable timestamps (at position 0 and mid-burst) survive
+        // compaction without breaking spam detection for parseable neighbors.
+        let mut carried = cards[0].clone();
+        let make_ev = |id: &str, seq: u64, observed_at: String| WorkflowObservationEvidence {
+            observation_id: id.into(),
+            sequence: seq,
+            session_id: "session-a".into(),
+            kind: ObservationKind::Obstacle,
+            description: "The setup blocks progress".into(),
+            evidence: format!("failure {seq}"),
+            problem_area: None,
+            reported_impact: Impact::Low,
+            source: ObservationSource::Peon,
+            confidence: 0.8,
+            observed_at,
+        };
+        carried.evidence = vec![
+            make_ev("bad-first", 1, "not-a-timestamp".into()),
+            make_ev("good-base", 2, base.to_rfc3339()),
+            make_ev("bad-mid", 3, "still-not-a-timestamp".into()),
+            make_ev(
+                "spam-mid",
+                4,
+                (base + chrono::Duration::minutes(10)).to_rfc3339(),
+            ),
+            make_ev(
+                "good-latest",
+                5,
+                (base + chrono::Duration::minutes(20)).to_rfc3339(),
+            ),
+        ];
+        let compacted = compact_peon_spam_evidence(carried.evidence);
+        let compacted_ids: Vec<&str> = compacted
+            .iter()
+            .map(|item| item.observation_id.as_str())
+            .collect();
+        assert_eq!(
+            compacted_ids,
+            vec!["bad-first", "good-base", "bad-mid", "good-latest"]
+        );
+
+        // Two rapid observations in one session still both survive (first + latest).
+        let mut pair_a = observation("pair-a", 1, "session-b", 0.8, Impact::Low);
+        pair_a.observed_at = base.to_rfc3339();
+        let mut pair_b = observation("pair-b", 2, "session-b", 0.8, Impact::Low);
+        pair_b.observed_at = (base + chrono::Duration::seconds(30)).to_rfc3339();
+        let pair_cards = evaluate_workflow_improvements(
+            &[pair_a, pair_b],
+            &[],
+            "workspace-1",
+            &(base + chrono::Duration::minutes(1)).to_rfc3339(),
+        );
+        assert_eq!(pair_cards.len(), 1);
+        assert_eq!(pair_cards[0].evidence.len(), 2);
+    }
+
+    #[test]
+    fn caps_card_evidence_at_64_entries_preserving_anchors_truthful_reason_and_terminal_suppression(
+    ) {
+        let base = chrono::DateTime::parse_from_rfc3339("2026-11-24T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let observations: Vec<_> = (1..=80u64)
+            .map(|seq| {
+                let impact = if seq == 5 {
+                    Impact::High
+                } else {
+                    Impact::Medium
+                };
+                let mut obs = observation(
+                    &format!("obs-{seq:03}"),
+                    seq,
+                    &format!("session-{seq:03}"),
+                    0.9,
+                    impact,
+                );
+                obs.observed_at = (base + chrono::Duration::minutes(seq as i64)).to_rfc3339();
+                obs
+            })
+            .collect();
+        let now = (base + chrono::Duration::minutes(90)).to_rfc3339();
+
+        let cards = evaluate_workflow_improvements(&observations, &[], "workspace-1", &now);
+        assert_eq!(cards.len(), 1);
+        let card = &cards[0];
+        assert_eq!(card.evidence.len(), MAX_CARD_EVIDENCE_ENTRIES);
+        assert_eq!(card.workflow_improvement.recurrence_count, 64);
+        assert_eq!(card.workflow_improvement.observation_ids.len(), 64);
+        assert_eq!(card.workflow_improvement.affected_session_ids.len(), 64);
+        assert_eq!(card.source_session_ids.len(), 64);
+        assert_eq!(card.priority, Impact::High);
+        assert_eq!(card.evidence[0].sequence, 1);
+        assert_eq!(card.evidence[1].sequence, 5);
+        assert_eq!(card.evidence.last().unwrap().sequence, 80);
+        assert!(card
+            .evidence
+            .windows(2)
+            .all(|pair| pair[0].sequence < pair[1].sequence));
+        assert!(
+            rollup::serialized_size(&card.evidence) <= MAX_CARD_EVIDENCE_BYTES,
+            "capped evidence must stay within byte budget"
+        );
+        assert!(card.reason[0]
+            .starts_with("64 retained qualifying observations (capped) across 64 sessions;"));
+
+        // Re-evaluating the same observations against the Proposed card is idempotent.
+        let rerun = evaluate_workflow_improvements(
+            &observations,
+            std::slice::from_ref(card),
+            "workspace-1",
+            &now,
+        );
+        assert_eq!(rerun.len(), 1);
+        assert_eq!(rerun[0].id, card.id);
+        assert_eq!(rerun[0].evidence, card.evidence);
+        assert_eq!(rerun[0].reason, card.reason);
+
+        // Once the capped card becomes Completed, re-evaluating the unchanged 80
+        // observations (including the 16 evicted lower-sequence ones) must NOT
+        // falsely open a successor generation.
+        let mut completed = card.clone();
+        completed.status = RecommendationStatus::Completed;
+        assert!(evaluate_workflow_improvements(
+            &observations,
+            std::slice::from_ref(&completed),
+            "workspace-1",
+            &now,
+        )
+        .is_empty());
+
+        // A genuinely newer observation (seq 81 > max retained seq 80) DOES open
+        // a lineaged successor.
+        let mut with_newer = observations.clone();
+        let mut obs81 = observation("obs-081", 81, "session-081", 0.9, Impact::Medium);
+        obs81.observed_at = (base + chrono::Duration::minutes(81)).to_rfc3339();
+        with_newer.push(obs81);
+        let successor = evaluate_workflow_improvements(
+            &with_newer,
+            std::slice::from_ref(&completed),
+            "workspace-1",
+            &now,
+        );
+        assert_eq!(successor.len(), 1);
+        assert_ne!(successor[0].id, completed.id);
+        assert_eq!(successor[0].evidence.last().unwrap().sequence, 81);
+        assert_eq!(
+            successor[0]
+                .workflow_improvement
+                .supersedes_recommendation_id
+                .as_deref(),
+            Some(completed.id.as_str())
+        );
+    }
+
+    #[test]
+    fn caps_card_evidence_by_byte_budget_even_below_64_entries() {
+        let base = chrono::DateTime::parse_from_rfc3339("2026-11-24T08:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let large_text = "x".repeat(2_000);
+        let large_desc = "d".repeat(450);
+        let observations: Vec<_> = (1..=60u64)
+            .map(|seq| {
+                let mut obs = observation(
+                    &format!("obs-{seq:03}"),
+                    seq,
+                    &format!("session-{seq:03}"),
+                    0.9,
+                    if seq == 3 { Impact::High } else { Impact::Low },
+                );
+                obs.description = large_desc.clone();
+                obs.evidence = large_text.clone();
+                obs.observed_at = (base + chrono::Duration::minutes(seq as i64)).to_rfc3339();
+                obs
+            })
+            .collect();
+        let now = (base + chrono::Duration::minutes(70)).to_rfc3339();
+
+        let cards = evaluate_workflow_improvements(&observations, &[], "workspace-1", &now);
+        assert_eq!(cards.len(), 1);
+        let card = &cards[0];
+        assert!(card.evidence.len() < 60);
+        assert!(card.evidence.len() >= 3);
+        assert!(rollup::serialized_size(&card.evidence) <= MAX_CARD_EVIDENCE_BYTES);
+        assert_eq!(card.evidence[0].sequence, 1);
+        assert_eq!(card.evidence[1].sequence, 3);
+        assert_eq!(card.evidence.last().unwrap().sequence, 60);
+        assert_eq!(card.priority, Impact::High);
+        assert_eq!(
+            card.workflow_improvement.recurrence_count,
+            card.evidence.len()
+        );
+        assert!(card.reason[0].contains("retained qualifying observations (capped) across"));
     }
 }

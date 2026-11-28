@@ -199,6 +199,222 @@ draining child while the other three slots stay ready, confirms reap of the
 failed child, and closes and reaps the peers independently. Actual startup
 supervision, leases, and ordinary application launch isolation remain open.
 
+## Persistent sidecar worker startup check (Step 1)
+
+Native macOS 26.6.2 arm64 qualification first tested unexpected `SCM_RIGHTS`
+sent over an `AF_UNIX` `SOCK_STREAM` channel and found that plain `read()`,
+`recvmsg(msg_controllen = 0)`, and `recvmsg(msg_controllen = 1)` all invoke
+XNU `unp_externalize()` and install a new, inheritable (`FD_CLOEXEC == false`),
+leaked descriptor into the parent process. Under the 2026-11-28 amendment to
+[ADR 0122](../../adr/0122-startup-sealed-codex-custody.md), each slot uses two
+pre-sealed unidirectional channels (16 total endpoints across 4 slots, 4
+controller / 12 resource descriptors per slot):
+
+- Request channel (`parent -> worker`): `AF_UNIX` `SOCK_STREAM` with reverse
+  direction closed at both ends (`SHUT_RD` on parent, `SHUT_WR` on worker) and
+  `SO_NOSIGPIPE`.
+- Response channel (`worker -> parent`): OS `pipe()` sealed `FD_CLOEXEC` with
+  macOS `F_SETNOSIGPIPE` (`73`), where `sendmsg` fails in the kernel with
+  `ENOTSOCK`.
+
+The private worker dispatches at the start of `crates/orkworksd/src/main.rs`
+(`--codex-custody-worker <request_rx_fd> <response_tx_fd>`) before
+`git::run_scan_worker()` or Tokio/runtime initialization. Normal sidecar
+startup does not construct a custody pool. Custody workers launch via macOS
+`posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` and
+`posix_spawn_file_actions_addinherit_np` for only the two selected endpoints
+plus `/dev/null` on `0..=2`, closing ambient host descriptors without touching
+parent flags.
+
+The 32-byte source-owned build identity (`codex_capture_owner::build_identity`)
+is derived via `sha2::Sha256` over package/target/profile metadata and
+`include_bytes!` of the `src/taskmaster/codex_capture_owner/` module sources
+without modifying frozen `crates/orkworksd/build.rs`. After the fixed
+54-byte bootstrap exchange (`Challenge` on `request_tx` → `Ready` on
+`response_rx`, without half-closing the active directions), persistent control
+frames share one 10-byte length-delimited envelope capped at 1 MiB:
+
+| Bytes | Field |
+| --- | --- |
+| 0–3 | ASCII `OWCO` |
+| 4 | Protocol version `1` |
+| 5 | Frame kind (`1` Ping, `2` Pong, `3` Shutdown, `4` ShutdownAck; lease operations reserve kinds `>= 10`) |
+| 6–9 | Big-endian `u32` payload length (`16` for Ping/Pong, `0` for Shutdown/ShutdownAck, max `1_048_576`) |
+| 10.. | Exact payload bytes |
+
+Clean EOF at a frame boundary exits the idle worker cleanly; mid-frame EOF
+returns `UnexpectedEof`; bad magic, version, kind, length, oversized payload,
+or unsolicited trailing bytes (`poll(POLLIN, 0)` + `FIONREAD`) fail closed and
+retire the slot permanently without replacement.
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap --test codex_custody_worker`):
+
+- All 16 split-channel endpoints verified `FD_CLOEXEC` before spawn; injected
+  third-slot failure rolled back and closed all 8 prior descriptors (`EBADF`).
+- Reverse `sendmsg(SCM_RIGHTS)` on `request_rx` failed in the kernel
+  (`EINVAL`/`EPIPE`) and `sendmsg(SCM_RIGHTS)` on `response_tx` failed with
+  `ENOTSOCK`; zero descriptors matching the test file appeared in the parent.
+- Real `orkworksd` workers passed full `PROC_PIDLISTFDS` inventory
+  (`{0, 1, 2, request_rx, response_tx}`), `/dev/null` stdio, endpoint-type
+  checks, capability-free env check (allowing only macOS CoreFoundation's
+  pre-`main` `__CF_USER_TEXT_ENCODING` triple), build/nonce handshake, three
+  rounds of persistent `Ping`/`Pong` per slot without EOF, and clean `Shutdown`
+  / `ShutdownAck` exit for all 4 children.
+- Negative controls against the real `orkworksd` binary rejected missing args
+  without starting HTTP (`ORKWORKSD_PORT=` absent), unexpected env variables
+  (exit 65), an extra inherited descriptor via `pre_exec` (exit 66), a Unix
+  socket passed as the response pipe (exit 68), and a mismatched 32-byte build
+  identity (all 4 slots retired cleanly).
+- Deadline and lifecycle checks verified zero workers started on expired
+  pre-seal budget, partial readiness (2 ready slots kept usable while a stalled
+  third slot timed out, was killed/reaped, and prevented slot 4 from starting),
+  unconfirmed-cleanup slot retention until final reap on shutdown, and
+  permanent single-slot retirement after unexpected `SIGKILL` without affecting
+  surviving slots.
+- Measured process cost across 4 persistent debug `orkworksd` workers (15
+  consecutive runs on macOS 26.6.2 arm64): warm 4-worker startup 29–80 ms
+  (cold first launch ~1.4 s), resident memory ~9.5 MiB per worker (~38.0 MiB
+  total, `PROC_PIDTASKINFO.pti_resident_size`), and `0 µs` idle CPU delta over
+  a 300 ms idle window (`pti_total_user + pti_total_system`).
+
+Step 2 (reusable 4-slot lease accounting and kernel-bound root transfer) and
+Step 3 (actual concurrent application-launch race proof) remain open under
+#1981.
+
+## Reusable private worker lease framing (Step 2)
+
+Step 2 extends the `OWCO` version `1` 10-byte envelope (`magic[4]`, `version[1]`,
+`kind[1]`, big-endian `u32` payload length, 1 MiB cap) over the Step 1 split
+unidirectional channels (`AF_UNIX` `SOCK_STREAM` `parent -> worker` request
+channel with `SHUT_RD`/`SHUT_WR`, OS `pipe()` `worker -> parent` response
+channel where `sendmsg` returns `ENOTSOCK`).
+
+| Kind | Name | Direction | Ancillary FDs | Fixed Big-Endian Payload |
+| --- | --- | --- | --- | --- |
+| `10` | `BindAndObserve` | `parent -> worker` | Exact 3 `SCM_RIGHTS` directory FDs (`[workspace, home, packaged]`) | `lease_id[16]`, `lease_seq: u64` (`>= 1`), `op_seq: u64` (`== 1`), `ttl_ms: u32` (`1..=30_000`) (36 bytes) |
+| `11` | `BindObserved` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64`, `status: u8` (`0` Observed, `1` Rejected), 3 × `(dev: u64, ino: u64)`, 3 × `(present: u8, byte_len: u32, sha256[32])` (192 bytes) |
+| `12` | `Revalidate` | `parent -> worker` | 0 | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+| `13` | `Revalidated` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64`, `verdict: u8` (`0` Fresh, `1` Changed, `2` Expired, `3` Invalid) (33 bytes) |
+| `14` | `Release` | `parent -> worker` | 0 | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+| `15` | `ReleaseAck` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+
+Endpoint, EOF, and extra-data rules:
+
+- The worker reads every request header via `recvmsg` so ancillary `SCM_RIGHTS`
+  descriptors are captured on the first byte, immediately marked `FD_CLOEXEC`,
+  and owned for automatic close on any error. Non-`BindAndObserve` requests must
+  carry zero ancillary descriptors and clear `MSG_CTRUNC`; `BindAndObserve` must
+  carry exactly 3 `S_IFDIR` descriptors with clear `MSG_CTRUNC`.
+- The parent validates kernel transfer by matching the worker's reported
+  `(st_dev, st_ino)` triples against the parent's opened root directory handles;
+  the parent never opens or receives synthetic resource files.
+- The worker executes one bounded synthetic probe (`openat(root_fd, "custody-probe.txt", O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)`,
+  `S_IFREG` check, 256 KiB cap, SHA-256 commitment, immediate drop of raw bytes
+  and probe FD) and enforces a local defense-in-depth `ttl_ms` timer that never
+  extends the parent's original 30-second expiry.
+- On `Release`, the worker drops all three root descriptors and transient state,
+  confirms via `PROC_PIDLISTFDS` that open descriptors have returned to the exact
+  five baseline entries `{0, 1, 2, request_rx, response_tx}`, and only then
+  writes `ReleaseAck` for the exact `(lease_id, lease_seq, op_seq)`.
+- Any mismatched/stale `(lease_id, lease_seq, op_seq)`, unsolicited trailing
+  bytes (`poll(POLLIN, 0)` + `FIONREAD`), timeout, EOF, or unexpected worker
+  exit invalidates lease usability first, quarantines and terminates that exact
+  `OwnedChild`, retains `CleanupUnconfirmed` charges until confirmed reap, and
+  never returns the slot to `Idle` or spawns a replacement. Checked `u64`
+  `lease_seq` or `op_seq` exhaustion permanently retires the slot.
+- Descriptor accounting reserves 16 descriptors per slot (4 controller + up to
+  12 resource descriptors, with no cross-slot borrowing) under the separate 256
+  global descriptor ceiling across all active, draining, and unconfirmed actors.
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_lease`,
+20 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+`codex_custody_slots`, `codex_custody_entry`, and `codex_custody_worker`):
+
+- `DescriptorLedger` and live `LeasePool` enforced the 16-descriptor per-slot
+  reservation (4 controller + up to 12 resource FDs with no cross-slot
+  borrowing) and the 256 global descriptor ceiling across active, booting,
+  draining, and unconfirmed charges without evicting live leases, reserving
+  quota before opening parent root descriptors, binding parent-root ownership
+  into the live lease (closing them before clearing ledger charges), and
+  nonblockingly reconciling late `Booting` and `CleanupUnconfirmed` slots.
+- Real `orkworksd` workers completed `BindAndObserve` (3 kernel-bound
+  `O_DIRECTORY` roots via `SCM_RIGHTS`, matched by `(st_dev, st_ino)`),
+  `Revalidate` (`Fresh` unchanged without renewing expiry, with post-RPC
+  parent expiry recheck rejecting late `Fresh` replies arriving past expiry;
+  `Changed` after workspace probe mutation immediately invalidating handle
+  usability and draining the worker back to `Idle`), `Release` (verified via
+  child `PROC_PIDLISTFDS` returning from 8 open FDs back to the exact 5
+  baseline FDs `{0, 1, 2, request_rx, response_tx}` before `ReleaseAck`, and
+  parent closing its retained roots before clearing charges), and immediate
+  reuse on the same worker PID (`lease_seq` advancing `1 -> 2 -> 3`) without
+  restart. Parent `PROC_PIDLISTFDS` never contained the synthetic probe file
+  inode.
+- Negative and failure-closed controls verified nonblocking 5th-lease denial
+  (`Unavailable`) with zero queue or eviction, rejection of forged/stale/cross-pool
+  handles, `O_NOFOLLOW` symlink and `> 256 KiB` probe rejection, worker
+  fail-closed exit on wrong `SCM_RIGHTS` count (`2`, `4`, and `9` triggering
+  kernel `MSG_CTRUNC`), non-directory FD, and unexpected FD on `Ping`, checked
+  `u64` `lease_seq` and `op_seq` overflow retirement, parent-authoritative and
+  worker defense-in-depth expiry without renewal, `SIGSTOP`-induced hung-worker
+  termination/reap/retirement during `BindAndObserve`, `Revalidate`, and
+  `Release`, and permanent quarantine on stale `ReleaseAck`.
+
+This bounded synthetic probe qualifies reusable lease mechanics only and is not
+the complete five-file observer or source owner.
+
+## Actual boundary race evidence (Step 3)
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_boundary_race`,
+passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+`codex_custody_slots`, `codex_custody_entry`, `codex_custody_worker`, and
+`codex_custody_lease`):
+
+- **Object-identity positive controls:** Receiving a temporary file over
+  `SCM_RIGHTS` directly in the parent (confirming `FD_CLOEXEC == 0`) plus one
+  deliberately unsealed `AF_UNIX` socket and OS `pipe()` were detected by exact
+  macOS kernel object identity (`PROC_PIDFDVNODEINFO` `(vst_dev, vst_ino)`,
+  `PROC_PIDFDSOCKETINFO` `(soi_so, soi_pcb)`, and `PROC_PIDFDPIPEINFO`
+  `pipe_handle`) across the child's full `PROC_PIDLISTFDS` table under both
+  `std::process::Command` and `probe_process::ProbeService::run`.
+- **Sealed-channel non-inheritance during startup:** Diffing the parent's
+  `PROC_PIDLISTFDS` before and after `seal_split_channels()` captured all 16
+  newly sealed endpoints (8 `AF_UNIX` socket ends and 8 OS `pipe()` ends across
+  4 slots) and launched unrelated children through `std::process::Command`,
+  `probe_process::ProbeService::run`, and `portable_pty::native_pty_system()`
+  *during* active `CustodyPool` startup (before slot 0 and at slot 1), observing
+  zero matching socket or pipe kernel identities across all 6 startup-window
+  probes.
+- **Both receive/launch race orders across `std`, `probe_process`, and `portable_pty`:**
+  - *Order A (bind/receive-first):* After `BindAndObserve` transferred all 3
+    temporary roots to a real `orkworksd` worker, launches through
+    `std::process::Command`, `probe_process::ProbeService::run`, and
+    `portable_pty` observed zero inherited root/probe vnodes, controller
+    sockets, or controller pipes.
+  - *Order B (launch-first + barrier-synchronized concurrent overlap):* A
+    two-stage launch-first parent (`READY`/`GO` -> grandchild via `std`) and 6
+    barrier-synchronized concurrent overlap rounds across `std`,
+    `probe_process`, and `portable_pty` (pre-initializing runtime/service/PTY
+    before the barrier and looping `BindAndObserve` -> `Revalidate` -> `Release`
+    continuously until each child launch finishes) observed zero inherited
+    vnode, socket, or pipe objects in every trial.
+  - Throughout every trial, the parent `PROC_PIDLISTFDS` never contained the
+    synthetic probe file inode and every custody worker reported zero child
+    processes (`proc_listchildpids == 0`).
+- **Boundary lifecycle controls:** Verified independent cleanup and confirmed
+  reap (`waitid(WNOWAIT)` -> `ECHILD`) after a lost `Revalidate` reply on slot
+  0 while real `orkworksd` siblings on slots 1–3 stayed live and clean,
+  expired lease refusal without renewal, and sidecar replacement (`sidecar_a`
+  workers confirmed reaped; `sidecar_b` rejected `sidecar_a`'s handle and
+  operated cleanly with zero descriptor leakage).
+
+This completes Steps 1–3 of #1981's bounded macOS qualification while keeping
+the custody pool dormant during normal sidecar startup; Step 4 (planning the
+fixed five-resource physical observer and production activation) remains a
+separate gated slice.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin
@@ -283,3 +499,67 @@ installer or production availability. Existing chunk warnings are outside the
 diff. Generated pnpm executable lock metadata was inspected/restored. Foreign
 shared-checkout edits/worktrees remain untouched. Owner approval and the actual
 #1981 application-boundary qualification remain pending.
+
+## Pending launch after startup closes
+
+Reserve the slot before starting a launch. The qualification owner retains
+the result receiver and polls it without waiting. After the shared deadline,
+the slot stays charged while the launch is pending. If a child arrives, the
+draining owner closes its controller channel and polls that exact child until
+reap is confirmed. A failed or disconnected launch report leaves cleanup
+unconfirmed and keeps the charge.
+
+Exercise the pending, failed-report, and confirmed-reap states with
+deterministic controls. On macOS arm64, hold the native launch behind a test
+gate across the same three-second budget that starts before channel sealing.
+Keep a healthy worker ready throughout. Release the test gate after the
+startup phase closes and require reap of the late child and the healthy peer.
+The launch delay is injected before the native spawn call.
+
+On macOS 26.6.2 arm64, all seven policy tests and four native opt-in
+tests passed. The late-launch case passed three additional runs. Startup
+closed while the launch was waiting for its gate. After the gate opened,
+the exact child reaped and the healthy peer exited normally. The source
+qualification uses the existing empty worker channels.
+
+## Split-channel pool deadline handoff
+
+Run the pool startup against a launch hook held beyond the shared deadline
+while one native worker is ready. Startup must return with the pending
+attempt charged and the ready worker usable. Start later slots only while
+the budget remains and the preceding launch has reported back.
+
+Transfer the exact late child and the sealed channel owners to cleanup.
+Shutdown must report an unresolved launch while it is pending and allow
+later reconciliation. If the pool is dropped before handoff, the launch
+task owns cleanup of any child it obtains. The test uses empty channels and
+a gate immediately before the native spawn call.
+
+On macOS 26.6.2 arm64, the deadline regression failed on the previous
+synchronous implementation and passed with supervised launch. All 17
+tests in the native worker target passed. One test skipped a task first
+scheduled at the deadline. A second test confirmed the pending launch
+appeared in the shutdown report and reconciled after release. A separate
+test dropped the pool before release and observed reap of the resulting
+child. Moving cleanup ownership after a child has already been handed to
+the pool remains a separate shutdown boundary.
+
+## Cleanup ownership after pool drop
+
+Create a cleanup task before any launch and keep its handoff endpoint in the
+dormant pool. If task creation fails, no child starts. Pool drop closes the
+channels and attempts bounded termination and reap. Transfer the unresolved
+owned children together, retaining a maximum of four handles and polling
+each independently until its exit is confirmed. An `ECHILD` report permanently
+ends operations on the old PID and retains an unconfirmed outcome.
+
+The native fixture holds two already-owned children behind separate reap
+gates. Shutdown reports both as unconfirmed and pool drop returns while both
+gates are held. Non-consuming observations in an isolated process verify the
+second reaps while the first is still waitable. Releasing the first then
+confirms its exact reap.
+
+The original implementation failed the single-child regression. The updated
+macOS 26.6.2 arm64 target passed all 19 cases, and the two-child regression
+passed six additional runs. The fixture gates observation of reap. An actual
+kernel delay and application startup or shutdown integration stay open.

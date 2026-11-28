@@ -111,6 +111,9 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Recommendation action pending | Dismiss or Run cleanup succeeds in the current workspace | Clear the acted-on audit notice and reconcile through a read started after the write |
 | Recommendation action pending | Workspace changes or admission closes | Clear local progress and ignore late completion |
 | Resume idle | Resume admitted for the row | Pending, with one operation per row |
+| Create pending | Receipt arrives before the list has observed the new row | Publish the pre-spawn row and track its startup outcome |
+| Create pending | A session list has already observed the row when the receipt arrives | Keep the observed row and reconcile its startup outcome |
+| Created row tracked | A structured startup failure or error row is observed | Report the failure once and retire its tracking |
 | Resume pending | Backend URL resolves while admission and the row reservation are current | Send the resume to the sidecar |
 | Resume pending | Backend URL resolves after admission or the reservation is invalidated | Skip the stale dispatch |
 | Resume pending | Duplicate request, or old operation finishes after replacement | Current pending operation is unchanged |
@@ -118,6 +121,8 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Resume pending | Successful resume also owns the foreground and no intervening selection occurred | Focus the resumed row |
 | Resume pending | Archive, delete, or another organization action supersedes the same row | The older resume cannot publish or focus the row |
 | Resume pending | Current failure or admission closes | Clear progress for the owned operation; recover current data on failure |
+| Delete pending | Current workspace receives successful removal | Dispose its terminal, remove the row, and reconcile the remaining list |
+| Delete pending | Delete fails, including after partial cleanup | Keep the error and reconcile removal only if a current list omits the row |
 | Active session write idle | Renderer submits the active row under current admission | Queue and send one write |
 | Active session write in flight | Another selection is submitted in the same workspace | Queue it behind the current write |
 | Active session write in flight | Current write succeeds or fails | Settle its caller and release the next queued write |
@@ -144,7 +149,7 @@ Sources `apps/desktop/src/{terminalAttach,terminalStore}.ts`,
 | Live terminal absent | Still-current renderer awaits backend and attaches | Socket connecting |
 | Socket connecting | Connection opens and the handle is current | Interactive, with bounded pending input |
 | Socket attached | Socket closes or the component is disposed | Input disabled or attachment removed; PTY lifecycle proceeds independently |
-| Closed socket without a terminal end event | Renderer returns to the still-live session | Replace the closed handle and attach with bounded replay |
+| Closing or closed socket without a terminal end event | Renderer returns to the still-live session | Replace the unavailable transport and attach with bounded replay |
 | Healthy socket | Renderer returns to the session | Reuse the existing handle |
 | Socket closed without live output | Historical fetch succeeds for a still-owned handle | Bounded replay, at the recorded grid when available |
 | Historical terminal loading | Replay query settles for the current session | Loaded, empty, or error |
@@ -382,6 +387,33 @@ in workspace memory. Writes now settle in submission order within each
 workspace and admission lifetime. Tests verify that rejection releases the
 next write and workspace replacement retires queued writes.
 [Issue #2262](https://github.com/Rambolarsen/orkworks/issues/2262)
+
+### A late create receipt rewound a newer session row to Creating
+
+The create endpoint returns the pre-spawn row. The controller tests delay that
+reply until the session list has published either Running or Failed. The
+original controller replaced both rows with Creating and deferred the failure
+notification until another list. It now retains the observed row and reports
+an already-observed startup failure once the receipt confirms ownership.
+[Issue #2273](https://github.com/Rambolarsen/orkworks/issues/2273)
+
+### A successful Delete left its row visible until refresh
+
+The controller test delays both a pre-receipt list and the post-delete read.
+The sidecar acknowledges deletion, then the current read fails. Previously the
+desktop disposed the terminal but still showed the deleted row. It now removes
+the acknowledged row immediately, keeps a newer selection, and rejects the
+older list. Failed deletes still reconcile against an authoritative list.
+[Issue #2281](https://github.com/Rambolarsen/orkworks/issues/2281)
+
+### Reselection reused a terminal socket during its close handshake
+
+The Electron fixture marks an inactive terminal socket Closing before returning
+to its still-live session. The old cache rule only replaced Closed sockets and
+reused a transport already shutting down. Reselection now replaces the handle
+in either state. The fixture delivers the old socket's close event afterward
+and verifies that the fresh handle still accepts input.
+[Issue #2289](https://github.com/Rambolarsen/orkworks/issues/2289)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

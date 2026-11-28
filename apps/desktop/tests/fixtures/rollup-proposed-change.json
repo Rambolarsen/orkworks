@@ -25,5 +25,33 @@
       "verification": "Read the workflow and confirm the pinned value"
     },
     "expectedGuidanceSuffix": " One or more targets are marked sensitive because they can change hooks, permissions, or CI: tell the user before editing them, and never widen permissions, hooks, or CI behavior."
-  }
+  },
+  "invisibleCharacters": {
+    "change": {
+      "summary": "Document\u202e the \u200bretry\u2066 policy\u2069",
+      "targets": [
+        { "path": "docs/\u202e\u200bagents/\u061cretry\ufeff.md", "action": "create", "instruction": "Create\u200c the\u200d retry\u2060 policy\u200f page", "sensitive": false }
+      ],
+      "verification": "Confirm\u202a the\u202c page\u200e exists"
+    },
+    "expectedReference": {
+      "summary": "Document the retry policy",
+      "targets": [
+        { "path": "docs/agents/retry.md", "action": "create", "instruction": "Create the retry policy page", "sensitive": false }
+      ],
+      "verification": "Confirm the page exists"
+    }
+  },
+  "sensitiveTargets": [
+    { "path": ".pre-commit-config.yaml", "sensitive": true },
+    { "path": "lefthook.yml", "sensitive": true },
+    { "path": "pnpm-workspace.yaml", "sensitive": true },
+    { "path": "rust-toolchain.toml", "sensitive": true },
+    { "path": "tests/conftest.py", "sensitive": true },
+    { "path": "tests/setup.ts", "sensitive": true },
+    { "path": "tests/helpers/run.sh", "sensitive": true },
+    { "path": "tests/api.test.ts", "sensitive": false },
+    { "path": "tests/setup.md", "sensitive": false },
+    { "path": "docs/config.json", "sensitive": false }
+  ]
 }

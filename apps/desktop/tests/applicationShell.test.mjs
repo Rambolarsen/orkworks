@@ -514,6 +514,7 @@ if (process.versions.electron) {
           Object.defineProperty(navigator, "clipboard", { value: {
             writeText: async text => {
               if (fixture.clipboardUnavailable) throw new Error("Clipboard unavailable");
+              if (fixture.deferClipboard) await new Promise(resolve => { fixture.finishClipboard = resolve; });
               fixture.clipboardWrites.push(text);
             }
           } });
@@ -521,11 +522,32 @@ if (process.versions.electron) {
         `);
         await waitFor(`document.querySelector("${button}")`);
         assert.equal(await evaluate(`document.querySelector("${button}").getAttribute("aria-label")`), "Copy continuation prompt");
-        await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("${button}").click()`);
+        await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("[data-shell-terminal-focus]").focus();document.querySelector("${button}").click()`);
         await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Could not copy")`);
-        await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("${button}").click()`);
+        assert.equal(await evaluate('document.activeElement.matches("[data-shell-terminal-focus]")'), true,
+          'a failed copy leaves focus alone');
+        await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("[data-shell-terminal-focus]").focus();document.querySelector("${button}").click()`);
         await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Prompt copied")`);
+        assert.equal(await evaluate('document.activeElement.matches(".xterm-helper-textarea")'), true,
+          'successful copy focuses the selected terminal');
         assert.deepEqual(await evaluate('fixture.clipboardWrites'), ['Keep going with the current task.']);
+
+        for (const [change, writeCount] of [['fixture.select("other")', 2], ['fixture.advanceWorkspace()', 3]]) {
+          await evaluate(`
+            fixture.deferClipboard = true;
+            fixture.finishClipboard = null;
+            fixture.copyInvoker = document.querySelector("${button}");
+            fixture.copyInvoker.click();
+          `);
+          await waitFor('fixture.finishClipboard');
+          await evaluate(change);
+          await waitFor('!fixture.copyInvoker.isConnected');
+          await evaluate('document.querySelector("[data-shell-terminal-focus]").focus();fixture.finishClipboard()');
+          await waitFor(`fixture.clipboardWrites.length === ${writeCount}`);
+          assert.equal(await evaluate('document.activeElement.matches("[data-shell-terminal-focus]")'), true,
+            'a copy from a previous selection or workspace must leave current focus alone');
+        }
+
         assert.deepEqual(await evaluate('fixture.input'), []);
         await evaluate('fixture.setSessionState({attention:"needs_you"})');
         await waitFor(`!document.querySelector("${button}")`);
@@ -3184,20 +3206,26 @@ if (process.versions.electron) {
           await evaluate('fixture.setBackendStatus("connected")');
           await waitFor('fixture.runtime()?.terminal.element?.isConnected');
           assert.equal(await evaluate(`document.querySelectorAll(${JSON.stringify(notice)}).length`), 0);
-        } else if (scenario === 'terminal-reattach') {
+        } else if (scenario === 'terminal-reattach' || scenario === 'terminal-reattach-closing') {
           await win.setContentSize(1300,700);
           await waitFor('fixture.runtime()?.terminal.element?.isConnected');
-          await evaluate('fixture.output("before drop");fixture.closedRuntime=fixture.runtime();const socket=fixture.closedRuntime.ws;socket.readyState=WebSocket.CLOSED;socket.onclose();void 0');
-          assert.equal(await evaluate('fixture.closedRuntime.terminal.options.disableStdin'), true);
-          assert.equal(await evaluate('fixture.closedRuntime.ended'), false);
+          const closing = scenario === 'terminal-reattach-closing';
+          await evaluate('fixture.output("before drop");fixture.droppedRuntime=fixture.runtime();void 0');
+          if (!closing) {
+            await evaluate('const socket=fixture.droppedRuntime.ws;socket.readyState=WebSocket.CLOSED;socket.onclose();void 0');
+            assert.equal(await evaluate('fixture.droppedRuntime.terminal.options.disableStdin'), true);
+          }
+          assert.equal(await evaluate('fixture.droppedRuntime.ended'), false);
 
           await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
           await waitFor('fixture.activeSessionId==="other" && fixture.runtime()?.wrapper.style.visibility==="visible"');
           await evaluate('fixture.otherRuntime=fixture.runtime();void 0');
+          if (closing) await evaluate('fixture.droppedRuntime.ws.readyState=WebSocket.CLOSING');
           await evaluate('document.querySelector("[data-session-id=coding] .session-row-select").click()');
           await waitFor('fixture.activeSessionId==="coding" && fixture.runtime()?.wrapper.style.visibility==="visible"');
-          assert.equal(await evaluate('fixture.runtime()===fixture.closedRuntime'), false, 'returning to a live session must replace its closed transport');
-          assert.equal(await evaluate('fixture.closedRuntime.disposed'), true);
+          assert.equal(await evaluate('fixture.runtime()===fixture.droppedRuntime'), false, 'returning to a live session must replace its closing or closed transport');
+          assert.equal(await evaluate('fixture.droppedRuntime.disposed'), true);
+          if (closing) await evaluate('const socket=fixture.droppedRuntime.ws;socket.readyState=WebSocket.CLOSED;socket.onclose();void 0');
           assert.equal(await evaluate('fixture.runtime().terminal.options.disableStdin'), false);
           assert.equal(await evaluate('fixture.socketCount'), 3);
           await evaluate('fixture.runtime().terminal.input("after-drop",true)');
@@ -3311,7 +3339,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','copy-continuation-prompt','session-capacity-inherited','session-capacity-checking','session-capped-aging','session-capped-evidence','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','copy-continuation-prompt','session-capacity-inherited','session-capacity-checking','session-capped-aging','session-capped-evidence','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-reattach-closing','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -3360,7 +3388,7 @@ if (process.versions.electron) {
           window.addEventListener('unhandledrejection', e => fixture.errors.push(String(e.reason)));
           fixture.socketCount=0;fixture.input=[];fixture.pins=0;fixture.workspaceOpens=0;
           window.WebSocket=class {
-            static OPEN=1; static CLOSED=3; readyState=1; bufferedAmount=0;
+            static OPEN=1; static CLOSING=2; static CLOSED=3; readyState=1; bufferedAmount=0;
             constructor(url){
               if(String(url).includes("/workspace/updates")){
                 if(${javascriptLiteral(scenario)}.startsWith('app-review-pending-enrichment')){

@@ -178,7 +178,7 @@ impl Drop for AttemptContext {
             .state
             .peon
             .cleanup_attempt(self.session_id(), self.attempt());
-        self.view.state.updates.sessions_changed();
+        self.view.state.updates.status_changed();
     }
 }
 
@@ -771,7 +771,7 @@ fn prepare_peon_attempts(
 
     for (session_id, _) in &candidates {
         state.peon.mark_candidate(session_id);
-        state.updates.sessions_changed();
+        state.updates.status_changed();
     }
 
     for id in pending {
@@ -1684,6 +1684,46 @@ mod tests {
             .read()
             .unwrap()
             .contains_key("scheduled"));
+    }
+
+    #[tokio::test]
+    async fn peon_candidate_and_cleanup_only_dirty_status_not_enrichment() {
+        let _lease_guard = diagnostic_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        scheduling_fixture(&state, "scheduled", false);
+        let mut pending_output = HashMap::new();
+        let (sessions_before, enrichment_before) = state.updates.status_and_enrichment_revisions();
+
+        let prepared = prepare_peon_attempts(
+            &state,
+            &mut pending_output,
+            &Arc::new(AtomicBool::new(false)),
+            || {},
+        );
+        assert_eq!(prepared.len(), 1);
+        let (sessions_after_candidate, enrichment_after_candidate) =
+            state.updates.status_and_enrichment_revisions();
+        assert_ne!(
+            sessions_after_candidate, sessions_before,
+            "marking a Peon candidate must wake status subscribers"
+        );
+        assert_eq!(
+            enrichment_after_candidate, enrichment_before,
+            "marking a Peon candidate must not invalidate global Git/document enrichment"
+        );
+
+        drop(prepared);
+        let (sessions_after_cleanup, enrichment_after_cleanup) =
+            state.updates.status_and_enrichment_revisions();
+        assert_ne!(
+            sessions_after_cleanup, sessions_after_candidate,
+            "cleaning up a Peon attempt must wake status subscribers"
+        );
+        assert_eq!(
+            enrichment_after_cleanup, enrichment_before,
+            "cleaning up a Peon attempt must not invalidate global Git/document enrichment"
+        );
     }
 
     #[tokio::test]

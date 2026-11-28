@@ -108,20 +108,22 @@ pub(crate) fn subject_info(
     {
         return Err("Invalid session ID.".into());
     }
-    {
+    let reader = {
         let ws = state.workspace.lock().unwrap();
         let ws = ws.as_ref().ok_or("Workspace unavailable.")?;
         let live = state.sessions.lock().unwrap();
-        live.get(id)
-            .map(|h| h.info.clone())
-            .or_else(|| remembered.cloned())
-            .or_else(|| {
-                ws.metadata
-                    .read_session(id)
-                    .map(|m| crate::session_types::SessionInfo::baseline_from_metadata(&m))
-            })
-            .ok_or_else(|| "Session unavailable.".into())
-    }
+        if let Some(handle) = live.get(id) {
+            return Ok(handle.info.clone());
+        }
+        if let Some(remembered) = remembered {
+            return Ok(remembered.clone());
+        }
+        ws.metadata.session_reader()
+    };
+    reader
+        .read(id)
+        .map(|m| crate::session_types::SessionInfo::baseline_from_metadata(&m))
+        .ok_or_else(|| "Session unavailable.".into())
 }
 
 /// Resolve without acquiring workspace/session locks, including at final admission.

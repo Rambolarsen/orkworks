@@ -455,3 +455,37 @@ test("startup retention retry aborts cleanly when the sidecar exits", async () =
   assert.equal(attempts, 1, "aborted generation must stop retrying retention pushes");
   fixture.runtime.dispose();
 });
+
+test("runReady fences image creation with the ready sidecar's exact workspace identity", async () => {
+  const desktopPath = "C:\\work\\repo";
+  const sidecarIdentity = "\\\\?\\C:\\work\\repo";
+  const fixture = createRuntimeFixture({
+    workspaceResponse: async () => Response.json({
+      ...makeWorkspace(desktopPath),
+      workspaceIdentity: sidecarIdentity,
+    }),
+  });
+  await fixture.openReady(desktopPath, 4001);
+
+  const runOptions = {
+    expectedWorkspaceIdentity: sidecarIdentity,
+    expectedBackendUrl: "http://127.0.0.1:4001",
+  };
+  let dispatched = 0;
+  const submit = async () => { dispatched += 1; };
+
+  try {
+    await fixture.runtime.runReady(submit, runOptions);
+    await assert.rejects(
+      fixture.runtime.runReady(submit, { ...runOptions, expectedWorkspaceIdentity: desktopPath }),
+      StaleBackendGenerationError,
+    );
+    await assert.rejects(
+      fixture.runtime.runReady(submit, { ...runOptions, expectedBackendUrl: "http://127.0.0.1:4002" }),
+      StaleBackendGenerationError,
+    );
+    assert.equal(dispatched, 1);
+  } finally {
+    fixture.runtime.dispose();
+  }
+});

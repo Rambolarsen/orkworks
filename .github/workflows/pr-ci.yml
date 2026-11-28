@@ -70,6 +70,10 @@ jobs:
         timeout-minutes: 5
         run: node scripts/qualification/pair-progress-windows-build.test.mjs
 
+      - name: Test bounded root reader diagnostics on owned fixtures
+        timeout-minutes: 5
+        run: node scripts/qualification/pair-root-diagnostic-windows-build.test.mjs
+
   workspace-reporting:
     name: Workspace reporting (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -438,6 +442,8 @@ jobs:
           $discovered = @($listed | Where-Object { $_ -match ': test$' })
           if ($discovered.Count -eq 0) { throw "windows_job discovered zero tests" }
           Write-Host "windows_job.discovered=$($discovered.Count)"
+      - name: Test native Windows census exit interleavings
+        run: cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --lib
       - name: Run native Windows Job Object proof
         run: cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job
 

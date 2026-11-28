@@ -630,19 +630,6 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         reasoning_effort_args,
     } = harness.definition.peon.as_ref()?.clone();
     let command = command_override.unwrap_or_else(|| harness.launch_command());
-    let (list_models_command, list_models_args, static_models) = match &harness.definition.models {
-        Some(ModelCapability::Static { models }) => (None, Vec::new(), models.clone()),
-        Some(ModelCapability::Command { command, args }) => {
-            (Some(command.clone()), args.clone(), Vec::new())
-        }
-        Some(ModelCapability::CodexAppServer) => (
-            Some(command.clone()),
-            vec!["app-server".into(), "--stdio".into()],
-            Vec::new(),
-        ),
-        Some(ModelCapability::Http) => (None, Vec::new(), Vec::new()),
-        None => (None, Vec::new(), Vec::new()),
-    };
     Some(ProviderDefinition {
         id: harness.definition.id.clone(),
         label: harness.definition.name.clone(),
@@ -653,10 +640,7 @@ fn provider_from_harness(harness: &ResolvedHarness) -> Option<ProviderDefinition
         timeout_secs,
         prompt_transport,
         reasoning_effort_args,
-        list_models_command,
-        list_models_args,
-        static_models,
-        http_list_models: matches!(harness.definition.models, Some(ModelCapability::Http)),
+        model_discovery: harness.definition.models.clone(),
     })
 }
 
@@ -1028,15 +1012,23 @@ mod tests {
             Some("--model={model}")
         );
         assert_eq!(
-            copilot.static_models.first().map(String::as_str),
+            copilot.static_models().first().map(String::as_str),
             Some("auto")
         );
-        assert!(copilot.static_models.contains(&"claude-sonnet-4.6".into()));
-        assert!(copilot.static_models.contains(&"gpt-5.3-codex".into()));
         assert!(copilot
-            .static_models
+            .static_models()
+            .contains(&"claude-sonnet-4.6".into()));
+        assert!(copilot.static_models().contains(&"gpt-5.3-codex".into()));
+        assert!(copilot
+            .static_models()
             .contains(&"mai-code-1-flash-picker".into()));
-        assert_eq!(copilot.list_models_command, None);
+        assert!(!copilot.is_codex_app_server());
+        assert!(!copilot.is_http_model_discovery());
+        assert_eq!(
+            copilot.model_discovery,
+            registry.get("copilot").unwrap().definition.models,
+            "provider projection must preserve the authoritative harness ModelCapability"
+        );
     }
 
     #[test]
@@ -1061,8 +1053,9 @@ mod tests {
 
         let provider = provider_from_harness(&harness).expect("Codex Peon provider");
 
+        assert!(provider.is_codex_app_server());
         assert_eq!(
-            provider.list_models_command.as_deref(),
+            provider.codex_app_server_command(),
             Some("/custom/bin/codex")
         );
     }
@@ -1092,10 +1085,28 @@ mod tests {
         let provider = provider_from_harness(&harness).expect("Codex Peon provider");
 
         assert_eq!(provider.command, "/custom/bin/codex");
+        assert!(provider.is_codex_app_server());
         assert_eq!(
-            provider.list_models_command.as_deref(),
+            provider.codex_app_server_command(),
             Some("/custom/bin/codex")
         );
+    }
+
+    #[test]
+    fn provider_projection_preserves_every_builtin_harness_model_capability() {
+        let builtins = BuiltinDocument::parse(EMBEDDED_BUILTINS).unwrap();
+        let registry = resolve_document(&builtins, &HarnessUserDocument::default()).unwrap();
+
+        for provider in registry.providers() {
+            let harness = registry
+                .get(&provider.id)
+                .expect("every projected provider must correspond to a resolved harness");
+            assert!(!harness.definition.retired);
+            assert_eq!(provider.model_discovery, harness.definition.models);
+            assert_eq!(provider.label, harness.definition.name);
+        }
+        // Inference-only standalone providers like Ollama must not have an artificial harness.
+        assert!(registry.get("ollama").is_none());
     }
 
     #[test]

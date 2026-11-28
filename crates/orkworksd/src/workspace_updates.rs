@@ -59,6 +59,10 @@ impl UpdateHub {
         self.revisions
             .send_modify(|r| r.sessions = r.sessions.wrapping_add(1));
     }
+    /// Wake status-only subscribers without invalidating Git/document enrichment.
+    pub(crate) fn status_changed(&self) {
+        self.output_changed();
+    }
     pub(crate) fn sessions_changed(&self) {
         self.revisions.send_modify(|r| {
             r.sessions = r.sessions.wrapping_add(1);
@@ -77,6 +81,11 @@ impl UpdateHub {
         self.revisions
             .send_modify(|r| r.watcher = r.watcher.wrapping_add(1));
         self.all_changed();
+    }
+    #[cfg(test)]
+    pub(crate) fn status_and_enrichment_revisions(&self) -> (u64, u64) {
+        let current = *self.revisions.borrow();
+        (current.sessions, current.enrichment)
     }
 }
 
@@ -261,6 +270,7 @@ fn watch_metadata(
             }
         }
     })?;
+    let mut paths = watcher.paths_mut();
     for dir in [
         root.clone(),
         root.join("sessions"),
@@ -273,9 +283,10 @@ fn watch_metadata(
         global,
     ] {
         if dir.is_dir() {
-            watcher.watch(&dir, RecursiveMode::NonRecursive)?;
+            paths.add(&dir, RecursiveMode::NonRecursive)?;
         }
     }
+    paths.commit()?;
     Ok(watcher)
 }
 
