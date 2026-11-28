@@ -7234,9 +7234,9 @@ async fn create_session_workflow(
             .program
             .clone_from(&qualified.program);
     }
-    let image_inputs = req.initial_images.clone();
-    let image_prompt = req.initial_prompt.clone().unwrap_or_default();
     let validated_images = if image_route.is_some() {
+        let image_inputs = req.initial_images;
+        let image_prompt = req.initial_prompt.clone().unwrap_or_default();
         tokio::task::spawn_blocking(move || {
             crate::image_context::validate(&image_inputs, &image_prompt)
         })
@@ -7441,19 +7441,20 @@ async fn create_session_workflow(
     } else {
         None
     };
-    let initial_prompt = match image_bundle.as_ref() {
-        Some(bundle) => Some(crate::image_context::apply_delivery(
-            &mut resolved_launch.command,
-            req.initial_prompt.as_deref().unwrap_or_default(),
-            bundle.paths(),
-        )),
-        _ => req.initial_prompt.clone(),
-    };
-    // A prompt delivered through argv already has a native submission owner.
-    let runtime_initial_prompt = if image_route.is_some() {
-        None
-    } else {
-        resolved_launch.prepare_initial_prompt(initial_prompt.clone())
+    let (initial_prompt, runtime_initial_prompt) = match image_bundle.as_ref() {
+        // A prompt delivered through argv already has a native submission owner.
+        Some(bundle) => (
+            Some(crate::image_context::apply_delivery(
+                &mut resolved_launch.command,
+                req.initial_prompt.as_deref().unwrap_or_default(),
+                bundle.paths(),
+            )),
+            None,
+        ),
+        None => {
+            let runtime_prompt = resolved_launch.prepare_initial_prompt(req.initial_prompt.clone());
+            (req.initial_prompt, runtime_prompt)
+        }
     };
     let command = resolved_launch.command.clone();
     let initial_prompt_label = initial_prompt
