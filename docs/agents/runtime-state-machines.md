@@ -235,6 +235,22 @@ Source `apps/desktop/electron/updateService.ts`. See
 the verified candidate, explicit confirmation, and successful workspace
 shutdown before invoking the installer.
 
+## Workspace hook warnings
+
+Source `apps/desktop/src/components/WorkspaceHookNotice.tsx`. See
+[coding-tool hooks](../user/coding-tools.md).
+
+| Current state | Event and guard | Next state |
+| --- | --- | --- |
+| Workspace and coding-tool selection active | Mount, focus, Settings closes, or retry timer fires | Check integration status with one current request |
+| Status check in flight | Successful reply with actionable warnings | Show the confirmed warnings and schedule another check |
+| Status check in flight | Successful reply with no actionable warnings | Clear the warnings and stop the timer |
+| Status check in flight | Current read fails | Preserve its scope's last successful warning state and schedule a retry |
+| Checking or waiting | Settings opens, workspace changes, or the coding-tool selection changes | Cancel the timer and request. A new workspace or tool selection starts with no warnings |
+
+**Invariants.** Only a successful response can change the warnings within
+its current scope. A superseded request cannot publish or schedule a retry.
+
 ## Confirmed findings and regression evidence
 
 The resume findings are grouped in [#2101](https://github.com/Rambolarsen/orkworks/issues/2101).
@@ -343,6 +359,15 @@ check each row before a new list arrives. The result now updates the row
 while it owns the reservation. Foreground and selection checks still govern
 focus, and a newer organization action invalidates an older resume on that row.
 [Issue #2244](https://github.com/Rambolarsen/orkworks/issues/2244)
+
+### A failed hook status refresh hid an active warning
+
+The Electron fixture shows the Codex trust warning and runs its scheduled check
+with a `503` response. The original implementation cleared the warning and
+left no timer. The warning now remains visible until the retry confirms the
+hook is active. The same fixture checks that a late response from a previous
+workspace cannot reintroduce a warning.
+[Issue #2255](https://github.com/Rambolarsen/orkworks/issues/2255)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

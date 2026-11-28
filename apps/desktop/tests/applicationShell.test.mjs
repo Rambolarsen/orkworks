@@ -651,8 +651,15 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".settings-content h3")?.textContent === "Active coding tools"');
         await evaluate('fixture.hookState = "trust"; document.querySelector("[aria-label=\\"Close settings\\"]").click()');
         await waitFor('document.querySelector(".workspace-alert")?.textContent.includes("Run /hooks in Codex")');
-        await evaluate('fixture.hookState = "active"; window.dispatchEvent(new Event("focus"))');
+        await waitFor('typeof fixture.hookRetry === "function"');
+        await evaluate('fixture.hookState = "unavailable"; fixture.runHookRetry()');
+        await waitFor('fixture.hookFailures === 1');
+        await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        assert.match(await evaluate('document.querySelector(".workspace-alert")?.textContent ?? ""'), /Run \/hooks in Codex/);
+        assert.equal(await evaluate('typeof fixture.hookRetry'), 'function', 'the failed check schedules another retry');
+        await evaluate('fixture.hookState = "active"; fixture.runHookRetry()');
         await waitFor('!document.querySelector(".workspace-alert")');
+        assert.equal(await evaluate('typeof fixture.hookRetry'), 'undefined', 'a healthy response stops polling');
         await evaluate('fixture.deferHookStatus = true; window.dispatchEvent(new Event("focus"))');
         await waitFor('!!fixture.releaseHookStatus');
         await evaluate('fixture.lifecycle({state:"ready",workspace:{path:"/tmp/other",workspaceIdentity:"/tmp/other",lastActiveSessionId:null,activeHarnessIds:["codex"]},historyDiagnostic:null})');
@@ -3402,6 +3409,22 @@ if (process.versions.electron) {
             });
             if (${scenario === 'app-workspace-hook-notice'}) {
               window.orkworks.getBackendToken=()=>"hook-notice-test-token";
+              const setTimer = window.setTimeout.bind(window);
+              const clearTimer = window.clearTimeout.bind(window);
+              window.setTimeout = (callback, delay, ...args) => {
+                if (delay !== 15000) return setTimer(callback, delay, ...args);
+                fixture.hookRetry = callback;
+                return -1;
+              };
+              window.clearTimeout = timer => {
+                if (timer === -1) delete fixture.hookRetry;
+                else clearTimer(timer);
+              };
+              fixture.runHookRetry = () => {
+                const retry = fixture.hookRetry;
+                delete fixture.hookRetry;
+                retry();
+              };
             }
             if (${scenario === 'app-session-attention-alerts'}) {
               window.orkworks.saveDesktopSessionNotifications=async enabled=>{fixture.desktopEnabled=enabled};
@@ -3437,6 +3460,10 @@ if (process.versions.electron) {
                 if(new Headers(options.headers).get("x-orkworks-renderer-token")!=="hook-notice-test-token")return {ok:false,status:401};
                 const state=fixture.hookState??"drifted";
                 fixture.hookReads=(fixture.hookReads??0)+1;
+                if(state==="unavailable"){
+                  fixture.hookFailures=(fixture.hookFailures??0)+1;
+                  return {ok:false,status:503};
+                }
                 const group=(state, harnessId="codex", harnessName="Codex")=>({
                   key:{adapterId:harnessId,targetId:"workspace"},consumers:[{harnessId,harnessName}],
                   status:{harnessId,enabled:true,toolDetected:true,registration:state==="drifted"?"drifted":"installed",
