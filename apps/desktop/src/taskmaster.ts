@@ -231,9 +231,18 @@ export function proposedChangeGuidance(change: ProposedChange): string {
     : PROPOSED_CHANGE_GUIDANCE;
 }
 
+// Unicode bidi controls (UAX #9 / Trojan Source) and zero-width format chars.
+const FORBIDDEN_INVISIBLE_RE = /[\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g;
+
+function stripForbiddenInvisible(value: string): string {
+  return value.replace(FORBIDDEN_INVISIBLE_RE, "");
+}
+
 function cleanReferenceText(value: string, limit = 2_000): string {
   // Count Unicode code points (like Rust's `chars().take(limit)`), never UTF-16 units.
-  return Array.from(value.replace(/[\u0000-\u001f\u007f-\u009f<>]/g, " "))
+  return Array.from(
+    stripForbiddenInvisible(value).replace(/[\u0000-\u001f\u007f-\u009f<>]/g, " "),
+  )
     .slice(0, limit)
     .join("");
 }
@@ -360,13 +369,13 @@ function buildRollupReferenceWithRetention(
 
 export function formatProposedChange(change: ProposedChange) {
   return {
-    summary: change.summary,
+    summary: stripForbiddenInvisible(change.summary),
     targets: change.targets.map((target) => ({
-      label: `${target.action === "edit" ? "Edit" : "Create"} ${target.path}`,
-      instruction: target.instruction,
+      label: `${target.action === "edit" ? "Edit" : "Create"} ${stripForbiddenInvisible(target.path)}`,
+      instruction: stripForbiddenInvisible(target.instruction),
       sensitive: target.sensitive === true,
     })),
-    verification: change.verification,
+    verification: stripForbiddenInvisible(change.verification),
   };
 }
 

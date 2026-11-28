@@ -759,14 +759,20 @@ clusters can exceed it; that is an oversized response, which remains a
 whole-response failure. The implementation plan must size real provider
 responses against the cap before relying on it. `verification` is prose describing a check, never a command for
 OrkWorks or the sidecar to run. All text fields, including `path`, use the same
-generated-text validation as `title` and `summary` and additionally reject `<`
-and `>`, so the prompt reference cleaner never alters a stored value.
+generated-text validation as `title` and `summary` and additionally reject `<`,
+`>`, Unicode bidirectional control characters (`U+061C`, `U+200E`–`U+200F`,
+`U+202A`–`U+202E`, `U+2066`–`U+2069`), and zero-width format characters
+(`U+200B`–`U+200D`, `U+2060`, `U+FEFF`), so visual spoofing cannot pass
+validation and the prompt reference cleaner never alters a stored value. Both
+sidecar and desktop prompt/display helpers strip those same invisible characters
+as defense in depth for any previously stored record.
 
 The sidecar validates each target path against the canonical root of the
 active workspace.
 Path length is at most 260 bytes. Reject:
 
-- control characters (including NUL), backslashes, any `:`, a leading `/`, and
+- control characters (including NUL), Unicode bidirectional controls,
+  zero-width format characters, backslashes, any `:`, a leading `/`, and
   empty, `.` or `..` segments;
 - a segment with a trailing dot or space, or a Windows reserved device name
   (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`), with or without an
