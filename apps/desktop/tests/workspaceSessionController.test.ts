@@ -164,6 +164,52 @@ test("a list started during creation cannot remove the new card or prune its ter
   controller.dispose();
 });
 
+for (const status of ["running", "error"] as const) {
+  test(`a late create receipt preserves the observed ${status} row`, async () => {
+    const released = deferred<SessionInfo>();
+    const started = deferred<void>();
+    const observed: SessionInfo = status === "running"
+      ? { ...session("created"), label: "Current title" }
+      : {
+        ...session("created", "dead", "error"),
+        startupFailure: { code: "process_spawn_failed", operation: "launch", occurredAt: "2026-11-07T12:00:00.000Z" },
+      };
+    const errors: string[] = [];
+    const selected: Array<string | null> = [];
+    let rows: readonly SessionInfo[] = [];
+    const controller = createWorkspaceSessionController({
+      deps: deps({
+        createSession: () => {
+          started.resolve();
+          return released.promise;
+        },
+        listSessions: async () => [observed],
+      }),
+      onSessions: next => { rows = next; },
+      onError: error => errors.push(error.message),
+      onActiveSession: id => selected.push(id),
+    });
+
+    const creating = controller.createSession({});
+    await started.promise;
+    await controller.refreshSessions();
+    assert.deepEqual(rows, [observed]);
+    assert.deepEqual(errors, [], "the create receipt has not arrived");
+
+    released.resolve(session("created", "creating", "creating"));
+    assert.equal(await creating, true);
+    assert.deepEqual(rows, [observed], "the pre-spawn receipt cannot replace the observed row");
+    assert.deepEqual(selected, ["created"], "the current composer can still select the result");
+    const expectedErrors = status === "error"
+      ? ["Could not start the coding tool. Check its configured executable and working directory, then retry."]
+      : [];
+    assert.deepEqual(errors, expectedErrors);
+    await controller.refreshSessions();
+    assert.deepEqual(errors, expectedErrors, "repeated snapshots cannot report the failure again");
+    controller.dispose();
+  });
+}
+
 test("publishes a newly created session alongside the current snapshot before the next poll", async () => {
   let listCalls = 0;
   const snapshots: string[][] = [];
