@@ -282,6 +282,85 @@ Step 2 (reusable 4-slot lease accounting and kernel-bound root transfer) and
 Step 3 (actual concurrent application-launch race proof) remain open under
 #1981.
 
+## Reusable private worker lease framing (Step 2)
+
+Step 2 extends the `OWCO` version `1` 10-byte envelope (`magic[4]`, `version[1]`,
+`kind[1]`, big-endian `u32` payload length, 1 MiB cap) over the Step 1 split
+unidirectional channels (`AF_UNIX` `SOCK_STREAM` `parent -> worker` request
+channel with `SHUT_RD`/`SHUT_WR`, OS `pipe()` `worker -> parent` response
+channel where `sendmsg` returns `ENOTSOCK`).
+
+| Kind | Name | Direction | Ancillary FDs | Fixed Big-Endian Payload |
+| --- | --- | --- | --- | --- |
+| `10` | `BindAndObserve` | `parent -> worker` | Exact 3 `SCM_RIGHTS` directory FDs (`[workspace, home, packaged]`) | `lease_id[16]`, `lease_seq: u64` (`>= 1`), `op_seq: u64` (`== 1`), `ttl_ms: u32` (`1..=30_000`) (36 bytes) |
+| `11` | `BindObserved` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64`, `status: u8` (`0` Observed, `1` Rejected), 3 × `(dev: u64, ino: u64)`, 3 × `(present: u8, byte_len: u32, sha256[32])` (192 bytes) |
+| `12` | `Revalidate` | `parent -> worker` | 0 | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+| `13` | `Revalidated` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64`, `verdict: u8` (`0` Fresh, `1` Changed, `2` Expired, `3` Invalid) (33 bytes) |
+| `14` | `Release` | `parent -> worker` | 0 | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+| `15` | `ReleaseAck` | `worker -> parent` | 0 (`pipe()`) | `lease_id[16]`, `lease_seq: u64`, `op_seq: u64` (32 bytes) |
+
+Endpoint, EOF, and extra-data rules:
+
+- The worker reads every request header via `recvmsg` so ancillary `SCM_RIGHTS`
+  descriptors are captured on the first byte, immediately marked `FD_CLOEXEC`,
+  and owned for automatic close on any error. Non-`BindAndObserve` requests must
+  carry zero ancillary descriptors and clear `MSG_CTRUNC`; `BindAndObserve` must
+  carry exactly 3 `S_IFDIR` descriptors with clear `MSG_CTRUNC`.
+- The parent validates kernel transfer by matching the worker's reported
+  `(st_dev, st_ino)` triples against the parent's opened root directory handles;
+  the parent never opens or receives synthetic resource files.
+- The worker executes one bounded synthetic probe (`openat(root_fd, "custody-probe.txt", O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)`,
+  `S_IFREG` check, 256 KiB cap, SHA-256 commitment, immediate drop of raw bytes
+  and probe FD) and enforces a local defense-in-depth `ttl_ms` timer that never
+  extends the parent's original 30-second expiry.
+- On `Release`, the worker drops all three root descriptors and transient state,
+  confirms via `PROC_PIDLISTFDS` that open descriptors have returned to the exact
+  five baseline entries `{0, 1, 2, request_rx, response_tx}`, and only then
+  writes `ReleaseAck` for the exact `(lease_id, lease_seq, op_seq)`.
+- Any mismatched/stale `(lease_id, lease_seq, op_seq)`, unsolicited trailing
+  bytes (`poll(POLLIN, 0)` + `FIONREAD`), timeout, EOF, or unexpected worker
+  exit invalidates lease usability first, quarantines and terminates that exact
+  `OwnedChild`, retains `CleanupUnconfirmed` charges until confirmed reap, and
+  never returns the slot to `Idle` or spawns a replacement. Checked `u64`
+  `lease_seq` or `op_seq` exhaustion permanently retires the slot.
+- Descriptor accounting reserves 16 descriptors per slot (4 controller + up to
+  12 resource descriptors, with no cross-slot borrowing) under the separate 256
+  global descriptor ceiling across all active, draining, and unconfirmed actors.
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_lease`,
+17 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+`codex_custody_slots`, `codex_custody_entry`, and `codex_custody_worker`):
+
+- `DescriptorLedger` and live `LeasePool` enforced the 16-descriptor per-slot
+  reservation (4 controller + up to 12 resource FDs with no cross-slot
+  borrowing) and the 256 global descriptor ceiling across active, booting,
+  draining, and unconfirmed charges without evicting live leases, including
+  nonblocking reconciliation of late `Booting` and `CleanupUnconfirmed` slots.
+- Real `orkworksd` workers completed `BindAndObserve` (3 kernel-bound
+  `O_DIRECTORY` roots via `SCM_RIGHTS`, matched by `(st_dev, st_ino)`),
+  `Revalidate` (`Fresh` unchanged without renewing expiry; `Changed` after
+  workspace probe mutation immediately invalidating handle usability and
+  draining the worker back to `Idle`), `Release` (verified via child
+  `PROC_PIDLISTFDS` returning from 8 open FDs back to the exact 5 baseline FDs
+  `{0, 1, 2, request_rx, response_tx}` before `ReleaseAck`), and immediate
+  reuse on the same worker PID (`lease_seq` advancing `1 -> 2 -> 3`) without
+  restart. Parent `PROC_PIDLISTFDS` never contained the synthetic probe file
+  inode.
+- Negative and failure-closed controls verified nonblocking 5th-lease denial
+  (`Unavailable`) with zero queue or eviction, rejection of forged/stale/cross-pool
+  handles, `O_NOFOLLOW` symlink and `> 256 KiB` probe rejection, worker
+  fail-closed exit on wrong `SCM_RIGHTS` count (`2`, `4`, and `9` triggering
+  kernel `MSG_CTRUNC`), non-directory FD, and unexpected FD on `Ping`, checked
+  `u64` `lease_seq` and `op_seq` overflow retirement, parent-authoritative and
+  worker defense-in-depth expiry without renewal, `SIGSTOP`-induced hung-worker
+  termination/reap/retirement during `BindAndObserve`, `Revalidate`, and
+  `Release`, and permanent quarantine on stale `ReleaseAck`.
+
+Step 3 (actual concurrent application-launch race proof across `std` / probe /
+PTY boundaries) remains open under #1981; this bounded synthetic probe is not
+the complete five-file observer or source owner.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin

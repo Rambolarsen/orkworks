@@ -167,6 +167,7 @@ struct ReadyWorker {
     request_tx: UnixStream,
     response_rx: OwnedFd,
     pid: u32,
+    boot_nonce: [u8; 16],
 }
 
 struct SpawnedWorker {
@@ -333,6 +334,139 @@ impl CustodyPool {
             }
         }
         counts
+    }
+
+    pub(crate) fn slot_is_ready(&self, slot: usize) -> bool {
+        matches!(self.slots.get(slot), Some(SlotState::Ready(_)))
+    }
+
+    pub(crate) fn slot_is_pending_spawn(&self, slot: usize) -> bool {
+        matches!(self.slots.get(slot), Some(SlotState::PendingSpawn(_)))
+    }
+
+    pub(crate) fn slot_is_cleanup_unconfirmed(&self, slot: usize) -> bool {
+        matches!(
+            self.slots.get(slot),
+            Some(SlotState::CleanupUnconfirmed(_) | SlotState::LaunchUnconfirmed)
+        )
+    }
+
+    pub(crate) fn slot_identity(&self, slot: usize) -> Option<(u32, [u8; 16])> {
+        match self.slots.get(slot) {
+            Some(SlotState::Ready(worker)) => Some((worker.pid, worker.boot_nonce)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_ready_worker<R>(
+        &mut self,
+        slot: usize,
+        f: impl FnOnce(&mut UnixStream, &mut OwnedFd, &mut OwnedChild) -> R,
+    ) -> Option<R> {
+        let SlotState::Ready(worker) = self.slots.get_mut(slot)? else {
+            return None;
+        };
+        Some(f(
+            &mut worker.request_tx,
+            &mut worker.response_rx,
+            &mut worker.child,
+        ))
+    }
+
+    /// Gracefully shuts down a single ready slot (used on checked counter
+    /// exhaustion) and returns `true` if reaped (`Retired`), or `false` if
+    /// cleanup remains unconfirmed. Non-`Ready` states are preserved intact.
+    pub(crate) fn retire_ready_slot_gracefully(&mut self, slot: usize, budget: Duration) -> bool {
+        let Some(entry) = self.slots.get_mut(slot) else {
+            return true;
+        };
+        let mut worker = match std::mem::replace(entry, SlotState::Retired) {
+            SlotState::Ready(worker) => worker,
+            other => {
+                *entry = other;
+                return matches!(entry, SlotState::Retired);
+            }
+        };
+        let deadline = Instant::now() + budget;
+        let sent = framing::write_control_frame(
+            worker.request_tx.as_fd(),
+            &ControlFrame::Shutdown,
+            deadline,
+        )
+        .is_ok();
+        let acked = sent
+            && framing::read_control_frame(worker.response_rx.as_fd(), deadline)
+                .is_ok_and(|frame| frame == ControlFrame::ShutdownAck);
+        drop(worker.request_tx);
+        drop(worker.response_rx);
+        if acked && wait_for_clean_exit(&mut worker.child, deadline) {
+            return true;
+        }
+        *entry = terminate_bounded(worker.child, DEFAULT_CLEANUP_WAIT);
+        matches!(entry, SlotState::Retired)
+    }
+
+    /// Immediately quarantines and terminates a ready slot, returning `true` if
+    /// confirmed reaped (`Retired`), or `false` if `CleanupUnconfirmed`.
+    pub(crate) fn quarantine_slot(&mut self, slot: usize, cleanup_wait: Duration) -> bool {
+        let Some(entry) = self.slots.get_mut(slot) else {
+            return true;
+        };
+        match std::mem::replace(entry, SlotState::Retired) {
+            SlotState::Ready(worker) => {
+                drop(worker.request_tx);
+                drop(worker.response_rx);
+                *entry = terminate_bounded(worker.child, cleanup_wait);
+                matches!(entry, SlotState::Retired)
+            }
+            SlotState::CleanupUnconfirmed(child) => {
+                *entry = terminate_bounded(child, cleanup_wait);
+                matches!(entry, SlotState::Retired)
+            }
+            other => {
+                *entry = other;
+                matches!(entry, SlotState::Retired)
+            }
+        }
+    }
+
+    /// Nonblockingly polls `CleanupUnconfirmed` children and late `PendingSpawn`
+    /// handoffs, transitioning any confirmed exits to `Retired`.
+    pub(crate) fn reconcile_unconfirmed(&mut self) -> usize {
+        let mut reconciled = 0;
+        for slot in &mut self.slots {
+            match std::mem::replace(slot, SlotState::Retired) {
+                SlotState::CleanupUnconfirmed(mut child) => {
+                    if matches!(child.try_wait(), Ok(Some(_))) {
+                        reconciled += 1;
+                    } else {
+                        *slot = SlotState::CleanupUnconfirmed(child);
+                    }
+                }
+                SlotState::PendingSpawn(pending) => match pending.try_recv() {
+                    Ok(Ok(spawned)) => {
+                        drop((spawned.request_tx, spawned.response_rx));
+                        *slot = terminate_bounded(spawned.child, Duration::ZERO);
+                        if matches!(slot, SlotState::Retired) {
+                            reconciled += 1;
+                        }
+                    }
+                    Ok(Err(_)) => {
+                        reconciled += 1;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        *slot = SlotState::PendingSpawn(pending);
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        *slot = SlotState::LaunchUnconfirmed;
+                    }
+                },
+                other => {
+                    *slot = other;
+                }
+            }
+        }
+        reconciled
     }
 
     pub(crate) fn ready_pids(&self) -> Vec<u32> {
@@ -789,7 +923,16 @@ fn handshake_worker(
         request_tx,
         response_rx,
         pid,
+        boot_nonce: *nonce,
     })
+}
+
+pub(crate) fn spawn_worker_process_for_test(
+    executable: &Path,
+    request_rx_fd: RawFd,
+    response_tx_fd: RawFd,
+) -> io::Result<OwnedChild> {
+    spawn_worker_process(executable, request_rx_fd, response_tx_fd)
 }
 
 fn wait_for_clean_exit(child: &mut OwnedChild, deadline: Instant) -> bool {
@@ -1114,6 +1257,7 @@ mod tests {
                     request_tx: req_tx,
                     response_rx: resp_rx,
                     pid: pid as u32,
+                    boot_nonce: [0; 16],
                 }),
                 SlotState::Retired,
                 SlotState::Retired,
