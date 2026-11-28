@@ -798,9 +798,11 @@ class StopReportingTests(unittest.TestCase):
                 self.assertNotIn("PRIVATE", json.dumps(value))
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
-    def _failed_run(self, fail_cleanup=False, native_events=None, native_stderr=b"", helper_receipt=None):
+    def _failed_run(self, fail_cleanup=False, native_events=None, native_stderr=b"", helper_receipt=None,
+                    on_start_delay=0.0, context_wait_seconds=2.0, bind_after_events=False):
         import shutil
         import subprocess
+        import time
         directory = Path(__file__).parent
         pb, mb = (directory/"proposal.json").read_bytes(), (directory/"manifest.json").read_bytes()
         approval = {"decision": "approve-one-batch", "proposalSha256": observer.sha(pb),
@@ -821,14 +823,23 @@ class StopReportingTests(unittest.TestCase):
             if native_events is None:
                 raise AssertionError("Native launch forbidden")
             script = """from pathlib import Path
-import json,sys
+import json,sys,time
 path = Path(sys.argv[1])
 if sys.argv[2]:
     path.parent.mkdir(parents=True)
     path.write_text(sys.argv[2])
 if sys.argv[4]:
     control = path.parents[3]/"control"
-    binding = json.loads((control/"context.json").read_text())
+    context_path = control/"context.json"
+    deadline = time.monotonic() + float(sys.argv[6])
+    while not context_path.exists():
+        if time.monotonic() >= deadline:
+            sys.exit(3)
+        time.sleep(0.01)
+    try:
+        binding = json.loads(context_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        sys.exit(2)
     startup = dict(binding, kind="startup", pid=123, environmentNames=json.loads(sys.argv[5]))
     checkpoint = dict(binding, kind="tools-listed")
     if sys.argv[4] == "wrong-pid":
@@ -858,7 +869,33 @@ sys.exit(1)
             rows = "".join(row + "\n" for row in native_events)
             allowed_argv = [sys.executable, "-I", "-B", "-c", script, str(path), rows,
                             native_stderr.hex(), helper_receipt or "",
-                            json.dumps(sorted(PROPOSAL["mcpEnvironmentNames"]))]
+                            json.dumps(sorted(PROPOSAL["mcpEnvironmentNames"])),
+                            str(context_wait_seconds)]
+            if bind_after_events or on_start_delay > 0:
+                if "on_start" in kwargs and kwargs["on_start"] is not None:
+                    original_bind = kwargs["on_start"]
+                    bind_is_kw = True
+                elif len(args) >= 5 and args[4] is not None:
+                    original_bind = args[4]
+                    bind_is_kw = False
+                else:
+                    original_bind = None
+                    bind_is_kw = False
+
+                if original_bind is not None:
+                    def delayed_bind(pid):
+                        if bind_after_events:
+                            wait_deadline = time.monotonic() + 5.0
+                            while not path.exists() and time.monotonic() < wait_deadline:
+                                time.sleep(0.01)
+                        if on_start_delay > 0:
+                            time.sleep(on_start_delay)
+                        original_bind(pid)
+
+                    if bind_is_kw:
+                        kwargs = {**kwargs, "on_start": delayed_bind}
+                    else:
+                        args = (*args[:4], delayed_bind, *args[5:])
             return supervise(allowed_argv, cwd, {}, root, *args, **kwargs)
 
         def fail_discovery(*args, **kwargs):
@@ -947,9 +984,38 @@ sys.exit(1)
                 result, retained = self._failed_run(native_events=[start], helper_receipt=helper_receipt)
                 failure = result["failure"]
                 self.assertEqual(failure["supervisorCheckCode"], "supervisor-exit")
+                self.assertTrue(failure["process"]["terminationStepsCompleted"])
+                self.assertEqual(failure["process"]["exitCode"], 1)
                 self.assertEqual(failure["promptProgress"].get("fixtureToolsListed"), expected)
                 self.assertTrue(result["rawRootsRemoved"])
                 self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_post_start_helper_checkpoint_waits_for_delayed_runtime_bind(self):
+        start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")
+        result, retained = self._failed_run(
+            native_events=[start], helper_receipt="match", bind_after_events=True, on_start_delay=0.05)
+        failure = result["failure"]
+        self.assertEqual(failure["supervisorCheckCode"], "supervisor-exit")
+        self.assertTrue(failure["process"]["terminationStepsCompleted"])
+        self.assertEqual(failure["process"]["exitCode"], 1)
+        self.assertTrue(failure["promptProgress"].get("fixtureToolsListed"))
+        self.assertTrue(result["rawRootsRemoved"])
+        self.assertNotIn("PRIVATE", retained)
+
+    @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
+    def test_post_start_helper_checkpoint_reports_bounded_timeout_when_bind_exceeds_wait(self):
+        start = event("session.start", sessionId=PROPOSAL["nativeSessionId"], copilotVersion="1.0.90")
+        result, retained = self._failed_run(
+            native_events=[start], helper_receipt="match", bind_after_events=True,
+            on_start_delay=0.15, context_wait_seconds=0.02)
+        failure = result["failure"]
+        self.assertEqual(failure["supervisorCheckCode"], "supervisor-exit")
+        self.assertTrue(failure["process"]["terminationStepsCompleted"])
+        self.assertEqual(failure["process"]["exitCode"], 3)
+        self.assertFalse(failure["promptProgress"].get("fixtureToolsListed"))
+        self.assertTrue(result["rawRootsRemoved"])
+        self.assertNotIn("PRIVATE", retained)
 
     @unittest.skipUnless(os.name == "posix", "Owned process groups target POSIX")
     def test_pre_start_exit_keeps_only_a_fixed_stderr_diagnostic(self):
