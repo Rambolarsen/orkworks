@@ -442,6 +442,8 @@ jobs:
           $discovered = @($listed | Where-Object { $_ -match ': test$' })
           if ($discovered.Count -eq 0) { throw "windows_job discovered zero tests" }
           Write-Host "windows_job.discovered=$($discovered.Count)"
+      - name: Test native Windows census exit interleavings
+        run: cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --lib
       - name: Run native Windows Job Object proof
         run: cargo test --locked --manifest-path crates/process-ownership-fixture/Cargo.toml --test windows_job
 
