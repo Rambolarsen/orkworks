@@ -412,6 +412,8 @@ async fn retention_cleanup_once_with_close_wait(
         let _namespace;
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
+            drop(ws_guard);
+            drop(_projection);
             if changed {
                 state.updates.sessions_changed();
             }
@@ -426,6 +428,11 @@ async fn retention_cleanup_once_with_close_wait(
                 Ok(namespace) => namespace,
                 Err(error) => {
                     tracing::warn!(%error, "Retention metadata scan deferred");
+                    drop(ws_guard);
+                    drop(_projection);
+                    if changed {
+                        state.updates.sessions_changed();
+                    }
                     return;
                 }
             };
@@ -615,6 +622,8 @@ async fn retention_cleanup_once_with_close_wait(
                     Ok(namespace) => namespace,
                     Err(error) => {
                         tracing::warn!(%error, "Retention deletion scan deferred");
+                        drop(ws_guard);
+                        drop(_projection);
                         if changed {
                             state.updates.sessions_changed();
                         }
