@@ -605,110 +605,119 @@ async fn retention_cleanup_once_with_close_wait(
     }
 
     // Stage 2: Archived -> Deleted using archivedAt.
+    // Re-read authoritative retention settings after Stage 1B's Close-first
+    // awaits and hold the read guard across the synchronous destructive scan
+    // so concurrent POST /settings/retention updates cannot be bypassed.
     let mut all_deleted: Vec<String> = Vec::new();
-    if config.delete_archived_after_days > 0 {
-        let delete_threshold = chrono::Duration::days(i64::from(config.delete_archived_after_days));
-        let _projection = state.projection_lock.lock().unwrap();
-        #[cfg(all(windows, target_arch = "x86_64"))]
-        let _namespace;
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ws) = ws_guard.as_ref() {
+    {
+        let stage2_config = state.retention_config.read().await;
+        if stage2_config.applied && stage2_config.delete_archived_after_days > 0 {
+            let delete_threshold =
+                chrono::Duration::days(i64::from(stage2_config.delete_archived_after_days));
+            let _projection = state.projection_lock.lock().unwrap();
             #[cfg(all(windows, target_arch = "x86_64"))]
-            {
-                _namespace = match crate::workspace_runtime::CleanupNamespace::acquire(
-                    &ws.metadata.root_path(),
-                    ws.lease.as_deref(),
-                ) {
-                    Ok(namespace) => namespace,
-                    Err(error) => {
-                        tracing::warn!(%error, "Retention deletion scan deferred");
-                        drop(ws_guard);
-                        drop(_projection);
-                        if changed {
-                            state.updates.sessions_changed();
+            let _namespace;
+            let ws_guard = state.workspace.lock().unwrap();
+            if let Some(ws) = ws_guard.as_ref() {
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                {
+                    _namespace = match crate::workspace_runtime::CleanupNamespace::acquire(
+                        &ws.metadata.root_path(),
+                        ws.lease.as_deref(),
+                    ) {
+                        Ok(namespace) => namespace,
+                        Err(error) => {
+                            tracing::warn!(%error, "Retention deletion scan deferred");
+                            drop(ws_guard);
+                            drop(_projection);
+                            drop(stage2_config);
+                            if changed {
+                                state.updates.sessions_changed();
+                            }
+                            return;
                         }
-                        return;
+                    };
+                }
+                let all_sessions = ws.metadata.read_all_sessions();
+                let mut sessions = state.sessions.lock().unwrap();
+                for meta in &all_sessions {
+                    if ws.metadata.organization.pending(&meta.id) {
+                        continue;
                     }
-                };
-            }
-            let all_sessions = ws.metadata.read_all_sessions();
-            let mut sessions = state.sessions.lock().unwrap();
-            for meta in &all_sessions {
-                if ws.metadata.organization.pending(&meta.id) {
-                    continue;
-                }
-                let Some((_, details)) = closed_session_matches(
-                    state,
-                    ws,
-                    &meta.id,
-                    sessions.get(&meta.id),
-                    &meta.created_at,
-                    crate::session_archive::SessionState::Archived,
-                ) else {
-                    continue;
-                };
-                if details.protects_from_auto_delete() {
-                    continue;
-                }
-                let Some(archived_at) = details.archived_at.as_deref().and_then(parse_utc_rfc3339)
-                else {
-                    continue;
-                };
-                if now.signed_duration_since(archived_at) < delete_threshold {
-                    continue;
-                }
+                    let Some((_, details)) = closed_session_matches(
+                        state,
+                        ws,
+                        &meta.id,
+                        sessions.get(&meta.id),
+                        &meta.created_at,
+                        crate::session_archive::SessionState::Archived,
+                    ) else {
+                        continue;
+                    };
+                    if details.protects_from_auto_delete() {
+                        continue;
+                    }
+                    let Some(archived_at) =
+                        details.archived_at.as_deref().and_then(parse_utc_rfc3339)
+                    else {
+                        continue;
+                    };
+                    if now.signed_duration_since(archived_at) < delete_threshold {
+                        continue;
+                    }
 
-                let Some(_reservation) = ws.metadata.organization.reserve(&meta.id) else {
-                    continue;
-                };
-                let Some((fresh_meta, fresh_details)) = closed_session_matches(
-                    state,
-                    ws,
-                    &meta.id,
-                    sessions.get(&meta.id),
-                    &meta.created_at,
-                    crate::session_archive::SessionState::Archived,
-                ) else {
-                    continue;
-                };
-                if fresh_details.protects_from_auto_delete() {
-                    continue;
-                }
-                let Some(fresh_archived_at) = fresh_details
-                    .archived_at
-                    .as_deref()
-                    .and_then(parse_utc_rfc3339)
-                else {
-                    continue;
-                };
-                if now.signed_duration_since(fresh_archived_at) < delete_threshold {
-                    continue;
-                }
+                    let Some(_reservation) = ws.metadata.organization.reserve(&meta.id) else {
+                        continue;
+                    };
+                    let Some((fresh_meta, fresh_details)) = closed_session_matches(
+                        state,
+                        ws,
+                        &meta.id,
+                        sessions.get(&meta.id),
+                        &meta.created_at,
+                        crate::session_archive::SessionState::Archived,
+                    ) else {
+                        continue;
+                    };
+                    if fresh_details.protects_from_auto_delete() {
+                        continue;
+                    }
+                    let Some(fresh_archived_at) = fresh_details
+                        .archived_at
+                        .as_deref()
+                        .and_then(parse_utc_rfc3339)
+                    else {
+                        continue;
+                    };
+                    if now.signed_duration_since(fresh_archived_at) < delete_threshold {
+                        continue;
+                    }
 
-                tracing::info!(
-                    session_id = %fresh_meta.id,
-                    "retention: deleting expired archived session"
-                );
-                if let Err(error) = delete_session_evidence(ws, &fresh_meta.id, |session_id| {
-                    ws.recommendation_store
-                        .delete_referencing_session(session_id)
-                        .map_err(|error| error.to_string())
-                }) {
-                    tracing::error!(
+                    tracing::info!(
                         session_id = %fresh_meta.id,
-                        %error,
-                        "retention: failed to delete expired archived session"
+                        "retention: deleting expired archived session"
                     );
-                    if error.record_removed {
-                        sessions.remove(&fresh_meta.id);
-                        all_deleted.push(fresh_meta.id);
-                        changed = true;
+                    if let Err(error) = delete_session_evidence(ws, &fresh_meta.id, |session_id| {
+                        ws.recommendation_store
+                            .delete_referencing_session(session_id)
+                            .map_err(|error| error.to_string())
+                    }) {
+                        tracing::error!(
+                            session_id = %fresh_meta.id,
+                            %error,
+                            "retention: failed to delete expired archived session"
+                        );
+                        if error.record_removed {
+                            sessions.remove(&fresh_meta.id);
+                            all_deleted.push(fresh_meta.id);
+                            changed = true;
+                        }
+                        continue;
                     }
-                    continue;
+                    sessions.remove(&fresh_meta.id);
+                    all_deleted.push(fresh_meta.id);
+                    changed = true;
                 }
-                sessions.remove(&fresh_meta.id);
-                all_deleted.push(fresh_meta.id);
-                changed = true;
             }
         }
     }
@@ -1513,6 +1522,117 @@ mod tests {
             .read_details("close-stuck", old, false, true)
             .unwrap();
         assert_eq!(stuck.state, crate::session_archive::SessionState::Active);
+    }
+
+    #[tokio::test]
+    async fn stage_2_revalidates_deletion_settings_after_stage_1b_close_await() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        // 29.5 days old at Nov 26 (not yet expired), 30.5 days old at Nov 27 (eligible unless disabled).
+        let old = "2026-10-27T12:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut active = test_session_metadata(
+                "closing-active",
+                "Closing Active",
+                dir.path().display().to_string(),
+                "running",
+                "2026-11-20T00:00:00Z",
+                "2026-11-20T00:00:00Z",
+            );
+            active.lifecycle = "alive".into();
+            active.lifecycle_phase = "active".into();
+            active.observed_status = Some("idle".into());
+            ws.metadata.write_session(&active);
+
+            ws.metadata
+                .write_session(&retention_test_session("archived-saved-by-update", old));
+            ws.metadata
+                .organization
+                .write_at(
+                    "archived-saved-by-update",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+        }
+        let mut kill_rx = insert_live_handle(
+            &state,
+            dir.path(),
+            "closing-active",
+            "2026-11-20T00:00:00Z",
+            Some("idle"),
+        );
+        apply_test_retention(&state, 7, true, 30).await;
+
+        // Arm Stage 1B warning on day 6; archived session is only 29.5 days old so survives.
+        retention_cleanup_once(&state, utc("2026-11-26T00:00:00Z")).await;
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .session_file_exists("archived-saved-by-update"));
+
+        // While Stage 1B awaits the active session's close, user disables Stage 2 deletion
+        // via POST /settings/retention (deleteArchivedAfterDays = 0).
+        let update_state = state.clone();
+        let finalizer = tokio::spawn(async move {
+            kill_rx.changed().await.unwrap();
+            let _ = crate::http::retention_handlers::set_retention(
+                axum::extract::State(update_state.clone()),
+                axum::Json(crate::http::retention_handlers::RetentionRequest {
+                    version: 2,
+                    auto_archive_after_days: 7,
+                    auto_archive_active_sessions: true,
+                    delete_archived_after_days: 0,
+                }),
+            )
+            .await;
+            let ws_guard = update_state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = ws.metadata.read_session("closing-active").unwrap();
+            meta.status = "ended".into();
+            meta.lifecycle = "dead".into();
+            meta.lifecycle_phase = "ended".into();
+            meta.observed_status = None;
+            ws.metadata.write_session(&meta);
+            update_state
+                .sessions
+                .lock()
+                .unwrap()
+                .remove("closing-active");
+        });
+
+        let t_expire = utc("2026-11-27T00:00:00Z");
+        state.retention_config.write().await.last_tick_at =
+            Some(t_expire - chrono::Duration::minutes(5));
+        retention_cleanup_once_with_close_wait(
+            &state,
+            t_expire,
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        finalizer.await.unwrap();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("closing-active", "2026-11-20T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Archived
+        );
+        assert!(
+            ws.metadata.session_file_exists("archived-saved-by-update"),
+            "Stage 2 must honor deleteArchivedAfterDays=0 pushed during Stage 1B close await"
+        );
     }
 
     #[tokio::test]
