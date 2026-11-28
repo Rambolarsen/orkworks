@@ -310,7 +310,8 @@ impl ReadinessStore {
             .and_then(|_| tmp.as_file().sync_all())
             .map_err(|_| "Readiness metadata could not be staged")?;
         let path = self.root.join(name);
-        crate::harness::integration::atomic_replace(tmp.path(), &path, path.exists())
+        let tmp = tmp.into_temp_path();
+        crate::harness::integration::atomic_replace(&tmp, &path, path.exists())
             .map_err(|_| "Readiness metadata could not be committed")?;
         #[cfg(not(windows))]
         std::fs::File::open(&self.root)
