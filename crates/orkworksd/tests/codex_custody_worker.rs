@@ -5,7 +5,8 @@ use std::os::fd::{AsFd, AsRawFd, RawFd};
 use std::os::unix::{fs::MetadataExt, net::UnixStream, process::CommandExt};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -411,15 +412,143 @@ fn startup_deadline_expiry_before_seal_starts_no_workers() {
 }
 
 #[test]
+fn pool_returns_at_deadline_with_spawn_attempt_still_pending() {
+    let _guard = fd_table_lock();
+    let (release, gate) = mpsc::channel();
+    let (entered, entry) = mpsc::channel();
+    let gate = Mutex::new(gate);
+    let (returned, result) = mpsc::channel();
+    let (late_pid, spawned_pid) = mpsc::channel();
+
+    let startup = thread::spawn(move || {
+        let started = Instant::now();
+        let pool = CustodyPool::start_with_slot_hook(
+            build_identity(),
+            STARTUP_BUDGET,
+            Duration::from_millis(250),
+            move |slot, request_rx_fd, response_tx_fd| {
+                assert!(
+                    slot < 2,
+                    "startup launched another slot while the hook was pending"
+                );
+                if slot == 1 {
+                    entered.send(()).unwrap();
+                    gate.lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(10))
+                        .map_err(io::Error::other)?;
+                }
+                let child = codex_capture_owner::pool::spawn_worker_process(
+                    sidecar_bin(),
+                    request_rx_fd,
+                    response_tx_fd,
+                )?;
+                if slot == 1 {
+                    let _ = late_pid.send(child.id());
+                }
+                Ok(child)
+            },
+        );
+        returned.send((pool, started.elapsed())).unwrap();
+    });
+
+    entry.recv_timeout(STARTUP_BUDGET).unwrap();
+    let mut pool = match result.recv_timeout(STARTUP_BUDGET + Duration::from_secs(1)) {
+        Ok((pool, elapsed)) => {
+            assert!(elapsed < STARTUP_BUDGET + Duration::from_secs(1));
+            pool
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            release.send(()).unwrap();
+            let (mut pool, _) = result.recv_timeout(Duration::from_secs(3)).unwrap();
+            pool.shutdown(Duration::from_secs(2));
+            startup.join().unwrap();
+            panic!("startup waited for a spawn operation after the shared deadline");
+        }
+        Err(error) => panic!("startup result lost: {error}"),
+    };
+    startup.join().unwrap();
+    assert_eq!(pool.counts().ready, 1);
+    assert_eq!(pool.counts().cleanup_unconfirmed, 1);
+    assert_eq!(pool.counts().retired, 2);
+    pool.ping_slot(0, Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    assert!(pool
+        .ping_slot(1, Instant::now() + Duration::from_secs(1))
+        .is_err());
+
+    release.send(()).unwrap();
+    assert!(spawned_pid.recv_timeout(Duration::from_secs(2)).unwrap() > 0);
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+    let report = pool.shutdown(Duration::from_secs(1));
+    assert_eq!(report.clean_exits, 1);
+    while pool.counts().cleanup_unconfirmed > 0 {
+        assert!(Instant::now() < cleanup_deadline);
+        pool.shutdown(Duration::ZERO);
+        thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(pool.counts().retired, MAX_SLOTS);
+}
+
+#[test]
+fn dropping_pool_leaves_late_child_cleanup_with_its_launch_task() {
+    let _guard = fd_table_lock();
+    let (release, gate) = mpsc::channel();
+    let gate = Mutex::new(gate);
+    let (child_id, observed_child) = mpsc::channel();
+    let pool = CustodyPool::start_with_slot_hook(
+        build_identity(),
+        Duration::from_millis(500),
+        Duration::ZERO,
+        move |slot, request, response| {
+            assert_eq!(slot, 0);
+            gate.lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(io::Error::other)?;
+            let child =
+                codex_capture_owner::pool::spawn_worker_process(sidecar_bin(), request, response)?;
+            let _ = child_id.send(child.id());
+            Ok(child)
+        },
+    );
+    assert_eq!(pool.counts().cleanup_unconfirmed, 1);
+    drop(pool);
+    release.send(()).unwrap();
+
+    let pid = observed_child.recv_timeout(Duration::from_secs(2)).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        // SAFETY: The reported pid is our exact freshly spawned child.
+        // WNOWAIT observes it without competing with the owner's reap.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let status = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if status != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "late child remained unreaped");
+        thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
 fn partial_readiness_and_late_startup_quarantine_retire_failed_slots_without_replacement() {
     let _guard = fd_table_lock();
-    let mut attempts = 0usize;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&attempts);
     let mut pool = CustodyPool::start_with_slot_hook(
         build_identity(),
         STARTUP_BUDGET,
         Duration::from_millis(250),
-        |slot, request_rx_fd, response_tx_fd| {
-            attempts += 1;
+        move |slot, request_rx_fd, response_tx_fd| {
+            seen.fetch_add(1, Ordering::Relaxed);
             if slot == 2 {
                 // Spawn a real silent process that holds both channel endpoints
                 // open so the challenge write succeeds and readiness genuinely
@@ -435,14 +564,14 @@ fn partial_readiness_and_late_startup_quarantine_retire_failed_slots_without_rep
     );
 
     assert_eq!(
-        attempts, 3,
+        attempts.load(Ordering::Relaxed),
+        3,
         "slot 3 must never start after shared deadline expires"
     );
     assert_eq!(pool.counts().ready, 2);
-    assert_eq!(pool.counts().retired, 2);
-    assert_eq!(pool.counts().cleanup_unconfirmed, 0);
+    assert_eq!(pool.counts().retired + pool.counts().cleanup_unconfirmed, 2);
 
-    // Ready slots 0 and 1 remain usable; retired slots 2 and 3 fail closed.
+    // Ready slots 0 and 1 remain usable; unavailable slots 2 and 3 fail closed.
     let deadline = Instant::now() + Duration::from_secs(2);
     pool.ping_slot(0, deadline).expect("slot 0 ready");
     pool.ping_slot(1, deadline).expect("slot 1 ready");
@@ -458,13 +587,14 @@ fn partial_readiness_and_late_startup_quarantine_retire_failed_slots_without_rep
 #[test]
 fn unconfirmed_cleanup_remains_charged_to_slot_until_reaped() {
     let _guard = fd_table_lock();
-    let mut attempts = 0usize;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&attempts);
     let mut pool = CustodyPool::start_with_slot_hook(
         build_identity(),
         Duration::from_millis(200),
         Duration::ZERO,
-        |slot, request_rx_fd, response_tx_fd| {
-            attempts += 1;
+        move |slot, request_rx_fd, response_tx_fd| {
+            seen.fetch_add(1, Ordering::Relaxed);
             if slot == 0 {
                 return spawn_silent_holder(request_rx_fd, response_tx_fd);
             }
@@ -476,7 +606,8 @@ fn unconfirmed_cleanup_remains_charged_to_slot_until_reaped() {
         },
     );
     assert_eq!(
-        attempts, 1,
+        attempts.load(Ordering::Relaxed),
+        1,
         "no additional slot may start after slot 0 exhausts the shared deadline"
     );
     let counts = pool.counts();
