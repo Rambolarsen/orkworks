@@ -65,7 +65,7 @@ const RATE_LIMIT_WINDOW_SECS: i64 = 60;
 /// arrived within this window of the previous kept hit for the same
 /// fingerprint in the same session, while always retaining each
 /// fingerprint's first and latest occurrence.
-const SPAM_WINDOW_SECS: i64 = 30 * 60;
+pub(crate) const SPAM_WINDOW_SECS: i64 = 30 * 60;
 
 /// Confidence assigned to every authenticated agent-origin report. The
 /// caller cannot override this; see `ObservationSource::Agent` policy in the
