@@ -64,6 +64,60 @@ function createHarness(options: {
   return { coordinator, actions, events, getCurrentPath: () => currentPath };
 }
 
+test("duplicate folder requests share one chooser through cancellation", async () => {
+  const harness = createHarness();
+  const selection = deferred<string | null>();
+  let chooserCount = 0;
+  const select = () => {
+    chooserCount += 1;
+    return selection.promise;
+  };
+
+  const first = harness.coordinator.pickWorkspace(select);
+  const duplicate = harness.coordinator.pickWorkspace(select);
+  selection.resolve(null);
+  assert.deepEqual(await Promise.all([first, duplicate]), [null, null]);
+  assert.equal(chooserCount, 1);
+  assert.deepEqual(harness.events, []);
+
+  await harness.coordinator.pickWorkspace(select);
+  assert.equal(chooserCount, 2);
+});
+
+test("a folder request during restoration shares the pending open", async () => {
+  const starting = deferred<void>();
+  const restored = deferred<{ workspace: Workspace; port: number }>();
+  const harness = createHarness({
+    initialWorkspacePath: null,
+    start: () => {
+      starting.resolve();
+      return restored.promise;
+    },
+  });
+
+  const first = harness.coordinator.pickWorkspace(async () => "/next");
+  await starting.promise;
+  let reopened = false;
+  const duplicate = harness.coordinator.pickWorkspace(async () => {
+    reopened = true;
+    return null;
+  });
+  restored.resolve({ workspace: { path: "/next" }, port: 4000 });
+  const result = await first;
+  assert.equal(result?.ok, true);
+  assert.deepEqual(await duplicate, result);
+  assert.equal(reopened, false);
+  assert.deepEqual(harness.events.map((event) => event.state), ["opening", "ready"]);
+});
+
+test("a rejected native chooser releases its reservation", async () => {
+  const harness = createHarness();
+  await assert.rejects(harness.coordinator.pickWorkspace(async () => {
+    throw new Error("picker failed");
+  }), /picker failed/);
+  assert.equal(await harness.coordinator.pickWorkspace(async () => null), null);
+});
+
 test("validation failure preserves the current workspace", async () => {
   const harness = createHarness();
 

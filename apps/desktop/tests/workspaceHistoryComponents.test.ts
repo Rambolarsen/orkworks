@@ -12,6 +12,10 @@ test("WorkspaceHistoryList disables opening the current workspace but keeps pin/
   assert.match(listSource, /onClick=\{\(\) => handleForget\(path\)\}/);
 });
 
+test("WorkspaceHistoryList disables opening the folder chooser while switching", () => {
+  assert.match(listSource, /className="workspace-history-other-folder"\s+disabled=\{isSwitching\}/);
+});
+
 test("WorkspaceHistoryList renders pinned and recent as separate sections using VOCAB", () => {
   assert.match(listSource, /VOCAB\.workspaceHistoryPinnedSection/);
   assert.match(listSource, /VOCAB\.workspaceHistoryRecentSection/);

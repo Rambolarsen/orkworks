@@ -112,7 +112,12 @@ export function WorkspaceHistoryList({
       {isEmpty && !snapshot.diagnostic && (
         <p className="workspace-history-empty">{VOCAB.workspaceHistoryEmpty}</p>
       )}
-      <button type="button" className="workspace-history-other-folder" onClick={onOpenOtherFolder}>
+      <button
+        type="button"
+        className="workspace-history-other-folder"
+        disabled={isSwitching}
+        onClick={onOpenOtherFolder}
+      >
         {VOCAB.workspaceHistoryOpenOtherFolder}
       </button>
     </div>

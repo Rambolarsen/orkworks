@@ -3027,7 +3027,7 @@ dialog.modal-backdrop::backdrop { background: transparent; }
   color: var(--accent);
 }
 
-.workspace-picker-card .workspace-history-other-folder:hover {
+.workspace-picker-card .workspace-history-other-folder:enabled:hover {
   color: var(--accent-strong);
 }
 
@@ -3142,8 +3142,13 @@ dialog.modal-backdrop::backdrop { background: transparent; }
   cursor: pointer;
 }
 
-.workspace-history-other-folder:hover {
+.workspace-history-other-folder:enabled:hover {
   color: var(--text-primary);
+}
+
+.workspace-history-other-folder:disabled {
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .shell-preferences-notice {
