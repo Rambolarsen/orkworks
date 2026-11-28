@@ -60,19 +60,30 @@ workers dispatch to their loop before either normal runtime or Git helper startu
 they cannot recursively construct a pool. Current production roles remain empty,
 so no production bootstrap is added by this proposal or its qualification slice.
 
-1. Reserve the entire bounded bootstrap owner and create all four Unix stream
-   channel pairs in the exclusive startup phase. Set/verify close-on-exec on
-   **every endpoint before the first custody child or other controlled child**.
-   The phase must have no concurrent controlled fork/exec. Audit the actual
-   supported executable startup, not merely a convenient constructor call.
+1. Reserve the entire bounded bootstrap owner and create all four split
+   unidirectional slot channels in the exclusive startup phase: one `AF_UNIX`
+   `SOCK_STREAM` request pair (`parent -> worker`, reverse direction shut down
+   via `SHUT_RD`/`SHUT_WR`) plus one OS `pipe()` response pair (`worker -> parent`)
+   per slot (16 endpoints total, per the 2026-11-28 amendment to ADR 0122).
+   Set/verify close-on-exec on **every endpoint before the first custody child
+   or other controlled child**. The phase must have no concurrent controlled
+   fork/exec. Audit the actual supported executable startup, not merely a
+   convenient constructor call.
 2. Start workers serially through the same running sidecar executable, with an
-   empty environment, null stdio and the already-created private channel. Do not
-   ask Command to create new data pipes. Make only the selected channel inheritable
-   in the worker child, leaving all parent descriptor flags unchanged. Any
-   pre_exec operation must be async-signal-safe; no allocation, logging or locks.
-3. Each worker validates the inherited channel capability, closed bootstrap
-   shape, source-owned build/protocol identity and boot nonce. Parent binds the
-   response to its exact owned Child/attempt, not a self-reported PID or label.
+   empty environment, null stdio and only the two already-created slot endpoints
+   (`request_rx` socket and `response_tx` pipe). Do not ask Command to create
+   new data pipes. On macOS, launch workers via `posix_spawn` with
+   `POSIX_SPAWN_CLOEXEC_DEFAULT` and `posix_spawn_file_actions_addinherit_np`
+   for only those two endpoints plus `/dev/null` on `0..=2`, closing ambient
+   host descriptors in the child while leaving all parent descriptor flags
+   unchanged and avoiding `fork`/`pre_exec`.
+3. Each worker validates both inherited channel capabilities (connected
+   `SOCK_STREAM` request endpoint and `S_IFIFO`/`ENOTSOCK` response pipe),
+   exact `PROC_PIDLISTFDS` descriptor inventory (`{0, 1, 2, request_rx, response_tx}`),
+   capability-free environment (allowing only macOS CoreFoundation's pre-`main`
+   `__CF_USER_TEXT_ENCODING` hex-triple on `orkworksd`), closed bootstrap shape,
+   source-owned build/protocol identity and boot nonce. Parent binds the
+   response to its exact owned child/attempt, not a self-reported PID or label.
    Reject unexpected inherited descriptors at worker entry; never grant roots
    during incomplete bootstrap. A private selector/argv alone grants no file access.
 4. Bootstrap has a **three-second total publication budget**, not three seconds
@@ -111,12 +122,16 @@ expected-template argument. The worker constructs the accepted five-item read se
 and standard projector internally. Parent retains the original live root/configuration
 owners and validates the kernel transfer/child binding, not just path/stat text.
 
-Parent responses use a plain bounded byte reader, never an ancillary-FD receiver.
-The exact socket/read behavior for unexpected ancillary rights must be qualified
-before use; no descriptor installation in the parent may be assumed. Response
-frames have version, lease/sequence, fixed category and bounded resource data only.
-Exact framing, truncation/extra-frame rejection and limits must be pinned in the
-bounded executable plan before code, without exposing a public API/worker route.
+Parent responses read pure bytes from the slot's pre-sealed OS `pipe()`, never
+an `AF_UNIX` ancillary-FD receiver. Native macOS 26.6.2 arm64 qualification
+confirmed that plain `read()` and `recvmsg()` on `AF_UNIX` still invoke
+`unp_externalize()` and install inheritable descriptors when a peer sends
+`SCM_RIGHTS`; using a `pipe()` for responses enforces `ENOTSOCK` in the kernel
+while shutting down the reverse direction (`SHUT_RD`/`SHUT_WR`) on the request
+socket. Response frames have version, lease/sequence, fixed category and bounded
+resource data only. Exact framing, truncation/extra-frame rejection and limits
+must be pinned in the bounded executable plan before code, without exposing a
+public API/worker route.
 
 Each request has the original **three-second** observation/validation deadline,
 256 KiB per file, 2 MiB raw read charge and 1 MiB channel-result cap. Canonical
@@ -144,8 +159,10 @@ A local worker timer is defense in depth, never renewal of the parent's original
   bound, busy, draining and cleanup-unconfirmed states together. No extra process
   may substitute for a failed slot. A ready idle worker may be reused only after
   confirmed release; no startup cost per preview.
-- Reserve 16 owned descriptors per slot, including both controller channel ends,
-  leaving at most 14 root/resource descriptors. Charge parent-retained root
+- Reserve 16 owned descriptors per slot, including all four unidirectional
+  controller channel endpoints (parent/worker request `AF_UNIX` ends and
+  parent/worker response `pipe()` ends, per the 2026-11-28 ADR 0122 amendment),
+  leaving at most 12 root/resource descriptors. Charge parent-retained root
   duplicates, worker copies and transient transfer/traversal handles wherever
   owned. A complete-layout qualification must prove fit, not count only the five
   final files; reject excess traversal instead of borrowing capacity. The
