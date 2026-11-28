@@ -164,6 +164,20 @@ Run the executable fixture with
 Run the synthetic fixture with
 `cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap`.
 
+## Overlapping sidecar worker lifetimes
+
+The opt-in executable fixture seals all four empty channel pairs before
+launching any worker. It starts all four workers before sending the first challenge. Each controller
+checks readiness with a fresh nonce under one shared three-second deadline.
+The fixture then requires all retained child processes to be alive at once.
+It closes the controller streams one by one, waits for the corresponding
+child to exit successfully, and checks that the remaining children stay
+alive. The same child ownership guard handles cleanup on assertion failure.
+
+Both opt-in tests passed on macOS 26.6.2 arm64. The four-worker case also
+passed six additional runs of the same test executable. Concurrent
+application-launch and resource-lease checks remain open.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin
