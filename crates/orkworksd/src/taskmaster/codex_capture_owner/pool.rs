@@ -46,6 +46,8 @@ pub(crate) struct ShutdownReport {
 pub(crate) struct OwnedChild {
     pid: libc::pid_t,
     reaped: Option<ExitStatus>,
+    #[cfg(test)]
+    wait_allowed: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl OwnedChild {
@@ -56,7 +58,12 @@ impl OwnedChild {
                 "owned child pid must be positive",
             ));
         }
-        Ok(Self { pid, reaped: None })
+        Ok(Self {
+            pid,
+            reaped: None,
+            #[cfg(test)]
+            wait_allowed: None,
+        })
     }
 
     pub(crate) fn id(&self) -> u32 {
@@ -66,6 +73,14 @@ impl OwnedChild {
     pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         if let Some(status) = self.reaped {
             return Ok(Some(status));
+        }
+        #[cfg(test)]
+        if self
+            .wait_allowed
+            .as_ref()
+            .is_some_and(|allowed| !allowed.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Ok(None);
         }
         let mut status: libc::c_int = 0;
         loop {
@@ -147,8 +162,11 @@ enum SlotState {
     LaunchUnconfirmed,
 }
 
+type UnreapedChildren = [Option<OwnedChild>; MAX_SLOTS];
+
 pub(crate) struct CustodyPool {
     slots: [SlotState; MAX_SLOTS],
+    drop_cleanup: Option<mpsc::SyncSender<UnreapedChildren>>,
 }
 
 impl CustodyPool {
@@ -183,20 +201,36 @@ impl CustodyPool {
         ];
 
         if budget.is_zero() {
-            return Self { slots };
+            return Self {
+                slots,
+                drop_cleanup: None,
+            };
         }
         let deadline = Instant::now() + budget;
 
         let Ok(channel_set) = channels::seal_split_channels() else {
-            return Self { slots };
+            return Self {
+                slots,
+                drop_cleanup: None,
+            };
         };
         // If channel sealing itself missed the shared deadline, retire the
         // entire bootstrap outcome and start no workers.
         if Instant::now() >= deadline {
             drop(channel_set);
-            return Self { slots };
+            return Self {
+                slots,
+                drop_cleanup: None,
+            };
         }
 
+        // Reserve a cleanup owner before any native child can start.
+        let Ok(drop_cleanup) = start_drop_cleanup() else {
+            return Self {
+                slots,
+                drop_cleanup: None,
+            };
+        };
         let spawn_slot = Arc::new(spawn_slot);
         for (slot, channels) in channel_set.into_iter().enumerate() {
             if Instant::now() >= deadline {
@@ -252,7 +286,10 @@ impl CustodyPool {
             }
         }
 
-        Self { slots }
+        Self {
+            slots,
+            drop_cleanup: Some(drop_cleanup),
+        }
     }
 
     pub(crate) fn counts(&self) -> PoolCounts {
@@ -437,21 +474,67 @@ impl CustodyPool {
 
 impl Drop for CustodyPool {
     fn drop(&mut self) {
-        for slot in &mut self.slots {
-            match std::mem::replace(slot, SlotState::Retired) {
-                SlotState::Retired => {}
+        let unresolved = std::array::from_fn(|index| {
+            let child = match std::mem::replace(&mut self.slots[index], SlotState::Retired) {
                 SlotState::Ready(worker) => {
-                    drop(worker.request_tx);
-                    drop(worker.response_rx);
-                    let _ = terminate_bounded(worker.child, DEFAULT_CLEANUP_WAIT);
+                    drop((worker.request_tx, worker.response_rx));
+                    worker.child
                 }
-                SlotState::CleanupUnconfirmed(child) => {
-                    let _ = terminate_bounded(child, DEFAULT_CLEANUP_WAIT);
+                SlotState::CleanupUnconfirmed(child) => child,
+                // Dropping a pending receiver lets its launch task own
+                // cleanup of any child that subsequently arrives.
+                SlotState::Retired | SlotState::PendingSpawn(_) | SlotState::LaunchUnconfirmed => {
+                    return None;
                 }
-                // Dropping the receiver sends any late result to the launch
-                // task's cleanup path without waiting on the spawn operation.
-                SlotState::PendingSpawn(_) | SlotState::LaunchUnconfirmed => {}
+            };
+            match terminate_bounded(child, DEFAULT_CLEANUP_WAIT) {
+                SlotState::CleanupUnconfirmed(child) => Some(child),
+                _ => None,
             }
+        });
+        if unresolved.iter().all(Option::is_none) {
+            return;
+        }
+        let unresolved = match self.drop_cleanup.take() {
+            Some(cleanup) => match cleanup.try_send(unresolved) {
+                Ok(()) => return,
+                Err(
+                    mpsc::TrySendError::Full(children) | mpsc::TrySendError::Disconnected(children),
+                ) => children,
+            },
+            None => unresolved,
+        };
+        // A live pool has a prestarted receiver for its single batch. If that
+        // invariant is broken, keep ownership even at the cost of blocking.
+        reap_unresolved(unresolved);
+    }
+}
+
+fn start_drop_cleanup() -> io::Result<mpsc::SyncSender<UnreapedChildren>> {
+    let (cleanup, unresolved) = mpsc::sync_channel(1);
+    thread::Builder::new().spawn(move || {
+        if let Ok(children) = unresolved.recv() {
+            reap_unresolved(children);
+        }
+    })?;
+    Ok(cleanup)
+}
+
+fn reap_unresolved(mut children: UnreapedChildren) {
+    while children.iter().any(Option::is_some) {
+        for slot in &mut children {
+            let Some(child) = slot else { continue };
+            match child.try_wait() {
+                Ok(Some(_)) => *slot = None,
+                Ok(None) => {
+                    let _ = child.kill();
+                }
+                // An errored wait has not confirmed this pid is still ours.
+                Err(_) => {}
+            }
+        }
+        if children.iter().any(Option::is_some) {
+            thread::sleep(Duration::from_millis(25));
         }
     }
 }
@@ -693,10 +776,13 @@ fn wait_for_clean_exit(child: &mut OwnedChild, deadline: Instant) -> bool {
 }
 
 fn terminate_bounded(mut child: OwnedChild, wait_budget: Duration) -> SlotState {
-    if matches!(child.try_wait(), Ok(Some(_))) {
-        return SlotState::Retired;
+    match child.try_wait() {
+        Ok(Some(_)) => return SlotState::Retired,
+        Ok(None) => {
+            let _ = child.kill();
+        }
+        Err(_) => {}
     }
-    let _ = child.kill();
     let deadline = Instant::now() + wait_budget;
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
@@ -714,6 +800,92 @@ fn terminate_bounded(mut child: OwnedChild, wait_budget: Duration) -> SlotState 
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+
+    #[test]
+    fn dropping_pool_preserves_an_already_owned_unconfirmed_child() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let wait_allowed = [
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+        ];
+        let gates = wait_allowed.clone();
+        let (process, observed) = mpsc::channel();
+        let mut pool = CustodyPool::start_with_slot_hook(
+            [0; 32],
+            Duration::from_secs(2),
+            Duration::ZERO,
+            move |slot, _, _| {
+                let gate = gates.get(slot).ok_or(ErrorKind::NotFound)?;
+                let child = Command::new("/bin/sleep")
+                    .arg("5")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()?;
+                let mut owned = OwnedChild::try_from_pid(child.id() as libc::pid_t)?;
+                owned.wait_allowed = Some(Arc::clone(gate));
+                let _ = process.send(child);
+                Ok(owned)
+            },
+        );
+        let mut first = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mut second = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(pool.shutdown(Duration::ZERO).cleanup_unconfirmed, 2);
+        assert_eq!(pool.counts().cleanup_unconfirmed, 2);
+
+        let (returned, complete) = mpsc::channel();
+        let dropping = thread::spawn(move || {
+            drop(pool);
+            let _ = returned.send(());
+        });
+        let drop_bounded = complete.recv_timeout(Duration::from_secs(2)).is_ok();
+
+        // Release the later slot first. A blocked first slot must not stall
+        // the second slot's reap. Release both gates before any assertion.
+        wait_allowed[1].store(true, Ordering::Release);
+        let second_reaped = drop_bounded && observe_reap(second.id());
+        wait_allowed[0].store(true, Ordering::Release);
+        dropping.join().unwrap();
+        let first_reaped = observe_reap(first.id());
+        if !first_reaped {
+            let _ = first.wait();
+        }
+        if !second_reaped {
+            let _ = second.wait();
+        }
+        assert!(drop_bounded, "pool drop waited for an unresolved child");
+        assert!(
+            second_reaped,
+            "later child could not reap while first was held"
+        );
+        assert!(
+            first_reaped,
+            "pool drop discarded the unresolved child owner"
+        );
+    }
+
+    fn observe_reap(pid: u32) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            // SAFETY: This only observes our exact native child. WNOWAIT
+            // leaves the real reap exclusively with the cleanup owner.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
 
     #[test]
     fn expired_queued_spawn_skips_native_launch() {
@@ -780,6 +952,7 @@ mod tests {
         let owned = OwnedChild::try_from_pid(pid).expect("positive pid");
 
         let mut pool = CustodyPool {
+            drop_cleanup: Some(start_drop_cleanup().unwrap()),
             slots: [
                 SlotState::CleanupUnconfirmed(owned),
                 SlotState::Retired,
@@ -832,6 +1005,7 @@ mod tests {
         // Keep peer ends open so slot 0 stalls until its graceful slice expires.
         let _keep_open = (req_rx, resp_tx);
         let mut pool = CustodyPool {
+            drop_cleanup: Some(start_drop_cleanup().unwrap()),
             slots: [
                 SlotState::Ready(ReadyWorker {
                     child: owned,
