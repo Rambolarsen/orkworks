@@ -24,6 +24,9 @@ See [sidecar recovery](architecture.md#sidecar-lifecycle-and-runtime-recovery).
 
 | Machine and current state | Event and guard | Next state |
 | --- | --- | --- |
+| Folder chooser idle | Open other folder while workspace controls are available | One queued or visible chooser |
+| Folder chooser queued, visible, or opening its selection | Another chooser request arrives | Share the pending request and its outcome |
+| Folder chooser pending | Cancelled, failed, or workspace opening settles | Release the chooser so a later action can open it |
 | Workspace `picker` or `ready` | Validated request for another workspace, serialized with close and quit | `closing` when a runtime is owned, otherwise `opening` |
 | Workspace `closing` | Owned cleanup completes | `picker`, then `opening` if switching |
 | Workspace `opening` | Destination starts, matches the requested workspace, and restores | `ready` at the new generation |
@@ -318,6 +321,16 @@ Previously the old canonical URL replaced the draft and the old model catalog
 became selectable. The test now verifies that the draft survives, the old
 catalog stays hidden, and the new reply supplies the verified URL and models.
 [Issue #2212](https://github.com/Rambolarsen/orkworks/issues/2212)
+
+### Repeated folder requests opened a second chooser
+
+Two Open other folder requests queued before the first finished previously
+invoked the chooser twice, including after cancellation. A request made during
+restoration could also queue another chooser to appear after the workspace was
+ready. The coordinator tests defer selection and restoration to reproduce both
+orderings. Requests now share the first chooser through settlement, and the
+workspace history controls disable Open other folder while switching.
+[Issue #2233](https://github.com/Rambolarsen/orkworks/issues/2233)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

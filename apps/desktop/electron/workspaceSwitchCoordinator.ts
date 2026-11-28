@@ -101,6 +101,7 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
   let attemptedRuntimeCleanupFailure: WorkspaceSwitchFailure | null = null;
   let generation = 0;
   let operationTail: Promise<void> = Promise.resolve();
+  let pendingPicker: Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic> | null> | null = null;
 
   function publish(event: WorkspaceSwitchEvent<TWorkspace, THistoryDiagnostic>): void {
     state = event.state;
@@ -294,10 +295,12 @@ export function createWorkspaceSwitchCoordinator<TWorkspace, THistoryDiagnostic 
     },
 
     pickWorkspace(select: () => Promise<string | null>): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic> | null> {
-      return enqueue(async () => {
+      if (pendingPicker !== null) return pendingPicker;
+      pendingPicker = enqueue(async () => {
         const path = await select();
         return path === null ? null : switchWorkspaceInternal(path);
-      });
+      }).finally(() => { pendingPicker = null; });
+      return pendingPicker;
     },
 
     retry(): Promise<WorkspaceSwitchResult<TWorkspace, THistoryDiagnostic>> {
