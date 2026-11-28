@@ -13,6 +13,8 @@ pub(crate) mod audit;
 mod child_sources;
 #[cfg(test)]
 mod child_sources_tests;
+#[cfg(target_os = "macos")]
+pub(crate) mod codex_capture_owner;
 pub(crate) mod completion;
 #[cfg(test)]
 pub(crate) mod completion_tests;

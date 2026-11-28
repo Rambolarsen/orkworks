@@ -199,6 +199,89 @@ draining child while the other three slots stay ready, confirms reap of the
 failed child, and closes and reaps the peers independently. Actual startup
 supervision, leases, and ordinary application launch isolation remain open.
 
+## Persistent sidecar worker startup check (Step 1)
+
+Native macOS 26.6.2 arm64 qualification first tested unexpected `SCM_RIGHTS`
+sent over an `AF_UNIX` `SOCK_STREAM` channel and found that plain `read()`,
+`recvmsg(msg_controllen = 0)`, and `recvmsg(msg_controllen = 1)` all invoke
+XNU `unp_externalize()` and install a new, inheritable (`FD_CLOEXEC == false`),
+leaked descriptor into the parent process. Under the 2026-11-28 amendment to
+[ADR 0122](../../adr/0122-startup-sealed-codex-custody.md), each slot uses two
+pre-sealed unidirectional channels (16 total endpoints across 4 slots, 4
+controller / 12 resource descriptors per slot):
+
+- Request channel (`parent -> worker`): `AF_UNIX` `SOCK_STREAM` with reverse
+  direction closed at both ends (`SHUT_RD` on parent, `SHUT_WR` on worker) and
+  `SO_NOSIGPIPE`.
+- Response channel (`worker -> parent`): OS `pipe()` sealed `FD_CLOEXEC` with
+  macOS `F_SETNOSIGPIPE` (`73`), where `sendmsg` fails in the kernel with
+  `ENOTSOCK`.
+
+The private worker dispatches at the start of `crates/orkworksd/src/main.rs`
+(`--codex-custody-worker <request_rx_fd> <response_tx_fd>`) before
+`git::run_scan_worker()` or Tokio/runtime initialization. Normal sidecar
+startup does not construct a custody pool. Custody workers launch via macOS
+`posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` and
+`posix_spawn_file_actions_addinherit_np` for only the two selected endpoints
+plus `/dev/null` on `0..=2`, closing ambient host descriptors without touching
+parent flags.
+
+The 32-byte source-owned build identity (`codex_capture_owner::build_identity`)
+is derived via `sha2::Sha256` over package/target/profile metadata and
+`include_bytes!` of the `src/taskmaster/codex_capture_owner/` module sources
+without modifying frozen `crates/orkworksd/build.rs`. After the fixed
+54-byte bootstrap exchange (`Challenge` on `request_tx` → `Ready` on
+`response_rx`, without half-closing the active directions), persistent control
+frames share one 10-byte length-delimited envelope capped at 1 MiB:
+
+| Bytes | Field |
+| --- | --- |
+| 0–3 | ASCII `OWCO` |
+| 4 | Protocol version `1` |
+| 5 | Frame kind (`1` Ping, `2` Pong, `3` Shutdown, `4` ShutdownAck; lease operations reserve kinds `>= 10`) |
+| 6–9 | Big-endian `u32` payload length (`16` for Ping/Pong, `0` for Shutdown/ShutdownAck, max `1_048_576`) |
+| 10.. | Exact payload bytes |
+
+Clean EOF at a frame boundary exits the idle worker cleanly; mid-frame EOF
+returns `UnexpectedEof`; bad magic, version, kind, length, oversized payload,
+or unsolicited trailing bytes (`poll(POLLIN, 0)` + `FIONREAD`) fail closed and
+retire the slot permanently without replacement.
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap --test codex_custody_worker`):
+
+- All 16 split-channel endpoints verified `FD_CLOEXEC` before spawn; injected
+  third-slot failure rolled back and closed all 8 prior descriptors (`EBADF`).
+- Reverse `sendmsg(SCM_RIGHTS)` on `request_rx` failed in the kernel
+  (`EINVAL`/`EPIPE`) and `sendmsg(SCM_RIGHTS)` on `response_tx` failed with
+  `ENOTSOCK`; zero descriptors matching the test file appeared in the parent.
+- Real `orkworksd` workers passed full `PROC_PIDLISTFDS` inventory
+  (`{0, 1, 2, request_rx, response_tx}`), `/dev/null` stdio, endpoint-type
+  checks, capability-free env check (allowing only macOS CoreFoundation's
+  pre-`main` `__CF_USER_TEXT_ENCODING` triple), build/nonce handshake, three
+  rounds of persistent `Ping`/`Pong` per slot without EOF, and clean `Shutdown`
+  / `ShutdownAck` exit for all 4 children.
+- Negative controls against the real `orkworksd` binary rejected missing args
+  without starting HTTP (`ORKWORKSD_PORT=` absent), unexpected env variables
+  (exit 65), an extra inherited descriptor via `pre_exec` (exit 66), a Unix
+  socket passed as the response pipe (exit 68), and a mismatched 32-byte build
+  identity (all 4 slots retired cleanly).
+- Deadline and lifecycle checks verified zero workers started on expired
+  pre-seal budget, partial readiness (2 ready slots kept usable while a stalled
+  third slot timed out, was killed/reaped, and prevented slot 4 from starting),
+  unconfirmed-cleanup slot retention until final reap on shutdown, and
+  permanent single-slot retirement after unexpected `SIGKILL` without affecting
+  surviving slots.
+- Measured process cost across 4 persistent debug `orkworksd` workers (15
+  consecutive runs on macOS 26.6.2 arm64): warm 4-worker startup 29–80 ms
+  (cold first launch ~1.4 s), resident memory ~9.5 MiB per worker (~38.0 MiB
+  total, `PROC_PIDTASKINFO.pti_resident_size`), and `0 µs` idle CPU delta over
+  a 300 ms idle window (`pti_total_user + pti_total_system`).
+
+Step 2 (reusable 4-slot lease accounting and kernel-bound root transfer) and
+Step 3 (actual concurrent application-launch race proof) remain open under
+#1981.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin
