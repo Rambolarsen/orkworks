@@ -1056,12 +1056,33 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".git-changes-patch")');
         assert.match(await evaluate('document.querySelector(".git-changes-subject").textContent'),/feature/);
         assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/Reported task worktree/);
-        await evaluate('fixture.changePatch="@@ -0,0 +1,1100 @@\\n"+Array.from({length:1100},(_,i)=>"+const row"+i+" = "+i+";").join("\\n");document.querySelector("[data-git-refresh]").click()');
+        await evaluate('fixture.changePatch="@@ -0,0 +1,2100 @@\\n"+Array.from({length:2100},(_,i)=>"+const row"+i+" = "+i+";").join("\\n");document.querySelector("[data-git-refresh]").click()');
         await waitFor('document.querySelector("[data-diff-more]")');
         assert.equal(await evaluate('document.querySelectorAll(".git-diff-line").length'),999,'the hunk and code rows share the initial 1000-row batch');
-        await evaluate('document.querySelector("[data-diff-more]").click()');
-        await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row1099")');
+        const pressDiffKey = (keyCode, modifiers = []) => {
+          win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});
+        };
+        await evaluate('document.querySelector("[data-diff-more]").focus()');
+        pressDiffKey('Space');
+        await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row1998")');
+        assert.equal(await evaluate('document.activeElement.hasAttribute("data-diff-more")'),true,'an intermediate batch keeps the loading button focused');
+        await evaluate('document.activeElement.scrollIntoView({block:"nearest"})');
+        const patchScroll = 'document.querySelector(".git-changes-file-content").scrollTop';
+        const beforeLastBatch = await evaluate(patchScroll);
+        assert.ok(beforeLastBatch > 0);
+        pressDiffKey('Space');
+        await waitFor('document.querySelector(".git-changes-patch").textContent.includes("row2099")');
         assert.equal(await evaluate('!!document.querySelector("[data-diff-more]")'),false,'the last batch is reachable');
+        const diffFocused = 'document.activeElement.matches(".git-changes-patch[role=region]")';
+        assert.equal(await evaluate(diffFocused),true,'the last batch returns focus to the diff');
+        assert.equal(await evaluate(patchScroll),beforeLastBatch,'focus return preserves the reading position');
+        pressDiffKey('PageDown');
+        await waitFor(patchScroll+'>'+beforeLastBatch);
+        pressDiffKey('Tab',['shift']);
+        await waitFor('document.activeElement.matches("[data-diff-mode=split]")');
+        pressDiffKey('Tab');
+        await waitFor(diffFocused);
         // Refresh a surviving file while reading beyond the initial display batch.
         await evaluate('fixture.changePatch = fixture.changePatch.replaceAll(";", "; "+"x".repeat(400));document.querySelector("[data-git-refresh]").click()');
         await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("xxxx")');

@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { parseGitPatch, splitDiffRows, tokenizeDiffLine, type DiffLine } from "../gitDiff";
 
+const batchSize = 1000;
+
 export default function GitDiff({ patch, path, mode }: {patch: string; path: string; mode: "unified" | "split"}) {
-  const [visibleRows, setVisibleRows] = useState(1000);
+  const [visibleRows, setVisibleRows] = useState(batchSize);
+  const diffRegion = useRef<HTMLDivElement>(null);
   const lines = useMemo(() => parseGitPatch(patch), [patch]);
   const split = useMemo(() => mode === "split" ? splitDiffRows(lines) : [], [lines, mode]);
   const code = (line: DiffLine) => <code>{tokenizeDiffLine(line.text).map((token, i) =>
@@ -17,7 +20,7 @@ export default function GitDiff({ patch, path, mode }: {patch: string; path: str
   </div>;
   const rowCount = mode === "unified" ? lines.length : split.length;
   if (!patch) return null;
-  return <><div className={`git-changes-patch git-diff--${mode}`} tabIndex={0} role="region" aria-label={`${mode === "split" ? "Split" : "Unified"} diff for ${path}`}>
+  return <><div className={`git-changes-patch git-diff--${mode}`} ref={diffRegion} tabIndex={0} role="region" aria-label={`${mode === "split" ? "Split" : "Unified"} diff for ${path}`}>
     {mode === "split" && <div className="git-diff-sides"><span>Before</span><span>After</span></div>}
     {mode === "unified" ? lines.slice(0, visibleRows).map((line, i) => line.kind === "metadata" || line.kind === "hunk" ? annotation(line, i) :
       <div key={i} className={`git-diff-line git-diff-${line.kind}`}>
@@ -27,6 +30,11 @@ export default function GitDiff({ patch, path, mode }: {patch: string; path: str
       <div className="git-diff-pair" key={i}>{cell(row.left, "left", row.leftNote)}{cell(row.right, "right", row.rightNote)}</div>)}
   </div>{rowCount > visibleRows && <div className="git-diff-more">
     <p role="status">Showing {visibleRows.toLocaleString("en-US")} of {rowCount.toLocaleString("en-US")} diff rows.</p>
-    <button type="button" data-diff-more onClick={() => setVisibleRows(n => n + 1000)}>Show next {Math.min(1000, rowCount - visibleRows).toLocaleString("en-US")}</button>
+    <button type="button" data-diff-more onClick={event => {
+      if (rowCount - visibleRows <= batchSize && event.currentTarget === document.activeElement) {
+        diffRegion.current?.focus({ preventScroll: true });
+      }
+      setVisibleRows(n => n + batchSize);
+    }}>Show next {Math.min(batchSize, rowCount - visibleRows).toLocaleString("en-US")}</button>
   </div>}</>;
 }
