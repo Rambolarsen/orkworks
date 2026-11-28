@@ -42,9 +42,9 @@ type/native checks, 1,815 desktop passes (five skipped), desktop build and all
 2,583 docs tests/build. Warnings concern unchanged Rust/bundler code. Later
 qualification-only fixes rerun their scoped Node tests and hosted CI.
 
-The owned Windows producer-to-parent fixture passed at code head84c19fb07d638c36b3c1f787dd553f9dc37a6020
-in [job140878369446](https://github.com/Rambolarsen/orkworks/actions/runs/46112288334/job/140878369446):
-Node22.23.5,21 tests,21 progress records,1,157,447 charged fixture bytes,
+The owned Windows producer-to-parent fixture passed at code head d35d817a3e486ed30a8e721ef64ad564dd0d741a
+in [job140880625282](https://github.com/Rambolarsen/orkworks/actions/runs/46113026445/job/140880625282):
+Node 22.23.5; 25 tests; 21 progress records,1,157,447 charged fixture bytes,
 2,867 stream bytes,one PS child,one final zero-hash Node timeout,one payload
 allocation/max lease,one owned termination and scratch removal. This tests
 owned inputs, not installed candidate capacity. Earlier native runs exposed a
@@ -56,9 +56,14 @@ regressions reproduced expiry before/during writes and at the final result
 write; publication now withdraws queued records before refusal. Further tests
 protect final receipt credit from ordinary work and aggregate snapshot costs,
 and require undrained pipes to detach at the final deadline. Local suite now
-has24 passes/one Windows skip. Final-code hosted review/CI remains pending.
-The separate auxiliary Windows Job failure matches open [#2211](https://github.com/Rambolarsen/orkworks/issues/2211);
-no ownership code/assertion was changed. Passing model tests do not establish physical native work,
+has 24 passes and one Windows skip. Final code head d35d817a3e486ed30a8e721ef64ad564dd0d741a received a
+completed Codex no-findings review (cycle3/3). Its Windows SDK/reader fixture,
+docs build, workspace-reporting, Windows process-ownership, required Desktop/Rust
+and all auxiliary CodeQL/custom-inference checks passed. No further code
+review round is inferred. A docs-only evidence update preserves those code blobs.
+An auxiliary Windows Job failure at earlier head84c19fb0 matched open [#2211](https://github.com/Rambolarsen/orkworks/issues/2211);
+no ownership code/assertion was changed, and the later pass does not classify that
+earlier occurrence. Passing model tests do not establish physical native work,
 capacity, historical timeout cause, runtime qualification or production pins.
 
 The normal-CI live-reader harness reaches only owned synthetic files, archive
