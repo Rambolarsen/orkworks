@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/windows-appx-test.yml
       - scripts/qualification/windows-appx-test.ps1
+      - scripts/qualification/windows-appx-renderer-probe.mjs
 
 permissions:
   contents: read

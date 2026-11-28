@@ -35,6 +35,80 @@ function Assert-BundledFiles {
     }
 }
 
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class AppxTestActivation
+{
+    [ComImport, Guid("2E941141-7F97-4756-BA1D-9DECDE894A3D"),
+     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IApplicationActivationManager
+    {
+        [PreserveSig]
+        int ActivateApplication(
+            [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+            [MarshalAs(UnmanagedType.LPWStr)] string arguments,
+            uint options, out uint processId);
+    }
+
+    public static int Start(string appUserModelId, string arguments)
+    {
+        var type = Type.GetTypeFromCLSID(new Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C"));
+        var manager = (IApplicationActivationManager)Activator.CreateInstance(type);
+        try
+        {
+            uint processId;
+            Marshal.ThrowExceptionForHR(manager.ActivateApplication(appUserModelId, arguments, 0, out processId));
+            return checked((int)processId);
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(manager);
+        }
+    }
+}
+'@
+
+function Test-InstalledDesktop {
+    param($Installation, [string]$Workspace, [string]$RetainedSessionId)
+
+    $listener = New-Object System.Net.Sockets.TcpListener ([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try {
+        $port = $listener.LocalEndpoint.Port
+    } finally {
+        $listener.Stop()
+    }
+
+    $appUserModelId = "$($Installation.PackageFamilyName)!OrkWorksTest"
+    $appProcessId = [AppxTestActivation]::Start($appUserModelId, "--remote-debugging-address=127.0.0.1 --remote-debugging-port=$port")
+    $process = Get-Process -Id $appProcessId
+    try {
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            $process.Refresh()
+            if ($process.HasExited) { throw 'The installed AppX exited before showing its desktop window' }
+            if ($process.MainWindowHandle -ne 0) { break }
+            Start-Sleep -Milliseconds 500
+        }
+        if ($process.MainWindowHandle -eq 0) { throw 'The installed AppX did not show a desktop window' }
+        Write-Host "AppX $($Installation.Version) opened an OrkWorks desktop window."
+
+        $arguments = @("$PSScriptRoot/windows-appx-renderer-probe.mjs", "$port", $Workspace)
+        if ($RetainedSessionId) { $arguments += $RetainedSessionId }
+        Invoke-Checked node $arguments
+    } finally {
+        if (-not $process.HasExited) {
+            $process.CloseMainWindow() | Out-Null
+            if (-not $process.WaitForExit(10000)) {
+                Stop-Process -Id $appProcessId
+                $process.WaitForExit()
+                throw 'The installed AppX did not shut down cleanly'
+            }
+        }
+    }
+}
+
 $kit = Get-ChildItem -Path "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/signtool.exe" |
     Sort-Object FullName | Select-Object -Last 1
 if (-not $kit) { throw 'Windows SDK SignTool is unavailable' }
@@ -99,115 +173,21 @@ fs.writeFileSync("appx-test.ci.json", JSON.stringify(config));
     Assert-BundledFiles $first
     Write-Host "Installed AppX $($first.Version) with expected resources."
 
-    $stdout = Join-Path $env:RUNNER_TEMP 'orkworks-appx-sidecar.stdout'
-    $rendererToken = [guid]::NewGuid().ToString('N')
     $workspace = Join-Path $env:RUNNER_TEMP 'orkworks-appx-workspace'
     New-Item -Path $workspace -ItemType Directory | Out-Null
     $workspace = (Get-Item -LiteralPath $workspace).FullName
-    $workspaceBody = @{ path = $workspace; workspaceIdentity = "\\?\$workspace" } | ConvertTo-Json
+    $retainedSessionId = Test-InstalledDesktop $first $workspace
+    if (-not $retainedSessionId) { throw 'The desktop probe did not return a retained session ID' }
+    Write-Host 'The installed desktop opened the workspace and started and ended a shell session.'
 
-    function Use-InstalledSidecar {
-        param($Installation, [scriptblock]$Probe)
-        $start = @{
-            FilePath = (Join-Path $Installation.InstallLocation 'app/resources/orkworksd.exe')
-            WorkingDirectory = $env:RUNNER_TEMP
-            PassThru = $true
-            RedirectStandardOutput = $stdout
-        }
-        $env:ORKWORKS_RENDERER_TOKEN = $rendererToken
-        $env:PEON_ENABLED = 'false'
-        try {
-            $sidecar = Start-Process @start
-        } finally {
-            Remove-Item Env:ORKWORKS_RENDERER_TOKEN, Env:PEON_ENABLED
-        }
-        try {
-            $port = $null
-            for ($attempt = 0; $attempt -lt 50 -and -not $port; $attempt++) {
-                if ($sidecar.HasExited) { throw 'Installed sidecar exited before binding' }
-                if ((Get-Content -LiteralPath $stdout -Raw) -match 'ORKWORKSD_PORT=(\d+)') { $port = $Matches[1] }
-                if (-not $port) { Start-Sleep -Milliseconds 200 }
-            }
-            if (-not $port) { throw 'Installed sidecar did not announce a port' }
-            $api = "http://127.0.0.1:$port"
-            $health = Invoke-WebRequest -Uri "$api/health" -UseBasicParsing -TimeoutSec 5
-            if ($health.StatusCode -ne 200) { throw 'Installed sidecar did not respond to its health probe' }
-            $headers = @{ 'X-OrkWorks-Renderer-Token' = $rendererToken }
-            Invoke-RestMethod -Method Post -Uri "$api/workspace" -Headers $headers -UseBasicParsing -ContentType 'application/json' -Body $workspaceBody -TimeoutSec 5 | Out-Null
-            & $Probe $api $headers
-        } finally {
-            if (-not $sidecar.HasExited) { Stop-Process -Id $sidecar.Id }
-            $sidecar.WaitForExit(5000) | Out-Null
-        }
-    }
-
-    $retainedSessionId = Use-InstalledSidecar $first {
-        param($api, $headers)
-        $sessionBody = @{ harnessId = 'generic-shell' } | ConvertTo-Json
-        $session = Invoke-RestMethod -Method Post -Uri "$api/sessions" -Headers $headers -UseBasicParsing -ContentType 'application/json' -Body $sessionBody -TimeoutSec 5
-        try {
-            $ready = $false
-            for ($attempt = 0; $attempt -lt 50 -and -not $ready; $attempt++) {
-                $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
-                $ready = [bool]($sessions | Where-Object { $_.id -eq $session.id -and $_.lifecycle -eq 'alive' })
-                if (-not $ready) { Start-Sleep -Milliseconds 200 }
-            }
-            if (-not $ready) { throw 'Installed sidecar did not start the test shell session' }
-            Write-Host 'Installed sidecar opened the disposable workspace and started a shell session.'
-        } finally {
-            Invoke-RestMethod -Method Delete -Uri "$api/sessions/$($session.id)" -Headers $headers -UseBasicParsing -TimeoutSec 5 | Out-Null
-        }
-        for ($attempt = 0; $attempt -lt 50; $attempt++) {
-            $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
-            if ($sessions | Where-Object { $_.id -eq $session.id -and $_.lifecycle -eq 'dead' }) {
-                return $session.id
-            }
-            Start-Sleep -Milliseconds 200
-        }
-        throw 'The test shell session did not finish persisting'
-    }
-
-    $statePath = Join-Path $env:LOCALAPPDATA "Packages/$($first.PackageFamilyName)/LocalState"
-    New-Item -Path $statePath -ItemType Directory -Force | Out-Null
-    $marker = Join-Path $statePath 'test-upgrade-marker.txt'
-    Set-Content -LiteralPath $marker -Value 'preserve this state'
     $second = Install-TestPackage (Join-Path $output 'OrkWorks-AppX-Test-2.appx')
     if ($second.PackageFamilyName -ne $first.PackageFamilyName -or $second.Version -le $first.Version) {
         throw 'The second package did not upgrade the same AppX identity'
     }
     Assert-BundledFiles $second
-    if ((Get-Content -LiteralPath $marker -Raw).Trim() -ne 'preserve this state') {
-        throw 'Package LocalState did not survive the upgrade'
-    }
-    Write-Host "Upgraded to $($second.Version) and preserved package LocalState."
-
-    Use-InstalledSidecar $second {
-        param($api, $headers)
-        $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
-        if (-not ($sessions | Where-Object { $_.id -eq $retainedSessionId -and $_.lifecycle -eq 'dead' })) {
-            throw 'The upgraded sidecar did not recover the test workspace session'
-        }
-        Write-Host 'The upgraded sidecar reopened the workspace and recovered the ended session.'
-    }
-
-    $installedApp = Join-Path $second.InstallLocation 'app/OrkWorks.exe'
-    Start-Process explorer.exe -ArgumentList "shell:AppsFolder\$($second.PackageFamilyName)!OrkWorksTest"
-    $window = $null
-    try {
-        for ($attempt = 0; $attempt -lt 50 -and -not $window; $attempt++) {
-            $window = Get-Process -Name OrkWorks -ErrorAction SilentlyContinue |
-                Where-Object { $_.Path -eq $installedApp -and $_.MainWindowHandle -ne 0 } |
-                Select-Object -First 1
-            if (-not $window) { Start-Sleep -Milliseconds 500 }
-        }
-        if (-not $window) { throw 'The runner did not observe an installed AppX desktop window' }
-        Write-Host 'The upgraded AppX opened an OrkWorks desktop window.'
-    } finally {
-        if ($window) {
-            $window.CloseMainWindow() | Out-Null
-            if (-not $window.WaitForExit(5000)) { Stop-Process -Id $window.Id }
-        }
-    }
+    Write-Host "Upgraded the same AppX identity to $($second.Version)."
+    Test-InstalledDesktop $second $workspace $retainedSessionId
+    Write-Host 'The upgraded desktop remembered the workspace and recovered the ended session.'
 } finally {
     Get-AppxPackage -Name $identity | Remove-AppxPackage -ErrorAction Continue
     if (Test-Path -LiteralPath $trustedPath) { Remove-Item -LiteralPath $trustedPath }
