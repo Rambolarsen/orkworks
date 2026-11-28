@@ -869,6 +869,11 @@ The first useful MVP should include:
   with the current task.” to the clipboard and reports success or failure.
   The user chooses where to paste it and when to submit. The action uses
   the displayed attention state for visibility and sends no terminal input.
+- The [proposed one-click Keep going action](../docs/superpowers/specs/2026-11-27-session-task-actions-design.md#atomic-admission-for-keep-going)
+  requires a reviewed and qualified native operation that can start one turn
+  in the exact selected conversation only while it is idle and ready. Rejection
+  leaves the editor and queue unchanged. This proposal grants no submission
+  authority and adds no available action.
 - An ended session with an available resume option exposes a split Resume
   button in the selected-session header and Details. The main action resumes
   the preferred available strategy; its arrow exposes all existing options and
