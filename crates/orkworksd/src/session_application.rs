@@ -6790,6 +6790,7 @@ async fn resume_session_workflow(
         usage_limit_reset_hint: None,
         usage_limit_inherited: None,
         usage_limit_latched_at: None,
+        usage_limit_evidence: None,
         metadata_source: Some("process".into()),
         metadata_confidence: Some(1.0),
         repo_root: meta.repo_root.clone(),
@@ -7351,6 +7352,7 @@ async fn create_session_workflow(
         usage_limit_reset_hint: None,
         usage_limit_inherited: None,
         usage_limit_latched_at: None,
+        usage_limit_evidence: None,
         metadata_source: None,
         metadata_confidence: None,
         repo_root: git_ctx.repo_root.clone(),
@@ -7832,6 +7834,7 @@ fn clear_claude_capacity_after_working(
         if handle.info.harness_id.as_deref() == Some(harness_id.as_str()) {
             handle.capacity.clear_latch_and_rearm();
             handle.runtime.usage_limit_latched_at = None;
+            handle.runtime.usage_limit_evidence = None;
         }
     }
 }

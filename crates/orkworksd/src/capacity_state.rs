@@ -39,12 +39,21 @@ pub(crate) struct CapacityState {
     pub(crate) pending_capacity_visible_once: bool,
 }
 
+/// Pure scan-time match provenance for a usage-limit latch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UsageLimitLatchMatch {
+    pub(crate) pattern: String,
+    pub(crate) matched_row: String,
+    pub(crate) source: crate::session_types::UsageLimitEvidenceSource,
+}
+
 /// The result of `CapacityState::observe`: what the projection should render
 /// for this cycle, and how the state machine wants to advance on write-back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CapacityObservation {
     pub(crate) at_usage_limit: bool,
     pub(crate) reset_hint: Option<String>,
+    pub(crate) latch_match: Option<UsageLimitLatchMatch>,
     /// `Some(origin)` when a scoped recheck (stale-latch or baseline) ran
     /// this cycle and wants to advance `resume_scan_origin` to it.
     pub(crate) origin_update: Option<(u64, u64)>,
@@ -133,7 +142,10 @@ impl CapacityState {
         &self,
         line_count: usize,
         scan_buf: &str,
-        mut scan: impl FnMut(std::ops::Range<usize>, &str) -> (bool, Option<String>),
+        mut scan: impl FnMut(
+            std::ops::Range<usize>,
+            &str,
+        ) -> (Option<UsageLimitLatchMatch>, Option<String>),
     ) -> CapacityObservation {
         let stale_recheck = self.at_usage_limit_latched
             && !self.capacity_check_pending
@@ -157,7 +169,8 @@ impl CapacityState {
         } else {
             (0..line_count, scan_buf)
         };
-        let (detected, reset_hint) = scan(range, raw);
+        let (latch_match, reset_hint) = scan(range, raw);
+        let detected = latch_match.is_some();
         CapacityObservation {
             at_usage_limit: if stale_recheck || baseline {
                 detected
@@ -165,6 +178,7 @@ impl CapacityState {
                 self.at_usage_limit_latched || detected
             },
             reset_hint,
+            latch_match,
             origin_update: (stale_recheck || (baseline && detected))
                 .then_some((self.output_lines_seen, self.scan_bytes_seen)),
             clear_latch: stale_recheck && !detected,
@@ -180,12 +194,31 @@ impl CapacityState {
     ) -> CapacityObservation {
         self.observe_with(snapshot.len(), scan_buf, |range, raw| {
             let lines = &snapshot[range];
-            (
-                crate::peon::detect_usage_limit(patterns, lines)
-                    || crate::peon::detect_usage_limit_raw(patterns, raw),
-                crate::peon::detect_usage_limit_hint(patterns, lines)
-                    .or_else(|| crate::peon::detect_usage_limit_hint_raw(patterns, raw)),
-            )
+            let mut line_match = None;
+            let mut hint = None;
+            for line in lines {
+                let (matched, line_hint) = crate::peon::capacity_line_evidence(patterns, line);
+                if matched.is_some() {
+                    line_match = matched;
+                }
+                if line_hint.is_some() {
+                    hint = line_hint;
+                }
+            }
+            let line_latch = line_match.map(|matched| UsageLimitLatchMatch {
+                pattern: matched.pattern,
+                matched_row: matched.matched_row,
+                source: crate::session_types::UsageLimitEvidenceSource::LineSnapshot,
+            });
+            let (raw_match, raw_hint) = crate::peon::capacity_line_evidence(patterns, raw);
+            let latch_match = line_latch.or_else(|| {
+                raw_match.map(|matched| UsageLimitLatchMatch {
+                    pattern: matched.pattern,
+                    matched_row: matched.matched_row,
+                    source: crate::session_types::UsageLimitEvidenceSource::RawScanBuffer,
+                })
+            });
+            (latch_match, hint.or(raw_hint))
         })
     }
 
@@ -409,6 +442,7 @@ mod tests {
         let obs = CapacityObservation {
             at_usage_limit: true,
             reset_hint: None,
+            latch_match: None,
             origin_update: None,
             clear_latch: false,
         };
@@ -425,6 +459,7 @@ mod tests {
         let obs = CapacityObservation {
             at_usage_limit: false,
             reset_hint: None,
+            latch_match: None,
             origin_update: Some((3, 4)),
             clear_latch: true,
         };

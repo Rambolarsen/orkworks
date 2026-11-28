@@ -140,6 +140,12 @@ pub(crate) struct SessionInfo {
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) usage_limit_latched_at: Option<String>,
+    /// Read-only provenance for this session's own usage-limit latch
+    /// (issue #465): matched pattern, bounded ANSI-stripped row, scan source,
+    /// and output timestamp. Projection-only; absent for inherited peer
+    /// sessions and debug-injected capped states.
+    #[serde(rename = "usageLimitEvidence", skip_serializing_if = "Option::is_none")]
+    pub(crate) usage_limit_evidence: Option<UsageLimitEvidence>,
     #[serde(rename = "metadataSource")]
     pub(crate) metadata_source: Option<String>,
     #[serde(rename = "metadataConfidence")]
@@ -273,6 +279,7 @@ impl SessionInfo {
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
             usage_limit_latched_at: None,
+            usage_limit_evidence: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
@@ -307,6 +314,23 @@ impl SessionInfo {
             "creating" | "active" | "ending"
         )
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UsageLimitEvidenceSource {
+    LineSnapshot,
+    RawScanBuffer,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageLimitEvidence {
+    pub(crate) pattern: String,
+    pub(crate) matched_row: String,
+    pub(crate) source: UsageLimitEvidenceSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) observed_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -390,6 +414,7 @@ mod tests {
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
             usage_limit_latched_at: None,
+            usage_limit_evidence: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

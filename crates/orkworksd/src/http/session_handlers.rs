@@ -6087,11 +6087,14 @@ mod tests {
 
         {
             let mut sessions = state.sessions.lock().unwrap();
-            sessions
-                .get_mut(source_id)
-                .unwrap()
-                .capacity
-                .at_usage_limit_latched = true;
+            let source = sessions.get_mut(source_id).unwrap();
+            source.capacity.at_usage_limit_latched = true;
+            source.runtime.usage_limit_evidence = Some(crate::session_types::UsageLimitEvidence {
+                pattern: "usage limit reached".into(),
+                matched_row: "Usage limit reached".into(),
+                source: crate::session_types::UsageLimitEvidenceSource::LineSnapshot,
+                observed_at: Some("2026-08-01T08:00:00Z".into()),
+            });
             let peer = sessions.get_mut("claude-working-peer").unwrap();
             peer.capacity.at_usage_limit_latched = false;
             peer.runtime.usage_limit_latched_at = Some(
@@ -6117,11 +6120,9 @@ mod tests {
         .into_response();
 
         assert_eq!(response.status(), axum::http::StatusCode::OK);
-        assert!(
-            !state.sessions.lock().unwrap()[source_id]
-                .capacity
-                .at_usage_limit_latched
-        );
+        let sessions = state.sessions.lock().unwrap();
+        assert!(!sessions[source_id].capacity.at_usage_limit_latched);
+        assert_eq!(sessions[source_id].runtime.usage_limit_evidence, None);
     }
 
     #[tokio::test]

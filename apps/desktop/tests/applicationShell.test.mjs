@@ -656,6 +656,27 @@ if (process.versions.electron) {
         assert.match(await evaluate('document.querySelector(".detail-badge").textContent'), /Capped · resets 3pm/);
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
+      } else if (scenario === 'session-capped-evidence') {
+        // Issue #465: a capped session with its own latch provenance shows
+        // the matched row, pattern, scan source, and timestamp in Session
+        // info, updates on reconfirmation, and clears when unlatched or
+        // inherited without own evidence.
+        await evaluate(`fixture.setSessionState({attention:"capped",usageLimitEvidence:{pattern:"usage limit reached",matchedRow:"Usage limit reached · resets 3pm",source:"line_snapshot",observedAt:new Date(Date.now()-1800000).toISOString()}})`);
+        await click('details');
+        await evaluate('document.querySelector(".session-info summary").click()');
+        await waitFor('document.querySelector(".usage-limit-evidence-row")?.textContent.includes("Usage limit reached")');
+        assert.equal(await evaluate('document.querySelector(".usage-limit-evidence-row").textContent'), 'Usage limit reached · resets 3pm');
+        assert.match(await evaluate('document.querySelector(".usage-limit-evidence-meta").textContent'), /Pattern “usage limit reached” · line snapshot · .* ago/);
+        await evaluate(`fixture.setSessionState({attention:"capped",usageLimitEvidence:{pattern:"rate limit exceeded",matchedRow:"Rate limit exceeded · resets 4pm",source:"raw_scan_buffer"}})`);
+        await waitFor('document.querySelector(".usage-limit-evidence-row")?.textContent.includes("Rate limit exceeded")');
+        assert.equal(await evaluate('document.querySelector(".usage-limit-evidence-row").textContent'), 'Rate limit exceeded · resets 4pm');
+        assert.match(await evaluate('document.querySelector(".usage-limit-evidence-meta").textContent'), /Pattern “rate limit exceeded” · raw scan buffer/);
+        await evaluate('fixture.setSessionState({attention:"idle"})');
+        await waitFor('!document.querySelector(".usage-limit-evidence")');
+        await evaluate('fixture.setSessionState({attention:"capped",usageLimitInherited:true,usageLimitResetHint:"resets 4pm"})');
+        assert.equal(await evaluate('!!document.querySelector(".usage-limit-evidence")'), false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'app-skills-picker') {
         await waitFor('document.querySelector(".workspace-picker-screen")');
         assert.equal(await evaluate('Array.from(document.querySelectorAll(".workspace-picker-screen button")).some(button => button.textContent.trim() === "Skills")'), false);
@@ -3290,7 +3311,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','copy-continuation-prompt','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','copy-continuation-prompt','session-capacity-inherited','session-capacity-checking','session-capped-aging','session-capped-evidence','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
@@ -3671,7 +3692,7 @@ if (process.versions.electron) {
               navigation={{
                 centralSurface:reviewing ? {kind:"review",sessionId:activeSessionId,artifactId:"plan"} : {kind:"terminal",sessionId:activeSessionId},
                 inspector,
-                visibleSubjectId:['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(${javascriptLiteral(scenario)})?activeSessionId:null,
+                visibleSubjectId:['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging','session-capped-evidence'].includes(${javascriptLiteral(scenario)})?activeSessionId:null,
                 onInspect:setInspector,
                 onRegisterCommand,
               }}
@@ -3713,7 +3734,7 @@ if (process.versions.electron) {
           builder.onLoad({filter:/.*/,namespace:'no-gpu'},()=>({contents:'export class WebglAddon { constructor(){throw new Error("GPU unavailable in headless fixture")} }',loader:'js'}));
           // Panel bodies connect to the backend/PTY; retain real React shell and terminal ownership.
           builder.onResolve({ filter: /^\.\/(SessionDetailPanel|RecommendationsPanel)$/ },
-            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging'].includes(scenario)) && args.path === './SessionDetailPanel') || ((scenario.startsWith('recommendation-action-') || ['app-review-inert-improvement','inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario)) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
+            args => ((scenario.startsWith('app-review') || ['resume-session','session-title','session-menu','session-capacity-inherited','session-capacity-checking','session-capped-aging','session-capped-evidence'].includes(scenario)) && args.path === './SessionDetailPanel') || ((scenario.startsWith('recommendation-action-') || ['app-review-inert-improvement','inspector-overlay','recommendation-status-error','recommendations-inbox'].includes(scenario)) && args.path === './RecommendationsPanel') ? undefined : ({ path: args.path, namespace: 'empty-panel' }));
           builder.onLoad({ filter: /.*/, namespace: 'empty-panel' },
             () => ({ contents: 'export default function Panel(){return null}', loader: 'tsx', resolveDir: root }));
 

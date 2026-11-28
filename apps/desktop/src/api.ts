@@ -30,6 +30,13 @@ export type SessionLifecycle = "creating" | "alive" | "stopping" | "dead";
 export type SessionAttention = "working" | "idle" | "needs_you" | "blocked" | "failed" | "capped";
 export type PeonSchedulerState = "idle" | "candidate" | "in_flight" | "completed" | "failed";
 
+export interface UsageLimitEvidence {
+  pattern: string;
+  matchedRow: string;
+  source: "line_snapshot" | "raw_scan_buffer";
+  observedAt?: string;
+}
+
 export interface PeonDiagnostics {
   schedulerState: PeonSchedulerState;
   reason: string | null;
@@ -119,6 +126,10 @@ export interface SessionInfo {
   /** RFC3339 time of this session's own most recent usage-limit detection,
    *  present only while its own atUsageLimit is true. */
   usageLimitLatchedAt?: string;
+  /** Read-only provenance for this session's own usage-limit latch
+   *  (issue #465): matched pattern, bounded ANSI-stripped row, scan source,
+   *  and output timestamp. Absent for inherited peers. */
+  usageLimitEvidence?: UsageLimitEvidence;
   peonLastInference?: string;
   peonDiagnostics?: PeonDiagnostics | null;
   metadataSource?: string;

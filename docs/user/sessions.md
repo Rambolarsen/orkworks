@@ -317,7 +317,10 @@ beside capped tools, or **reset time unknown** when no hint is available. These
 are reported hints, not a guarantee that capacity has recovered. The
 badge is framed by when the limit was detected — **Capped · detected \<time\>
 ago** — so an old latch is never presented as a current fact, even after the
-printed reset time has passed. Sessions
+printed reset time has passed. Expanding **Session info** on the detecting
+session also shows **Capped evidence** (the bounded terminal row, matched
+pattern, scan source, and output timestamp); this clears when the latch clears
+and is omitted on inherited peer displays. Sessions
 sharing one coding tool show a limit detected in any one of them as Capped with
 an "inherited" mark; the mark clears when the detecting session recovers. A
 resumed session whose limit status is not yet known shows a muted **Checking

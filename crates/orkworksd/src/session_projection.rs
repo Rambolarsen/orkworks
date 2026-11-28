@@ -1172,6 +1172,7 @@ impl SessionProjection {
                     handle.info.clone(),
                     handle.capacity.clone(),
                     handle.runtime.usage_limit_latched_at,
+                    handle.runtime.usage_limit_evidence.clone(),
                 )
             })
             .collect();
@@ -1195,7 +1196,7 @@ impl SessionProjection {
         let mut pending_transitions: Vec<(String, bool)> = Vec::new();
         let capacity_infos: Vec<SessionInfo> = live_sessions
             .into_iter()
-            .map(|(info, capacity, latched_at)| {
+            .map(|(info, capacity, latched_at, retained_evidence)| {
                 let id = info.id.clone();
                 let live_harness_id = info.harness_id.clone();
                 let mut merged = projected_infos
@@ -1217,6 +1218,7 @@ impl SessionProjection {
                     resolved_harness.map(|_| crate::capacity_state::CapacityObservation {
                         at_usage_limit: capacity.at_usage_limit_latched,
                         reset_hint: merged.usage_limit_reset_hint.clone(),
+                        latch_match: None,
                         origin_update: None,
                         clear_latch: false,
                     })
@@ -1233,12 +1235,16 @@ impl SessionProjection {
                     merged.usage_limit_reset_hint = detected_reset_hint;
                 }
                 merged.capacity_check_pending = capacity.rendered_check_pending();
-                // Projected only for this session's own latch (issue #1082:
-                // the aged "Capped · detected <time> ago" display needs the
-                // detection time; inherited peer displays deliberately have
-                // no own latch timestamp to age).
+                // Projected only for this session's own latch (issue #1082,
+                // issue #465: inherited peer displays deliberately have no
+                // own latch timestamp or trigger evidence).
                 merged.usage_limit_latched_at = if merged.at_usage_limit == Some(true) {
                     latched_at.map(|timestamp| timestamp.to_rfc3339())
+                } else {
+                    None
+                };
+                merged.usage_limit_evidence = if merged.at_usage_limit == Some(true) {
+                    retained_evidence
                 } else {
                     None
                 };
@@ -1270,6 +1276,7 @@ impl SessionProjection {
             info.capacity_check_pending = capacity_info.capacity_check_pending;
             info.usage_limit_reset_hint = capacity_info.usage_limit_reset_hint.clone();
             info.usage_limit_latched_at = capacity_info.usage_limit_latched_at.clone();
+            info.usage_limit_evidence = capacity_info.usage_limit_evidence.clone();
             if capacity_info.at_usage_limit == Some(true) && info.lifecycle == "alive" {
                 info.attention = capacity_info.attention.clone();
             }
@@ -1337,6 +1344,8 @@ impl SessionProjection {
         }
         let mut write_back_snapshot_ids = HashSet::new();
         let mut refreshed_stamps: HashMap<String, String> = HashMap::new();
+        let mut refreshed_evidence: HashMap<String, crate::session_types::UsageLimitEvidence> =
+            HashMap::new();
         for info in &infos {
             if let Some(handle) = sessions.get_mut(&info.id) {
                 if !input_guards.contains_key(&info.id) {
@@ -1351,6 +1360,7 @@ impl SessionProjection {
                         .or_else(|| own_capped.get(&info.id).copied().flatten())
                         .unwrap_or(false),
                     reset_hint: None,
+                    latch_match: None,
                     origin_update: scoped_observation.and_then(|o| o.origin_update),
                     clear_latch: scoped_observation.is_some_and(|o| o.clear_latch),
                 };
@@ -1362,10 +1372,11 @@ impl SessionProjection {
                     own_reset_hints.get(&info.id).cloned().flatten();
                 // A scoped fresh-output recheck that confirms the limit while
                 // the latch was already set (numbered issue #1082) is the most
-                // recent detection too: refresh the stamp so the aged display
-                // never frames fresh rejections with the older time. A
-                // baseline first detection already stamps via
-                // `newly_latched`; a clean recheck (clear_latch) never stamps.
+                // recent detection too: refresh the stamp and provenance so
+                // the display never frames fresh rejections with older data. A
+                // baseline first detection already stamps via `newly_latched`;
+                // a clean recheck (`clear_latch`) clears both stamp and
+                // provenance (issue #465).
                 let reconfirmed_by_recheck = !newly_latched
                     && final_observation.origin_update.is_some()
                     && final_observation.at_usage_limit
@@ -1381,16 +1392,36 @@ impl SessionProjection {
                     if let Some(refreshed) = refreshed {
                         refreshed_stamps.insert(info.id.clone(), refreshed.to_rfc3339());
                     }
+                    let evidence = scoped_observation
+                        .and_then(|observation| observation.latch_match.as_ref())
+                        .map(|matched| crate::session_types::UsageLimitEvidence {
+                            pattern: matched.pattern.clone(),
+                            matched_row: matched.matched_row.clone(),
+                            source: matched.source,
+                            observed_at: refreshed.map(|timestamp| timestamp.to_rfc3339()),
+                        });
+                    handle.runtime.usage_limit_evidence = evidence.clone();
+                    if let Some(evidence) = evidence {
+                        refreshed_evidence.insert(info.id.clone(), evidence);
+                    }
+                } else if final_observation.clear_latch {
+                    handle.runtime.usage_limit_latched_at = None;
+                    handle.runtime.usage_limit_evidence = None;
                 }
             }
         }
         // Same-cycle consistency: the projection values above were built
-        // from the pre-write-back runtime stamp; a fresh detection (or the
-        // re-check confirmation above) is the detection time this very
-        // listing already displays.
+        // from the pre-write-back runtime state; a fresh detection (or the
+        // re-check confirmation above) is the detection time and evidence
+        // this very listing already displays.
         for (id, value) in refreshed_stamps {
             if let Some(entry) = infos.iter_mut().find(|info| info.id == id) {
                 entry.usage_limit_latched_at = Some(value);
+            }
+        }
+        for (id, value) in refreshed_evidence {
+            if let Some(entry) = infos.iter_mut().find(|info| info.id == id) {
+                entry.usage_limit_evidence = Some(value);
             }
         }
         harness_capped.clear();
@@ -2075,6 +2106,149 @@ mod tests {
             !sessions["cap-peer"].capacity.at_usage_limit_latched,
             "the peer still holds no latch after the sibling recovers"
         );
+        assert_eq!(sessions["lag-test"].runtime.usage_limit_latched_at, None);
+        assert_eq!(sessions["lag-test"].runtime.usage_limit_evidence, None);
+    }
+
+    #[test]
+    fn usage_limit_evidence_records_updates_and_clears_across_latch_lifecycle() {
+        let (_dir, state, _receiver) = input_fixture();
+        let (peer_runtime, _peer_rx) =
+            crate::runtime::session_runtime::SessionRuntime::live(24, 80);
+        let peer_info = {
+            let mut info = crate::test_support::test_session_info(
+                "cap-peer",
+                "Peer",
+                _dir.path().display().to_string(),
+                "running",
+                "now",
+            );
+            info.harness_id = Some("opencode".into());
+            info.harness = Some("opencode".into());
+            info.attention = Some("working".into());
+            info
+        };
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let source = sessions.get_mut("lag-test").unwrap();
+            source.info.harness_id = Some("opencode".into());
+            source.info.harness = Some("opencode".into());
+            source.info.last_output_at = Some("2026-11-04T20:00:00Z".into());
+            source
+                .output_buffer
+                .push("\x1b[31mUsage limit reached · resets in 2h\x1b[0m".into());
+            source.capacity.record_output(1, 0);
+
+            sessions.insert(
+                "cap-peer".into(),
+                crate::SessionHandle {
+                    info: peer_info,
+                    runtime: peer_runtime,
+                    kill_tx: tokio::sync::watch::channel(false).0,
+                    active_work_hook: false,
+                    output_buffer: crate::peon::RingBuffer::new(200),
+                    scan_buf: String::new(),
+                    pending_work_signal: None,
+                    terminal_attached: false,
+                    resume_in_progress: false,
+                    capacity: Default::default(),
+                },
+            );
+        }
+        let projection = SessionProjection::new(state.clone());
+
+        // 1. Initial latch captures ANSI-stripped row, pattern, line_snapshot source, and timestamp.
+        let initial = projection.list().unwrap();
+        let source = initial.iter().find(|info| info.id == "lag-test").unwrap();
+        let peer = initial.iter().find(|info| info.id == "cap-peer").unwrap();
+        let expected_initial = crate::session_types::UsageLimitEvidence {
+            pattern: "usage limit reached".into(),
+            matched_row: "Usage limit reached · resets in 2h".into(),
+            source: crate::session_types::UsageLimitEvidenceSource::LineSnapshot,
+            observed_at: Some("2026-11-04T20:00:00+00:00".into()),
+        };
+        assert_eq!(
+            source.usage_limit_evidence.as_ref(),
+            Some(&expected_initial)
+        );
+        assert_eq!(peer.usage_limit_inherited, Some(true));
+        assert_eq!(
+            peer.usage_limit_evidence, None,
+            "inherited peer display must not claim the detecting sibling's evidence"
+        );
+        let wire = serde_json::to_value(source).unwrap();
+        assert_eq!(
+            wire["usageLimitEvidence"],
+            serde_json::json!({
+                "pattern": "usage limit reached",
+                "matchedRow": "Usage limit reached · resets in 2h",
+                "source": "line_snapshot",
+                "observedAt": "2026-11-04T20:00:00+00:00",
+            })
+        );
+
+        // 2. While still latched without a recheck, retained evidence survives scrolling past the banner.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.output_buffer = crate::peon::RingBuffer::new(200);
+            handle
+                .output_buffer
+                .push("ordinary scrolling output".into());
+            handle.capacity.record_output(1, 0);
+        }
+        let still_latched = projection.list().unwrap();
+        let source = still_latched
+            .iter()
+            .find(|info| info.id == "lag-test")
+            .unwrap();
+        assert_eq!(source.at_usage_limit, Some(true));
+        assert_eq!(
+            source.usage_limit_evidence.as_ref(),
+            Some(&expected_initial)
+        );
+
+        // 3. Recheck reconfirmation from the raw scan buffer updates evidence source, row, pattern, and timestamp.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.capacity.accepted_input();
+            handle.info.last_output_at = Some("2026-11-04T20:10:00Z".into());
+            let raw_chunk = "\x1b[2;1H│ OpenCode Go weekly usage limit reached · resets 4pm";
+            handle.scan_buf.push_str(raw_chunk);
+            handle.capacity.record_output(0, raw_chunk.len() as u64);
+        }
+        let reconfirmed = projection.list().unwrap();
+        let source = reconfirmed
+            .iter()
+            .find(|info| info.id == "lag-test")
+            .unwrap();
+        assert_eq!(
+            source.usage_limit_evidence,
+            Some(crate::session_types::UsageLimitEvidence {
+                pattern: "OpenCode Go weekly usage limit reached".into(),
+                matched_row: "│ OpenCode Go weekly usage limit reached · resets 4pm".into(),
+                source: crate::session_types::UsageLimitEvidenceSource::RawScanBuffer,
+                observed_at: Some("2026-11-04T20:10:00+00:00".into()),
+            })
+        );
+
+        // 4. Clean recheck clears both the latch and its retained evidence.
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("lag-test").unwrap();
+            handle.capacity.accepted_input();
+            handle.output_buffer.push("fresh normal output".into());
+            handle.capacity.record_output(1, 0);
+        }
+        let cleared = projection.list().unwrap();
+        let source = cleared.iter().find(|info| info.id == "lag-test").unwrap();
+        assert_eq!(source.at_usage_limit, Some(false));
+        assert_eq!(source.usage_limit_evidence, None);
+        assert_eq!(source.usage_limit_latched_at, None);
+        let sessions = state.sessions.lock().unwrap();
+        assert_eq!(sessions["lag-test"].runtime.usage_limit_evidence, None);
+        assert_eq!(sessions["lag-test"].runtime.usage_limit_latched_at, None);
     }
 
     #[test]
