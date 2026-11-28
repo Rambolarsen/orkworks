@@ -3,16 +3,18 @@ type: Design
 title: Auto-archive, favorites, and staged session retention
 description: Proposed staged session retention lifecycle replacing legacy max-sessions/max-age deletion with default-on auto-archive, active-session idle warnings, favorites, and archived deletion.
 tags: [orkworks, sessions, archive, retention, lifecycle]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Auto-archive, favorites, and staged session retention
 
-Status: proposed; owner approval and updates to the
+Status: owner approved on 2026-11-28; runtime implementation has not started and
+remains gated on the linked
+[implementation plan](../plans/2026-11-28-auto-archive-favorites-retention.md),
+tracking issue, ADR, and updates to the
 [session archive design](2026-10-18-session-archive.md) and
-[MVP specification](../../../specs/orkworks-mvp.md) are required before runtime
-implementation.
+[MVP specification](../../../specs/orkworks-mvp.md).
 
 This design pairs with
 [Opt-in worktree launch for new agent sessions](2026-11-28-new-session-worktree-design.md).

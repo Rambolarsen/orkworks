@@ -3,15 +3,17 @@ type: Design
 title: Opt-in worktree launch for new agent sessions
 description: Proposed opt-in worktree provisioning, hook reconciliation, agent handoff, and safe archive-time cleanup for new sessions.
 tags: [orkworks, sessions, git, worktrees, desktop]
-status: draft
-workflow_status: proposed
+status: stable
+workflow_status: approved
 ---
 
 # Opt-in worktree launch for new agent sessions
 
-Status: proposed; owner approval, an amendment to [ADR 0008](../../adr/0008-git-context-detection-not-control.md),
-and a scope update to [the MVP specification](../../../specs/orkworks-mvp.md) are
-required before runtime implementation.
+Status: owner approved on 2026-11-28; runtime implementation has not started and
+remains gated on the linked
+[implementation plan](../plans/2026-11-28-new-session-worktree.md), tracking
+issue, an amendment to [ADR 0008](../../adr/0008-git-context-detection-not-control.md),
+and a scope update to [the MVP specification](../../../specs/orkworks-mvp.md).
 
 This design works alongside [Auto-archive, favorites, and staged session retention](2026-11-28-auto-archive-favorites-retention-design.md),
 which introduces the shared `OrganizationStore` v2 record and archive-time
