@@ -427,6 +427,28 @@ If the checkout, branch, and any number given still don't converge on exactly
 one PR, stop and ask the user for the PR number or URL rather than acting on
 an assumed target.
 
+For a PR worktree, store the resolved PR metadata’s `headRefOid` as
+`task_head_oid` and fetch its head through the authorized path for that exact
+repository. A later fetch from the same checkout can
+[overwrite `FETCH_HEAD`](https://git-scm.com/docs/git-fetch#Documentation/git-fetch.txt---append)
+even when this fetch succeeded and the PR head did not change. Linked
+worktrees have [separate per-worktree refs](https://git-scm.com/docs/git-worktree#_refs);
+the risk here is commands sharing a checkout, including the primary checkout
+before creating a worktree. A mismatch alone does not justify another fetch
+or authentication recovery.
+
+Before creating the checkout, verify the captured commit with
+`git cat-file -e "$task_head_oid^{commit}"` and re-read the PR's `headRefOid`.
+If the object is missing or the PR head changed, refresh the resolved target
+and fetch, then repeat both checks. Proceed only when the commit exists and
+the latest PR head matches it. A failed fetch still stops setup until access
+is resolved. Use that full commit ID as the worktree start point. Choose an
+owned `task_worktree` path and new `task_branch` under [starting-work](https://github.com/Rambolarsen/orkworks/blob/main/skills/starting-work/SKILL.md):
+
+```bash
+git worktree add "$task_worktree" -b "$task_branch" "$task_head_oid"
+```
+
 After a concrete PR merges, run the repository cleanup helper from the
 repository root:
 
