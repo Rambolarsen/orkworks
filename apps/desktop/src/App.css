@@ -1607,6 +1607,8 @@ dialog.modal-backdrop::backdrop { background: transparent; }
   cursor: pointer;
   scroll-margin-top: 26px;
   scroll-margin-bottom: var(--space-2);
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 20px;
 }
 
 .session-row:hover { background: var(--border-subtle); }

@@ -55,11 +55,45 @@ interface SessionListRowProps {
   activityTime: string;
   itemRefs: Map<string, HTMLLIElement>;
   onSelect: (id: string) => void;
-  onOpenMenu: (session: SessionInfo, x: number, y: number, invoker: HTMLElement | null) => void;
+  onOpenMenu: (sessionId: string, x: number, y: number, invoker: HTMLElement | null) => void;
 }
 
-// Pushed deltas retain unchanged session objects. Keep their row contents out
-// of background renders so large histories do not delay terminal interaction.
+export function areSessionListRowPropsEqual(prev: SessionListRowProps, next: SessionListRowProps): boolean {
+  if (
+    prev.selected !== next.selected ||
+    prev.isUnread !== next.isUnread ||
+    prev.acknowledged !== next.acknowledged ||
+    prev.pendingAction !== next.pendingAction ||
+    prev.resuming !== next.resuming ||
+    prev.menuOpen !== next.menuOpen ||
+    prev.harnesses !== next.harnesses ||
+    prev.activityTime !== next.activityTime ||
+    prev.itemRefs !== next.itemRefs ||
+    prev.onSelect !== next.onSelect ||
+    prev.onOpenMenu !== next.onOpenMenu
+  ) {
+    return false;
+  }
+  if (prev.session === next.session) return true;
+  const a = prev.session;
+  const b = next.session;
+  return (
+    a.id === b.id &&
+    a.label === b.label &&
+    a.lifecycle === b.lifecycle &&
+    a.sessionState === b.sessionState &&
+    a.terminalOutcome === b.terminalOutcome &&
+    a.attention === b.attention &&
+    a.usageLimitInherited === b.usageLimitInherited &&
+    a.capacityCheckPending === b.capacityCheckPending &&
+    a.harness === b.harness &&
+    a.harnessId === b.harnessId
+  );
+}
+
+// Pushed deltas retain unchanged session objects, and enrichment/freshness churn
+// does not affect list row visuals. Keep unaffected rows out of background renders
+// so large histories do not delay terminal interaction.
 // Pass the displayed age text so clock ticks only redraw labels that changed.
 const SessionListRow = memo(function SessionListRow({
   session: s, selected, isUnread, acknowledged, pendingAction, resuming,
@@ -79,12 +113,13 @@ const SessionListRow = memo(function SessionListRow({
   // Display name, never the raw harness id — ids leak into the
   // icon tooltip/aria-label otherwise.
   const tool = harnessDisplayName(harnesses, sessionCodingTool(s));
+  const setItemRef = useCallback((el: HTMLLIElement | null) => {
+    if (el) itemRefs.set(s.id, el);
+    else itemRefs.delete(s.id);
+  }, [itemRefs, s.id]);
   return (
     <li
-      ref={(el) => {
-        if (el) itemRefs.set(s.id, el);
-        else itemRefs.delete(s.id);
-      }}
+      ref={setItemRef}
       className={[
         "session-row",
         remembered ? "session-row--remembered" : "",
@@ -96,12 +131,12 @@ const SessionListRow = memo(function SessionListRow({
       aria-busy={!!pendingAction}
       data-attention={tone}
       onClick={() => onSelect(s.id)}
-      onContextMenu={event => { event.preventDefault(); onOpenMenu(s, event.clientX, event.clientY, event.currentTarget.querySelector<HTMLButtonElement>(".session-row-more")); }}
+      onContextMenu={event => { event.preventDefault(); onOpenMenu(s.id, event.clientX, event.clientY, event.currentTarget.querySelector<HTMLButtonElement>(".session-row-more")); }}
       onKeyDown={event => {
         if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
           event.preventDefault(); event.stopPropagation();
           const bounds = event.currentTarget.getBoundingClientRect();
-          onOpenMenu(s, bounds.left, bounds.bottom, event.target as HTMLElement);
+          onOpenMenu(s.id, bounds.left, bounds.bottom, event.target as HTMLElement);
         }
       }}
     >
@@ -149,12 +184,12 @@ const SessionListRow = memo(function SessionListRow({
           onClick={event => {
             event.stopPropagation();
             const bounds = event.currentTarget.getBoundingClientRect();
-            onOpenMenu(s, bounds.left, bounds.bottom, event.currentTarget);
+            onOpenMenu(s.id, bounds.left, bounds.bottom, event.currentTarget);
           }}><MoreHorizontal size={16} /></button>
       </div>
     </li>
   );
-});
+}, areSessionListRowPropsEqual);
 
 function SessionListPanel({
   workspace,
@@ -224,7 +259,11 @@ function SessionListPanel({
     (listRef.current ?? filterRef.current)?.focus();
     return false;
   }, []);
-  const openMenu = useCallback((session: SessionInfo, x: number, y: number, invoker: HTMLElement | null) => {
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const openMenu = useCallback((sessionId: string, x: number, y: number, invoker: HTMLElement | null) => {
+    const session = sessionsRef.current.find((item) => item.id === sessionId);
+    if (!session) return;
     setError(null);
     menuRef.current = { session, x, y, invoker };
     setMenu(menuRef.current);
@@ -271,7 +310,7 @@ function SessionListPanel({
       if (target) {
         e.preventDefault();
         const row = itemRefs.current.get(target.id)?.getBoundingClientRect();
-        openMenu(target, row?.left ?? 0, row?.bottom ?? 0, listRef.current);
+        openMenu(target.id, row?.left ?? 0, row?.bottom ?? 0, listRef.current);
       }
       return;
     }
@@ -343,4 +382,4 @@ function SessionListPanel({
   );
 }
 
-export default SessionListPanel;
+export default memo(SessionListPanel);

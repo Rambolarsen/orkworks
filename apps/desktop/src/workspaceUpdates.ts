@@ -20,6 +20,25 @@ function withoutEnrichment(row: SessionInfo): Record<string, unknown> {
   delete copy.enrichment;
   return copy;
 }
+function enrichmentValueEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function sameEnrichment(
+  old: SessionInfo,
+  data: Record<string, unknown>,
+  nextFreshness: NonNullable<SessionInfo["enrichment"]>,
+): boolean {
+  if (old.enrichment?.state !== nextFreshness.state || old.enrichment?.checkedAt !== nextFreshness.checkedAt) {
+    return false;
+  }
+  const previous = old as unknown as Record<string, unknown>;
+  for (const field of enrichmentFields) {
+    if (!enrichmentValueEqual(previous[field], data[field])) return false;
+  }
+  return true;
+}
 interface Result { sessions?: SessionInfo[]; recommendationsInvalidated?: boolean }
 const invalid = (): never => { throw new Error("Workspace update requires resynchronization"); };
 const record = (value: unknown): Record<string, unknown> => {
@@ -84,8 +103,10 @@ export function createStreamState(workspacePath: string) {
         const old = next.get(update.id);
         if (!old || update.revision !== old.enrichmentRevision
           || Object.keys(data).some(key => !enrichmentFields.includes(key as typeof enrichmentFields[number]))) return invalid();
-        const info = rows([{ ...withoutEnrichment(old), ...data,
-          enrichment: freshness({ state: update.state, checkedAt: update.checkedAt }) }])[0];
+        const nextFreshness = freshness({ state: update.state, checkedAt: update.checkedAt });
+        if (typeof data.cwd !== "string") return invalid();
+        if (sameEnrichment(old, data, nextFreshness)) continue;
+        const info = rows([{ ...withoutEnrichment(old), ...data, enrichment: nextFreshness }])[0];
         next.set(old.id, info);
       }
       baseline = [...next.values()]; sequence++;
@@ -120,16 +141,32 @@ export function createStreamState(workspacePath: string) {
     baseline = result; sequence++;
     return { sessions: result };
   }, expire(now: number): Result {
-    let changed = false;
+    let anyExpired = false;
+    for (const row of baseline) {
+      if (row.enrichment?.state === "ready" && typeof row.enrichment.checkedAt === "number"
+        && Number.isFinite(row.enrichment.checkedAt) && now - row.enrichment.checkedAt >= 5000) {
+        anyExpired = true;
+        break;
+      }
+    }
+    if (!anyExpired) return {};
     const next = baseline.map(row => {
-      if (row.enrichment?.state !== "ready" || row.enrichment.checkedAt === null
-        || now - row.enrichment.checkedAt < 5000) return row;
-      changed = true;
+      if (row.enrichment?.state !== "ready" || typeof row.enrichment.checkedAt !== "number"
+        || !Number.isFinite(row.enrichment.checkedAt) || now - row.enrichment.checkedAt < 5000) return row;
       return { ...row, enrichment: { ...row.enrichment, state: "stale" as const } };
     });
-    if (!changed) return {};
     baseline = next;
     return { sessions: baseline };
+  }, nextExpiryAt(): number | null {
+    let earliest: number | null = null;
+    for (const row of baseline) {
+      if (row.enrichment?.state === "ready" && typeof row.enrichment.checkedAt === "number"
+        && Number.isFinite(row.enrichment.checkedAt)) {
+        const deadline = row.enrichment.checkedAt + 5000;
+        if (earliest === null || deadline < earliest) earliest = deadline;
+      }
+    }
+    return earliest;
   } };
 }
 
@@ -178,13 +215,21 @@ export function startWorkspaceUpdates(options: Options): { dispose(): void; resy
       const candidate = (options.createSocket ?? openBackendSocket)(url.toString());
       socket = candidate;
       const state = createStreamState(options.workspacePath);
-      const expire = () => {
+      const armExpiry = () => {
         if (disposed || current !== epoch) return;
-        const result = state.expire(Date.now());
-        if (result.sessions) options.onSessions(result.sessions);
-        expiry = scheduler.set(expire, 1000);
+        scheduler.clear(expiry);
+        expiry = undefined;
+        const nextAt = state.nextExpiryAt();
+        if (nextAt === null) return;
+        const delay = Math.min(2_147_483_647, Math.max(0, nextAt - Date.now()));
+        expiry = scheduler.set(() => {
+          expiry = undefined;
+          if (disposed || current !== epoch) return;
+          const result = state.expire(Date.now());
+          if (result.sessions) options.onSessions(result.sessions);
+          armExpiry();
+        }, delay);
       };
-      expiry = scheduler.set(expire, 1000);
       armHeartbeat(current);
       candidate.onmessage = event => {
         if (disposed || current !== epoch) return;
@@ -198,7 +243,10 @@ export function startWorkspaceUpdates(options: Options): { dispose(): void; resy
           const result = state.apply(message);
           // Fence an older REST query before publishing the first stream snapshot.
           if (!healthy) { setHealthy(true); attempt = 0; }
-          if (result.sessions) options.onSessions(result.sessions);
+          if (result.sessions) {
+            options.onSessions(result.sessions);
+            armExpiry();
+          }
           if (result.recommendationsInvalidated) options.onRecommendationsInvalidated();
           armHeartbeat(current);
         } catch { fail(current); }

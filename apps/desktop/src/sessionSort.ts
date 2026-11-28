@@ -47,18 +47,27 @@ export function mergeSessionsById(
   if (existing.length === 0) {
     return [sortSessions([...incoming]), now];
   }
-  const existingIds = new Set(existing.map((session) => session.id));
-  const incomingMap = new Map(incoming.map((session) => [session.id, session]));
-  const incomingIds = new Set(incomingMap.keys());
-  const idsChanged =
-    existingIds.size !== incomingIds.size ||
-    [...existingIds].some((id) => !incomingIds.has(id));
-  const updated = existing
-    .filter((session) => incomingMap.has(session.id))
-    .map((session) => incomingMap.get(session.id)!);
-  const added = [...incomingMap.values()].filter((session) => !existingIds.has(session.id));
+  const incomingMap = new Map<string, SessionInfo>();
+  for (const session of incoming) {
+    incomingMap.set(session.id, session);
+  }
+  const updated: SessionInfo[] = [];
+  let removedAny = false;
+  for (const session of existing) {
+    const next = incomingMap.get(session.id);
+    if (next !== undefined) {
+      updated.push(next);
+      incomingMap.delete(session.id);
+    } else {
+      removedAny = true;
+    }
+  }
+  const idsChanged = removedAny || incomingMap.size > 0;
   if (idsChanged || now.getTime() - lastResortAt.getTime() >= THROTTLE_MS) {
-    return [sortSessions([...updated, ...added]), now];
+    for (const added of incomingMap.values()) {
+      updated.push(added);
+    }
+    return [sortSessions(updated), now];
   }
   return [updated, lastResortAt];
 }
