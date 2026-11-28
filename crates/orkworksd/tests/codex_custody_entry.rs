@@ -71,6 +71,44 @@ fn sidecar_worker_keeps_its_channel_after_startup_and_drains_on_eof() {
     check_entry_rejections(&tag);
 }
 
+#[test]
+#[ignore = "requires the explicit compile-time macOS qualification build"]
+fn sidecar_workers_reach_readiness_and_drain_independently() {
+    assert!(
+        qualification_contract::enabled(),
+        "rebuild with ORKWORKS_CUSTODY_QUALIFICATION=1"
+    );
+    let pairs = channels::seal_empty_channels().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let tag = qualification_tag();
+
+    // Start all four before any can receive a challenge.
+    let mut workers = pairs
+        .into_iter()
+        .map(|pair| start(pair, deadline).unwrap())
+        .collect::<Vec<_>>();
+    for (stream, _) in &mut workers {
+        exchange(stream, &tag, deadline);
+    }
+
+    for (_, child) in &mut workers {
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "worker exited after readiness"
+        );
+    }
+    while let Some((stream, mut child)) = workers.pop() {
+        drop(stream);
+        assert!(child.wait_until(deadline).unwrap().success());
+        for (_, sibling) in &mut workers {
+            assert!(
+                sibling.0.try_wait().unwrap().is_none(),
+                "closing another worker's channel ended this worker"
+            );
+        }
+    }
+}
+
 fn check_entry_rejections(tag: &[u8; 32]) {
     // These are independent refusal checks after the startup trials have
     // closed and reaped. All blank pairs are sealed before either launch.
