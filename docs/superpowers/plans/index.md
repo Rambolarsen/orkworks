@@ -4,6 +4,8 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Qualify the fixed five-resource Codex physical observer](2026-11-28-review-codex-five-resource-observer.md) — Bounded dormant macOS qualification plan for the fixed five-resource Codex observer, absence witness, and 18-FD/slot ADR 0122 restoration under #2304.
+
 - [Auto-archive, favorites, and staged session retention implementation](2026-11-28-auto-archive-favorites-retention.md) — Proposed OrganizationStore v2, Favorites, fail-closed staged retention settings, idle-active warnings, and workspace GC plan.
 
 - [Opt-in worktree launch for new agent sessions implementation](2026-11-28-new-session-worktree.md) — Proposed opt-in New Agent Session worktree provisioning, Git-safe hook reconciliation, agent handoff, and safe archive/delete cleanup plan.
