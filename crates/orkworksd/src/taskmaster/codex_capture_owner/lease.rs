@@ -37,9 +37,8 @@ pub(crate) const DEFAULT_OP_DEADLINE: Duration = Duration::from_secs(3);
 const SYNTHETIC_BIND_PEAK_RESOURCE_FDS: usize = 7;
 /// Steady-state bound charge: parent-retained roots (3) + worker copies (3).
 const SYNTHETIC_BOUND_RESOURCE_FDS: usize = 6;
-/// Worker-held roots (3) retained in ledger if parent roots are closed while
-/// worker cleanup remains unconfirmed.
-const WORKER_HELD_ROOT_FDS: usize = ROOT_ROLE_COUNT;
+/// Parent-retained live root descriptors owned by `BoundLease` (closed on drop).
+const PARENT_HELD_ROOT_FDS: usize = ROOT_ROLE_COUNT;
 const QUARANTINE_CLEANUP_WAIT: Duration = Duration::from_millis(250);
 const RETIRE_SHUTDOWN_BUDGET: Duration = Duration::from_millis(500);
 
@@ -162,6 +161,12 @@ impl DescriptorLedger {
     pub(crate) fn set_slot_resources_down(&mut self, slot: usize, new_count: usize) {
         if slot < MAX_SLOTS && new_count <= self.slot_resources[slot] {
             self.slot_resources[slot] = new_count;
+        }
+    }
+
+    pub(crate) fn release_slot_resources_by(&mut self, slot: usize, delta: usize) {
+        if slot < MAX_SLOTS {
+            self.slot_resources[slot] = self.slot_resources[slot].saturating_sub(delta);
         }
     }
 
@@ -510,12 +515,12 @@ impl LeasePool {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
                 drop(roots);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(err);
             }
             None => {
                 drop(roots);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(LeaseError::WorkerExited);
             }
         };
@@ -531,14 +536,14 @@ impl LeasePool {
             } if ack_id == lease_id && ack_lease_seq == lease_seq && ack_op_seq == op_seq => {
                 if root_identities != roots.identities() {
                     drop(roots);
-                    self.quarantine_and_record(slot);
+                    self.quarantine_and_record(slot, true);
                     return Err(LeaseError::ProtocolViolation);
                 }
                 match status {
                     BindStatus::Observed => {
                         self.ledger
                             .set_slot_resources_down(slot, SYNTHETIC_BOUND_RESOURCE_FDS);
-                        self.states[slot] = SlotLeaseState::Bound(BoundLease {
+                        let bound = BoundLease {
                             worker_boot_nonce,
                             worker_pid,
                             lease_id,
@@ -546,7 +551,16 @@ impl LeasePool {
                             last_op_seq: op_seq,
                             expires_at,
                             _roots: roots,
-                        });
+                        };
+                        // Recheck parent-authoritative expiry BEFORE publishing Bound
+                        // so a delayed BindObserved reply past TTL is immediately drained.
+                        if Instant::now() >= expires_at {
+                            self.states[slot] = SlotLeaseState::Draining;
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+                            let _ = self.execute_release(slot, bound, remaining);
+                            return Err(LeaseError::Expired);
+                        }
+                        self.states[slot] = SlotLeaseState::Bound(bound);
                         Ok(LeaseHandle {
                             pool_id: self.pool_id,
                             slot,
@@ -574,7 +588,7 @@ impl LeasePool {
             }
             _ => {
                 drop(roots);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 Err(LeaseError::ProtocolViolation)
             }
         }
@@ -598,15 +612,17 @@ impl LeasePool {
             return Err(LeaseError::Expired);
         }
 
-        // Check transient traversal FD headroom (+1 above steady-state 6 = 7 <= 12).
-        self.ledger.try_charge_slot_resources(slot, 1)?;
-
+        // Check checked op_seq before charging the transient traversal FD.
         let mut bound = self.take_bound_into_busy(slot);
         let Some(op_seq) = bound.last_op_seq.checked_add(1) else {
             drop(bound);
-            self.quarantine_and_record(slot);
+            self.quarantine_and_record(slot, true);
             return Err(LeaseError::SequenceExhausted);
         };
+        if let Err(err) = self.ledger.try_charge_slot_resources(slot, 1) {
+            self.states[slot] = SlotLeaseState::Bound(bound);
+            return Err(err);
+        }
         bound.last_op_seq = op_seq;
 
         let deadline = Instant::now() + op_deadline;
@@ -636,12 +652,12 @@ impl LeasePool {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(err);
             }
             None => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(LeaseError::WorkerExited);
             }
         };
@@ -690,14 +706,14 @@ impl LeasePool {
                     }
                     RevalidateVerdict::Invalid => {
                         drop(bound);
-                        self.quarantine_and_record(slot);
+                        self.quarantine_and_record(slot, true);
                         Err(LeaseError::ProtocolViolation)
                     }
                 }
             }
             _ => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 Err(LeaseError::ProtocolViolation)
             }
         }
@@ -725,13 +741,15 @@ impl LeasePool {
     /// Invalidates all live leases first, then shuts down and drains the exact
     /// owned worker children, retaining charges only for unconfirmed slots.
     pub(crate) fn shutdown(&mut self, budget: Duration) -> ShutdownReport {
-        for state in &mut self.states {
+        let mut dropped_parent_roots = [false; MAX_SLOTS];
+        for (slot, state) in self.states.iter_mut().enumerate() {
             if matches!(state, SlotLeaseState::Bound(_)) {
                 *state = SlotLeaseState::Draining;
+                dropped_parent_roots[slot] = true;
             }
         }
         let report = self.custody.shutdown(budget);
-        self.sync_after_shutdown();
+        self.sync_after_shutdown(&dropped_parent_roots);
         report
     }
 
@@ -757,19 +775,11 @@ impl LeasePool {
     }
 
     pub(crate) fn quarantine_slot_for_test(&mut self, slot: usize, cleanup_wait: Duration) {
-        if matches!(self.states.get(slot), Some(SlotLeaseState::Bound(_))) {
-            // Drop parent-retained roots immediately; unconfirmed worker retains its 3 roots.
+        let dropped_parent_roots = matches!(self.states.get(slot), Some(SlotLeaseState::Bound(_)));
+        if dropped_parent_roots {
             self.states[slot] = SlotLeaseState::Draining;
         }
-        if self.custody.quarantine_slot(slot, cleanup_wait) {
-            self.states[slot] = SlotLeaseState::Retired;
-            self.ledger.release_slot_resources(slot);
-            self.ledger.release_controller_slot(slot);
-        } else {
-            self.ledger
-                .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
-            self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
-        }
+        self.quarantine_and_record_with_wait(slot, dropped_parent_roots, cleanup_wait);
     }
 
     pub(crate) fn set_slot_next_lease_seq_for_test(&mut self, slot: usize, next: Option<u64>) {
@@ -834,7 +844,7 @@ impl LeasePool {
     ) -> Result<(), LeaseError> {
         let Some(op_seq) = bound.last_op_seq.checked_add(1) else {
             drop(bound);
-            self.quarantine_and_record(slot);
+            self.quarantine_and_record(slot, true);
             return Err(LeaseError::SequenceExhausted);
         };
         bound.last_op_seq = op_seq;
@@ -866,12 +876,12 @@ impl LeasePool {
             Some(Ok(frame)) => frame,
             Some(Err(err)) => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(err);
             }
             None => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 return Err(LeaseError::WorkerExited);
             }
         };
@@ -897,12 +907,12 @@ impl LeasePool {
             }
             ControlFrame::ReleaseAck { .. } => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 Err(LeaseError::StaleReleaseAck)
             }
             _ => {
                 drop(bound);
-                self.quarantine_and_record(slot);
+                self.quarantine_and_record(slot, true);
                 Err(LeaseError::ProtocolViolation)
             }
         }
@@ -921,27 +931,41 @@ impl LeasePool {
         }
     }
 
-    fn quarantine_and_record(&mut self, slot: usize) {
-        if self.custody.quarantine_slot(slot, QUARANTINE_CLEANUP_WAIT) {
+    fn quarantine_and_record(&mut self, slot: usize, dropped_parent_roots: bool) {
+        self.quarantine_and_record_with_wait(slot, dropped_parent_roots, QUARANTINE_CLEANUP_WAIT);
+    }
+
+    fn quarantine_and_record_with_wait(
+        &mut self,
+        slot: usize,
+        dropped_parent_roots: bool,
+        cleanup_wait: Duration,
+    ) {
+        if dropped_parent_roots {
+            // Release only the 3 closed parent root descriptors; any worker-held
+            // root descriptors (3) and possible open probe descriptor (+1 if mid-RPC)
+            // remain charged until worker reap is confirmed.
+            self.ledger
+                .release_slot_resources_by(slot, PARENT_HELD_ROOT_FDS);
+        }
+        if self.custody.quarantine_slot(slot, cleanup_wait) {
             self.states[slot] = SlotLeaseState::Retired;
             self.ledger.release_slot_resources(slot);
             self.ledger.release_controller_slot(slot);
         } else {
-            // Parent root descriptors have been closed; retain controller (4)
-            // and unconfirmed worker root charges (3) until confirmed reap.
-            self.ledger
-                .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
             self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
         }
     }
 
-    fn sync_after_shutdown(&mut self) {
+    fn sync_after_shutdown(&mut self, dropped_parent_roots: &[bool; MAX_SLOTS]) {
         for slot in 0..MAX_SLOTS {
+            if dropped_parent_roots[slot] {
+                self.ledger
+                    .release_slot_resources_by(slot, PARENT_HELD_ROOT_FDS);
+            }
             if self.custody.slot_is_pending_spawn(slot) {
                 self.states[slot] = SlotLeaseState::Booting;
             } else if self.custody.slot_is_cleanup_unconfirmed(slot) {
-                self.ledger
-                    .set_slot_resources_down(slot, WORKER_HELD_ROOT_FDS);
                 self.states[slot] = SlotLeaseState::CleanupUnconfirmed;
             } else {
                 self.states[slot] = SlotLeaseState::Retired;
@@ -981,5 +1005,20 @@ mod tests {
             ledger.try_charge_slot_resources(0, 1),
             Err(LeaseError::GlobalDescriptorCapExceeded)
         );
+    }
+
+    #[test]
+    fn release_slot_resources_by_preserves_unconfirmed_worker_probe_fd() {
+        let mut ledger = DescriptorLedger::new();
+        ledger.charge_controller_slot(0).unwrap();
+        // Peak bind/revalidate charge: 3 parent roots + 3 worker roots + 1 transient worker probe = 7.
+        ledger
+            .try_charge_slot_resources(0, SYNTHETIC_BIND_PEAK_RESOURCE_FDS)
+            .unwrap();
+        assert_eq!(ledger.total_fds(), 11);
+        // Closing only the 3 parent roots on unconfirmed mid-RPC quarantine retains 4 worker FDs.
+        ledger.release_slot_resources_by(0, PARENT_HELD_ROOT_FDS);
+        assert_eq!(ledger.resource_fds(), 4);
+        assert_eq!(ledger.total_fds(), 8);
     }
 }

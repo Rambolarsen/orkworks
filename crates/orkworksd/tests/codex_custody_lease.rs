@@ -1361,3 +1361,131 @@ fn late_fresh_revalidate_reply_after_parent_expiry_is_rejected_and_drains() {
     let _ = pool.shutdown(Duration::from_secs(2));
     peer_rx.recv().unwrap().join().unwrap();
 }
+
+#[test]
+fn late_bind_observed_after_lease_expiry_is_rejected_and_drains() {
+    let _guard = fd_table_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let temp = TempRoots::create("late-bind");
+    temp.write_workspace_probe(b"late-bind-check");
+    let expected_ids = temp.identities();
+    let build = codex_capture_owner::build_identity();
+
+    let (peer_tx, peer_rx) = std::sync::mpsc::channel();
+    let custody = CustodyPool::start_with_slot_hook(
+        build,
+        Duration::from_secs(3),
+        Duration::from_millis(250),
+        move |slot, request_rx_fd, response_tx_fd| {
+            if slot != 0 {
+                return Err(io::Error::other("unused test slot"));
+            }
+            // SAFETY: request_rx_fd and response_tx_fd are open during hook invocation.
+            let dup_req = unsafe { libc::fcntl(request_rx_fd, libc::F_DUPFD_CLOEXEC, 3) };
+            let dup_res = unsafe { libc::fcntl(response_tx_fd, libc::F_DUPFD_CLOEXEC, 3) };
+            assert!(dup_req >= 3 && dup_res >= 3);
+            // SAFETY: dup_req and dup_res are newly allocated FDs owned here.
+            let req_stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(dup_req) });
+            let res_fd = unsafe { OwnedFd::from_raw_fd(dup_res) };
+
+            let child = Command::new("/bin/sleep")
+                .arg("30")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let pid = child.id() as libc::pid_t;
+            std::mem::forget(child);
+            let owned_child = OwnedChild::try_from_pid(pid)?;
+
+            let join = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                let challenge =
+                    framing::read_bootstrap_frame(req_stream.as_fd(), deadline).unwrap();
+                let mut ready = challenge;
+                ready[5] = 2;
+                framing::write_bootstrap_frame(res_fd.as_fd(), &ready, deadline).unwrap();
+
+                let (frame, fds) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                        .unwrap()
+                        .unwrap();
+                let ControlFrame::BindAndObserve {
+                    lease_id,
+                    lease_seq,
+                    op_seq,
+                    ..
+                } = frame
+                else {
+                    panic!("expected BindAndObserve");
+                };
+                // Delay BindObserved past the 80ms requested TTL while still within op_deadline.
+                thread::sleep(Duration::from_millis(140));
+                framing::write_control_frame(
+                    res_fd.as_fd(),
+                    &ControlFrame::BindObserved {
+                        lease_id,
+                        lease_seq,
+                        op_seq,
+                        status: BindStatus::Observed,
+                        root_identities: expected_ids,
+                        probe_commitments: [ProbeCommitment::absent(); 3],
+                    },
+                    deadline,
+                )
+                .unwrap();
+
+                // Parent must reject publishing Bound and immediately drain via Release.
+                let (rel_frame, _) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                        .unwrap()
+                        .unwrap();
+                let ControlFrame::Release {
+                    lease_id,
+                    lease_seq,
+                    op_seq,
+                } = rel_frame
+                else {
+                    panic!("expected Release after expired BindObserved");
+                };
+                drop(fds);
+                framing::write_control_frame(
+                    res_fd.as_fd(),
+                    &ControlFrame::ReleaseAck {
+                        lease_id,
+                        lease_seq,
+                        op_seq,
+                    },
+                    deadline,
+                )
+                .unwrap();
+
+                if let Ok(Some((ControlFrame::Shutdown, _))) =
+                    framing::recv_request_frame_or_eof(req_stream.as_fd(), Some(deadline))
+                {
+                    let _ = framing::write_control_frame(
+                        res_fd.as_fd(),
+                        &ControlFrame::ShutdownAck,
+                        deadline,
+                    );
+                }
+            });
+            peer_tx.send(join).unwrap();
+            Ok(owned_child)
+        },
+    );
+
+    let mut pool = LeasePool::from_custody_pool(custody);
+    let result = temp.bind(&mut pool, Duration::from_millis(80), DEFAULT_OP_DEADLINE);
+    assert_eq!(result, Err(LeaseError::Expired));
+    assert_eq!(pool.accounting().idle, 1);
+    assert_eq!(pool.accounting().bound, 0);
+    assert_eq!(pool.accounting().resource_fds, 0);
+    assert!(!process_has_inode(
+        std::process::id() as i32,
+        expected_ids[0].dev,
+        expected_ids[0].ino
+    ));
+
+    let _ = pool.shutdown(Duration::from_secs(2));
+    peer_rx.recv().unwrap().join().unwrap();
+}

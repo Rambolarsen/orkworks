@@ -329,7 +329,7 @@ Endpoint, EOF, and extra-data rules:
 
 Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
 `cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_lease`,
-18 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+20 tests passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
 `codex_custody_slots`, `codex_custody_entry`, and `codex_custody_worker`):
 
 - `DescriptorLedger` and live `LeasePool` enforced the 16-descriptor per-slot
