@@ -995,13 +995,27 @@ generation, cancellation and finalization guards own the record; it does not
 carry executable output or grant native/runtime authority. See the
 [approved startup diagnostics contract](../docs/superpowers/specs/2026-11-07-startup-diagnostics-design.md).
 
-Session organization has three states: Active, Closed and Archived. Active
-Archive and Delete close first; Delete confirmation precedes Close. Only completed
-Closed or Archived sessions may be permanently deleted. Restore returns Archived
-to Closed without resuming. Archived sessions are protected from age/count
-retention. State filters and exact-row menus preserve selection and history.
-See [ADR 0088](../docs/adr/0088-session-archive-state.md) and the
-[approved archive design](../docs/superpowers/specs/2026-10-18-session-archive.md).
+Session organization has three states: Active, Closed and Archived, plus an
+orthogonal **Favorite** flag (`favorited`, default `false`). Active Archive and
+Delete close first; Delete confirmation precedes Close and explicitly calls out
+Favorited sessions. Only completed Closed or Archived sessions may be
+permanently deleted. Restore returns Archived to Closed without resuming and
+grants a fresh auto-archive window via `restoredAt`. Staged session retention
+replaces legacy `maxSessions` / `maxAgeDays` caps with Settings-controlled,
+fail-closed defaults (`autoArchiveAfterDays = 7`,
+`autoArchiveActiveSessions = true`, `deleteArchivedAfterDays = 30`): `orkworksd`
+skips automatic retention until Electron pushes authoritative settings, warns
+idle Active sessions with a sleep-safe grace window before Close-first archival,
+and deletes non-favorited Archived sessions after `archivedAt` exceeds the
+configured threshold. Favorited sessions (including pre-existing v1 archived
+records auto-promoted on read), non-removed managed worktrees, and unreadable
+organization records are protected from automatic cleanup. State filters
+(including cross-state **Favorites**) and exact-row menus preserve selection
+and history. See [ADR 0088](../docs/adr/0088-session-archive-state.md),
+[ADR 0124](../docs/adr/0124-staged-session-retention-and-favorites.md),
+[the archive design](../docs/superpowers/specs/2026-10-18-session-archive.md),
+[the staged retention design](../docs/superpowers/specs/2026-11-28-auto-archive-favorites-retention-design.md),
+and [#2279](https://github.com/Rambolarsen/orkworks/issues/2279).
 
 #### Session Metadata Protocol
 

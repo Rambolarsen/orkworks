@@ -4,8 +4,10 @@ import { isAbsolute, join } from "node:path";
 import { peonSelectionMatchesAppliedState, type PeonAppliedState, type PeonSelection, type ProviderId, type ProviderCapacityState, type ProviderSettings, type ProviderSettingsEntry } from "./providerTypes.ts";
 
 export interface RetentionSettings {
-  maxSessions: number;
-  maxAgeDays: number;
+  version: 2;
+  autoArchiveAfterDays: number;
+  autoArchiveActiveSessions: boolean;
+  deleteArchivedAfterDays: number;
 }
 
 export interface DebugSettings {
@@ -97,8 +99,10 @@ export const DEFAULT_HOTKEYS: HotkeySettings = {
 };
 
 export const DEFAULT_RETENTION: RetentionSettings = {
-  maxSessions: 0,
-  maxAgeDays: 0,
+  version: 2,
+  autoArchiveAfterDays: 7,
+  autoArchiveActiveSessions: true,
+  deleteArchivedAfterDays: 30,
 };
 
 export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
@@ -456,9 +460,41 @@ export function normalizeRetention(value: unknown): RetentionSettings {
     return { ...DEFAULT_RETENTION };
   }
   const raw = value as Record<string, unknown>;
+  const hasV2Shape =
+    raw.version === 2
+    || "autoArchiveAfterDays" in raw
+    || "autoArchiveActiveSessions" in raw
+    || "deleteArchivedAfterDays" in raw;
+  if (!hasV2Shape) {
+    // Migrate legacy { maxSessions, maxAgeDays } settings to staged v2 defaults,
+    // preserving an explicit maxAgeDays > 0 as deleteArchivedAfterDays (ADR 0124).
+    const legacyMaxAgeDays = clampInt(raw.maxAgeDays, 0, 999, 0);
+    return {
+      version: 2,
+      autoArchiveAfterDays: DEFAULT_RETENTION.autoArchiveAfterDays,
+      autoArchiveActiveSessions: DEFAULT_RETENTION.autoArchiveActiveSessions,
+      deleteArchivedAfterDays:
+        legacyMaxAgeDays > 0 ? legacyMaxAgeDays : DEFAULT_RETENTION.deleteArchivedAfterDays,
+    };
+  }
   return {
-    maxSessions: clampInt(raw.maxSessions, 0, 999, DEFAULT_RETENTION.maxSessions),
-    maxAgeDays: clampInt(raw.maxAgeDays, 0, 999, DEFAULT_RETENTION.maxAgeDays),
+    version: 2,
+    autoArchiveAfterDays: clampInt(
+      raw.autoArchiveAfterDays,
+      0,
+      999,
+      DEFAULT_RETENTION.autoArchiveAfterDays,
+    ),
+    autoArchiveActiveSessions:
+      typeof raw.autoArchiveActiveSessions === "boolean"
+        ? raw.autoArchiveActiveSessions
+        : DEFAULT_RETENTION.autoArchiveActiveSessions,
+    deleteArchivedAfterDays: clampInt(
+      raw.deleteArchivedAfterDays,
+      0,
+      999,
+      DEFAULT_RETENTION.deleteArchivedAfterDays,
+    ),
   };
 }
 

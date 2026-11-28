@@ -1590,16 +1590,26 @@ Update this file when:
 
 ## Session organization
 
-The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
-and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
-as organization states, independently of runtime status and attention. The
-sidecar owns bounded identity-bound `session-state/<id>.json` records. Missing
-legacy records derive Active or Closed; unreadable state disables mutations and
-protects retention. Active Archive and Delete close the exact captured runtime
-and await cleanup plus persisted ending first. Restore returns to Closed.
-Archived history is retained outside automatic age/count cleanup. Archive and
-Restore preserve activity timestamps and native tool identity. This is OrkWorks
-organization only; native archive synchronization is outside this increment.
+The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md),
+[staged retention and favorites design](../superpowers/specs/2026-11-28-auto-archive-favorites-retention-design.md),
+[ADR 0088](../adr/0088-session-archive-state.md), and
+[ADR 0124](../adr/0124-staged-session-retention-and-favorites.md) define
+Active, Closed, and Archived as organization states plus an orthogonal
+`favorited` flag, independently of runtime status and attention. The sidecar
+owns bounded identity-bound `session-state/<id>.json` (`version: 2`) records.
+Missing legacy records derive Active or Closed; valid `version: 1` `archived`
+records auto-promote on read to `favorited: true` with `archivedAt = changedAt`;
+unreadable or unknown-version state disables mutations and protects retention.
+Active Archive and Delete close the exact captured runtime and await cleanup
+plus persisted ending first. Restore returns to Closed and stamps `restoredAt`.
+Staged retention is fail-closed until Electron pushes v2 retention settings
+(`autoArchiveAfterDays`, `autoArchiveActiveSessions`, `deleteArchivedAfterDays`),
+auto-archiving inactive Closed sessions and (after an in-memory advance warning
+with sleep-safe deadline renewal) idle Active sessions, then deleting aged
+non-favorited Archived sessions unless protected by a non-removed managed
+worktree. Archive and Restore preserve activity timestamps and native tool
+identity. This is OrkWorks organization only; native archive synchronization is
+outside this increment.
 
 Archive publication syncs the staged file and, on Unix, the metadata parent and
 state directory entries before success. Windows publishes through a same-directory

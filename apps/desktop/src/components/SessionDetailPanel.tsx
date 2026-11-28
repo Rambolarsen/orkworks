@@ -2,9 +2,10 @@ import { gitLocationLabel } from "../gitLocationLabel";
 import { isSessionAlive } from "../sessionRuntimeState";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowLeft, ChevronRight, FileText, GitBranch, History, MessageCircle } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText, GitBranch, History, MessageCircle, Star, StarOff } from "lucide-react";
 import { getSessionWorkflowObservations, getSummaryLog } from "../api";
-import type { SessionAttention, SessionInfo, SummaryLogEntry, WorkflowObservationEntry } from "../api";
+import type { SessionAction, SessionAttention, SessionInfo, SummaryLogEntry, WorkflowObservationEntry } from "../api";
+import AutoArchiveWarningBanner from "./AutoArchiveWarningBanner";
 import type { HarnessConfig } from "../harnessTypes";
 import { nativeVoicePresentation } from "../nativeVoicePresentation";
 import { sessionCodingTool, sessionProviderContext } from "../sessionProviderContext";
@@ -51,9 +52,11 @@ interface SessionDetailPanelProps {
   showDebugMetadata: boolean;
   workspaceIdentity?: string;
   onTitleUpdated?: () => void;
+  actionsEnabled?: boolean;
+  onSessionAction?: (id: string, action: SessionAction, token: string) => Promise<void>;
 }
 
-function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onResumeWarningOpenChange, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation, workspaceIdentity, onTitleUpdated }: SessionDetailPanelProps) {
+function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSessionIds, onResumeSession, onResumeWarningOpenChange, onApplyDebugAttention, onOpenSettings, showDebugMetadata, onReviewChanges, onReviewPlan, onRequestPlanReview, onOpenRecommendation, workspaceIdentity, onTitleUpdated, actionsEnabled = true, onSessionAction }: SessionDetailPanelProps) {
   const [debugAttention, setDebugAttention] = useState<SessionAttention>("working");
   const [debugMessage, setDebugMessage] = useState("");
   const pendingReviews = useRef(new Set<string>());
@@ -63,6 +66,7 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   const [workflowObservations, setWorkflowObservations] = useState<WorkflowObservationEntry[]>([]);
   const [workflowObservationsSessionId, setWorkflowObservationsSessionId] = useState<string | null>(null);
   const [activitySessionId, setActivitySessionId] = useState<string | null>(null);
+  const [pendingActionSessionIds, setPendingActionSessionIds] = useState<Set<string>>(() => new Set());
   const activityButton = useRef<HTMLButtonElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const menuFocus = useRef<"activity" | "back" | null>(null);
@@ -80,12 +84,13 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
     let nextRefresh = nextRelativeTimeRefreshMs(active.peonLastInference, currentNow);
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.lastActivityAt, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.created_at, currentNow));
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.archivedAt ?? undefined, currentNow));
     // The aged Capped display (#1082) must advance at its own boundaries —
     // an inactive capped session updates none of the other timestamps.
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitLatchedAt, currentNow));
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitEvidence?.observedAt, currentNow));
     return nextRefresh;
-  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.usageLimitLatchedAt, active?.usageLimitEvidence?.observedAt]));
+  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.archivedAt, active?.usageLimitLatchedAt, active?.usageLimitEvidence?.observedAt]));
 
   // Reset synchronously (during render, not in an effect) so a session
   // switch never paints the previous session's task history under the new
@@ -198,8 +203,51 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
   }
   provenanceItems.push(<span key="memory">{memoryStateLabel(active.memoryState)}</span>);
 
+  const isPendingForActive = pendingActionSessionIds.has(active.id);
+  const runDetailAction = (action: SessionAction) => {
+    if (!active || !active.sessionActionToken || !onSessionAction || !actionsEnabled || pendingActionSessionIds.has(active.id)) return;
+    const targetId = active.id;
+    setPendingActionSessionIds((current) => new Set(current).add(targetId));
+    void onSessionAction(targetId, action, active.sessionActionToken)
+      .catch((error: unknown) => pushToast("error", error instanceof Error ? error.message : "Session action failed. Refresh and try again."))
+      .finally(() => {
+        setPendingActionSessionIds((current) => {
+          if (!current.has(targetId)) return current;
+          const next = new Set(current);
+          next.delete(targetId);
+          return next;
+        });
+      });
+  };
+  const showAutoArchiveWarning = active.sessionState === "active" && !active.favorited && !!active.autoArchiveWarning;
+
   return (
     <div className="session-detail" data-attention={tone}>
+      {!showingActivity && active.sessionState && (
+        <div className="detail-favorite-bar">
+          <button
+            type="button"
+            className={`detail-favorite-button${active.favorited ? " detail-favorite-button--active" : ""}`}
+            data-session-favorite
+            aria-pressed={Boolean(active.favorited)}
+            disabled={!actionsEnabled || !onSessionAction || !active.sessionActionToken || isPendingForActive}
+            onClick={() => runDetailAction(active.favorited ? "unfavorite" : "favorite")}
+          >
+            {active.favorited ? <StarOff size={14} aria-hidden="true" /> : <Star size={14} aria-hidden="true" />}
+            <span>{active.favorited ? "Favorited" : "Favorite"}</span>
+          </button>
+        </div>
+      )}
+      {!showingActivity && showAutoArchiveWarning && active.autoArchiveWarning && (
+        <AutoArchiveWarningBanner
+          key={active.autoArchiveWarning.scheduledAt}
+          scheduledAt={active.autoArchiveWarning.scheduledAt}
+          variant="detail"
+          disabled={!actionsEnabled || !onSessionAction || !active.sessionActionToken || isPendingForActive}
+          onKeep={() => runDetailAction("favorite")}
+          onArchiveNow={() => runDetailAction("archive")}
+        />
+      )}
       {showingActivity ? (
         <button type="button" className="session-menu-back" data-session-menu-back ref={backButton}
           onClick={() => { menuFocus.current = "activity"; setActivitySessionId(null); }}>
@@ -327,6 +375,8 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
           )}
           {active.sessionState !== undefined && <DetailField className="detail-fact" label="Session state">
             {active.sessionState === "archived" ? "Archived" : active.sessionState === "closed" ? "Closed" : active.sessionState === "active" ? "Active" : "Unavailable"}
+            {active.favorited === true && <span className="session-detail-value-sub">Favorited (protected from auto-cleanup)</span>}
+            {active.archivedAt && <span className="session-detail-value-sub">Archived {relativeTime(active.archivedAt, now) || active.archivedAt}</span>}
             {active.sessionStateError && <span className="session-detail-value-sub">{active.sessionStateError}</span>}
           </DetailField>}
           {attn === "capped" && active.usageLimitEvidence && (

@@ -46,10 +46,19 @@ impl PeonDiagnostics {
     }
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutoArchiveWarning {
+    pub(crate) warned_at: String,
+    pub(crate) scheduled_at: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SessionInfo {
     #[serde(flatten)]
     pub(crate) organization: crate::session_archive::OrganizationProjection,
+    #[serde(rename = "autoArchiveWarning", skip_serializing_if = "Option::is_none")]
+    pub(crate) auto_archive_warning: Option<AutoArchiveWarning>,
     #[serde(flatten)]
     pub(crate) provenance: metadata::MetadataProvenance,
     pub(crate) id: String,
@@ -241,6 +250,7 @@ impl SessionInfo {
     pub(crate) fn baseline_from_metadata(meta: &metadata::SessionMetadata) -> SessionInfo {
         SessionInfo {
             organization: Default::default(),
+            auto_archive_warning: None,
             provenance: Default::default(),
             id: meta.id.clone(),
             label: meta.label.clone(),
@@ -378,6 +388,7 @@ mod tests {
             worktree_binding: None,
             git_context_source: None,
             organization: Default::default(),
+            auto_archive_warning: None,
             provenance: Default::default(),
             id: id.into(),
             label: label.into(),

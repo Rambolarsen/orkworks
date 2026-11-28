@@ -74,9 +74,11 @@ interface FixtureOptions {
   providerBody?: Promise<unknown>;
   pushResponse?: Promise<Response>;
   workspaceResponse?: (port: number, init?: { signal?: AbortSignal }) => Promise<Response>;
+  retentionResponse?: (port: number, init?: { jsonBody?: unknown; signal?: AbortSignal }) => Promise<Response>;
   forgetWorkspacePath?: WorkspaceRuntimeOptions["forgetWorkspacePath"];
   initialHistoryDiagnostic?: WorkspaceHistoryDiagnostic | null;
   restorationTimeoutMs?: number;
+  retentionRetryDelaysMs?: readonly number[];
 }
 
 function createRuntimeFixture(options: FixtureOptions = {}) {
@@ -100,6 +102,9 @@ function createRuntimeFixture(options: FixtureOptions = {}) {
       return new Response(JSON.stringify(makeWorkspace(wsPath)), { status: 200 });
     }
     if (endpoint === "settings/retention") {
+      if (options.retentionResponse) {
+        return options.retentionResponse(port, init);
+      }
       return new Response(null, { status: 204 });
     }
     if (endpoint === "providers") {
@@ -159,6 +164,7 @@ function createRuntimeFixture(options: FixtureOptions = {}) {
       clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
       now: () => Date.now(),
       ...(options.restorationTimeoutMs === undefined ? {} : { restorationTimeoutMs: options.restorationTimeoutMs }),
+      ...(options.retentionRetryDelaysMs === undefined ? {} : { retentionRetryDelaysMs: options.retentionRetryDelaysMs }),
     },
     logger: { log() {}, warn() {}, error() {} },
   });
@@ -402,6 +408,51 @@ test("runReady enforces expectedWorkspacePath, expectedBackendUrl, and custom st
     { expectedWorkspacePath: "/ws-a", expectedBackendUrl: "http://127.0.0.1:4001" },
   );
   assert.deepEqual(ok, { url: "http://127.0.0.1:4001", workspacePath: "/ws-a" });
+  fixture.runtime.dispose();
+});
+
+test("startup retention push retries transient failures with bounded backoff until acknowledged", async () => {
+  const attempts: unknown[] = [];
+  const fixture = createRuntimeFixture({
+    retentionRetryDelaysMs: [5, 5, 5],
+    retentionResponse: async (_port, init) => {
+      attempts.push(init?.jsonBody);
+      if (attempts.length === 1) throw new Error("ECONNREFUSED");
+      if (attempts.length === 2) return new Response(null, { status: 503 });
+      return new Response(null, { status: 200 });
+    },
+  });
+
+  await fixture.openReady("/ws-retention-retry", 4010);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(attempts.length, 3);
+  assert.deepEqual(attempts[2], {
+    version: 2,
+    autoArchiveAfterDays: 7,
+    autoArchiveActiveSessions: true,
+    deleteArchivedAfterDays: 30,
+  });
+  fixture.runtime.dispose();
+});
+
+test("startup retention retry aborts cleanly when the sidecar exits", async () => {
+  let attempts = 0;
+  const fixture = createRuntimeFixture({
+    retentionRetryDelaysMs: [50, 50, 50],
+    retentionResponse: async () => {
+      attempts += 1;
+      return new Response(null, { status: 503 });
+    },
+  });
+
+  const proc = await fixture.openReady("/ws-retention-abort", 4011);
+  await settle();
+  assert.equal(attempts, 1);
+
+  proc.emitExit(1);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(attempts, 1, "aborted generation must stop retrying retention pushes");
   fixture.runtime.dispose();
 });
 

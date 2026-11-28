@@ -194,12 +194,30 @@ impl PeonDiagnosticEntry {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct RetentionConfig {
-    #[serde(rename = "maxSessions", default)]
-    max_sessions: usize,
-    #[serde(rename = "maxAgeDays", default)]
-    max_age_days: u32,
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RetentionConfig {
+    pub(crate) version: u8,
+    pub(crate) auto_archive_after_days: u32,
+    pub(crate) auto_archive_active_sessions: bool,
+    pub(crate) delete_archived_after_days: u32,
+    #[serde(skip)]
+    pub(crate) applied: bool,
+    #[serde(skip)]
+    pub(crate) last_tick_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            version: 2,
+            auto_archive_after_days: 7,
+            auto_archive_active_sessions: true,
+            delete_archived_after_days: 30,
+            applied: false,
+            last_tick_at: None,
+        }
+    }
 }
 
 struct AppState {
@@ -947,6 +965,7 @@ pub(crate) mod test_support {
             resumed_from: None,
             has_openable_plan: None,
             plan_documents: None,
+            auto_archive_warning: None,
         }
     }
 

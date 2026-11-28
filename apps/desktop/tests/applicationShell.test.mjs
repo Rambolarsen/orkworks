@@ -3578,7 +3578,7 @@ if (process.versions.electron) {
             }
             if (${['app-workspace-hook-notice','app-session-attention-alerts','app-settings-keyboard','app-coding-tools-keyboard'].includes(scenario)}) {
               window.orkworks.getSettings=async()=>({
-                hotkeys:{},defaultHotkeys:{},retention:{maxSessions:50,maxAgeDays:30},desktopSessionNotifications:fixture.desktopEnabled,
+                hotkeys:{},defaultHotkeys:{},retention:{version:2,autoArchiveAfterDays:7,autoArchiveActiveSessions:true,deleteArchivedAfterDays:30},desktopSessionNotifications:fixture.desktopEnabled,
                 debug:{showSessionIds:false,rendererHealthLogMs:0},
                 providers:{version:2,revision:0,peonModel:null,ollamaBaseUrl:"http://localhost:11434",providers:[]}
               });

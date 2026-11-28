@@ -994,3 +994,62 @@ test("obsolete capacity shortcut does not conflict with a retained shortcut", ()
     assert.equal("toggleCapacityPanel" in settings.hotkeys, false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("retention settings default to staged v2 values and migrate legacy maxAgeDays", () => {
+  const dir = mkdtempSync(join(tmpdir(), "orkworks-retention-migration-"));
+  try {
+    assert.deepEqual(readSettings(dir).retention, {
+      version: 2,
+      autoArchiveAfterDays: 7,
+      autoArchiveActiveSessions: true,
+      deleteArchivedAfterDays: 30,
+    });
+
+    // Legacy 0/0 defaults upgrade to staged v2 defaults.
+    writeFileSync(settingsPath(dir), JSON.stringify({
+      version: 1,
+      retention: { maxSessions: 0, maxAgeDays: 0 },
+    }));
+    assert.deepEqual(readSettings(dir).retention, {
+      version: 2,
+      autoArchiveAfterDays: 7,
+      autoArchiveActiveSessions: true,
+      deleteArchivedAfterDays: 30,
+    });
+
+    // Explicit legacy maxAgeDays > 0 is preserved as deleteArchivedAfterDays.
+    writeFileSync(settingsPath(dir), JSON.stringify({
+      version: 1,
+      retention: { maxSessions: 50, maxAgeDays: 90 },
+    }));
+    const migrated = readSettings(dir);
+    assert.deepEqual(migrated.retention, {
+      version: 2,
+      autoArchiveAfterDays: 7,
+      autoArchiveActiveSessions: true,
+      deleteArchivedAfterDays: 90,
+    });
+    assert.equal("maxSessions" in migrated.retention, false);
+    assert.equal("maxAgeDays" in migrated.retention, false);
+
+    // Next settings write persists v2 shape; explicit 0 values are preserved.
+    writeSettings(dir, {
+      ...migrated,
+      retention: {
+        version: 2,
+        autoArchiveAfterDays: 0,
+        autoArchiveActiveSessions: false,
+        deleteArchivedAfterDays: 0,
+      },
+    });
+    const persisted = JSON.parse(readFileSync(settingsPath(dir), "utf8"));
+    assert.deepEqual(persisted.retention, {
+      version: 2,
+      autoArchiveAfterDays: 0,
+      autoArchiveActiveSessions: false,
+      deleteArchivedAfterDays: 0,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

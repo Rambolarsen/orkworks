@@ -7,8 +7,8 @@ import { installSessionNotificationIpc } from "../electron/sessionNotificationIp
 const alertId = "8bd295a3-f721-41f3-a35a-94cdaf5de67b";
 
 function fixture() {
-  const handlers = new Map<string, (event: IpcMainInvokeEvent, id: unknown) => unknown>();
-  const ipc = { handle: (channel: string, handler: (event: IpcMainInvokeEvent, id: unknown) => unknown) => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, id: unknown, kind?: unknown) => unknown>();
+  const ipc = { handle: (channel: string, handler: (event: IpcMainInvokeEvent, id: unknown, kind?: unknown) => unknown) => {
     handlers.set(channel, handler);
   } } as Pick<IpcMain, "handle">;
   const windowActions: string[] = [];
@@ -41,7 +41,8 @@ function fixture() {
   return {
     clear, signal, alerts, windowActions,
     disable() { enabled = false; },
-    show: (sender = event) => handlers.get("show-session-attention-notification")!(sender, alertId),
+    show: (sender = event, kind?: unknown) =>
+      handlers.get("show-session-attention-notification")!(sender, alertId, kind),
   };
 }
 
@@ -49,6 +50,19 @@ test("desktop alert activation restores and focuses the requesting window", asyn
   const native = fixture();
   const result = native.show();
   assert.deepEqual(native.alerts, [{ title: "A session needs you", body: "Open OrkWorks to respond.", silent: true }]);
+  native.signal.emit("click");
+  assert.equal(await result, true);
+  assert.deepEqual(native.windowActions, ["restore", "show", "focus"]);
+});
+
+test("auto-archive warning notifications use idle-archive copy and focus the window", async () => {
+  const native = fixture();
+  const result = native.show(undefined, "auto_archive_warning");
+  assert.deepEqual(native.alerts, [{
+    title: "Idle session scheduled to archive",
+    body: "Open OrkWorks to favorite or archive it now.",
+    silent: true,
+  }]);
   native.signal.emit("click");
   assert.equal(await result, true);
   assert.deepEqual(native.windowActions, ["restore", "show", "focus"]);

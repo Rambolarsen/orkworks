@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ArchiveRestore, Play, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Play, Star, StarOff, Trash2, X } from "lucide-react";
 import type { SessionAction, SessionInfo } from "../api";
 import { resumeChoices } from "../labels";
 
@@ -12,7 +12,15 @@ interface Props {
   onAction: (action: SessionAction | "resume") => void;
 }
 
-const actionIcons = { close: X, archive: Archive, restore: ArchiveRestore, delete: Trash2, resume: Play };
+const actionIcons = {
+  close: X,
+  archive: Archive,
+  restore: ArchiveRestore,
+  delete: Trash2,
+  favorite: Star,
+  unfavorite: StarOff,
+  resume: Play,
+};
 
 export default function SessionContextMenu({ anchor, disabled, onDismiss, onAction }: Props) {
   const restoreWarningId = useId();
@@ -20,12 +28,15 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
   const [position, setPosition] = useState({ left: anchor.x, top: anchor.y });
   const session = anchor.session;
   const state = session.sessionState;
+  const favoriteItem: { action: SessionAction; label: string } = session.favorited
+    ? { action: "unfavorite", label: "Unfavorite" }
+    : { action: "favorite", label: "Favorite" };
   const actions: Array<{ action: SessionAction | "resume"; label: string }> = state === "active"
-    ? [{ action: "close", label: "Close" }, { action: "archive", label: "Archive (close first)" }, { action: "delete", label: "Delete… (close first)" }]
+    ? [{ action: "close", label: "Close" }, { action: "archive", label: "Archive (close first)" }, favoriteItem, { action: "delete", label: "Delete… (close first)" }]
     : state === "archived"
-      ? [{ action: "restore", label: "Restore to Closed" }, { action: "delete", label: "Delete…" }]
+      ? [{ action: "restore", label: "Restore to Closed" }, favoriteItem, { action: "delete", label: "Delete…" }]
       : state === "closed"
-        ? [...(resumeChoices(session).some(choice => !choice.unavailable) ? [{ action: "resume" as const, label: session.resumeStrategy === "exact" ? "Resume" : "Resume options…" }] : []), { action: "archive", label: "Archive" }, { action: "delete", label: "Delete…" }]
+        ? [...(resumeChoices(session).some(choice => !choice.unavailable) ? [{ action: "resume" as const, label: session.resumeStrategy === "exact" ? "Resume" : "Resume options…" }] : []), { action: "archive", label: "Archive" }, favoriteItem, { action: "delete", label: "Delete…" }]
         : [];
   useLayoutEffect(() => {
     const element = ref.current;
@@ -63,7 +74,7 @@ export default function SessionContextMenu({ anchor, disabled, onDismiss, onActi
       aria-describedby={action === "restore" ? restoreWarningId : undefined}
       onClick={() => onAction(action)}><Icon size={16} aria-hidden="true" /><span>{label}</span></button>;
     })}
-    {state === "archived" && <p id={restoreWarningId} className="session-menu-diagnostic">Restoring re-enables automatic cleanup. Older history may be deleted by your retention settings.</p>}
+    {state === "archived" && <p id={restoreWarningId} className="session-menu-diagnostic">Restoring moves this session back to Closed with a fresh auto-archive window and re-enables automatic cleanup.</p>}
     {(!state || disabled) && <p className="session-menu-diagnostic">{session.sessionStateError ?? "Session changed or an action is running. Refresh and try again."}</p>}
   </div>, document.body);
 }

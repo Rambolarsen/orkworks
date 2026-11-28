@@ -865,6 +865,12 @@ pub(crate) struct SessionRuntime {
     last_output_persisted_at: Option<tokio::time::Instant>,
     pending_output_at: Option<String>,
     output_flush_scheduled: bool,
+    // In-memory monotonic interactive activity and idle-Active auto-archive
+    // warning state (ADR 0124). Never persisted in session-state/<id>.json so
+    // PTY hot paths perform zero disk writes and avoid sessionActionToken churn.
+    pub(crate) last_interactive_at: DateTime<Utc>,
+    pub(crate) auto_archive_warned_at: Option<DateTime<Utc>>,
+    pub(crate) auto_archive_scheduled_at: Option<DateTime<Utc>>,
 }
 
 impl SessionRuntime {
@@ -930,6 +936,9 @@ impl SessionRuntime {
                 last_output_persisted_at: None,
                 pending_output_at: None,
                 output_flush_scheduled: false,
+                last_interactive_at: Utc::now(),
+                auto_archive_warned_at: None,
+                auto_archive_scheduled_at: None,
             },
             control_rx,
         )
@@ -995,7 +1004,43 @@ impl SessionRuntime {
             last_output_persisted_at: None,
             pending_output_at: None,
             output_flush_scheduled: false,
+            last_interactive_at: Utc::now(),
+            auto_archive_warned_at: None,
+            auto_archive_scheduled_at: None,
         }
+    }
+
+    pub(crate) fn record_interactive_activity(&mut self, at: DateTime<Utc>) -> bool {
+        if at > self.last_interactive_at {
+            self.last_interactive_at = at;
+        }
+        self.clear_auto_archive_warning()
+    }
+
+    pub(crate) fn clear_auto_archive_warning(&mut self) -> bool {
+        let had_warning =
+            self.auto_archive_warned_at.is_some() || self.auto_archive_scheduled_at.is_some();
+        self.auto_archive_warned_at = None;
+        self.auto_archive_scheduled_at = None;
+        had_warning
+    }
+
+    pub(crate) fn set_auto_archive_warning(
+        &mut self,
+        warned_at: DateTime<Utc>,
+        scheduled_at: DateTime<Utc>,
+    ) {
+        self.auto_archive_warned_at = Some(warned_at);
+        self.auto_archive_scheduled_at = Some(scheduled_at);
+    }
+
+    pub(crate) fn auto_archive_warning(&self) -> Option<crate::session_types::AutoArchiveWarning> {
+        let warned_at = self.auto_archive_warned_at?;
+        let scheduled_at = self.auto_archive_scheduled_at?;
+        Some(crate::session_types::AutoArchiveWarning {
+            warned_at: warned_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            scheduled_at: scheduled_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        })
     }
 
     #[cfg(test)]

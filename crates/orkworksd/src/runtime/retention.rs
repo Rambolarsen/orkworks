@@ -243,43 +243,31 @@ pub(crate) fn delete_session_evidence(
     Ok(())
 }
 
-fn select_expired_candidates(
-    candidates: &[SessionMetadata],
-    cutoff: chrono::DateTime<chrono::Utc>,
-    protected_ids: &HashSet<String>,
-) -> Vec<String> {
-    let mut ordered: Vec<&SessionMetadata> = candidates.iter().collect();
-    ordered.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
-    ordered
-        .into_iter()
-        .filter(|session| !protected_ids.contains(&session.id))
-        .filter_map(|session| {
-            chrono::DateTime::parse_from_rfc3339(&session.last_activity)
-                .ok()
-                .filter(|parsed| *parsed < cutoff)
-                .map(|_| session.id.clone())
-        })
-        .collect()
+const SLEEP_GAP_THRESHOLD_SECS: i64 = 15 * 60;
+const AUTO_ARCHIVE_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Advance warning lead time for idle Active sessions (ADR 0124):
+/// `min(24h, floor(auto_archive_after_days * 24h / 4))`.
+pub(crate) fn auto_archive_warning_lead_time(auto_archive_after_days: u32) -> chrono::Duration {
+    let quarter_hours = (i64::from(auto_archive_after_days) * 24) / 4;
+    chrono::Duration::hours(quarter_hours.min(24))
 }
 
-fn select_count_candidates(
-    candidates: &[SessionMetadata],
-    max_sessions: usize,
-    protected_ids: &HashSet<String>,
-) -> Vec<String> {
-    if max_sessions == 0 || candidates.len() <= max_sessions {
-        return Vec::new();
-    }
+/// Extension seam for archive-time managed-worktree cleanup (Phase 2 —
+/// `2026-11-28-new-session-worktree-design.md`). Runs before committing
+/// `SessionState::Archived` in Stage 1A and Stage 1B.
+fn prepare_managed_worktree_for_archive(
+    _workspace: &crate::WorkspaceState,
+    _session_id: &str,
+    _created_at: &str,
+) -> Result<(), String> {
+    Ok(())
+}
 
-    let to_delete = candidates.len() - max_sessions;
-    let mut ordered: Vec<&SessionMetadata> = candidates.iter().collect();
-    ordered.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
-    ordered
-        .into_iter()
-        .filter(|session| !protected_ids.contains(&session.id))
-        .take(to_delete)
-        .map(|session| session.id.clone())
-        .collect()
+fn parse_utc_rfc3339(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|parsed| parsed.with_timezone(&chrono::Utc))
 }
 
 pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
@@ -290,54 +278,147 @@ pub(crate) async fn retention_cleanup_task(state: Arc<AppState>) {
     }
 }
 
-fn retention_protected(
+fn closed_session_matches(
     state: &AppState,
     ws: &crate::WorkspaceState,
     id: &str,
     handle: Option<&crate::SessionHandle>,
     expected_created_at: &str,
-) -> bool {
-    if ws.metadata.organization.pending(id)
-        || !crate::session_application::session_actions::runtime_closed(
-            handle,
-            state.session_pids.lock().unwrap().contains_key(id),
-        )
-    {
-        return true;
+    expected_state: crate::session_archive::SessionState,
+) -> Option<(
+    SessionMetadata,
+    crate::session_archive::OrganizationStateDetails,
+)> {
+    if !crate::session_application::session_actions::runtime_closed(
+        handle,
+        state.session_pids.lock().unwrap().contains_key(id),
+    ) {
+        return None;
     }
-    let Ok(Some(record)) = ws.metadata.try_read_revisioned_session(id) else {
-        return true;
-    };
+    let record = ws.metadata.try_read_revisioned_session(id).ok().flatten()?;
     let meta = record.metadata;
-    meta.created_at != expected_created_at
+    if meta.created_at != expected_created_at
         || meta.lifecycle_phase != "ended"
         || meta.lifecycle != "dead"
-        || !matches!(
-            ws.metadata
-                .organization
-                .state(id, &meta.created_at, true, false),
-            Ok((crate::session_archive::SessionState::Closed, _))
-        )
+    {
+        return None;
+    }
+    let details = ws
+        .metadata
+        .organization
+        .read_details(id, &meta.created_at, true, false)
+        .ok()?;
+    if details.state != expected_state {
+        return None;
+    }
+    Some((meta, details))
+}
+
+struct ActiveArchiveCandidate {
+    id: String,
+    store: Arc<crate::session_archive::OrganizationStore>,
+    created_at: String,
+    revision: u64,
+    generation: u64,
+    warned_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn active_handle_is_idle_archive_eligible(
+    ws: &crate::WorkspaceState,
+    id: &str,
+    handle: &crate::SessionHandle,
+    meta: &SessionMetadata,
+) -> Option<crate::session_archive::OrganizationStateDetails> {
+    if handle.info.lifecycle != "alive"
+        || handle.info.lifecycle_phase != "active"
+        || meta.lifecycle != "alive"
+        || meta.lifecycle_phase != "active"
+        || handle.runtime.evaluation_revocation.is_some()
+        || handle.info.observed_status.as_deref() == Some("working")
+        || meta.observed_status.as_deref() == Some("working")
+        || ws.metadata.organization.pending(id)
+    {
+        return None;
+    }
+    let details = ws
+        .metadata
+        .organization
+        .read_details(id, &meta.created_at, false, true)
+        .ok()?;
+    if details.favorited {
+        return None;
+    }
+    Some(details)
 }
 
 pub(crate) async fn retention_cleanup_once(
     state: &Arc<AppState>,
     now: chrono::DateTime<chrono::Utc>,
 ) {
-    let config = state.retention_config.read().await.clone();
-    if config.max_sessions == 0 && config.max_age_days == 0 {
-        return;
+    retention_cleanup_once_with_close_wait(state, now, AUTO_ARCHIVE_CLOSE_TIMEOUT).await;
+}
+
+async fn retention_cleanup_once_with_close_wait(
+    state: &Arc<AppState>,
+    now: chrono::DateTime<chrono::Utc>,
+    close_wait: std::time::Duration,
+) {
+    let (config, sleep_gap_detected) = {
+        let mut config = state.retention_config.write().await;
+        if !config.applied {
+            return;
+        }
+        let sleep_gap = config.last_tick_at.is_some_and(|prev| {
+            now.signed_duration_since(prev) > chrono::Duration::seconds(SLEEP_GAP_THRESHOLD_SECS)
+        });
+        config.last_tick_at = Some(now);
+        (config.clone(), sleep_gap)
+    };
+
+    let mut changed = false;
+    let now_iso = now.to_rfc3339();
+
+    if config.auto_archive_after_days == 0 || !config.auto_archive_active_sessions {
+        let mut sessions = state.sessions.lock().unwrap();
+        for handle in sessions.values_mut() {
+            if handle.runtime.clear_auto_archive_warning() {
+                changed = true;
+            }
+        }
+    } else if sleep_gap_detected {
+        // Wall-clock sleep/wake safety (ADR 0124): renew every active warning
+        // deadline before evaluating expiration so a warning issued before
+        // host sleep still gets a full post-wake leadTime grace window.
+        let lead_time = auto_archive_warning_lead_time(config.auto_archive_after_days);
+        let min_deadline = now + lead_time;
+        let mut sessions = state.sessions.lock().unwrap();
+        for handle in sessions.values_mut() {
+            if handle.runtime.auto_archive_warned_at.is_some() {
+                if let Some(scheduled) = handle.runtime.auto_archive_scheduled_at {
+                    let renewed = scheduled.max(min_deadline);
+                    if renewed != scheduled {
+                        handle.runtime.auto_archive_scheduled_at = Some(renewed);
+                        changed = true;
+                    }
+                }
+            }
+        }
     }
 
-    let _projection = state.projection_lock.lock().unwrap();
-    #[cfg(all(windows, target_arch = "x86_64"))]
-    let _namespace;
-    let all_sessions = {
+    // Stage 1A (Closed -> Archived) and Stage 1B (Active idle warning / candidate selection).
+    let active_close_candidates = {
+        let _projection = state.projection_lock.lock().unwrap();
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        let _namespace;
         let ws_guard = state.workspace.lock().unwrap();
         let Some(ws) = ws_guard.as_ref() else {
+            drop(ws_guard);
+            drop(_projection);
+            if changed {
+                state.updates.sessions_changed();
+            }
             return;
         };
-        // The candidate scan can quarantine corrupt session records.
         #[cfg(all(windows, target_arch = "x86_64"))]
         {
             _namespace = match crate::workspace_runtime::CleanupNamespace::acquire(
@@ -347,126 +428,296 @@ pub(crate) async fn retention_cleanup_once(
                 Ok(namespace) => namespace,
                 Err(error) => {
                     tracing::warn!(%error, "Retention metadata scan deferred");
+                    drop(ws_guard);
+                    drop(_projection);
+                    if changed {
+                        state.updates.sessions_changed();
+                    }
                     return;
                 }
             };
         }
-        ws.metadata
-            .read_all_sessions()
-            .into_iter()
-            .filter(|meta| {
-                matches!(
-                    ws.metadata
-                        .organization
-                        .state(&meta.id, &meta.created_at, true, false),
-                    Ok((crate::session_archive::SessionState::Closed, _))
-                )
-            })
-            .collect::<Vec<_>>()
+
+        let mut close_candidates = Vec::new();
+
+        if config.auto_archive_after_days > 0 {
+            let archive_threshold =
+                chrono::Duration::days(i64::from(config.auto_archive_after_days));
+            let all_sessions = ws.metadata.read_all_sessions();
+            let mut sessions = state.sessions.lock().unwrap();
+
+            // Stage 1A: Closed -> Archived using max(last_activity, restoredAt).
+            for meta in &all_sessions {
+                if ws.metadata.organization.pending(&meta.id) {
+                    continue;
+                }
+                let Some((_, details)) = closed_session_matches(
+                    state,
+                    ws,
+                    &meta.id,
+                    sessions.get(&meta.id),
+                    &meta.created_at,
+                    crate::session_archive::SessionState::Closed,
+                ) else {
+                    continue;
+                };
+                if details.favorited {
+                    continue;
+                }
+                let Some(last_activity) = parse_utc_rfc3339(&meta.last_activity) else {
+                    continue;
+                };
+                let restored_at = match details.restored_at.as_deref() {
+                    Some(raw) => match parse_utc_rfc3339(raw) {
+                        Some(parsed) => Some(parsed),
+                        None => continue,
+                    },
+                    None => None,
+                };
+                let origin = restored_at.map_or(last_activity, |r| last_activity.max(r));
+                if now.signed_duration_since(origin) < archive_threshold {
+                    continue;
+                }
+
+                let Some(_reservation) = ws.metadata.organization.reserve(&meta.id) else {
+                    continue;
+                };
+                let Some((fresh_meta, fresh_details)) = closed_session_matches(
+                    state,
+                    ws,
+                    &meta.id,
+                    sessions.get(&meta.id),
+                    &meta.created_at,
+                    crate::session_archive::SessionState::Closed,
+                ) else {
+                    continue;
+                };
+                if fresh_details.favorited {
+                    continue;
+                }
+                if let Err(error) =
+                    prepare_managed_worktree_for_archive(ws, &fresh_meta.id, &fresh_meta.created_at)
+                {
+                    tracing::warn!(
+                        session_id = %fresh_meta.id,
+                        %error,
+                        "retention: managed-worktree archive preparation failed; skipping"
+                    );
+                    continue;
+                }
+                match ws.metadata.organization.write_at(
+                    &fresh_meta.id,
+                    &fresh_meta.created_at,
+                    crate::session_archive::SessionState::Archived,
+                    &now_iso,
+                ) {
+                    Ok(()) => {
+                        tracing::info!(
+                            session_id = %fresh_meta.id,
+                            "retention: auto-archived closed session"
+                        );
+                        changed = true;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %fresh_meta.id,
+                            %error,
+                            "retention: failed to auto-archive closed session"
+                        );
+                    }
+                }
+            }
+
+            // Stage 1B: Idle Active -> Warning -> Close-first candidate collection.
+            if config.auto_archive_active_sessions {
+                let lead_time = auto_archive_warning_lead_time(config.auto_archive_after_days);
+                let warning_threshold = archive_threshold - lead_time;
+
+                for (id, handle) in sessions.iter_mut() {
+                    let meta = match ws.metadata.try_read_revisioned_session(id) {
+                        Ok(Some(record)) => record.metadata,
+                        _ => {
+                            if handle.runtime.clear_auto_archive_warning() {
+                                changed = true;
+                            }
+                            continue;
+                        }
+                    };
+                    let Some(details) =
+                        active_handle_is_idle_archive_eligible(ws, id, handle, &meta)
+                    else {
+                        if handle.runtime.clear_auto_archive_warning() {
+                            changed = true;
+                        }
+                        continue;
+                    };
+                    let Some(last_activity) = parse_utc_rfc3339(&meta.last_activity) else {
+                        continue;
+                    };
+                    // Deliberately ignore raw `meta.last_output_at`: periodic TUI redraws
+                    // must not defeat idle detection.
+                    let origin = last_activity.max(handle.runtime.last_interactive_at);
+
+                    if let (Some(warned_at), Some(scheduled_at)) = (
+                        handle.runtime.auto_archive_warned_at,
+                        handle.runtime.auto_archive_scheduled_at,
+                    ) {
+                        if origin > warned_at
+                            || now.signed_duration_since(origin) < warning_threshold
+                        {
+                            if handle.runtime.clear_auto_archive_warning() {
+                                changed = true;
+                            }
+                            continue;
+                        }
+                        if now >= scheduled_at {
+                            close_candidates.push(ActiveArchiveCandidate {
+                                id: id.clone(),
+                                store: ws.metadata.organization.clone(),
+                                created_at: meta.created_at,
+                                revision: details.revision,
+                                generation: handle.runtime.run_generation(),
+                                warned_at,
+                            });
+                        }
+                    } else if now.signed_duration_since(origin) >= warning_threshold {
+                        let scheduled_at = (origin + archive_threshold).max(now + lead_time);
+                        handle.runtime.set_auto_archive_warning(now, scheduled_at);
+                        tracing::info!(
+                            session_id = %id,
+                            scheduled_at = %scheduled_at.to_rfc3339(),
+                            "retention: armed idle active auto-archive warning"
+                        );
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        close_candidates
     };
 
-    let mut candidates: Vec<_> = all_sessions.into_iter().collect();
-
-    if candidates.is_empty() {
-        return;
+    // Execute Stage 1B Close-first archival without holding workspace/sessions mutexes across awaits.
+    for candidate in active_close_candidates {
+        if execute_active_auto_archive(state, &candidate, &now_iso, now, close_wait).await {
+            changed = true;
+        }
     }
 
-    candidates.sort_by(|a, b| a.last_activity.cmp(&b.last_activity));
-
-    let candidate_identities: std::collections::HashMap<_, _> = candidates
-        .iter()
-        .map(|meta| (meta.id.clone(), meta.created_at.clone()))
-        .collect();
+    // Stage 2: Archived -> Deleted using archivedAt.
+    // Re-read authoritative retention settings after Stage 1B's Close-first
+    // awaits and hold the read guard across the synchronous destructive scan
+    // so concurrent POST /settings/retention updates cannot be bypassed.
     let mut all_deleted: Vec<String> = Vec::new();
-
-    if config.max_age_days > 0 {
-        let cutoff = now - chrono::Duration::days(config.max_age_days as i64);
-        let expired = select_expired_candidates(&candidates, cutoff, &HashSet::new());
-        if !expired.is_empty() {
-            let mut deleted_expired = Vec::new();
+    {
+        let stage2_config = state.retention_config.read().await;
+        if stage2_config.applied && stage2_config.delete_archived_after_days > 0 {
+            let delete_threshold =
+                chrono::Duration::days(i64::from(stage2_config.delete_archived_after_days));
+            let _projection = state.projection_lock.lock().unwrap();
+            #[cfg(all(windows, target_arch = "x86_64"))]
+            let _namespace;
             let ws_guard = state.workspace.lock().unwrap();
-            if let Some(ref ws) = *ws_guard {
-                let mut sessions = state.sessions.lock().unwrap();
-                for id in &expired {
-                    if retention_protected(
-                        state,
-                        ws,
-                        id,
-                        sessions.get(id),
-                        &candidate_identities[id],
+            if let Some(ws) = ws_guard.as_ref() {
+                #[cfg(all(windows, target_arch = "x86_64"))]
+                {
+                    _namespace = match crate::workspace_runtime::CleanupNamespace::acquire(
+                        &ws.metadata.root_path(),
+                        ws.lease.as_deref(),
                     ) {
+                        Ok(namespace) => namespace,
+                        Err(error) => {
+                            tracing::warn!(%error, "Retention deletion scan deferred");
+                            drop(ws_guard);
+                            drop(_projection);
+                            drop(stage2_config);
+                            if changed {
+                                state.updates.sessions_changed();
+                            }
+                            return;
+                        }
+                    };
+                }
+                let all_sessions = ws.metadata.read_all_sessions();
+                let mut sessions = state.sessions.lock().unwrap();
+                for meta in &all_sessions {
+                    if ws.metadata.organization.pending(&meta.id) {
                         continue;
                     }
-                    tracing::info!(session_id = %id, "retention: deleting expired session");
-                    if let Err(error) = delete_session_evidence(ws, id, |session_id| {
+                    let Some((_, details)) = closed_session_matches(
+                        state,
+                        ws,
+                        &meta.id,
+                        sessions.get(&meta.id),
+                        &meta.created_at,
+                        crate::session_archive::SessionState::Archived,
+                    ) else {
+                        continue;
+                    };
+                    if details.protects_from_auto_delete() {
+                        continue;
+                    }
+                    let Some(archived_at) =
+                        details.archived_at.as_deref().and_then(parse_utc_rfc3339)
+                    else {
+                        continue;
+                    };
+                    if now.signed_duration_since(archived_at) < delete_threshold {
+                        continue;
+                    }
+
+                    let Some(_reservation) = ws.metadata.organization.reserve(&meta.id) else {
+                        continue;
+                    };
+                    let Some((fresh_meta, fresh_details)) = closed_session_matches(
+                        state,
+                        ws,
+                        &meta.id,
+                        sessions.get(&meta.id),
+                        &meta.created_at,
+                        crate::session_archive::SessionState::Archived,
+                    ) else {
+                        continue;
+                    };
+                    if fresh_details.protects_from_auto_delete() {
+                        continue;
+                    }
+                    let Some(fresh_archived_at) = fresh_details
+                        .archived_at
+                        .as_deref()
+                        .and_then(parse_utc_rfc3339)
+                    else {
+                        continue;
+                    };
+                    if now.signed_duration_since(fresh_archived_at) < delete_threshold {
+                        continue;
+                    }
+
+                    tracing::info!(
+                        session_id = %fresh_meta.id,
+                        "retention: deleting expired archived session"
+                    );
+                    if let Err(error) = delete_session_evidence(ws, &fresh_meta.id, |session_id| {
                         ws.recommendation_store
                             .delete_referencing_session(session_id)
                             .map_err(|error| error.to_string())
                     }) {
-                        tracing::error!(session_id = %id, %error, "retention: failed to delete expired session");
+                        tracing::error!(
+                            session_id = %fresh_meta.id,
+                            %error,
+                            "retention: failed to delete expired archived session"
+                        );
                         if error.record_removed {
-                            sessions.remove(id);
-                            deleted_expired.push(id.clone());
+                            sessions.remove(&fresh_meta.id);
+                            all_deleted.push(fresh_meta.id);
+                            changed = true;
                         }
                         continue;
                     }
-                    sessions.remove(id);
-                    deleted_expired.push(id.clone());
+                    sessions.remove(&fresh_meta.id);
+                    all_deleted.push(fresh_meta.id);
+                    changed = true;
                 }
-            }
-            all_deleted.extend(deleted_expired.iter().cloned());
-            candidates.retain(|s| !deleted_expired.contains(&s.id));
-        }
-    }
-
-    if config.max_sessions > 0 && candidates.len() > config.max_sessions {
-        let ws_guard = state.workspace.lock().unwrap();
-        if let Some(ref ws) = *ws_guard {
-            let mut sessions = state.sessions.lock().unwrap();
-            let protected_ids = candidates
-                .iter()
-                .filter(|candidate| {
-                    retention_protected(
-                        state,
-                        ws,
-                        &candidate.id,
-                        sessions.get(&candidate.id),
-                        &candidate.created_at,
-                    )
-                })
-                .map(|candidate| candidate.id.clone())
-                .collect();
-            let eligible =
-                select_count_candidates(&candidates, config.max_sessions, &protected_ids);
-            for id in eligible {
-                if retention_protected(
-                    state,
-                    ws,
-                    &id,
-                    sessions.get(&id),
-                    &candidate_identities[&id],
-                ) {
-                    continue;
-                }
-                tracing::info!(
-                    session_id = %id,
-                    max_sessions = config.max_sessions,
-                    "retention: deleting session (exceeds max)"
-                );
-                if let Err(error) = delete_session_evidence(ws, &id, |session_id| {
-                    ws.recommendation_store
-                        .delete_referencing_session(session_id)
-                        .map_err(|error| error.to_string())
-                }) {
-                    tracing::error!(session_id = %id, %error, "retention: failed to delete session");
-                    if error.record_removed {
-                        sessions.remove(&id);
-                        all_deleted.push(id);
-                    }
-                    continue;
-                }
-                sessions.remove(&id);
-                all_deleted.push(id);
             }
         }
     }
@@ -474,6 +725,180 @@ pub(crate) async fn retention_cleanup_once(
     for id in &all_deleted {
         crate::session_application::SessionApplication::new(state.clone())
             .clear_forgotten_session_tracking(id);
+    }
+
+    if changed {
+        state.updates.sessions_changed();
+    }
+}
+
+async fn execute_active_auto_archive(
+    state: &Arc<AppState>,
+    candidate: &ActiveArchiveCandidate,
+    now_iso: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    close_wait: std::time::Duration,
+) -> bool {
+    let _reservation = {
+        let _projection = state.projection_lock.lock().unwrap();
+        let (reservation, stop) = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let Some(ws) = ws_guard.as_ref() else {
+                return false;
+            };
+            if !Arc::ptr_eq(&candidate.store, &ws.metadata.organization) {
+                return false;
+            }
+            let Ok(Some(record)) = ws.metadata.try_read_revisioned_session(&candidate.id) else {
+                return false;
+            };
+            let meta = record.metadata;
+            if meta.created_at != candidate.created_at {
+                return false;
+            }
+            let sessions = state.sessions.lock().unwrap();
+            let Some(handle) = sessions.get(&candidate.id) else {
+                return false;
+            };
+            if handle.runtime.run_generation() != candidate.generation
+                || handle.runtime.auto_archive_warned_at != Some(candidate.warned_at)
+                || !handle
+                    .runtime
+                    .auto_archive_scheduled_at
+                    .is_some_and(|scheduled| now >= scheduled)
+            {
+                return false;
+            }
+            let Some(details) =
+                active_handle_is_idle_archive_eligible(ws, &candidate.id, handle, &meta)
+            else {
+                return false;
+            };
+            if details.revision != candidate.revision {
+                return false;
+            }
+            let Some(reservation) = ws.metadata.organization.reserve(&candidate.id) else {
+                return false;
+            };
+            let stop = crate::runtime::session_runtime::CapturedRuntimeStop::capture(handle);
+            (reservation, stop)
+        };
+        stop.close();
+        if stop.signal(state, &candidate.id).is_err() {
+            tracing::warn!(
+                session_id = %candidate.id,
+                "retention: failed to signal stop for idle active auto-archive; leaving unarchived"
+            );
+            return false;
+        }
+        reservation
+    };
+
+    let deadline = tokio::time::Instant::now() + close_wait;
+    loop {
+        if let Some(archived) = try_finish_active_auto_archive(state, candidate, now_iso, deadline)
+        {
+            return archived;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            tracing::warn!(
+                session_id = %candidate.id,
+                "retention: idle active auto-archive close timed out; leaving unarchived"
+            );
+            return false;
+        }
+        tokio::time::sleep(
+            std::time::Duration::from_millis(25)
+                .min(deadline.saturating_duration_since(tokio::time::Instant::now())),
+        )
+        .await;
+    }
+}
+
+fn try_finish_active_auto_archive(
+    state: &Arc<AppState>,
+    candidate: &ActiveArchiveCandidate,
+    now_iso: &str,
+    deadline: tokio::time::Instant,
+) -> Option<bool> {
+    let _projection = state.projection_lock.lock().unwrap();
+    let ws_guard = state.workspace.lock().unwrap();
+    let Some(ws) = ws_guard.as_ref() else {
+        return Some(false);
+    };
+    if !Arc::ptr_eq(&candidate.store, &ws.metadata.organization) {
+        return Some(false);
+    }
+    let meta = match ws.metadata.try_read_revisioned_session(&candidate.id) {
+        Ok(Some(record)) => record.metadata,
+        _ => return Some(false),
+    };
+    if meta.created_at != candidate.created_at {
+        return Some(false);
+    }
+    let mut sessions = state.sessions.lock().unwrap();
+    let handle = sessions.get(&candidate.id);
+    if handle.is_some_and(|h| h.runtime.run_generation() != candidate.generation) {
+        return Some(false);
+    }
+    let has_pid = state
+        .session_pids
+        .lock()
+        .unwrap()
+        .contains_key(&candidate.id);
+    if meta.lifecycle_phase != "ended"
+        || meta.lifecycle != "dead"
+        || !crate::session_application::session_actions::runtime_closed(handle, has_pid)
+    {
+        return None;
+    }
+    if tokio::time::Instant::now() >= deadline {
+        return Some(false);
+    }
+    let details =
+        match ws
+            .metadata
+            .organization
+            .read_details(&candidate.id, &meta.created_at, true, false)
+        {
+            Ok(details) => details,
+            Err(_) => return Some(false),
+        };
+    if details.revision != candidate.revision || details.favorited {
+        return Some(false);
+    }
+    if let Err(error) = prepare_managed_worktree_for_archive(ws, &candidate.id, &meta.created_at) {
+        tracing::warn!(
+            session_id = %candidate.id,
+            %error,
+            "retention: managed-worktree archive preparation failed after close; leaving unarchived"
+        );
+        return Some(false);
+    }
+    match ws.metadata.organization.write_at(
+        &candidate.id,
+        &meta.created_at,
+        crate::session_archive::SessionState::Archived,
+        now_iso,
+    ) {
+        Ok(()) => {
+            if let Some(handle) = sessions.get_mut(&candidate.id) {
+                handle.runtime.clear_auto_archive_warning();
+            }
+            tracing::info!(
+                session_id = %candidate.id,
+                "retention: auto-archived idle active session after bounded close"
+            );
+            Some(true)
+        }
+        Err(error) => {
+            tracing::warn!(
+                session_id = %candidate.id,
+                %error,
+                "retention: failed to persist archive state after close"
+            );
+            Some(false)
+        }
     }
 }
 
@@ -499,84 +924,882 @@ mod tests {
         )
     }
 
-    #[test]
-    fn retention_rechecks_creation_identity_for_age_and_count_candidates() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        let candidates = vec![
-            retention_test_session("reused", "2024-01-01T00:00:00Z"),
-            retention_test_session("keep", "2024-02-01T00:00:00Z"),
-        ];
-        let cutoff = chrono::DateTime::parse_from_rfc3339("2024-01-15T00:00:00Z")
+    fn utc(raw: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(raw)
             .unwrap()
-            .with_timezone(&chrono::Utc);
-        let selected = [
-            select_expired_candidates(&candidates, cutoff, &HashSet::new()),
-            select_count_candidates(&candidates, 1, &HashSet::new()),
-        ];
-        let workspace = state.workspace.lock().unwrap();
-        let ws = workspace.as_ref().unwrap();
-        ws.metadata.write_session(&candidates[0]);
-        assert!(!retention_protected(
-            &state,
-            ws,
-            "reused",
-            None,
-            &candidates[0].created_at
-        ));
-        let replacement = retention_test_session("reused", "2026-10-18T10:00:00Z");
-        ws.metadata.write_session(&replacement);
-        assert_eq!(
-            ws.metadata.read_session("reused").unwrap().created_at,
-            replacement.created_at
+            .with_timezone(&chrono::Utc)
+    }
+
+    async fn apply_test_retention(
+        state: &Arc<AppState>,
+        auto_archive_after_days: u32,
+        auto_archive_active_sessions: bool,
+        delete_archived_after_days: u32,
+    ) {
+        let mut config = state.retention_config.write().await;
+        config.version = 2;
+        config.auto_archive_after_days = auto_archive_after_days;
+        config.auto_archive_active_sessions = auto_archive_active_sessions;
+        config.delete_archived_after_days = delete_archived_after_days;
+        config.applied = true;
+    }
+
+    fn insert_live_handle(
+        state: &Arc<AppState>,
+        dir: &std::path::Path,
+        id: &str,
+        last_activity: &str,
+        observed_status: Option<&str>,
+    ) -> tokio::sync::watch::Receiver<bool> {
+        let (kill_tx, kill_rx) = tokio::sync::watch::channel(false);
+        let mut info =
+            test_session_info(id, id, dir.display().to_string(), "running", last_activity);
+        info.lifecycle = "alive".into();
+        info.lifecycle_phase = "active".into();
+        info.observed_status = observed_status.map(str::to_string);
+        let mut runtime = crate::runtime::session_runtime::SessionRuntime::detached(24, 80);
+        runtime.last_interactive_at = utc(last_activity);
+        state.sessions.lock().unwrap().insert(
+            id.into(),
+            crate::SessionHandle {
+                info,
+                active_work_hook: false,
+                kill_tx,
+                output_buffer: crate::peon::RingBuffer::new(200),
+                scan_buf: String::new(),
+                pending_work_signal: None,
+                runtime,
+                terminal_attached: false,
+                resume_in_progress: false,
+                capacity: crate::capacity_state::CapacityState::default(),
+            },
         );
-        for selected in selected {
-            assert_eq!(selected, vec!["reused"]);
-            let captured = candidates
-                .iter()
-                .find(|candidate| candidate.id == selected[0])
-                .unwrap();
-            assert!(
-                retention_protected(&state, ws, &captured.id, None, &captured.created_at),
-                "a replacement must not inherit age/count eligibility from the captured identity"
-            );
-        }
-        assert!(ws.metadata.session_file_exists("reused"));
+        kill_rx
+    }
+
+    #[test]
+    fn auto_archive_warning_lead_time_matches_spec() {
+        assert_eq!(
+            auto_archive_warning_lead_time(1),
+            chrono::Duration::hours(6)
+        );
+        assert_eq!(
+            auto_archive_warning_lead_time(2),
+            chrono::Duration::hours(12)
+        );
+        assert_eq!(
+            auto_archive_warning_lead_time(3),
+            chrono::Duration::hours(18)
+        );
+        assert_eq!(
+            auto_archive_warning_lead_time(4),
+            chrono::Duration::hours(24)
+        );
+        assert_eq!(
+            auto_archive_warning_lead_time(7),
+            chrono::Duration::hours(24)
+        );
+        assert_eq!(
+            auto_archive_warning_lead_time(30),
+            chrono::Duration::hours(24)
+        );
     }
 
     #[tokio::test]
-    async fn count_retention_skips_protected_metadata_without_handles_before_selection() {
+    async fn retention_is_fail_closed_until_settings_are_pushed() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         {
-            let workspace = state.workspace.lock().unwrap();
-            let ws = workspace.as_ref().unwrap();
-            let mut active = retention_test_session("old-active", "2024-01-01T00:00:00Z");
-            active.lifecycle_phase = "creating".into();
-            active.lifecycle = "creating".into();
-            active.status = "creating".into();
-            ws.metadata.write_session(&active);
-            for (id, time) in [
-                ("closed-old", "2024-02-01T00:00:00Z"),
-                ("closed-new", "2024-03-01T00:00:00Z"),
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            ws.metadata.write_session(&retention_test_session(
+                "old-closed",
+                "2024-01-01T00:00:00Z",
+            ));
+            ws.metadata.write_session(&retention_test_session(
+                "old-archived",
+                "2024-01-01T00:00:00Z",
+            ));
+            ws.metadata
+                .organization
+                .write_at(
+                    "old-archived",
+                    "2024-01-01T00:00:00Z",
+                    crate::session_archive::SessionState::Archived,
+                    "2024-01-01T00:00:00Z",
+                )
+                .unwrap();
+        }
+
+        // Default RetentionConfig starts with applied == false (fail-closed).
+        retention_cleanup_once(&state, utc("2026-11-28T00:00:00Z")).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("old-closed", "2024-01-01T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Closed
+        );
+        assert!(ws.metadata.session_file_exists("old-archived"));
+    }
+
+    #[tokio::test]
+    async fn stage_1a_archives_closed_sessions_and_honors_restored_at_and_favorite() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            for (id, activity) in [
+                ("stale-closed", "2026-11-01T00:00:00Z"),
+                ("fresh-closed", "2026-11-25T00:00:00Z"),
+                ("restored-closed", "2026-11-01T00:00:00Z"),
+                ("fav-closed", "2026-11-01T00:00:00Z"),
             ] {
-                ws.metadata.write_session(&retention_test_session(id, time));
+                ws.metadata
+                    .write_session(&retention_test_session(id, activity));
+            }
+            // Restored 2 days ago: max(last_activity, restoredAt) is 2 days old (< 7 days).
+            ws.metadata
+                .organization
+                .write_at(
+                    "restored-closed",
+                    "2026-11-01T00:00:00Z",
+                    crate::session_archive::SessionState::Archived,
+                    "2026-11-10T00:00:00Z",
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .write_at(
+                    "restored-closed",
+                    "2026-11-01T00:00:00Z",
+                    crate::session_archive::SessionState::Closed,
+                    "2026-11-26T00:00:00Z",
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .set_favorited_at(
+                    "fav-closed",
+                    "2026-11-01T00:00:00Z",
+                    true,
+                    "2026-11-02T00:00:00Z",
+                )
+                .unwrap();
+        }
+        apply_test_retention(&state, 7, true, 30).await;
+
+        retention_cleanup_once(&state, utc("2026-11-28T00:00:00Z")).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let stale = ws
+            .metadata
+            .organization
+            .read_details("stale-closed", "2026-11-01T00:00:00Z", true, false)
+            .unwrap();
+        assert_eq!(stale.state, crate::session_archive::SessionState::Archived);
+        assert_eq!(
+            stale.archived_at.as_deref(),
+            Some("2026-11-28T00:00:00+00:00")
+        );
+        assert!(ws.metadata.session_file_exists("stale-closed"));
+
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("fresh-closed", "2026-11-25T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Closed
+        );
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("restored-closed", "2026-11-01T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Closed
+        );
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("fav-closed", "2026-11-01T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Closed
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_1b_warns_idle_active_ignoring_last_output_at_and_excluding_protected_states() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-11-20T00:00:00Z";
+        let now = utc("2026-11-26T12:00:00Z"); // 6.5 days idle (inside 24h lead of 7d)
+
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            for (id, phase, lifecycle, observed, last_output) in [
+                (
+                    "idle-tui",
+                    "active",
+                    "alive",
+                    Some("idle"),
+                    Some("2026-11-26T11:59:59Z"),
+                ),
+                ("working-session", "active", "alive", Some("working"), None),
+                (
+                    "creating-session",
+                    "creating",
+                    "creating",
+                    Some("idle"),
+                    None,
+                ),
+                ("stopping-session", "ending", "stopping", Some("idle"), None),
+                ("fav-active", "active", "alive", Some("idle"), None),
+                ("orch-active", "active", "alive", Some("idle"), None),
+            ] {
+                let mut meta = test_session_metadata(
+                    id,
+                    id,
+                    dir.path().display().to_string(),
+                    "running",
+                    old,
+                    old,
+                );
+                meta.lifecycle_phase = phase.into();
+                meta.lifecycle = lifecycle.into();
+                meta.observed_status = observed.map(str::to_string);
+                meta.last_output_at = last_output.map(str::to_string);
+                ws.metadata.write_session(&meta);
+            }
+            ws.metadata
+                .organization
+                .set_favorited_at("fav-active", old, true, old)
+                .unwrap();
+        }
+
+        let _k1 = insert_live_handle(&state, dir.path(), "idle-tui", old, Some("idle"));
+        let _k2 = insert_live_handle(&state, dir.path(), "working-session", old, Some("working"));
+        let _k3 = insert_live_handle(&state, dir.path(), "creating-session", old, Some("idle"));
+        let _k4 = insert_live_handle(&state, dir.path(), "stopping-session", old, Some("idle"));
+        let _k5 = insert_live_handle(&state, dir.path(), "fav-active", old, Some("idle"));
+        let _k6 = insert_live_handle(&state, dir.path(), "orch-active", old, Some("idle"));
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions
+                .get_mut("creating-session")
+                .unwrap()
+                .info
+                .lifecycle_phase = "creating".into();
+            sessions.get_mut("creating-session").unwrap().info.lifecycle = "creating".into();
+            sessions
+                .get_mut("stopping-session")
+                .unwrap()
+                .info
+                .lifecycle_phase = "ending".into();
+            sessions.get_mut("stopping-session").unwrap().info.lifecycle = "stopping".into();
+            sessions
+                .get_mut("orch-active")
+                .unwrap()
+                .runtime
+                .evaluation_revocation =
+                Some(crate::taskmaster::publication_lifecycle::testing::Fixture::new().runtime);
+        }
+
+        apply_test_retention(&state, 7, true, 30).await;
+        retention_cleanup_once(&state, now).await;
+
+        let sessions = state.sessions.lock().unwrap();
+        let warning = sessions
+            .get("idle-tui")
+            .unwrap()
+            .runtime
+            .auto_archive_warning()
+            .expect("idle TUI session with recent last_output_at must still receive warning");
+        assert_eq!(utc(&warning.warned_at), now);
+        // Sleep-safe invariant: scheduled_at is at least now + 24h leadTime.
+        assert_eq!(
+            utc(&warning.scheduled_at),
+            now + chrono::Duration::hours(24)
+        );
+
+        for protected_id in [
+            "working-session",
+            "creating-session",
+            "stopping-session",
+            "fav-active",
+            "orch-active",
+        ] {
+            assert!(
+                sessions
+                    .get(protected_id)
+                    .unwrap()
+                    .runtime
+                    .auto_archive_warning()
+                    .is_none(),
+                "{protected_id} must not receive an auto-archive warning"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn stage_1b_sleep_gap_after_warning_renews_deadline_instead_of_immediate_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-11-20T00:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                "sleep-session",
+                "Sleep Session",
+                dir.path().display().to_string(),
+                "running",
+                old,
+                old,
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("idle".into());
+            ws.metadata.write_session(&meta);
+        }
+        let kill_rx = insert_live_handle(&state, dir.path(), "sleep-session", old, Some("idle"));
+        apply_test_retention(&state, 7, true, 30).await;
+
+        // Tick 1 at day 6: issues warning scheduled for day 7 (24h lead time).
+        let t_warn = utc("2026-11-26T00:00:00Z");
+        retention_cleanup_once(&state, t_warn).await;
+        {
+            let sessions = state.sessions.lock().unwrap();
+            let warning = sessions
+                .get("sleep-session")
+                .unwrap()
+                .runtime
+                .auto_archive_warning()
+                .unwrap();
+            assert_eq!(utc(&warning.warned_at), t_warn);
+            assert_eq!(utc(&warning.scheduled_at), utc("2026-11-27T00:00:00Z"));
+        }
+
+        // Laptop sleeps for 36 hours (past the original scheduled deadline!).
+        let t_wake = utc("2026-11-27T12:00:00Z");
+        retention_cleanup_once(&state, t_wake).await;
+
+        assert!(
+            !*kill_rx.borrow(),
+            "wake tick after >15m wall-clock jump must NOT immediately close the warned session"
+        );
+        let sessions = state.sessions.lock().unwrap();
+        let renewed = sessions
+            .get("sleep-session")
+            .unwrap()
+            .runtime
+            .auto_archive_warning()
+            .expect("warning must remain active with renewed post-wake grace window");
+        assert_eq!(utc(&renewed.warned_at), t_warn);
+        assert_eq!(
+            utc(&renewed.scheduled_at),
+            t_wake + chrono::Duration::hours(24)
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_1b_user_input_clears_warning_and_updates_last_interactive_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-11-20T00:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                "typed-session",
+                "Typed Session",
+                dir.path().display().to_string(),
+                "running",
+                old,
+                old,
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("idle".into());
+            ws.metadata.write_session(&meta);
+        }
+        let _kill_rx = insert_live_handle(&state, dir.path(), "typed-session", old, Some("idle"));
+        apply_test_retention(&state, 7, true, 30).await;
+
+        let t_warn = utc("2026-11-26T00:00:00Z");
+        retention_cleanup_once(&state, t_warn).await;
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .get("typed-session")
+            .unwrap()
+            .runtime
+            .auto_archive_warning()
+            .is_some());
+
+        // Real terminal input clears warning and refreshes last_interactive_at.
+        crate::runtime::terminal_runtime::record_terminal_input(&state, "typed-session", "ls\r");
+        let sessions = state.sessions.lock().unwrap();
+        let handle = sessions.get("typed-session").unwrap();
+        assert!(handle.runtime.auto_archive_warning().is_none());
+        assert!(handle.runtime.last_interactive_at > utc(old));
+    }
+
+    #[tokio::test]
+    async fn stage_1b_includes_resumed_active_sessions_and_clears_warning_when_metadata_activity_advances(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-11-20T00:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = test_session_metadata(
+                "resumed-idle",
+                "Resumed Idle",
+                dir.path().display().to_string(),
+                "running",
+                old,
+                old,
+            );
+            meta.lifecycle = "alive".into();
+            meta.lifecycle_phase = "active".into();
+            meta.observed_status = Some("idle".into());
+            ws.metadata.write_session(&meta);
+        }
+        let kill_rx = insert_live_handle(&state, dir.path(), "resumed-idle", old, Some("idle"));
+        // Resumed sessions keep `resume_in_progress == true` for their entire live lifetime.
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .get_mut("resumed-idle")
+            .unwrap()
+            .resume_in_progress = true;
+
+        apply_test_retention(&state, 7, true, 30).await;
+        let t_warn = utc("2026-11-26T00:00:00Z");
+        retention_cleanup_once(&state, t_warn).await;
+        assert!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get("resumed-idle")
+                .unwrap()
+                .runtime
+                .auto_archive_warning()
+                .is_some(),
+            "steady-state resumed active session must receive idle auto-archive warning"
+        );
+
+        // Advance persisted metadata last_activity after warning issuance; next tick
+        // must clear the warning rather than closing the session at scheduled_at.
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = ws.metadata.read_session("resumed-idle").unwrap();
+            meta.last_activity = "2026-11-26T23:50:00Z".into();
+            ws.metadata.write_session(&meta);
+        }
+        let t_expire = utc("2026-11-27T00:00:00Z");
+        state.retention_config.write().await.last_tick_at =
+            Some(t_expire - chrono::Duration::minutes(5));
+        retention_cleanup_once(&state, t_expire).await;
+
+        assert!(
+            !*kill_rx.borrow(),
+            "activity after warning must prevent close"
+        );
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .get("resumed-idle")
+            .unwrap()
+            .runtime
+            .auto_archive_warning()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn stage_1b_closes_then_archives_on_expiry_and_refuses_archive_on_close_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-11-20T00:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            for id in ["closes-cleanly", "close-stuck"] {
+                let mut meta = test_session_metadata(
+                    id,
+                    id,
+                    dir.path().display().to_string(),
+                    "running",
+                    old,
+                    old,
+                );
+                meta.lifecycle = "alive".into();
+                meta.lifecycle_phase = "active".into();
+                meta.observed_status = Some("idle".into());
+                ws.metadata.write_session(&meta);
             }
         }
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 0;
-            config.max_sessions = 2;
-        }
-        retention_cleanup_once(&state, chrono::Utc::now()).await;
-        let workspace = state.workspace.lock().unwrap();
-        let ws = workspace.as_ref().unwrap();
-        assert!(ws.metadata.session_file_exists("old-active"));
-        assert!(
-            !ws.metadata.session_file_exists("closed-old"),
-            "protected metadata must not consume the deletion slot"
+        let mut clean_kill_rx =
+            insert_live_handle(&state, dir.path(), "closes-cleanly", old, Some("idle"));
+        let _stuck_kill_rx =
+            insert_live_handle(&state, dir.path(), "close-stuck", old, Some("idle"));
+        apply_test_retention(&state, 7, true, 30).await;
+
+        // Arm warnings at t0; simulate continuous awake ticks so sleep-gap does not fire.
+        let t0 = utc("2026-11-26T00:00:00Z");
+        retention_cleanup_once(&state, t0).await;
+
+        // Simulate runtime finalization when kill_tx fires for "closes-cleanly".
+        let finalize_state = state.clone();
+        let finalizer = tokio::spawn(async move {
+            clean_kill_rx.changed().await.unwrap();
+            let ws_guard = finalize_state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = ws.metadata.read_session("closes-cleanly").unwrap();
+            meta.status = "ended".into();
+            meta.lifecycle = "dead".into();
+            meta.lifecycle_phase = "ended".into();
+            meta.observed_status = None;
+            ws.metadata.write_session(&meta);
+            let mut sessions = finalize_state.sessions.lock().unwrap();
+            if let Some(handle) = sessions.get_mut("closes-cleanly") {
+                handle.info.status = "ended".into();
+                handle.info.lifecycle = "dead".into();
+                handle.info.lifecycle_phase = "ended".into();
+                handle.runtime = crate::runtime::session_runtime::SessionRuntime::detached_test();
+                // Close control channel to satisfy runtime_closed while preserving generation?
+                // Instead remove the ended live handle just like real exit cleanup does.
+                sessions.remove("closes-cleanly");
+            }
+        });
+
+        // Advance last_tick_at to 5 minutes before deadline so no sleep gap triggers.
+        let t_expire = utc("2026-11-27T00:00:00Z");
+        state.retention_config.write().await.last_tick_at =
+            Some(t_expire - chrono::Duration::minutes(5));
+
+        retention_cleanup_once_with_close_wait(
+            &state,
+            t_expire,
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        finalizer.await.unwrap();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        let clean = ws
+            .metadata
+            .organization
+            .read_details("closes-cleanly", old, true, false)
+            .unwrap();
+        assert_eq!(clean.state, crate::session_archive::SessionState::Archived);
+        assert_eq!(
+            clean.archived_at.as_deref(),
+            Some("2026-11-27T00:00:00+00:00")
         );
-        assert!(ws.metadata.session_file_exists("closed-new"));
+
+        // "close-stuck" never finalized its close; must NOT be archived.
+        let stuck = ws
+            .metadata
+            .organization
+            .read_details("close-stuck", old, false, true)
+            .unwrap();
+        assert_eq!(stuck.state, crate::session_archive::SessionState::Active);
+    }
+
+    #[tokio::test]
+    async fn stage_2_revalidates_deletion_settings_after_stage_1b_close_await() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        // 29.5 days old at Nov 26 (not yet expired), 30.5 days old at Nov 27 (eligible unless disabled).
+        let old = "2026-10-27T12:00:00Z";
+        {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut active = test_session_metadata(
+                "closing-active",
+                "Closing Active",
+                dir.path().display().to_string(),
+                "running",
+                "2026-11-20T00:00:00Z",
+                "2026-11-20T00:00:00Z",
+            );
+            active.lifecycle = "alive".into();
+            active.lifecycle_phase = "active".into();
+            active.observed_status = Some("idle".into());
+            ws.metadata.write_session(&active);
+
+            ws.metadata
+                .write_session(&retention_test_session("archived-saved-by-update", old));
+            ws.metadata
+                .organization
+                .write_at(
+                    "archived-saved-by-update",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+        }
+        let mut kill_rx = insert_live_handle(
+            &state,
+            dir.path(),
+            "closing-active",
+            "2026-11-20T00:00:00Z",
+            Some("idle"),
+        );
+        apply_test_retention(&state, 7, true, 30).await;
+
+        // Arm Stage 1B warning on day 6; archived session is only 29.5 days old so survives.
+        retention_cleanup_once(&state, utc("2026-11-26T00:00:00Z")).await;
+        assert!(state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .session_file_exists("archived-saved-by-update"));
+
+        // While Stage 1B awaits the active session's close, user disables Stage 2 deletion
+        // via POST /settings/retention (deleteArchivedAfterDays = 0).
+        let update_state = state.clone();
+        let finalizer = tokio::spawn(async move {
+            kill_rx.changed().await.unwrap();
+            let _ = crate::http::retention_handlers::set_retention(
+                axum::extract::State(update_state.clone()),
+                axum::Json(crate::http::retention_handlers::RetentionRequest {
+                    version: 2,
+                    auto_archive_after_days: 7,
+                    auto_archive_active_sessions: true,
+                    delete_archived_after_days: 0,
+                }),
+            )
+            .await;
+            let ws_guard = update_state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            let mut meta = ws.metadata.read_session("closing-active").unwrap();
+            meta.status = "ended".into();
+            meta.lifecycle = "dead".into();
+            meta.lifecycle_phase = "ended".into();
+            meta.observed_status = None;
+            ws.metadata.write_session(&meta);
+            update_state
+                .sessions
+                .lock()
+                .unwrap()
+                .remove("closing-active");
+        });
+
+        let t_expire = utc("2026-11-27T00:00:00Z");
+        state.retention_config.write().await.last_tick_at =
+            Some(t_expire - chrono::Duration::minutes(5));
+        retention_cleanup_once_with_close_wait(
+            &state,
+            t_expire,
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        finalizer.await.unwrap();
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert_eq!(
+            ws.metadata
+                .organization
+                .state("closing-active", "2026-11-20T00:00:00Z", true, false)
+                .unwrap()
+                .0,
+            crate::session_archive::SessionState::Archived
+        );
+        assert!(
+            ws.metadata.session_file_exists("archived-saved-by-update"),
+            "Stage 2 must honor deleteArchivedAfterDays=0 pushed during Stage 1B close await"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_2_deletes_expired_archived_and_protects_favorites_worktrees_pending_and_corrupt()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_app_state_with_workspace(dir.path());
+        let old = "2026-09-01T00:00:00Z";
+        let recent = "2026-11-20T00:00:00Z";
+        let _pending_reservation = {
+            let ws_guard = state.workspace.lock().unwrap();
+            let ws = ws_guard.as_ref().unwrap();
+            for id in [
+                "expired-archived",
+                "recent-archived",
+                "favorited-archived",
+                "legacy-v1-archived",
+                "active-worktree-archived",
+                "dirty-worktree-archived",
+                "failed-worktree-archived",
+                "removed-worktree-archived",
+                "pending-archived",
+                "corrupt-archived",
+                "unfavorited-fresh-grace",
+            ] {
+                ws.metadata.write_session(&retention_test_session(id, old));
+            }
+            ws.metadata
+                .organization
+                .write_at(
+                    "expired-archived",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .write_at(
+                    "recent-archived",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    recent,
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .write_at(
+                    "favorited-archived",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .set_favorited_at("favorited-archived", old, true, old)
+                .unwrap();
+            // Unfavoriting an old archived session resets archivedAt = now (recent),
+            // granting a fresh 30-day grace window.
+            ws.metadata
+                .organization
+                .write_at(
+                    "unfavorited-fresh-grace",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+            ws.metadata
+                .organization
+                .set_favorited_at("unfavorited-fresh-grace", old, true, old)
+                .unwrap();
+            ws.metadata
+                .organization
+                .set_favorited_at("unfavorited-fresh-grace", old, false, recent)
+                .unwrap();
+            // Pending reservation protects from deletion.
+            ws.metadata
+                .organization
+                .write_at(
+                    "pending-archived",
+                    old,
+                    crate::session_archive::SessionState::Archived,
+                    old,
+                )
+                .unwrap();
+            let state_dir = ws.metadata.root_path().join("session-state");
+            fs::create_dir_all(&state_dir).unwrap();
+            // Legacy v1 archived record auto-promotes to favorited on read and survives Stage 2.
+            fs::write(
+                state_dir.join("legacy-v1-archived.json"),
+                serde_json::json!({
+                    "version": 1,
+                    "sessionId": "legacy-v1-archived",
+                    "createdAt": old,
+                    "state": "archived",
+                    "revision": 1,
+                    "changedAt": old
+                })
+                .to_string(),
+            )
+            .unwrap();
+            // Full managedWorktree cleanupStatus matrix: active / retained_dirty /
+            // removal_failed protect from auto-delete, while removed permits deletion.
+            for (id, status) in [
+                ("active-worktree-archived", "active"),
+                ("dirty-worktree-archived", "retained_dirty"),
+                ("failed-worktree-archived", "removal_failed"),
+                ("removed-worktree-archived", "removed"),
+            ] {
+                fs::write(
+                    state_dir.join(format!("{id}.json")),
+                    serde_json::json!({
+                        "version": 2,
+                        "sessionId": id,
+                        "createdAt": old,
+                        "state": "archived",
+                        "favorited": false,
+                        "archivedAt": old,
+                        "restoredAt": null,
+                        "managedWorktree": {
+                            "root": "/tmp/wt",
+                            "commonDir": "/tmp/repo/.git",
+                            "branch": "ork/wt",
+                            "baseRef": "origin/main",
+                            "cleanupStatus": status
+                        },
+                        "revision": 1,
+                        "changedAt": old
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            }
+            // Corrupt session-state record must fail closed.
+            fs::write(state_dir.join("corrupt-archived.json"), b"{not json").unwrap();
+
+            ws.metadata
+                .organization
+                .reserve("pending-archived")
+                .unwrap()
+        };
+
+        apply_test_retention(&state, 7, true, 30).await;
+        retention_cleanup_once(&state, utc("2026-11-28T00:00:00Z")).await;
+
+        let ws_guard = state.workspace.lock().unwrap();
+        let ws = ws_guard.as_ref().unwrap();
+        assert!(!ws.metadata.session_file_exists("expired-archived"));
+        assert!(!ws.metadata.session_file_exists("removed-worktree-archived"));
+        for survivor in [
+            "recent-archived",
+            "favorited-archived",
+            "legacy-v1-archived",
+            "active-worktree-archived",
+            "dirty-worktree-archived",
+            "failed-worktree-archived",
+            "pending-archived",
+            "corrupt-archived",
+            "unfavorited-fresh-grace",
+        ] {
+            assert!(
+                ws.metadata.session_file_exists(survivor),
+                "{survivor} must survive Stage 2 deletion"
+            );
+        }
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -587,36 +1810,30 @@ mod tests {
         ResumeInProgress,
     }
 
-    #[derive(Clone, Copy, Debug)]
-    enum RetentionPolicy {
-        Age,
-        Count,
-    }
-
-    async fn assert_retention_guard_preserves_session(
-        protection: RetentionGuard,
-        policy: RetentionPolicy,
-    ) {
+    async fn assert_stage2_guard_preserves_archived_session(protection: RetentionGuard) {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
+        let old = "2024-01-01T00:00:00Z";
         let _reservation = {
             let workspace = state.workspace.lock().unwrap();
             let ws = workspace.as_ref().unwrap();
             for (id, activity) in [
-                ("protected", "2024-01-01T00:00:00Z"),
+                ("protected", old),
                 ("eligible", "2024-01-02T00:00:00Z"),
                 ("newest", "2024-02-01T00:00:00Z"),
             ] {
                 ws.metadata
                     .write_session(&retention_test_session(id, activity));
+                ws.metadata
+                    .organization
+                    .write_at(
+                        id,
+                        activity,
+                        crate::session_archive::SessionState::Archived,
+                        activity,
+                    )
+                    .unwrap();
             }
-            assert!(!retention_protected(
-                &state,
-                ws,
-                "protected",
-                None,
-                "2024-01-01T00:00:00Z",
-            ));
             if matches!(protection, RetentionGuard::PendingOrganization) {
                 Some(ws.metadata.organization.reserve("protected").unwrap())
             } else {
@@ -639,28 +1856,22 @@ mod tests {
                     "Protected",
                     dir.path().display().to_string(),
                     "ended",
-                    "2024-01-01T00:00:00Z",
+                    old,
                 );
                 info.lifecycle_phase = "ended".into();
                 info.lifecycle = "dead".into();
-                let mut handle = crate::SessionHandle {
+                let handle = crate::SessionHandle {
                     info,
                     kill_tx,
                     output_buffer: crate::peon::RingBuffer::new(200),
                     scan_buf: String::new(),
                     pending_work_signal: None,
                     runtime: crate::runtime::session_runtime::SessionRuntime::detached_test(),
-                    terminal_attached: false,
-                    resume_in_progress: false,
+                    terminal_attached: matches!(protection, RetentionGuard::TerminalAttached),
+                    resume_in_progress: matches!(protection, RetentionGuard::ResumeInProgress),
                     capacity: crate::capacity_state::CapacityState::default(),
                     active_work_hook: false,
                 };
-                assert!(crate::session_application::session_actions::runtime_closed(
-                    Some(&handle),
-                    false,
-                ));
-                handle.terminal_attached = matches!(protection, RetentionGuard::TerminalAttached);
-                handle.resume_in_progress = matches!(protection, RetentionGuard::ResumeInProgress);
                 state
                     .sessions
                     .lock()
@@ -668,105 +1879,40 @@ mod tests {
                     .insert("protected".into(), handle);
             }
         }
-        {
-            let mut config = state.retention_config.write().await;
-            match policy {
-                RetentionPolicy::Age => {
-                    config.max_age_days = 1;
-                    config.max_sessions = 0;
-                }
-                RetentionPolicy::Count => {
-                    config.max_age_days = 0;
-                    config.max_sessions = 2;
-                }
-            }
-        }
-        let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-
-        retention_cleanup_once(&state, now).await;
+        apply_test_retention(&state, 0, false, 1).await;
+        retention_cleanup_once(&state, utc("2024-02-01T00:00:00Z")).await;
 
         let workspace = state.workspace.lock().unwrap();
         let ws = workspace.as_ref().unwrap();
         assert!(
             ws.metadata.session_file_exists("protected"),
-            "{protection:?} must survive {policy:?} retention",
+            "{protection:?} must survive Stage 2 deletion",
         );
         assert!(
             !ws.metadata.session_file_exists("eligible"),
-            "{policy:?} retention must still delete the eligible session",
+            "Stage 2 must still delete the eligible archived session",
         );
         assert!(ws.metadata.session_file_exists("newest"));
     }
 
     #[tokio::test]
-    async fn age_retention_preserves_pending_organization() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::PendingOrganization,
-            RetentionPolicy::Age,
-        )
-        .await;
+    async fn stage_2_preserves_pending_organization() {
+        assert_stage2_guard_preserves_archived_session(RetentionGuard::PendingOrganization).await;
     }
 
     #[tokio::test]
-    async fn count_retention_preserves_pending_organization() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::PendingOrganization,
-            RetentionPolicy::Count,
-        )
-        .await;
+    async fn stage_2_preserves_tracked_pid() {
+        assert_stage2_guard_preserves_archived_session(RetentionGuard::TrackedPid).await;
     }
 
     #[tokio::test]
-    async fn age_retention_preserves_tracked_pid() {
-        assert_retention_guard_preserves_session(RetentionGuard::TrackedPid, RetentionPolicy::Age)
-            .await;
+    async fn stage_2_preserves_terminal_attachment() {
+        assert_stage2_guard_preserves_archived_session(RetentionGuard::TerminalAttached).await;
     }
 
     #[tokio::test]
-    async fn count_retention_preserves_tracked_pid() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::TrackedPid,
-            RetentionPolicy::Count,
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn age_retention_preserves_terminal_attachment() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::TerminalAttached,
-            RetentionPolicy::Age,
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn count_retention_preserves_terminal_attachment() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::TerminalAttached,
-            RetentionPolicy::Count,
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn age_retention_preserves_resume_in_progress() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::ResumeInProgress,
-            RetentionPolicy::Age,
-        )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn count_retention_preserves_resume_in_progress() {
-        assert_retention_guard_preserves_session(
-            RetentionGuard::ResumeInProgress,
-            RetentionPolicy::Count,
-        )
-        .await;
+    async fn stage_2_preserves_resume_in_progress() {
+        assert_stage2_guard_preserves_archived_session(RetentionGuard::ResumeInProgress).await;
     }
 
     fn spam_observation_key(index: usize) -> String {
@@ -1009,54 +2155,6 @@ mod tests {
         assert_eq!(removed.len(), 1);
     }
 
-    #[test]
-    fn expired_candidates_ignore_invalid_timestamps_and_protected_sessions() {
-        let candidates = vec![
-            retention_test_session("newest", "2024-01-10T00:00:00Z"),
-            retention_test_session("invalid", "not-a-timestamp"),
-            retention_test_session("protected", "2024-01-02T00:00:00Z"),
-            retention_test_session("oldest", "2024-01-01T00:00:00Z"),
-        ];
-        let protected = HashSet::from(["protected".to_string()]);
-        let cutoff = chrono::DateTime::parse_from_rfc3339("2024-01-05T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-
-        assert_eq!(
-            select_expired_candidates(&candidates, cutoff, &protected),
-            vec!["oldest"]
-        );
-    }
-
-    #[test]
-    fn count_candidates_select_oldest_eligible_sessions_only() {
-        let candidates = vec![
-            retention_test_session("newest", "2024-01-04T00:00:00Z"),
-            retention_test_session("middle", "2024-01-03T00:00:00Z"),
-            retention_test_session("protected", "2024-01-02T00:00:00Z"),
-            retention_test_session("oldest", "2024-01-01T00:00:00Z"),
-        ];
-        let protected = HashSet::from(["protected".to_string()]);
-
-        assert_eq!(
-            select_count_candidates(&candidates, 2, &protected),
-            vec!["oldest", "middle"]
-        );
-    }
-
-    #[test]
-    fn count_selection_can_run_after_age_candidates_are_removed() {
-        let remaining = vec![
-            retention_test_session("newer", "2024-01-04T00:00:00Z"),
-            retention_test_session("oldest-remaining", "2024-01-03T00:00:00Z"),
-        ];
-
-        assert_eq!(
-            select_count_candidates(&remaining, 1, &HashSet::new()),
-            vec!["oldest-remaining"]
-        );
-    }
-
     fn record_test_observation(
         store: &crate::workflow_observations::WorkflowObservationStore,
         session_id: &str,
@@ -1111,14 +2209,19 @@ mod tests {
                 store
                     .try_write_session(&retention_test_session(id, "2024-01-01T00:00:00Z"))
                     .unwrap();
+                store
+                    .organization
+                    .write_at(
+                        id,
+                        "2024-01-01T00:00:00Z",
+                        crate::session_archive::SessionState::Archived,
+                        "2024-01-01T00:00:00Z",
+                    )
+                    .unwrap();
                 assert!(store.session_file_exists(id));
             }
         }
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 1;
-            config.max_sessions = 0;
-        }
+        apply_test_retention(&state, 0, false, 1).await;
 
         let application = crate::session_application::SessionApplication::new(state.clone());
         let image_store = target.join(".orkworks-test").join("session-images");
@@ -1186,11 +2289,7 @@ mod tests {
                 Err(error) => panic!("create linked session fixture: {error}"),
             }
         }
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 1;
-            config.max_sessions = 0;
-        }
+        apply_test_retention(&state, 1, false, 1).await;
         let now = chrono::DateTime::parse_from_rfc3339("2024-03-01T01:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
@@ -1258,7 +2357,7 @@ mod tests {
 
         let corrupt = replacement_store.root_path().join("sessions/corrupt.json");
         fs::write(&corrupt, b"fixture: invalid session record").unwrap();
-        state.retention_config.write().await.max_age_days = 1;
+        apply_test_retention(&state, 1, false, 1).await;
         retention_cleanup_once(&state, chrono::Utc::now()).await;
         assert_eq!(
             fs::read(&corrupt).unwrap(),
@@ -1385,97 +2484,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn archived_sessions_do_not_consume_the_unarchived_count_budget() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let ws = workspace.as_ref().unwrap();
-            for (id, activity) in [
-                ("saved", "2024-01-03T00:00:00Z"),
-                ("old", "2024-01-01T00:00:00Z"),
-                ("new", "2024-01-02T00:00:00Z"),
-            ] {
-                ws.metadata.write_session(&test_session_metadata(
-                    id,
-                    id,
-                    dir.path().display().to_string(),
-                    "ended",
-                    "2024-01-01T00:00:00Z",
-                    activity,
-                ));
-            }
-            ws.metadata
-                .organization
-                .write(
-                    "saved",
-                    "2024-01-01T00:00:00Z",
-                    crate::session_archive::SessionState::Archived,
-                )
-                .unwrap();
-        }
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 0;
-            config.max_sessions = 1;
-        }
-        retention_cleanup_once(&state, chrono::Utc::now()).await;
-        let workspace = state.workspace.lock().unwrap();
-        let ws = workspace.as_ref().unwrap();
-        assert!(ws.metadata.session_file_exists("saved"));
-        assert!(ws.metadata.session_file_exists("new"));
-        assert!(!ws.metadata.session_file_exists("old"));
-    }
-
-    #[tokio::test]
-    async fn archived_and_unreadable_sessions_survive_age_and_count_cleanup() {
-        let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state_with_workspace(dir.path());
-        {
-            let workspace = state.workspace.lock().unwrap();
-            let ws = workspace.as_ref().unwrap();
-            for id in ["archived", "unreadable", "old-closed", "new-closed"] {
-                ws.metadata.write_session(&test_session_metadata(
-                    id,
-                    id,
-                    dir.path().display().to_string(),
-                    "ended",
-                    "2024-01-01T00:00:00Z",
-                    "2024-01-01T00:00:00Z",
-                ));
-            }
-            ws.metadata
-                .organization
-                .write(
-                    "archived",
-                    "2024-01-01T00:00:00Z",
-                    crate::session_archive::SessionState::Archived,
-                )
-                .unwrap();
-            std::fs::write(
-                ws.metadata
-                    .root_path()
-                    .join("session-state/unreadable.json"),
-                "bad",
-            )
-            .unwrap();
-        }
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 1;
-            config.max_sessions = 1;
-        }
-        retention_cleanup_once(&state, chrono::Utc::now()).await;
-        let workspace = state.workspace.lock().unwrap();
-        let ws = workspace.as_ref().unwrap();
-        assert!(ws.metadata.session_file_exists("archived"));
-        assert!(ws.metadata.session_file_exists("unreadable"));
-        assert!(!ws.metadata.session_file_exists("old-closed"));
-        assert!(!ws.metadata.session_file_exists("new-closed"));
-    }
-
-    #[tokio::test]
-    async fn retention_cleanup_keeps_live_sessions() {
+    async fn retention_cleanup_keeps_live_sessions_when_active_auto_archive_is_disabled() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "still-live".to_string();
@@ -1487,53 +2496,38 @@ mod tests {
                 session_id.clone(),
                 "Still Live",
                 dir.path().display().to_string(),
-                "ended",
+                "running",
                 "2024-01-01T00:00:00Z",
                 "2024-01-01T00:00:00Z",
             ));
         }
-
-        let (kill_tx, _) = tokio::sync::watch::channel(false);
-        state.sessions.lock().unwrap().insert(
-            session_id.clone(),
-            crate::SessionHandle {
-                info: test_session_info(
-                    session_id.clone(),
-                    "Still Live",
-                    dir.path().display().to_string(),
-                    "running",
-                    "2024-01-01T00:00:00Z",
-                ),
-                kill_tx,
-                output_buffer: crate::peon::RingBuffer::new(200),
-                scan_buf: String::new(),
-                pending_work_signal: None,
-                runtime: crate::runtime::session_runtime::SessionRuntime::detached(
-                    crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
-                    crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
-                ),
-                terminal_attached: false,
-                resume_in_progress: false,
-                capacity: crate::capacity_state::CapacityState::default(),
-                active_work_hook: false,
-            },
+        let _kill_rx = insert_live_handle(
+            &state,
+            dir.path(),
+            &session_id,
+            "2024-01-01T00:00:00Z",
+            Some("idle"),
         );
 
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 1;
-            config.max_sessions = 0;
-        }
-
-        retention_cleanup_once(&state, chrono::Utc::now()).await;
+        apply_test_retention(&state, 1, false, 1).await;
+        retention_cleanup_once(&state, utc("2024-02-01T00:00:00Z")).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();
         assert!(ws.metadata.read_session(&session_id).is_some());
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .unwrap()
+            .runtime
+            .auto_archive_warning()
+            .is_none());
     }
 
     #[tokio::test]
-    async fn retention_cleanup_clears_last_active_when_session_is_deleted() {
+    async fn retention_cleanup_clears_last_active_when_archived_session_is_deleted() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_app_state_with_workspace(dir.path());
         let session_id = "old-session".to_string();
@@ -1550,6 +2544,15 @@ mod tests {
                 "2024-01-01T00:00:00Z",
             ));
             ws.metadata
+                .organization
+                .write_at(
+                    &session_id,
+                    "2024-01-01T00:00:00Z",
+                    crate::session_archive::SessionState::Archived,
+                    "2024-01-01T00:00:00Z",
+                )
+                .unwrap();
+            ws.metadata
                 .write_workspace_memory(&metadata::WorkspaceMemory {
                     last_active_session_id: Some(session_id.clone()),
                     last_active_at: Some("2024-01-01T00:00:00Z".into()),
@@ -1565,16 +2568,8 @@ mod tests {
             .unwrap()
             .insert(session_id.clone(), 2);
 
-        {
-            let mut config = state.retention_config.write().await;
-            config.max_age_days = 1;
-            config.max_sessions = 0;
-        }
-
-        let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        retention_cleanup_once(&state, now).await;
+        apply_test_retention(&state, 7, true, 1).await;
+        retention_cleanup_once(&state, utc("2024-02-01T00:00:00Z")).await;
 
         let ws_guard = state.workspace.lock().unwrap();
         let ws = ws_guard.as_ref().unwrap();

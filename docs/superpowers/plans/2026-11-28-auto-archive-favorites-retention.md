@@ -13,7 +13,7 @@ Design: [Auto-archive, favorites, and staged session retention](../specs/2026-11
 Revises retention section of: [Active, Closed and Archived sessions](../specs/2026-10-18-session-archive.md).
 Companion design (lands second on this `OrganizationStore` v2 foundation):
 [Opt-in worktree launch for new agent sessions](../specs/2026-11-28-new-session-worktree-design.md).
-Tracking issue: create before runtime implementation (none exists yet).
+Tracking issue: [#2279](https://github.com/Rambolarsen/orkworks/issues/2279).
 
 Pass condition: OrkWorks replaces legacy `maxSessions` / `maxAgeDays` deletion
 with a Settings-controlled, enabled-by-default staged lifecycle

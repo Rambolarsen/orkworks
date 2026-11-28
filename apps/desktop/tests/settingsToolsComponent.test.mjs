@@ -80,7 +80,7 @@ async function fixture(t, { active = ["copilot"], detection, save, groupedStatus
   const hotkeys = { newSession: "Ctrl+N", toggleSessionsPanel: "Ctrl+1", toggleDetailPanel: "Ctrl+2", toggleTerminalPanel: "Ctrl+3", toggleRecommendationsPanel: "Ctrl+5", resetLayout: null };
   const props = {
     initialSection: section,
-    initialSettings: { version: 1, hotkeys, defaultHotkeys: hotkeys, retention: { maxSessions: 50, maxAgeDays: 30 }, debug: { showSessionIds: false, rendererHealthLogMs: 0 }, providers: { version: 2, revision: 0, peonModel: null, ollamaBaseUrl: "http://localhost:11434", providers: [] }, ...settings },
+    initialSettings: { version: 1, hotkeys, defaultHotkeys: hotkeys, retention: { version: 2, autoArchiveAfterDays: 7, autoArchiveActiveSessions: true, deleteArchivedAfterDays: 30 }, debug: { showSessionIds: false, rendererHealthLogMs: 0 }, providers: { version: 2, revision: 0, peonModel: null, ollamaBaseUrl: "http://localhost:11434", providers: [] }, ...settings },
     currentWorkspacePath: "/workspace", updateStatus: null, updateCurrentVersion: null, updateChannel: null,
     onCheckForUpdates() {}, onDownloadUpdate() {}, harnesses: tools, documentRevision: null,
     onRefreshHarnesses: async () => ({ documentRevision: null, harnesses: tools }),
@@ -315,7 +315,7 @@ for (const action of ["newSession", "toggleSessionsPanel", "toggleDetailPanel", 
 }
 
 
-for (const [field, label] of [["maxSessions", "Max sessions to keep"], ["maxAgeDays", "Auto-delete sessions older than (days)"]]) {
+for (const [field, label] of [["autoArchiveAfterDays", "Auto-archive inactive sessions after (days)"], ["deleteArchivedAfterDays", "Delete archived sessions after (days)"]]) {
   test(`retention ${field} keeps draft edits local and saves bounded values on blur`, async (t) => {
     const view = await fixture(t, { section: "retention" });
     const input = () => nodes(view.render()).filter((node) => node.props?.className === "retention-row")
@@ -330,7 +330,7 @@ for (const [field, label] of [["maxSessions", "Max sessions to keep"], ["maxAgeD
       input().props.onChange({ target: { value: raw } });
       input().props.onBlur({ target: { value: raw } });
       await view.settle();
-      const expectedRetention = { maxSessions: 50, maxAgeDays: 30, [field]: expected };
+      const expectedRetention = { version: 2, autoArchiveAfterDays: 7, autoArchiveActiveSessions: true, deleteArchivedAfterDays: 30, [field]: expected };
       assert.deepEqual(view.calls.at(-1), ["retention", expectedRetention]);
       assert.deepEqual(view.savedSettings.at(-1).retention, expectedRetention);
       assert.match(text(view.render()), /Saved/);
@@ -341,6 +341,46 @@ for (const [field, label] of [["maxSessions", "Max sessions to keep"], ["maxAgeD
     }
   });
 }
+
+test("retention active-session toggle saves immediately and displays protection note", async (t) => {
+  const view = await fixture(t, { section: "retention" });
+  const renderedText = text(view.render());
+  assert.match(renderedText, /Favorited sessions.*dirty managed worktrees/i);
+  const activeToggle = () => nodes(view.render()).find((node) => node.props?.label === "Include idle active sessions");
+  assert.equal(activeToggle().props.checked, true);
+  activeToggle().props.onChange();
+  await view.settle();
+  assert.deepEqual(view.calls.at(-1), ["retention", {
+    version: 2,
+    autoArchiveAfterDays: 7,
+    autoArchiveActiveSessions: false,
+    deleteArchivedAfterDays: 30,
+  }]);
+  assert.equal(activeToggle().props.checked, false);
+});
+
+test("retention numeric input allows clearing to empty string and skips no-op blur", async (t) => {
+  const view = await fixture(t, { section: "retention" });
+  const input = () => nodes(view.render()).find((node) => node.props?.type === "number");
+  assert.equal(input().props.value, 7);
+  // No-op blur with unchanged value must not push POST /settings/retention.
+  input().props.onBlur({ target: { value: "7" } });
+  await view.settle();
+  assert.deepEqual(view.calls, []);
+  // Clearing via Backspace leaves empty draft value until blur commits 0.
+  input().props.onChange({ target: { value: "" } });
+  assert.equal(input().props.value, "");
+  assert.deepEqual(view.calls, []);
+  input().props.onBlur({ target: { value: "" } });
+  await view.settle();
+  assert.equal(input().props.value, 0);
+  assert.deepEqual(view.calls, [["retention", {
+    version: 2,
+    autoArchiveAfterDays: 0,
+    autoArchiveActiveSessions: true,
+    deleteArchivedAfterDays: 30,
+  }]]);
+});
 
 for (const [name, saveRetention, status, committed] of [
   ["pending sidecar application", async () => ({ ok: true, retentionApplyStatus: { lastApplyError: "offline" } }), "Saved locally; sidecar pending", true],
@@ -356,7 +396,7 @@ for (const [name, saveRetention, status, committed] of [
     assert.equal(input().props.value, 75);
     assert.equal(view.savedSettings.length, committed ? 1 : 0);
     view.close();
-    assert.equal(input().props.value, committed ? 75 : 50);
+    assert.equal(input().props.value, committed ? 75 : 7);
     assert.ok(!text(view.render()).includes(status));
   });
 }
@@ -408,7 +448,7 @@ test("older retention success cannot replace a newer committed value", async (t)
   await view.settle();
   first.resolve({ ok: true });
   await view.settle();
-  assert.equal(view.savedSettings.at(-1).retention.maxSessions, 70);
+  assert.equal(view.savedSettings.at(-1).retention.autoArchiveAfterDays, 70);
   view.close();
   assert.equal(input().props.value, 70);
 });
@@ -457,7 +497,7 @@ test("a delayed Debug response preserves a newer retention commit", async (t) =>
   await view.settle();
   debug.resolve({ ok: true, settings: { ...view.initialSettings, debug: { showSessionIds: true, rendererHealthLogMs: 0 } } });
   await view.settle();
-  assert.equal(view.savedSettings.at(-1).retention.maxSessions, 75);
+  assert.equal(view.savedSettings.at(-1).retention.autoArchiveAfterDays, 75);
   assert.equal(view.savedSettings.at(-1).debug.showSessionIds, true);
 });
 
@@ -640,5 +680,5 @@ test("a delayed Peon Save response preserves a newer retention commit", async (t
   await view.settle();
   saving.resolve({ ok: true, settings: view.initialSettings });
   await view.settle();
-  assert.equal(view.savedSettings.at(-1).retention.maxSessions, 75);
+  assert.equal(view.savedSettings.at(-1).retention.autoArchiveAfterDays, 75);
 });

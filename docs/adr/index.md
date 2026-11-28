@@ -172,3 +172,5 @@ Decision records and their original rationale and consequences.
 - [Keep Codex capture custody in startup-sealed workers](0122-startup-sealed-codex-custody.md) — Accepted macOS qualification scope for bounded persistent capture workers.
 
 - [Synthetic reader diagnostics](0123-synthetic-reader-diagnostics.md) — Accepted synthetic-only protocol and buffer comparison.
+
+- [Staged session retention, favorites, and OrganizationStore v2](0124-staged-session-retention-and-favorites.md) — Accepted fail-closed staged retention lifecycle, explicit favorites, sleep-safe idle-active warnings, and OrganizationStore v2.

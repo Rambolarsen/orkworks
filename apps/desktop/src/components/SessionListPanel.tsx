@@ -1,7 +1,8 @@
 import { isHistoricalSession } from "../sessionRuntimeState";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, MoreHorizontal } from "lucide-react";
+import { Clock, LoaderCircle, MoreHorizontal, Star } from "lucide-react";
 import type { SessionAction, SessionInfo, WorkspaceInfo } from "../api";
+import { formatAutoArchiveRemaining, nextAutoArchiveCountdownRefreshMs } from "../autoArchiveWarning";
 import type { HarnessConfig } from "../harnessTypes";
 import { sessionAttentionStatus } from "../sessionSort";
 import { harnessDisplayName, sessionCodingTool } from "../sessionProviderContext";
@@ -23,7 +24,12 @@ import HarnessIcon from "./HarnessIcon";
 import SessionContextMenu, { type SessionMenuAnchor } from "./SessionContextMenu";
 
 const actionProgress: Record<SessionAction, string> = {
-  close: "Closing…", archive: "Archiving…", restore: "Restoring…", delete: "Deleting…",
+  close: "Closing…",
+  archive: "Archiving…",
+  restore: "Restoring…",
+  delete: "Deleting…",
+  favorite: "Favoriting…",
+  unfavorite: "Updating…",
 };
 
 interface SessionListPanelProps {
@@ -53,6 +59,7 @@ interface SessionListRowProps {
   menuOpen: boolean;
   harnesses: HarnessConfig[];
   activityTime: string;
+  archiveCountdown: string | null;
   itemRefs: Map<string, HTMLLIElement>;
   onSelect: (id: string) => void;
   onOpenMenu: (sessionId: string, x: number, y: number, invoker: HTMLElement | null) => void;
@@ -97,7 +104,7 @@ export function areSessionListRowPropsEqual(prev: SessionListRowProps, next: Ses
 // Pass the displayed age text so clock ticks only redraw labels that changed.
 const SessionListRow = memo(function SessionListRow({
   session: s, selected, isUnread, acknowledged, pendingAction, resuming,
-  menuOpen, harnesses, activityTime, itemRefs, onSelect, onOpenMenu,
+  menuOpen, harnesses, activityTime, archiveCountdown, itemRefs, onSelect, onOpenMenu,
 }: SessionListRowProps) {
   const attn = sessionAttentionStatus(s);
   const tone = attentionTone(attn);
@@ -149,6 +156,9 @@ const SessionListRow = memo(function SessionListRow({
             variant={unread ? "unread" : "status"}
           />
           <span className="session-row-label">{s.label}</span>
+          {s.favorited === true && (
+            <Star size={12} className="session-row-favorite" aria-label="Favorited" />
+          )}
         </span>
       </span>
       <span className="session-row-secondary">
@@ -168,6 +178,15 @@ const SessionListRow = memo(function SessionListRow({
           )}
           {s.capacityCheckPending === true && (
             <span className="session-row-checking">Checking capacity</span>
+          )}
+          {archiveCountdown && (
+            <span
+              className="session-row-archive-warning"
+              title={`Idle — closes and archives in ${archiveCountdown}`}
+            >
+              <Clock size={11} aria-hidden="true" />
+              {archiveCountdown}
+            </span>
           )}
           <span className="session-row-meta">
             <span className="session-row-tool" aria-hidden={!tool}>
@@ -207,7 +226,7 @@ function SessionListPanel({
   onActivateSession,
   onOpenWorkspace,
 }: SessionListPanelProps) {
-  const [filter, setFilter] = useState<"all" | "active" | "closed" | "archived">("all");
+  const [filter, setFilter] = useState<"all" | "active" | "closed" | "archived" | "favorites">("all");
   const filterRef = useRef<HTMLSelectElement>(null);
   const actionInvoker = useRef<HTMLElement | null>(null);
   const menuRef = useRef<SessionMenuAnchor | null>(null);
@@ -240,11 +259,16 @@ function SessionListPanel({
     let nextRefresh = nextSessionGroupRefreshMs(sessions, currentNow);
     for (const session of sessions) {
       nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(lastActivityTimestamp(session), currentNow));
+      if (session.sessionState === "active" && !session.favorited && session.autoArchiveWarning) {
+        const warningNow = new Date(Math.max(currentNow.getTime(), Date.now()));
+        nextRefresh = minDelay(nextRefresh, nextAutoArchiveCountdownRefreshMs(session.autoArchiveWarning.scheduledAt, warningNow));
+      }
     }
     return nextRefresh;
   }, [sessions]));
 
   const filtered = useMemo(() => sessions.filter(session => {
+    if (filter === "favorites") return session.favorited === true;
     const state = session.sessionState === undefined ? (session.lifecycle === "dead" ? "closed" : "active") : session.sessionState;
     return filter === "all" ? state !== "archived" : state === filter;
   }), [sessions, filter]);
@@ -274,7 +298,7 @@ function SessionListPanel({
     actionInvoker.current = menu?.invoker ?? null;
     dismissMenu();
     if (action === "resume") { onResumeSession?.(target.id); return; }
-    if (action === "delete" && !window.confirm(`Permanently delete “${target.label}”? ${target.sessionState === "active" ? "The session will be closed first. " : ""}The session record, events, and saved terminal scrollback cannot be restored. The coding tool's native saved session is retained. The Git worktree is retained.`)) return;
+    if (action === "delete" && !window.confirm(`Permanently delete ${target.favorited ? "favorited session " : ""}“${target.label}”? ${target.favorited ? "This session is marked as a Favorite. " : ""}${target.sessionState === "active" ? "The session will be closed first. " : ""}The session record, events, and saved terminal scrollback cannot be restored. The coding tool's native saved session is retained. The Git worktree is retained.`)) return;
     const generation = workspaceGeneration.current;
     setPending(current => new Map(current).set(target.id, action));
     try { await onSessionAction?.(target.id, action, target.sessionActionToken); }
@@ -342,7 +366,7 @@ function SessionListPanel({
     <div className="panel-content">
       <label className="session-state-filter">State
         <select ref={filterRef} aria-label="Session state" value={filter} onChange={event => { setFilter(event.target.value as typeof filter); menuRef.current = null; setMenu(null); }}>
-          <option value="all">All unarchived</option><option value="active">Active</option><option value="closed">Closed</option><option value="archived">Archived</option>
+          <option value="all">All unarchived</option><option value="active">Active</option><option value="closed">Closed</option><option value="archived">Archived</option><option value="favorites">Favorites</option>
         </select>
       </label>
       {error && <p role="alert" className="session-action-error">{error}</p>}
@@ -366,10 +390,17 @@ function SessionListPanel({
                 {group.label}
               </li>
               {group.items.map((s) => {
+                const archiveCountdown = s.sessionState === "active" && !s.favorited && s.autoArchiveWarning
+                  ? formatAutoArchiveRemaining(
+                    s.autoArchiveWarning.scheduledAt,
+                    new Date(Math.max(now.getTime(), Date.now())),
+                  )
+                  : null;
                 return <SessionListRow key={s.id} session={s} selected={s.id === activeSessionId}
                   isUnread={unreadIds.has(s.id)} acknowledged={acknowledgedIds.has(s.id)}
                   pendingAction={pending.get(s.id)} resuming={!!resumingSessionIds?.has(s.id)}
                   menuOpen={menu?.session.id === s.id} harnesses={harnesses} activityTime={lastActivity(s, now)}
+                  archiveCountdown={archiveCountdown}
                   itemRefs={itemRefs.current} onSelect={handleSelect} onOpenMenu={openMenu} />;
               })}
             </Fragment>
