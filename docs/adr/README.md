@@ -110,7 +110,7 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 
 | [0087](./0087-native-codex-assessment-response-constraints.md) | Native Codex assessment uses code-owned response constraints | accepted; compatibility and runtime evidence pending |
 
-| [0088](./0088-session-archive-state.md) | Durable session archive state | accepted; format-2 persistence superseded in part by [0103](0103-sqlite-session-storage.md) |
+| [0088](./0088-session-archive-state.md) | Durable session archive state | accepted; retention policy superseded in part by [0124](./0124-staged-session-retention-and-favorites.md); format-2 persistence superseded in part by [0103](0103-sqlite-session-storage.md) |
 
 | [0089](./0089-new-session-image-context.md) | New sessions own bounded local image context | accepted; implementation in progress |
 
@@ -178,3 +178,5 @@ See [ADR 0001](./0001-record-architecture-decisions.md) for the rationale.
 - [Keep Codex capture custody in startup-sealed workers](0122-startup-sealed-codex-custody.md) — Accepted macOS qualification scope for bounded persistent capture workers.
 
 - [Synthetic reader diagnostics](0123-synthetic-reader-diagnostics.md) — Accepted on 2026-11-27; no live qualification authority.
+
+- [Staged session retention, favorites, and OrganizationStore v2](0124-staged-session-retention-and-favorites.md) — Accepted on 2026-11-28 (#2279); replaces legacy max-sessions/max-age retention with fail-closed staged auto-archive/delete, explicit favorites, sleep-safe idle-active warnings, and OrganizationStore v2.

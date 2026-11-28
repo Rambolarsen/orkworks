@@ -1,6 +1,9 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert, Clock } from "lucide-react";
+import { formatAutoArchiveRemaining, nextAutoArchiveCountdownRefreshMs } from "../autoArchiveWarning";
+import { useStableRelativeTimeNow } from "../useStableRelativeTimeNow";
+import { pushToast } from "../feedback";
 import type {
   CentralSurface,
   FocusTarget,
@@ -207,6 +210,14 @@ export default function ApplicationShell(props: Props) {
   useEffect(() => setNavigationMenuOpen(false), [workspaceGeneration, showSessions]);
   const showInspector = !showSessionsPage && !centralUtility && layout.inspectorWidth > 0 && inspector !== null;
   const session = sessions.items.find(s => s.id === sessions.activeId) ?? null;
+  const [pendingBannerSessionIds, setPendingBannerSessionIds] = useState<Set<string>>(() => new Set());
+  const terminalWarningScheduledAt = session && session.sessionState === "active" && !session.favorited
+    ? session.autoArchiveWarning?.scheduledAt ?? null
+    : null;
+  const terminalWarningNow = useStableRelativeTimeNow(useCallback(
+    (currentNow: Date) => nextAutoArchiveCountdownRefreshMs(terminalWarningScheduledAt, currentNow),
+    [terminalWarningScheduledAt],
+  ));
   const isResuming = !!session && !!sessions.resumingIds?.has(session.id);
   const canResume = session?.lifecycle === "dead" && session.sessionState !== "archived"
     && backendStatus === "connected" && !isSwitchingWorkspace
@@ -517,6 +528,8 @@ export default function ApplicationShell(props: Props) {
         review.onOpen(kind);
       }} onRequestPlanReview={review.onRequestPlanReview}
       resumingSessionIds={sessions.resumingIds} onResumeSession={sessions.onResume} onApplyDebugAttention={sessions.onApplyDebugAttention}
+      actionsEnabled={backendStatus === "connected" && !isSwitchingWorkspace}
+      onSessionAction={sessions.onAction}
       onOpenSettings={() => preferences.onOpenSettings("providers")} onOpenRecommendation={recommendations.onOpen}
       showDebugMetadata={preferences.debugSettings.showSessionIds} />;
     if (inspector === "actions") return <ActionsOverview key={actionsScope} model={actionsModel} focusRequest={actionFocusRequest.scope === actionsScope ? actionFocusRequest.sequence : 0}
@@ -688,6 +701,53 @@ export default function ApplicationShell(props: Props) {
         </nav>
         {composer.content && <section hidden={!showComposer} className="shell-region shell-region--central shell-composer-region" aria-label="New agent session" data-shell-region="new-session">{composer.content}</section>}
         {showTerminal && <section className="shell-region shell-region--central" aria-label="Terminal" data-shell-region="terminal">
+          {session && session.sessionState === "active" && !session.favorited && session.autoArchiveWarning && (() => {
+            const targetId = session.id;
+            const targetToken = session.sessionActionToken;
+            const bannerPending = pendingBannerSessionIds.has(targetId);
+            const runBannerAction = (action: "favorite" | "archive", fallbackError: string) => {
+              if (!sessions.onAction || !targetToken || bannerPending) return;
+              setPendingBannerSessionIds((current) => new Set(current).add(targetId));
+              void sessions.onAction(targetId, action, targetToken)
+                .catch((error: unknown) => {
+                  pushToast("error", error instanceof Error ? error.message : fallbackError);
+                })
+                .finally(() => {
+                  setPendingBannerSessionIds((current) => {
+                    if (!current.has(targetId)) return current;
+                    const next = new Set(current);
+                    next.delete(targetId);
+                    return next;
+                  });
+                });
+            };
+            return (
+              <div className="auto-archive-warning-banner auto-archive-warning-banner--terminal" role="status" data-terminal-auto-archive-warning>
+                <div className="auto-archive-warning-copy">
+                  <Clock size={14} aria-hidden="true" />
+                  <span>Idle — closes and archives in {formatAutoArchiveRemaining(session.autoArchiveWarning.scheduledAt, terminalWarningNow)}</span>
+                </div>
+                <div className="auto-archive-warning-actions">
+                  <button
+                    type="button"
+                    data-auto-archive-keep
+                    disabled={!sourcesReady || !sessions.onAction || !targetToken || bannerPending}
+                    onClick={() => runBannerAction("favorite", "Could not favorite session.")}
+                  >
+                    Favorite (keep)
+                  </button>
+                  <button
+                    type="button"
+                    data-auto-archive-now
+                    disabled={!sourcesReady || !sessions.onAction || !targetToken || bannerPending}
+                    onClick={() => runBannerAction("archive", "Could not archive session.")}
+                  >
+                    Archive now
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
           <TerminalPanel key={`${session?.id ?? "none"}-${sessions.resumeTick}`} backendStatus={backendStatus} session={session}
             onBackendUnavailable={workspace.onBackendUnavailable} onRetryBackend={workspace.onRetryBackend} onSelectPlan={review.onSelectPlan} />
         </section>}

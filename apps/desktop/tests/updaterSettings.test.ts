@@ -38,7 +38,7 @@ const initialSettings = {
     toggleRecommendationsPanel: "CmdOrCtrl+Shift+R",
     resetLayout: null,
   },
-  retention: { maxSessions: 20, maxAgeDays: 30 },
+  retention: { version: 2, autoArchiveAfterDays: 7, autoArchiveActiveSessions: true, deleteArchivedAfterDays: 30 },
   debug: { showSessionIds: false, rendererHealthLogMs: 0 },
   providers: {
     version: 1,

@@ -51,3 +51,15 @@ The accepted [storage contract](../../specs/session-storage.md) and
 [delivery plan](../superpowers/plans/2026-11-01-sqlite-session-storage.md) govern
 the replacement. Current format-1 source behavior remains until implementation
 and activation; this does not claim a shipped SQLite migration.
+
+## Scoped supersession — 2026-11-28
+
+[ADR 0124](0124-staged-session-retention-and-favorites.md) supersedes the
+retention-exemption and disabled-by-default retention section of this record:
+explicit `favorited: true` (and non-removed managed worktrees or unreadable
+records) now carries retention exemption, while ordinary `Closed` and idle
+`Active` sessions auto-archive and `Archived` sessions age out to deletion
+under Settings-controlled, fail-closed staged retention. Pre-existing `version: 1`
+archived records are automatically promoted to `favorited: true` on read to
+preserve their prior protection. Active/Closed/Archived organization states,
+Close-first semantics, and `sessionActionToken` validation remain unchanged.

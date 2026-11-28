@@ -75,6 +75,7 @@ export interface WorkspaceRuntimeTimers {
   readinessTimeoutMs?: number;
   cleanupTimeoutMs?: number;
   restorationTimeoutMs?: number;
+  retentionRetryDelaysMs?: readonly number[];
 }
 
 export interface WorkspaceRuntimeLogger {
@@ -273,22 +274,59 @@ export function createWorkspaceRuntime(options: WorkspaceRuntimeOptions): Worksp
     return restoreResult.workspace;
   }
 
-  async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
-    const retention = options.getRetention?.() ?? options.getSettings().retention ?? DEFAULT_RETENTION;
-    try {
-      const response = await send(port, "settings/retention", {
-        method: "POST",
-        jsonBody: retention,
-        signal,
-      });
-      signal.throwIfAborted();
-      if (!response.ok) {
-        logger.warn(`[main] failed to restore retention settings: ${response.status}`);
-      }
-    } catch (error) {
-      signal.throwIfAborted();
-      logger.warn(`[main] failed to restore retention settings: ${error instanceof Error ? error.message : "unknown error"}`);
+const DEFAULT_RETENTION_RETRY_DELAYS_MS: readonly number[] = [250, 1000, 2500, 5000, 10_000];
+
+  function sleepAbortable(delayMs: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(signal.reason);
     }
+    return new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        timers.clearTimeout(timer);
+        reject(signal.reason);
+      };
+      const timer = timers.setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, delayMs);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  async function applyRetentionSettings(port: number, signal: AbortSignal): Promise<void> {
+    const retryDelays = timers.retentionRetryDelaysMs ?? DEFAULT_RETENTION_RETRY_DELAYS_MS;
+    const maxAttempts = retryDelays.length + 1;
+    let lastError = "unknown error";
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      signal.throwIfAborted();
+      const retention = options.getRetention?.() ?? options.getSettings().retention ?? DEFAULT_RETENTION;
+      try {
+        const response = await send(port, "settings/retention", {
+          method: "POST",
+          jsonBody: retention,
+          signal,
+        });
+        signal.throwIfAborted();
+        if (response.ok) {
+          return;
+        }
+        lastError = `status ${response.status}`;
+      } catch (error) {
+        signal.throwIfAborted();
+        lastError = error instanceof Error ? error.message : "unknown error";
+      }
+
+      if (attempt < retryDelays.length) {
+        logger.warn(
+          `[main] retention settings push attempt ${attempt + 1}/${maxAttempts} failed (${lastError}); retrying`,
+        );
+        await sleepAbortable(retryDelays[attempt], signal);
+      }
+    }
+
+    logger.warn(`[main] failed to restore retention settings after ${maxAttempts} attempts: ${lastError}`);
+    throw new Error(`Failed to restore retention settings: ${lastError}`);
   }
 
   async function syncSavedProviderSettings(port: number, signal: AbortSignal): Promise<void> {

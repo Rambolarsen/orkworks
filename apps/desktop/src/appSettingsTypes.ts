@@ -1,8 +1,10 @@
 import type { ProviderSettings } from "./providerTypes.ts";
 
 export interface RetentionSettings {
-  maxSessions: number;
-  maxAgeDays: number;
+  version: 2;
+  autoArchiveAfterDays: number;
+  autoArchiveActiveSessions: boolean;
+  deleteArchivedAfterDays: number;
 }
 
 export interface DebugSettings {

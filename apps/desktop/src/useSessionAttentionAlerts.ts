@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { SessionInfo } from "./api";
+import { autoArchiveWarningKey, collectNewAutoArchiveWarnings, type AutoArchiveNotificationState } from "./autoArchiveWarning";
 import { dismissToast, pushToast } from "./feedback";
 import { observeSessionAttention, sessionAlertDelivery } from "./sessionAttentionAlerts";
 
@@ -18,11 +19,20 @@ interface ActiveAlert {
   close: () => void;
 }
 
+interface ActiveAutoArchiveAlert {
+  scope: string;
+  key: string;
+  close: () => void;
+}
+
 export function useSessionAttentionAlerts(options: Options): void {
   const snapshot = useRef<ReturnType<typeof observeSessionAttention>["snapshot"]>(null);
+  const autoArchiveState = useRef<AutoArchiveNotificationState | null>(null);
+  const activeAutoArchive = useRef(new Map<string, ActiveAutoArchiveAlert>());
   const active = useRef(new Map<string, ActiveAlert>());
   const deferred = useRef(new Map<string, SessionInfo>());
   const openSession = useRef(options.openSession);
+  const dialogOpenRef = useRef(options.dialogOpen);
   const { scope, sessions, visibleSessionId, desktopEnabled, dialogOpen } = options;
 
   useLayoutEffect(() => {
@@ -30,15 +40,70 @@ export function useSessionAttentionAlerts(options: Options): void {
   }, [options.openSession]);
 
   useLayoutEffect(() => {
+    dialogOpenRef.current = dialogOpen;
+  }, [dialogOpen]);
+
+  useLayoutEffect(() => {
     const alerts = active.current;
+    const autoArchiveAlerts = activeAutoArchive.current;
     const deferredWaits = deferred.current;
     return () => {
       for (const alert of alerts.values()) alert.close();
       alerts.clear();
+      for (const alert of autoArchiveAlerts.values()) alert.close();
+      autoArchiveAlerts.clear();
       deferredWaits.clear();
       snapshot.current = null;
+      autoArchiveState.current = null;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const currentWarningKeys = new Set<string>();
+    if (scope !== null && desktopEnabled) {
+      for (const session of sessions) {
+        if (session.sessionState !== "active" || session.favorited === true) continue;
+        const key = autoArchiveWarningKey(session);
+        if (key) currentWarningKeys.add(key);
+      }
+    }
+    for (const [key, alert] of activeAutoArchive.current) {
+      if (desktopEnabled && scope !== null && alert.scope === scope && currentWarningKeys.has(key)) continue;
+      activeAutoArchive.current.delete(key);
+      alert.close();
+    }
+    if (!desktopEnabled || scope === null) {
+      if (scope === null) autoArchiveState.current = null;
+      return;
+    }
+    const { state, toNotify } = collectNewAutoArchiveWarnings(autoArchiveState.current, scope, sessions);
+    autoArchiveState.current = state;
+    for (const session of toNotify) {
+      const key = autoArchiveWarningKey(session);
+      if (!key) continue;
+      const notificationId = crypto.randomUUID();
+      const alert: ActiveAutoArchiveAlert = {
+        scope,
+        key,
+        close: () => {
+          void window.orkworks.closeSessionAttentionNotification(notificationId).catch(() => {});
+        },
+      };
+      activeAutoArchive.current.set(key, alert);
+      void window.orkworks
+        .showSessionAttentionNotification(notificationId, "auto_archive_warning")
+        .then((clicked) => {
+          const stillCurrent = activeAutoArchive.current.get(key) === alert;
+          if (stillCurrent) activeAutoArchive.current.delete(key);
+          if (clicked && stillCurrent && !dialogOpenRef.current) {
+            openSession.current(session.id);
+          }
+        })
+        .catch(() => {
+          if (activeAutoArchive.current.get(key) === alert) activeAutoArchive.current.delete(key);
+        });
+    }
+  }, [scope, sessions, desktopEnabled]);
 
   useLayoutEffect(() => {
     if (snapshot.current?.scope !== scope) deferred.current.clear();

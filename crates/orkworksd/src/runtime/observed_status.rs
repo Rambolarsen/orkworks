@@ -270,6 +270,21 @@ impl AttentionMirrorOptions {
     }
 }
 
+fn sync_interactive_activity_from_metadata(
+    handle: &mut SessionHandle,
+    stored: &metadata::SessionMetadata,
+) {
+    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&stored.last_activity) {
+        let at = parsed.with_timezone(&chrono::Utc);
+        if at > handle.runtime.last_interactive_at {
+            handle.runtime.record_interactive_activity(at);
+        }
+    }
+    if stored.observed_status.as_deref() == Some("working") {
+        handle.runtime.clear_auto_archive_warning();
+    }
+}
+
 /// Canonical committed-metadata-to-`SessionHandle` attention mirror.
 /// Enforces `attention_owner.accepted_write()`, `native_approval.invalidate()`,
 /// `pending_work_signal`, `active_prompt_kind`, question fields, and provenance
@@ -323,6 +338,7 @@ pub(crate) fn mirror_committed_attention(
             handle.runtime.active_prompt_kind = next_kind;
         }
     }
+    sync_interactive_activity_from_metadata(handle, stored);
 }
 
 /// Mirrors a committed authenticated agent metadata patch onto the live
@@ -338,6 +354,8 @@ pub(crate) fn mirror_agent_metadata_patch(
     handle.info.worktree_binding = stored.worktree_binding.clone();
     if scope.attention {
         mirror_committed_attention(handle, stored, AttentionMirrorOptions::agent_patch());
+    } else {
+        sync_interactive_activity_from_metadata(handle, stored);
     }
     if scope.work {
         handle.info.work_phase = stored.work_phase.clone();
@@ -402,6 +420,11 @@ pub(crate) fn mirror_committed_lifecycle(
     if handle.info.lifecycle_phase == "ended" {
         handle.resume_in_progress = false;
     }
+    if handle.info.lifecycle != "alive" || handle.info.lifecycle_phase != "active" {
+        handle.runtime.clear_auto_archive_warning();
+    } else {
+        sync_interactive_activity_from_metadata(handle, stored);
+    }
 }
 
 /// Mirrors a finalized ended lifecycle transition onto the live `SessionHandle`.
@@ -422,6 +445,7 @@ pub(crate) fn mirror_ended_lifecycle(
     handle.info.final_observed_status = final_observed_status;
     handle.info.last_activity_at = Some(now);
     handle.resume_in_progress = false;
+    handle.runtime.clear_auto_archive_warning();
 }
 
 /// Marks a live `SessionHandle` as entering the `ending` lifecycle phase.
@@ -435,6 +459,7 @@ pub(crate) fn mark_handle_ending(handle: &mut SessionHandle, now: String) {
     handle.info.terminal_outcome = None;
     handle.info.observed_status = None;
     handle.info.last_activity_at = Some(now);
+    handle.runtime.clear_auto_archive_warning();
 }
 
 /// Refreshes an already-ending `SessionHandle` on a subsequent terminal
@@ -443,6 +468,7 @@ pub(crate) fn refresh_ending_handle(handle: &mut SessionHandle, now: String) {
     handle.runtime.attention_owner.accepted_write();
     handle.info.last_activity_at = Some(now);
     handle.info.observed_status = None;
+    handle.runtime.clear_auto_archive_warning();
 }
 
 /// Terminal input characteristics used by [`mark_committed_input_working`].
@@ -613,6 +639,7 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
         return;
     };
     let accepted_at = chrono::Utc::now();
+    let cleared_auto_archive_warning = handle.runtime.record_interactive_activity(accepted_at);
     if decision.committed_input {
         // The PTY accepted this input before this function was called. Advance
         // both in-memory ordering fences before metadata I/O, so a queued or
@@ -631,6 +658,9 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
         );
         drop(sessions);
         drop(ws_guard);
+        if cleared_auto_archive_warning {
+            state.updates.sessions_changed();
+        }
         record_peon_output_touch(state, id);
         return;
     }
@@ -650,6 +680,9 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
         );
         drop(sessions);
         drop(ws_guard);
+        if cleared_auto_archive_warning {
+            state.updates.sessions_changed();
+        }
         record_peon_output_touch(state, id);
         return;
     }
@@ -714,6 +747,9 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
         );
         drop(sessions);
         drop(ws_guard);
+        if cleared_auto_archive_warning {
+            state.updates.sessions_changed();
+        }
         record_peon_output_touch(state, id);
         return;
     }
@@ -727,6 +763,9 @@ pub(crate) fn mark_committed_input_working(state: &Arc<AppState>, id: &str, inpu
     );
     drop(sessions);
     drop(ws_guard);
+    if cleared_auto_archive_warning {
+        state.updates.sessions_changed();
+    }
     record_peon_output_touch(state, id);
 }
 

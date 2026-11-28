@@ -210,7 +210,7 @@ declare global {
       saveRetention: (retention: RetentionSettings) => Promise<{ ok: boolean; retentionApplyStatus?: RetentionApplyStatus }>;
       saveDebugSettings: (debug: DebugSettings) => Promise<{ ok: true; settings: AppSettings }>;
       saveDesktopSessionNotifications: (enabled: boolean) => Promise<void>;
-      showSessionAttentionNotification: (id: string) => Promise<boolean>;
+      showSessionAttentionNotification: (id: string, kind?: "attention" | "auto_archive_warning") => Promise<boolean>;
       closeSessionAttentionNotification: (id: string) => Promise<void>;
       getProviderModels: (providerId: string) => Promise<ProviderModelsResponse>;
       saveActiveHarnessesWithIntegrations: (ids: string[]) => Promise<ActiveHarnessSaveResult>;

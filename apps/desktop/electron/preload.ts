@@ -116,7 +116,10 @@ contextBridge.exposeInMainWorld("orkworks", {
     ipcRenderer.invoke("save-retention", retention),
   saveDebugSettings: (debug: unknown): Promise<unknown> => ipcRenderer.invoke("save-debug-settings", debug),
   saveDesktopSessionNotifications: (enabled: boolean): Promise<void> => ipcRenderer.invoke("save-desktop-session-notifications", enabled),
-  showSessionAttentionNotification: (id: string): Promise<boolean> => ipcRenderer.invoke("show-session-attention-notification", id),
+  showSessionAttentionNotification: (id: string, kind?: "attention" | "auto_archive_warning"): Promise<boolean> =>
+    kind === undefined
+      ? ipcRenderer.invoke("show-session-attention-notification", id)
+      : ipcRenderer.invoke("show-session-attention-notification", id, kind),
   closeSessionAttentionNotification: (id: string): Promise<void> => ipcRenderer.invoke("close-session-attention-notification", id),
   getProviderModels: (providerId: string): Promise<unknown> => ipcRenderer.invoke("get-provider-models", providerId),
   saveActiveHarnessesWithIntegrations: (ids: string[]): Promise<ActiveHarnessSaveResult> =>

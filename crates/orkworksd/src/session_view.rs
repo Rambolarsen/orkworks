@@ -412,6 +412,7 @@ pub(crate) fn project_session_info(
             .or(info.resumed_from),
         has_openable_plan: None,
         plan_documents: None,
+        auto_archive_warning: info.auto_archive_warning,
         provider: meta
             .and_then(|m| m.provider_label.clone())
             .or(info.provider),
@@ -556,6 +557,7 @@ mod tests {
             resumed_from: None,
             has_openable_plan: None,
             plan_documents: None,
+            auto_archive_warning: None,
         }
     }
 

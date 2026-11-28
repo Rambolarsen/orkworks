@@ -1455,9 +1455,27 @@ mod tests {
                 .await;
         } else {
             {
+                let workspace = state.workspace.lock().unwrap();
+                let ws = workspace.as_ref().unwrap();
+                if let Some(meta) = ws.metadata.read_session("scheduled") {
+                    ws.metadata
+                        .organization
+                        .write_at(
+                            "scheduled",
+                            &meta.created_at,
+                            crate::session_archive::SessionState::Archived,
+                            "2024-01-01T00:00:00Z",
+                        )
+                        .unwrap();
+                }
+            }
+            {
                 let mut config = state.retention_config.write().await;
-                config.max_age_days = if deletion == 1 { 1 } else { 0 };
-                config.max_sessions = if deletion == 2 { 1 } else { 0 };
+                config.version = 2;
+                config.auto_archive_after_days = 0;
+                config.auto_archive_active_sessions = false;
+                config.delete_archived_after_days = 1;
+                config.applied = true;
             }
             let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
                 .unwrap()
@@ -1470,7 +1488,7 @@ mod tests {
     async fn scheduling_cannot_recreate_tracking_across_forget_and_retention() {
         let _lease_guard = diagnostic_test_guard();
         for timer in [false, true] {
-            for deletion in 0..3 {
+            for deletion in 0..2 {
                 for failure in 0..3 {
                     let dir = tempfile::tempdir().unwrap();
                     let state = test_app_state_with_workspace(dir.path());
@@ -1737,78 +1755,89 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retention_forgets_residual_peon_state_after_age_and_count_deletion() {
+    async fn retention_forgets_residual_peon_state_after_staged_deletion() {
         let _guard = diagnostic_test_guard();
-        for (max_age_days, max_sessions) in [(1, 0), (0, 1)] {
-            for fail_recommendation_cleanup in [false, true] {
-                let dir = tempfile::tempdir().unwrap();
-                let state = test_app_state_with_workspace(dir.path());
-                let id = "expired-peon-state";
-                let keep = "retained-peon-state";
+        for fail_recommendation_cleanup in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let state = test_app_state_with_workspace(dir.path());
+            let id = "expired-peon-state";
+            let keep = "retained-peon-state";
+            {
+                let workspace = state.workspace.lock().unwrap();
+                let ws = workspace.as_ref().unwrap();
+                for (session_id, time) in
+                    [(id, "2024-01-01T00:00:00Z"), (keep, "2024-02-01T00:00:00Z")]
                 {
-                    let workspace = state.workspace.lock().unwrap();
-                    let ws = workspace.as_ref().unwrap();
-                    for (session_id, time) in
-                        [(id, "2024-01-01T00:00:00Z"), (keep, "2024-02-01T00:00:00Z")]
-                    {
-                        ws.metadata.write_session(&test_session_metadata(
+                    ws.metadata.write_session(&test_session_metadata(
+                        session_id,
+                        session_id,
+                        "/tmp/peon-retention",
+                        "ended",
+                        time,
+                        time,
+                    ));
+                    ws.metadata
+                        .organization
+                        .write_at(
                             session_id,
-                            session_id,
-                            "/tmp/peon-retention",
-                            "ended",
                             time,
+                            crate::session_archive::SessionState::Archived,
                             time,
-                        ));
-                    }
-                    if fail_recommendation_cleanup {
-                        // Recommendations are removed after session metadata. A
-                        // failure here must still forget the deleted session.
-                        let path = ws.metadata.root_path().join("recommendations");
-                        std::fs::remove_dir_all(&path).unwrap();
-                        std::fs::write(path, "unavailable recommendation store").unwrap();
-                    }
+                        )
+                        .unwrap();
                 }
-                let application =
-                    crate::session_application::SessionApplication::new(state.clone());
-                application.clear_ended_session_tracking(id);
-                // A captured scheduler candidate can settle idle after end
-                // cleanup. Forget must not rely on end having run last.
-                state.peon.mark_idle(id, "no_new_silent_output");
-                state.peon.mark_idle(keep, "no_new_silent_output");
-                state
-                    .peon
-                    .input_buf
-                    .write()
-                    .unwrap()
-                    .insert(id.into(), "partial input".into());
-                state
-                    .peon
-                    .reported_cwd
-                    .write()
-                    .unwrap()
-                    .insert(id.into(), "/tmp/old-cwd".into());
-                state.peon.label_pending.write().unwrap().insert(id.into());
-                {
-                    let mut config = state.retention_config.write().await;
-                    config.max_age_days = max_age_days;
-                    config.max_sessions = max_sessions;
+                if fail_recommendation_cleanup {
+                    // Recommendations are removed after session metadata. A
+                    // failure here must still forget the deleted session.
+                    let path = ws.metadata.root_path().join("recommendations");
+                    std::fs::remove_dir_all(&path).unwrap();
+                    std::fs::write(path, "unavailable recommendation store").unwrap();
                 }
-                let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&chrono::Utc);
-                for _ in 0..2 {
-                    crate::runtime::retention::retention_cleanup_once(&state, now).await;
-                    let workspace = state.workspace.lock().unwrap();
-                    let ws = workspace.as_ref().unwrap();
-                    assert!(!ws.metadata.session_file_exists(id));
-                    assert!(ws.metadata.session_file_exists(keep));
-                    assert!(!state.peon.diagnostics.read().unwrap().contains_key(id),
-                        "deleted session retained its diagnostic: age={max_age_days}, recommendation failure={fail_recommendation_cleanup}");
-                    assert!(state.peon.diagnostics.read().unwrap().contains_key(keep));
-                    assert!(!state.peon.input_buf.read().unwrap().contains_key(id));
-                    assert!(!state.peon.reported_cwd.read().unwrap().contains_key(id));
-                    assert!(!state.peon.label_pending.read().unwrap().contains(id));
-                }
+            }
+            let application = crate::session_application::SessionApplication::new(state.clone());
+            application.clear_ended_session_tracking(id);
+            // A captured scheduler candidate can settle idle after end
+            // cleanup. Forget must not rely on end having run last.
+            state.peon.mark_idle(id, "no_new_silent_output");
+            state.peon.mark_idle(keep, "no_new_silent_output");
+            state
+                .peon
+                .input_buf
+                .write()
+                .unwrap()
+                .insert(id.into(), "partial input".into());
+            state
+                .peon
+                .reported_cwd
+                .write()
+                .unwrap()
+                .insert(id.into(), "/tmp/old-cwd".into());
+            state.peon.label_pending.write().unwrap().insert(id.into());
+            {
+                let mut config = state.retention_config.write().await;
+                config.version = 2;
+                config.auto_archive_after_days = 0;
+                config.auto_archive_active_sessions = false;
+                config.delete_archived_after_days = 1;
+                config.applied = true;
+            }
+            let now = chrono::DateTime::parse_from_rfc3339("2024-02-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc);
+            for _ in 0..2 {
+                crate::runtime::retention::retention_cleanup_once(&state, now).await;
+                let workspace = state.workspace.lock().unwrap();
+                let ws = workspace.as_ref().unwrap();
+                assert!(!ws.metadata.session_file_exists(id));
+                assert!(ws.metadata.session_file_exists(keep));
+                assert!(
+                    !state.peon.diagnostics.read().unwrap().contains_key(id),
+                    "deleted session retained its diagnostic: recommendation failure={fail_recommendation_cleanup}"
+                );
+                assert!(state.peon.diagnostics.read().unwrap().contains_key(keep));
+                assert!(!state.peon.input_buf.read().unwrap().contains_key(id));
+                assert!(!state.peon.reported_cwd.read().unwrap().contains_key(id));
+                assert!(!state.peon.label_pending.read().unwrap().contains(id));
             }
         }
     }

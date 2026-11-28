@@ -76,7 +76,12 @@ export interface ResumeOption {
 }
 
 export type SessionState = "active" | "closed" | "archived";
-export type SessionAction = "close" | "archive" | "restore" | "delete";
+export type SessionAction = "close" | "archive" | "restore" | "delete" | "favorite" | "unfavorite";
+
+export interface AutoArchiveWarning {
+  warnedAt: string;
+  scheduledAt: string;
+}
 
 export interface SessionInfo {
   enrichmentRevision?: string;
@@ -85,6 +90,9 @@ export interface SessionInfo {
   sessionState?: SessionState | null;
   sessionActionToken?: string | null;
   sessionStateError?: string;
+  favorited?: boolean;
+  archivedAt?: string | null;
+  autoArchiveWarning?: AutoArchiveWarning | null;
   id: string;
   label: string;
   harnessId?: string;

@@ -19,15 +19,20 @@ export function installSessionNotificationIpc(
       && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame ? window : null;
   }
 
-  ipc.handle("show-session-attention-notification", (event, id: unknown) => {
+  ipc.handle("show-session-attention-notification", (event, id: unknown, kind: unknown = "attention") => {
     const window = senderWindow(event);
     if (!window || window.isFocused() || !enabled() || !isSupported()
         || typeof id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id) || notifications.has(id)) return false;
+    if (kind !== "attention" && kind !== "auto_archive_warning") return false;
+
+    const copy = kind === "auto_archive_warning"
+      ? { title: "Idle session scheduled to archive", body: "Open OrkWorks to favorite or archive it now." }
+      : { title: "A session needs you", body: "Open OrkWorks to respond." };
 
     return new Promise<boolean>((resolve) => {
       const notification = create({
-        title: "A session needs you",
-        body: "Open OrkWorks to respond.",
+        title: copy.title,
+        body: copy.body,
         silent: true,
       });
       const clear = (clicked: boolean) => {

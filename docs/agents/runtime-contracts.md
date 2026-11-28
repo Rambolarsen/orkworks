@@ -110,7 +110,7 @@ full protocol detail.
 - `~/.orkworks/workspaces/<hash>/recommendations/<id>.json` — Taskmaster recommendation state and history, including the audit-derived `cleanup` cards (`POST /taskmaster/audit/recommendations` builds the proposed bulk-dismissal card; type-dispatched accept executes it atomically — see the "Recommendation audit" section of `specs/taskmaster.md`)
 - `~/.orkworks/workspaces/<hash>/workspace.json` — workspace memory, including the last active session
 - `~/.orkworks/workspaces/<hash>/.sidecar.lock` — retained lock file whose OS advisory lock identifies the sidecar currently owning workspace metadata; lock ownership releases automatically when that sidecar exits (ADR 0052)
-- `~/.orkworks/workspaces/<hash>/origin.json` — the canonical filesystem path that produced this workspace's hash, written once when the directory is first created. `workspace_hash` is a one-way SHA-256 of the canonical path, so this is the only way to trace a directory back to its source; it lets sidecar startup garbage-collect directories whose source path (e.g. a removed git worktree) no longer exists, while leaving directories without one (created before this file existed) untouched rather than guessed at. A directory currently held by another sidecar's `.sidecar.lock` is never removed regardless of path existence. A `NotFound` error on the source is not by itself removal evidence — an unmounted external drive, disconnected network share or locked encrypted volume reports exactly that for the source itself, so removal requires the source's *immediate parent directory* (the nearest existing ancestor) to be verifiably present, meaning only the leaf is missing; when the nearest existing ancestor is further up the path, the medium carrying the source is treated as unavailable and the directory is kept. A directory whose bounded `session-state/` organization records include a protected class — `archived` sessions the archive design retains outside automatic cleanup, non-terminal `active` records, or unreadable/oversized records — is also kept even for a verifiably deleted source (the retention-protection classes of the interactive cleanup loop, applied to durable records; `closed`-only history may be removed). Each removal is logged with the removed directory path and its durable session-record count (`sessions/` entries) before deletion, so any history loss is diagnosable. Residual limit: an unavailable network mount whose persistent mount-point directory survives unmounting still satisfies the parent-present check; distinguishing it from a genuine deletion would need a separately adopted mount-table probe.
+- `~/.orkworks/workspaces/<hash>/origin.json` — the canonical filesystem path that produced this workspace's hash, written once when the directory is first created. `workspace_hash` is a one-way SHA-256 of the canonical path, so this is the only way to trace a directory back to its source; it lets sidecar startup garbage-collect directories whose source path (e.g. a removed git worktree) no longer exists, while leaving directories without one (created before this file existed) untouched rather than guessed at. A directory currently held by another sidecar's `.sidecar.lock` is never removed regardless of path existence. A `NotFound` error on the source is not by itself removal evidence — an unmounted external drive, disconnected network share or locked encrypted volume reports exactly that for the source itself, so removal requires the source's *immediate parent directory* (the nearest existing ancestor) to be verifiably present, meaning only the leaf is missing; when the nearest existing ancestor is further up the path, the medium carrying the source is treated as unavailable and the directory is kept. A directory whose bounded `session-state/` organization records include a protected class — `favorited: true` records, non-removed `managedWorktree` (`active`, `retained_dirty`, `removal_failed`), legacy `version: 1` `archived` records, non-terminal `active` records, or unreadable/oversized/unknown-version records — is also kept even for a verifiably deleted source (the retention-protection classes of the staged cleanup loop, applied to durable records; ordinary non-favorited v2 `closed` or clean `archived` history may be removed). Each removal is logged with the removed directory path and its durable session-record count (`sessions/` entries) before deletion, so any history loss is diagnosable. Residual limit: an unavailable network mount whose persistent mount-point directory survives unmounting still satisfies the parent-present check; distinguishing it from a genuine deletion would need a separately adopted mount-table probe.
 - `~/.orkworks/workspaces/<hash>/codex-hook-observation.json` — the last Codex hook fingerprint observed executing; Settings reports Codex activation only when it matches the currently installed hook definition
 - `~/.orkworks/workspaces/<hash>/integrations/aider.json` — versioned OrkWorks-owned Aider notification-command preference
 - `~/.orkworks/harnesses.json` — global harness definitions
@@ -134,16 +134,25 @@ naming, including across conversation resets; late Peon/native work cannot
 replace them. Output activity summaries never become live titles. Native Codex
 refresh and one bounded contextual Peon refinement follow [ADR 0098](../adr/0098-contextual-session-titles.md).
 
-The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
-and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
-as organization states, independently of runtime status and attention. The
-sidecar owns bounded identity-bound `session-state/<id>.json` records. Missing
-legacy records derive Active or Closed; unreadable state disables mutations and
-protects retention. Active Archive and Delete close the exact captured runtime
-and await cleanup plus persisted ending first. Restore returns to Closed.
-Archived history is retained outside automatic age/count cleanup. Archive and
-Restore preserve activity timestamps and native tool identity. This is OrkWorks
-organization only; native archive synchronization is outside this increment.
+The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md),
+[staged retention design](../superpowers/specs/2026-11-28-auto-archive-favorites-retention-design.md),
+[ADR 0088](../adr/0088-session-archive-state.md), and
+[ADR 0124](../adr/0124-staged-session-retention-and-favorites.md) define Active,
+Closed, and Archived as organization states plus an orthogonal `favorited` flag,
+independently of runtime status and attention. The sidecar owns bounded
+identity-bound `session-state/<id>.json` version-2 records (`favorited`,
+`archivedAt`, `restoredAt`, and reserved optional `managedWorktree`). Missing
+legacy records derive Active or Closed; `version: 1` `archived` records
+auto-promote on read to `favorited: true` with `archivedAt = changedAt`;
+unreadable state disables mutations and protects retention. Active Archive and
+Delete close the exact captured runtime and await cleanup plus persisted ending
+first. Restore returns to Closed and stamps `restoredAt` without rewriting
+`last_activity`; unfavoriting an Archived session resets `archivedAt = now`.
+Sidecar automatic retention fails closed (`retention_applied = false`) until
+Electron pushes authoritative v2 retention settings via `POST /settings/retention`.
+Favorited sessions, non-removed managed worktrees, and unreadable records remain
+exempt from automatic retention. This is OrkWorks organization only; native
+archive synchronization is outside this increment.
 
 ## Explicit task-worktree reporting
 

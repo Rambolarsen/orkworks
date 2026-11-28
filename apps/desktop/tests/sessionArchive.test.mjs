@@ -151,6 +151,44 @@ if (process.versions.electron) {
           await wait('!document.querySelector("[data-session-id=closed] .session-row-more").disabled');
           assert.equal(await evaluate('document.querySelector("[data-session-id=closed] .session-row-more").disabled'), false);
           await evaluate('fixture.finishAction()');
+        } else if (scenario === 'favorites-filter') {
+          await more('live'); await action('Favorite');
+          await wait('document.querySelector("[data-session-id=live] .session-row-favorite")');
+          await more('closed'); await action('Favorite');
+          await wait('document.querySelector("[data-session-id=closed] .session-row-favorite")');
+          await filter('archived'); await wait('document.querySelector("[data-session-id=saved]")');
+          await more('saved'); await action('Favorite');
+          await wait('document.querySelector("[data-session-id=saved] .session-row-favorite")');
+          await filter('favorites');
+          await wait('document.querySelectorAll("[data-session-id]").length===3');
+          assert.deepEqual(
+            await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).map(e=>e.dataset.sessionId)'),
+            ['live', 'closed', 'saved'],
+            'Favorites filter spans Active, Closed, and Archived rows'
+          );
+          await more('closed'); await action('Unfavorite');
+          await wait('!document.querySelector("[data-session-id=closed]")');
+          assert.deepEqual(
+            await evaluate('Array.from(document.querySelectorAll("[data-session-id]")).map(e=>e.dataset.sessionId)'),
+            ['live', 'saved']
+          );
+        } else if (scenario === 'auto-archive-warning') {
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="live"?{...r,autoArchiveWarning:{warnedAt:new Date(Date.now()-3600000).toISOString(),scheduledAt:new Date(Date.now()+6*3600000).toISOString()}}:r))');
+          await wait('document.querySelector("[data-session-id=live] .session-row-archive-warning")');
+          assert.match(
+            await evaluate('document.querySelector("[data-session-id=live] .session-row-archive-warning").textContent'),
+            /h|m/
+          );
+          assert.match(
+            await evaluate('document.querySelector("[data-session-id=live] .session-row-archive-warning").getAttribute("title")'),
+            /idle.*closes and archives in/i
+          );
+        } else if (scenario === 'delete-favorited-copy') {
+          await evaluate('fixture.setRows(rows=>rows.map(r=>r.id==="saved"?{...r,favorited:true}:r))');
+          await filter('archived'); await wait('document.querySelector("[data-session-id=saved]")');
+          await more('saved'); await action('Delete');
+          assert.match(await evaluate('fixture.confirmations[0]'), /favorited/i);
+          assert.match(await evaluate('fixture.confirmations[0]'), /native.*session.*retained/i);
         }
         console.log('archive scenario passed: '+scenario);
         return;
@@ -231,7 +269,7 @@ if (process.versions.electron) {
   const { join } = await import('node:path');
   const { spawnSync } = await import('node:child_process');
   const require = createRequire(import.meta.url);
-  for (const scenario of ['', 'menu-tab', 'row-rendering', 'row-clock', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'restore-warning', 'archived-attention', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
+  for (const scenario of ['', 'menu-tab', 'row-rendering', 'row-clock', 'close-feedback', 'close-feedback-error', 'close-feedback-generation', 'delete-copy', 'delete-favorited-copy', 'restore-warning', 'archived-attention', 'favorites-filter', 'auto-archive-warning', 'generation-menu', 'generation-pending']) test('archive UI '+(scenario || 'workflow'), async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-archive-'));
     try {
       const { build } = await import('esbuild');
@@ -250,7 +288,7 @@ if (process.versions.electron) {
         function Harness(){const[workspace,setWorkspace]=useState({path:'/tmp',workspaceIdentity:'test'});fixture.setWorkspace=setWorkspace;const[rows,setRows]=useState(()=>[trackedRow('live','active'),trackedRow('closed','closed'),trackedRow('saved','archived'),...(['row-rendering','row-clock'].includes(${javascriptLiteral(scenario)})?Array.from({length:707},(_,i)=>trackedRow('history-'+i,'closed')):[])]);const[selected,setSelected]=useState('live');const[acknowledged,setAcknowledged]=useState(new Set());fixture.setAcknowledged=setAcknowledged;const[enabled,setEnabled]=useState(true);const[generation,setGeneration]=useState(0);fixture.nextGeneration=()=>setGeneration(g=>g+1);fixture.setRows=setRows;fixture.setActionsEnabled=setEnabled;fixture.selectHidden=()=>setSelected('saved');fixture.selectLive=()=>setSelected('live');const select=useCallback(id=>{fixture.selections.push(id);fixture.selected=id;setSelected(id)},[]);
           return <><SessionListPanel workspaceGeneration={generation} workspace={workspace} sessions={rows} activeSessionId={selected} unreadIds={new Set(['saved'])} acknowledgedIds={acknowledged} harnesses={harnesses}
             actionsEnabled={enabled} onSelectSession={select} onFocusTerminal={()=>{}} onOpenWorkspace={()=>{}}
-            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}:r))}}/>{${javascriptLiteral(scenario)}==='menu-tab' && <button id="after-sessions">After Sessions</button>}</>}
+            onSessionAction={async(id,action,token)=>{fixture.calls.push([id,action,token]);if(fixture.pauseAction)await new Promise(resolve=>fixture.finishAction=resolve);if(fixture.failAction)throw new Error("Close failed");setRows(rows=>action==='delete'?rows.filter(r=>r.id!==id):rows.map(r=>r.id===id?(action==='favorite'||action==='unfavorite'?{...r,favorited:action==='favorite',autoArchiveWarning:action==='favorite'?null:r.autoArchiveWarning,sessionActionToken:r.sessionActionToken+'-next'}:{...r,sessionState:action==='archive'?'archived':'closed',sessionActionToken:r.sessionActionToken+'-next',lifecycle:'dead',lifecyclePhase:'ended'}):r))}}/>{${javascriptLiteral(scenario)}==='menu-tab' && <button id="after-sessions">After Sessions</button>}</>}
         createRoot(document.getElementById('root')).render(<Harness/>);
       `, resolveDir: root, loader: 'tsx' }, bundle: true, write: false, outdir: directory, format: 'iife', platform: 'browser', define: { 'process.env.NODE_ENV': '"development"' } });
       const fixture = join(directory, 'index.html');

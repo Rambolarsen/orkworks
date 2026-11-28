@@ -4506,6 +4506,15 @@ impl SessionApplication {
             );
             if let Some(metadata) = committed {
                 handle.info.provenance = metadata.provenance;
+                if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&metadata.last_activity) {
+                    let at = parsed.with_timezone(&chrono::Utc);
+                    if at > handle.runtime.last_interactive_at {
+                        handle.runtime.record_interactive_activity(at);
+                    }
+                }
+            }
+            if fields.observed_status == "working" {
+                handle.runtime.clear_auto_archive_warning();
             }
             handle.pending_work_signal = None;
         }
@@ -6065,6 +6074,15 @@ fn bind_accepted_attention(
         handle.info.provenance = stored.provenance;
         handle.info.metadata_source = Some(stored.metadata_source);
         handle.info.metadata_confidence = Some(stored.metadata_confidence);
+        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&stored.last_activity) {
+            let at = parsed.with_timezone(&chrono::Utc);
+            if at > handle.runtime.last_interactive_at {
+                handle.runtime.record_interactive_activity(at);
+            }
+        }
+    }
+    if signal.observed_status == "working" {
+        handle.runtime.clear_auto_archive_warning();
     }
     if signal.update_hook_timestamp {
         if let Some(observed_at) = signal.observed_at {
@@ -6823,6 +6841,7 @@ async fn resume_session_workflow(
         resumed_from: meta.resumed_from.clone(),
         has_openable_plan: None,
         plan_documents: None,
+        auto_archive_warning: None,
         provider: meta.provider_label.clone(),
         provider_model: meta.provider_model.clone(),
         provider_state: meta.provider_state.clone(),
@@ -7384,6 +7403,7 @@ async fn create_session_workflow(
         resumed_from: None,
         has_openable_plan: None,
         plan_documents: None,
+        auto_archive_warning: None,
         provider: resolved_launch.provider_label.clone(),
         provider_model: None,
         provider_state: None,

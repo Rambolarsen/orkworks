@@ -41,7 +41,8 @@ pub(crate) struct GcSummary {
     /// rather than irreversibly removed.
     pub skipped_unavailable_ancestor: usize,
     /// The directory holds a durable organization record that the
-    /// retention-protection classes preserve (archived/active/unreadable),
+    /// retention-protection classes preserve (`favorited: true`, legacy v1
+    /// `archived`, non-removed `managedWorktree`, or unreadable/corrupt/unknown-version),
     /// so its history survives even a verifiably deleted source.
     pub skipped_protected: usize,
 }
@@ -106,9 +107,10 @@ pub(crate) fn gc_stale_workspaces_once(workspaces_root: &Path) -> GcSummary {
             summary.skipped_unavailable_ancestor += 1;
             continue;
         }
-        // Retention-protected durable history (archived/active/unreadable
-        // organization records) survives a verifiably deleted source, the
-        // same classes the interactive retention loop protects.
+        // Retention-protected durable history (`favorited: true`, legacy v1
+        // `archived`, non-removed `managedWorktree`, or unreadable/unknown-version
+        // organization records) survives a verifiably deleted source, matching
+        // the classes the staged retention loop protects.
         if dir_has_retention_protected_records(&dir.join("session-state")) {
             drop(lease);
             summary.skipped_protected += 1;
@@ -432,5 +434,95 @@ mod tests {
         let summary = gc_stale_workspaces_once(&missing_root);
 
         assert_eq!(summary, GcSummary::default());
+    }
+
+    #[test]
+    fn keeps_a_directory_containing_a_v2_favorited_session_record() {
+        let root = tempfile::tempdir().unwrap();
+        let kept = workspace_dir(root.path(), "v2-favorited");
+        let source = tempfile::tempdir().unwrap();
+        let deleted = source.path().join("removed-child");
+        write_origin_file_if_absent(&kept, &deleted);
+        let state = kept.join("session-state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(
+            state.join("one.json"),
+            r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"closed","favorited":true,"archivedAt":null,"restoredAt":null,"managedWorktree":null,"revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+        )
+        .unwrap();
+
+        let summary = gc_stale_workspaces_once(root.path());
+
+        assert!(summary.removed.is_empty());
+        assert_eq!(summary.skipped_protected, 1);
+        assert!(kept.exists());
+    }
+
+    #[test]
+    fn keeps_a_directory_containing_non_removed_managed_worktree_or_unknown_version() {
+        for (name, payload) in [
+            (
+                "wt-active",
+                r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"closed","favorited":false,"archivedAt":null,"restoredAt":null,"managedWorktree":{"root":"/tmp/wt","commonDir":"/tmp/.git","branch":"orkworks/a","baseRef":"main","cleanupStatus":"active","cleanupNote":null,"hookNote":null,"managedHookFiles":[]},"revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+            (
+                "wt-dirty",
+                r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"archived","favorited":false,"archivedAt":"2026-01-02T00:00:00Z","restoredAt":null,"managedWorktree":{"root":"/tmp/wt","commonDir":"/tmp/.git","branch":"orkworks/a","baseRef":"main","cleanupStatus":"retained_dirty","cleanupNote":"dirty","hookNote":null,"managedHookFiles":[]},"revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+            (
+                "wt-failed",
+                r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"archived","favorited":false,"archivedAt":"2026-01-02T00:00:00Z","restoredAt":null,"managedWorktree":{"root":"/tmp/wt","commonDir":"/tmp/.git","branch":"orkworks/a","baseRef":"main","cleanupStatus":"removal_failed","cleanupNote":"locked","hookNote":null,"managedHookFiles":[]},"revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+            (
+                "unknown-version",
+                r#"{"version":3,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"closed","revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let kept = workspace_dir(root.path(), name);
+            let source = tempfile::tempdir().unwrap();
+            let deleted = source.path().join("removed-child");
+            write_origin_file_if_absent(&kept, &deleted);
+            let state = kept.join("session-state");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(state.join("one.json"), payload).unwrap();
+
+            let summary = gc_stale_workspaces_once(root.path());
+
+            assert!(summary.removed.is_empty(), "{name} must be protected");
+            assert_eq!(
+                summary.skipped_protected, 1,
+                "{name} must count as protected"
+            );
+            assert!(kept.exists(), "{name} must remain on disk");
+        }
+    }
+
+    #[test]
+    fn removes_non_favorited_v2_closed_and_clean_archived_directories_for_deleted_source() {
+        for (name, payload) in [
+            (
+                "v2-closed",
+                r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"closed","favorited":false,"archivedAt":null,"restoredAt":null,"managedWorktree":null,"revision":1,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+            (
+                "v2-archived-clean",
+                r#"{"version":2,"sessionId":"one","createdAt":"2026-01-01T00:00:00Z","state":"archived","favorited":false,"archivedAt":"2026-01-02T00:00:00Z","restoredAt":null,"managedWorktree":{"root":"/tmp/wt","commonDir":"/tmp/.git","branch":"orkworks/a","baseRef":"main","cleanupStatus":"removed","cleanupNote":null,"hookNote":null,"managedHookFiles":[]},"revision":2,"changedAt":"2026-01-02T00:00:00Z"}"#,
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let stale = workspace_dir(root.path(), name);
+            let source = tempfile::tempdir().unwrap();
+            let deleted = source.path().join("removed-child");
+            write_origin_file_if_absent(&stale, &deleted);
+            let state = stale.join("session-state");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(state.join("one.json"), payload).unwrap();
+
+            let summary = gc_stale_workspaces_once(root.path());
+
+            assert_eq!(summary.removed.len(), 1, "{name} must be collected");
+            assert!(!stale.exists(), "{name} directory must be removed");
+        }
     }
 }

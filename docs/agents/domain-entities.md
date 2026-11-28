@@ -511,16 +511,26 @@ block on the card.
 
 ## Session organization
 
-The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md)
-and [ADR 0088](../adr/0088-session-archive-state.md) add Active, Closed and Archived
-as organization states, independently of runtime status and attention. The
-sidecar owns bounded identity-bound `session-state/<id>.json` records. Missing
-legacy records derive Active or Closed; unreadable state disables mutations and
-protects retention. Active Archive and Delete close the exact captured runtime
-and await cleanup plus persisted ending first. Restore returns to Closed.
-Archived history is retained outside automatic age/count cleanup. Archive and
-Restore preserve activity timestamps and native tool identity. This is OrkWorks
-organization only; native archive synchronization is outside this increment.
+The accepted [archive design](../superpowers/specs/2026-10-18-session-archive.md),
+[staged retention design](../superpowers/specs/2026-11-28-auto-archive-favorites-retention-design.md),
+[ADR 0088](../adr/0088-session-archive-state.md), and
+[ADR 0124](../adr/0124-staged-session-retention-and-favorites.md) define Active,
+Closed, and Archived as organization states plus an orthogonal `favorited` flag,
+independently of runtime status and attention. The sidecar owns bounded
+identity-bound `session-state/<id>.json` version-2 records (`favorited`,
+`archivedAt`, `restoredAt`, and reserved optional `managedWorktree`). Missing
+legacy records derive Active or Closed; `version: 1` `archived` records
+auto-promote on read to `favorited: true` with `archivedAt = changedAt`;
+unreadable or unknown-version state disables mutations and protects retention.
+Active Archive and Delete close the exact captured runtime and await cleanup
+plus persisted ending first. Restore returns to Closed, clears `archivedAt`,
+and stamps `restoredAt` without rewriting `last_activity`; unfavoriting an
+Archived session resets `archivedAt = now`. Favorited records, non-removed
+managed worktrees, and unreadable records are exempt from automatic retention
+and startup workspace GC. Idle-Active warning state (`autoArchiveWarning`) and
+interactive activity (`last_interactive_at`) live in memory on `SessionHandle`.
+This is OrkWorks organization only; native archive synchronization is outside
+this increment.
 
 ## Session image context
 

@@ -524,7 +524,8 @@ pub(crate) async fn session_action(
         .session_action(&id, request)
         .await
     {
-        Ok(()) => axum::http::StatusCode::OK.into_response(),
+        Ok(Some(projection)) => Json(projection).into_response(),
+        Ok(None) => axum::http::StatusCode::OK.into_response(),
         Err(error) => application_error_response(error),
     }
 }

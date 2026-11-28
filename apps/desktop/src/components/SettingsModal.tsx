@@ -77,9 +77,9 @@ const hotkeyRows: Array<{ action: HotkeyAction; label: string; optional?: boolea
   { action: "resetLayout", label: "Reset Layout", optional: true },
 ];
 
-const retentionRows: Array<{ field: keyof RetentionSettings; label: string; hint: string }> = [
-  { field: "maxSessions", label: "Max sessions to keep", hint: "0 = unlimited" },
-  { field: "maxAgeDays", label: "Auto-delete sessions older than (days)", hint: "0 = never" },
+const retentionDayRows: Array<{ field: "autoArchiveAfterDays" | "deleteArchivedAfterDays"; label: string; hint: string }> = [
+  { field: "autoArchiveAfterDays", label: "Auto-archive inactive sessions after (days)", hint: "0 = off (default: 7)" },
+  { field: "deleteArchivedAfterDays", label: "Delete archived sessions after (days)", hint: "0 = off (default: 30)" },
 ];
 
 
@@ -137,6 +137,15 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   const [errors, setErrors] = useState<Partial<Record<HotkeyAction, string[]>>>({});
   const [hotkeySaveStatus, setHotkeySaveStatus] = useState<string | null>(null);
   const [retention, setRetention] = useState<RetentionSettings>(initialSettings.retention);
+  const retentionRef = useRef<RetentionSettings>(clone(initialSettings.retention));
+  const [retentionInputs, setRetentionInputs] = useState<{
+    autoArchiveAfterDays: number | "";
+    deleteArchivedAfterDays: number | "";
+  }>({
+    autoArchiveAfterDays: initialSettings.retention.autoArchiveAfterDays,
+    deleteArchivedAfterDays: initialSettings.retention.deleteArchivedAfterDays,
+  });
+  const retentionSaveInFlightRef = useRef(0);
   const [retentionSaveStatus, setRetentionSaveStatus] = useState<string | null>(null);
   const [debugSettings, setDebugSettings] = useState<DebugSettings>(initialSettings.debug);
   const [debugSaveStatus, setDebugSaveStatus] = useState<string | null>(null);
@@ -391,7 +400,13 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
   function discardDraftsAndClose() {
     invalidateAsyncState();
     cancelHotkeyChanges();
-    setRetention(clone(savedSettingsRef.current.retention));
+    const savedRetention = clone(savedSettingsRef.current.retention);
+    retentionRef.current = savedRetention;
+    setRetention(savedRetention);
+    setRetentionInputs({
+      autoArchiveAfterDays: savedRetention.autoArchiveAfterDays,
+      deleteArchivedAfterDays: savedRetention.deleteArchivedAfterDays,
+    });
     setRetentionSaveStatus(null);
     setDebugSettings(clone(savedSettingsRef.current.debug));
     setDebugSaveStatus(null);
@@ -412,10 +427,26 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
     onClose();
   }
 
+  function retentionEquals(a: RetentionSettings, b: RetentionSettings): boolean {
+    return a.version === b.version
+      && a.autoArchiveAfterDays === b.autoArchiveAfterDays
+      && a.autoArchiveActiveSessions === b.autoArchiveActiveSessions
+      && a.deleteArchivedAfterDays === b.deleteArchivedAfterDays;
+  }
+
   async function saveRetention(rt: RetentionSettings) {
-    const request = sectionSaves.current.retention.begin();
-    setRetentionSaveStatus(null);
+    retentionRef.current = rt;
     setRetention(rt);
+    setRetentionInputs({
+      autoArchiveAfterDays: rt.autoArchiveAfterDays,
+      deleteArchivedAfterDays: rt.deleteArchivedAfterDays,
+    });
+    if (retentionSaveInFlightRef.current === 0 && retentionEquals(rt, savedSettingsRef.current.retention)) {
+      return;
+    }
+    const request = sectionSaves.current.retention.begin();
+    retentionSaveInFlightRef.current += 1;
+    setRetentionSaveStatus(null);
     try {
       const result = await window.orkworks.saveRetention(rt);
       if (!result.ok) throw new Error("save-retention failed");
@@ -423,6 +454,8 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
       if (request.isCurrent()) setRetentionSaveStatus(result.retentionApplyStatus?.lastApplyError ? "Saved locally; sidecar pending" : "Saved");
     } catch {
       if (request.isCurrent()) setRetentionSaveStatus("Session retention could not be saved.");
+    } finally {
+      retentionSaveInFlightRef.current = Math.max(0, retentionSaveInFlightRef.current - 1);
     }
   }
 
@@ -1171,34 +1204,102 @@ export default function SettingsModal({ initialSection = "tools", initialSetting
               <div className="settings-section">
                 <h3>Session Retention</h3>
                 <p className="settings-section-copy">
-                  Live sessions are never auto-deleted. Changes take effect within 5 minutes.
+                  Automatically archive inactive sessions and clean up older archived history. Changes take effect within 5 minutes.
                 </p>
 
                 <div className="retention-list">
-                  {retentionRows.map(({ field, label, hint }) => (
-                    <div className="retention-row" key={field}>
-                      <div className="retention-label">{label}</div>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={999}
-                        style={{ width: 72 }}
-                        value={retention[field]}
-                        onChange={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          if (!Number.isNaN(v)) {
-                            setRetention((r) => ({ ...r, [field]: Math.max(0, Math.min(999, v)) }));
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const v = parseInt(e.target.value, 10);
-                          saveRetention({ ...retention, [field]: Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v)) });
-                        }}
-                      />
-                      <span className="retention-hint">{hint}</span>
+                  <div className="retention-row">
+                    <div className="retention-label">{retentionDayRows[0].label}</div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={999}
+                      style={{ width: 72 }}
+                      value={retentionInputs.autoArchiveAfterDays}
+                      onChange={(e) => {
+                        if (e.target.value.trim() === "") {
+                          setRetentionInputs((current) => ({ ...current, autoArchiveAfterDays: "" }));
+                          return;
+                        }
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(v)) {
+                          const bounded = Math.max(0, Math.min(999, v));
+                          retentionRef.current = { ...retentionRef.current, version: 2, autoArchiveAfterDays: bounded };
+                          setRetention(retentionRef.current);
+                          setRetentionInputs((current) => ({ ...current, autoArchiveAfterDays: bounded }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        const bounded = Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v));
+                        void saveRetention({
+                          ...retentionRef.current,
+                          version: 2,
+                          autoArchiveAfterDays: bounded,
+                        });
+                      }}
+                    />
+                    <span className="retention-hint">{retentionDayRows[0].hint}</span>
+                  </div>
+
+                  <div className="retention-row retention-row--toggle">
+                    <div className="retention-toggle-copy">
+                      <div className="retention-label">Include idle active sessions</div>
+                      <span className="retention-hint">
+                        Shows an advance warning and grace window before closing and archiving an idle active session.
+                      </span>
                     </div>
-                  ))}
+                    <Toggle
+                      checked={retention.autoArchiveActiveSessions}
+                      onChange={() => {
+                        void saveRetention({
+                          ...retentionRef.current,
+                          version: 2,
+                          autoArchiveActiveSessions: !retentionRef.current.autoArchiveActiveSessions,
+                        });
+                      }}
+                      label="Include idle active sessions"
+                    />
+                  </div>
+
+                  <div className="retention-row">
+                    <div className="retention-label">{retentionDayRows[1].label}</div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={999}
+                      style={{ width: 72 }}
+                      value={retentionInputs.deleteArchivedAfterDays}
+                      onChange={(e) => {
+                        if (e.target.value.trim() === "") {
+                          setRetentionInputs((current) => ({ ...current, deleteArchivedAfterDays: "" }));
+                          return;
+                        }
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isNaN(v)) {
+                          const bounded = Math.max(0, Math.min(999, v));
+                          retentionRef.current = { ...retentionRef.current, version: 2, deleteArchivedAfterDays: bounded };
+                          setRetention(retentionRef.current);
+                          setRetentionInputs((current) => ({ ...current, deleteArchivedAfterDays: bounded }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        const bounded = Number.isNaN(v) ? 0 : Math.max(0, Math.min(999, v));
+                        void saveRetention({
+                          ...retentionRef.current,
+                          version: 2,
+                          deleteArchivedAfterDays: bounded,
+                        });
+                      }}
+                    />
+                    <span className="retention-hint">{retentionDayRows[1].hint}</span>
+                  </div>
                 </div>
+
+                <p className="retention-note">
+                  Favorited sessions and archived sessions with dirty managed worktrees are protected from automatic archiving and deletion.
+                </p>
 
                 {retentionSaveStatus && (
                   <div className={`retention-status ${retentionSaveStatus === "Saved" ? "retention-status--ok" : ""}`}>

@@ -100,35 +100,61 @@ Other tools use Peon's naming fallback, which can refine its initial guess once
 useful task context arrives. Activity summaries remain separate. Published
 installers may lag these source changes.
 
-## Close, archive or delete a session
+## Close, archive, favorite, or delete a session
 
-Current source builds have three session states: **Active**, **Closed** and
-**Archived**. Use the Sessions **State** filter to show All unarchived (the
-default), Active, Closed or Archived. Filtering preserves your selected terminal
-or saved history, even when its row is hidden.
+Current source builds have three session states—**Active**, **Closed**, and
+**Archived**—plus an explicit **Favorite** toggle. Use the Sessions **State**
+filter to show All unarchived (the default), Active, Closed, Archived, or
+**Favorites** (which shows all favorited sessions across Active, Closed, and
+Archived). Filtering preserves your selected terminal or saved history, even
+when its row is hidden.
 
 Right-click a row or choose its **More actions** button. With the Sessions list
 focused, use the context-menu key or **Shift+F10** for the selected row. Arrow
-keys move through the menu; Escape returns focus.
+keys move through the menu; Escape returns focus. You can also toggle
+**Favorite** from the session's Details panel.
 
 **Close** stops an Active session. **Archive (close first)** stops it and waits
 for saved ending/history to finish before archiving. **Delete… (close first)**
-asks for confirmation before stopping anything, then permanently deletes the
-record, events and saved terminal scrollback only after Close finishes. If
-Close fails or is still finishing, the second step does not run; refresh and
-try again. Closed sessions can be archived or deleted directly.
+asks for confirmation before stopping anything (and explicitly calls out when
+you are deleting a Favorited session), then permanently deletes the record,
+events, and saved terminal scrollback only after Close finishes. If Close fails
+or is still finishing, the second step does not run; refresh and try again.
+Closed sessions can be archived or deleted directly.
 
-Archived sessions retain history and are protected from automatic age/count
-cleanup. Choose **Restore to Closed** before resuming one. Restoring does not
-start a process, and normal retention settings apply to it again. Archive and
-Restore preserve activity timestamps. Only deleting the selected session record clears the selection. If later
-evidence cleanup fails after record removal, the missing row is reconciled while
-the cleanup error remains visible.
+In current source builds, **Settings → Session retention** replaces legacy
+count/age deletion with a staged, enabled-by-default lifecycle:
 
-Archive is organization in OrkWorks; it does not archive the conversation in
-the coding tool or accept its work. Older installers may lack these actions.
-Downgrading to a binary without archive-aware retention removes the automatic
-cleanup protection, so keep a compatible build when relying on that protection.
+- **Auto-archive inactive sessions after (days)** (default **7**, `0` turns
+  auto-archive off) moves inactive Closed sessions to **Archived**.
+- **Include idle active sessions** (default **on**) also archives genuinely
+  idle Active sessions, after showing an advance warning in the Sessions list,
+  Details panel, and Terminal header (plus a single desktop alert when desktop
+  session alerts are enabled) with one-click **Favorite (keep)** and **Archive
+  now** actions. Any terminal typing, working activity, or favoriting clears
+  the warning immediately, and waking from sleep preserves a full grace window.
+- **Delete archived sessions after (days)** (default **30**, `0` turns
+  auto-delete off) permanently removes non-favorited Archived sessions once
+  their archived age exceeds the configured threshold.
+
+**Favorited** sessions (including sessions archived under an older build, which
+are automatically marked as Favorites on upgrade) and archived sessions with
+dirty managed worktrees are protected from automatic warnings, auto-archive,
+and auto-delete. Unfavoriting an already-Archived session resets its archive
+timestamp so it receives a fresh full deletion grace window.
+
+Choose **Restore to Closed** before resuming an Archived session. Restoring
+does not start a process; it moves the session back to Closed with a fresh
+auto-archive window and preserves its activity timestamps and Favorite flag.
+Only deleting the selected session record clears the selection. If later
+evidence cleanup fails after record removal, the missing row is reconciled
+while the cleanup error remains visible.
+
+Archive and Favorites are organization in OrkWorks; they do not archive the
+conversation in the coding tool or accept its work. Older published installers
+may still use manual-only archive and legacy `maxSessions` / `maxAgeDays`
+retention settings. Downgrading to an older binary leaves v2 session-state
+files unreadable so they fail closed against automatic deletion.
 
 ## Start another task in the same session
 

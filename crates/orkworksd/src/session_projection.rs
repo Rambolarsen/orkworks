@@ -899,15 +899,24 @@ impl SessionProjection {
                             handle,
                             pids.contains_key(&info.id),
                         );
-                        (closed, active, key)
+                        let warning = handle.and_then(|h| h.runtime.auto_archive_warning());
+                        (closed, active, key, warning)
                     })
                     .collect::<Vec<_>>();
                 (ws.metadata.organization.clone(), inputs)
             })
         };
         if let Some((store, inputs)) = inputs {
-            for (info, (closed, active, key)) in infos.iter_mut().zip(inputs) {
+            for (info, (closed, active, key, warning)) in infos.iter_mut().zip(inputs) {
                 info.organization = read(&store, info, closed, active, &key);
+                info.auto_archive_warning = if info.organization.session_state
+                    == Some(crate::session_archive::SessionState::Active)
+                    && !info.organization.favorited
+                {
+                    warning
+                } else {
+                    None
+                };
                 if info.organization.session_state
                     == Some(crate::session_archive::SessionState::Archived)
                 {

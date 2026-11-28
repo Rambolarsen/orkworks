@@ -2,7 +2,7 @@
 //! runtime shutdown is awaited without holding application/store locks.
 use super::{SessionApplication, SessionError};
 use crate::{
-    session_archive::{OrganizationStore, SessionState},
+    session_archive::{OrganizationProjection, OrganizationStore, SessionState},
     SessionHandle,
 };
 use serde::Deserialize;
@@ -15,6 +15,8 @@ pub(crate) enum SessionAction {
     Archive,
     Restore,
     Delete,
+    Favorite,
+    Unfavorite,
 }
 
 #[derive(Deserialize)]
@@ -63,7 +65,7 @@ impl SessionApplication {
         &self,
         id: &str,
         request: SessionActionRequest,
-    ) -> Result<(), SessionError> {
+    ) -> Result<Option<OrganizationProjection>, SessionError> {
         self.session_action_with_timeout(id, request, Duration::from_secs(15))
             .await
     }
@@ -73,7 +75,16 @@ impl SessionApplication {
         id: &str,
         request: SessionActionRequest,
         wait: Duration,
-    ) -> Result<(), SessionError> {
+    ) -> Result<Option<OrganizationProjection>, SessionError> {
+        if matches!(
+            request.action,
+            SessionAction::Favorite | SessionAction::Unfavorite
+        ) {
+            let projection = self.apply_favorite_action(id, request)?;
+            self.state.updates.sessions_changed();
+            return Ok(Some(projection));
+        }
+
         let (captured, _reservation, kill) = {
             let _projection = self.state.projection_lock.lock().unwrap();
             let (captured, reservation, kill) = {
@@ -168,7 +179,8 @@ impl SessionApplication {
                     ));
                 }
                 if self.finish_session_action(id, &captured, request.action, Some(deadline))? {
-                    return Ok(());
+                    self.state.updates.sessions_changed();
+                    return Ok(None);
                 }
                 if tokio::time::Instant::now() >= deadline {
                     return Err(SessionError::ConflictWithMessage(
@@ -185,12 +197,76 @@ impl SessionApplication {
             }
         }
         if self.finish_session_action(id, &captured, request.action, None)? {
-            Ok(())
+            self.state.updates.sessions_changed();
+            Ok(None)
         } else {
             Err(SessionError::ConflictWithMessage(
                 "Session is still closing",
             ))
         }
+    }
+
+    fn apply_favorite_action(
+        &self,
+        id: &str,
+        request: SessionActionRequest,
+    ) -> Result<OrganizationProjection, SessionError> {
+        let target_favorited = request.action == SessionAction::Favorite;
+        let _projection = self.state.projection_lock.lock().unwrap();
+        let workspace = self.state.workspace.lock().unwrap();
+        let ws = workspace.as_ref().ok_or(SessionError::Conflict)?;
+        let meta = ws
+            .metadata
+            .try_read_revisioned_session(id)
+            .map_err(|_| SessionError::ConflictWithMessage("Session metadata unavailable"))?
+            .ok_or(SessionError::NotFound)?
+            .metadata;
+        let mut sessions = self.state.sessions.lock().unwrap();
+        let has_pid = self.state.session_pids.lock().unwrap().contains_key(id);
+        let closed = meta.lifecycle_phase == "ended"
+            && meta.lifecycle == "dead"
+            && runtime_closed(sessions.get(id), has_pid);
+        let runtime_active = !runtime_closed(sessions.get(id), has_pid);
+        let key = runtime_key(sessions.get(id));
+        let projected =
+            ws.metadata
+                .organization
+                .project(id, &meta.created_at, closed, runtime_active, &key);
+        if projected.session_action_token.as_deref() != Some(request.token.as_str()) {
+            return Err(SessionError::ConflictWithMessage(
+                "Session changed; refresh and try again",
+            ));
+        }
+        let details = ws
+            .metadata
+            .organization
+            .read_details(id, &meta.created_at, closed, runtime_active)
+            .map_err(|_| SessionError::ConflictWithMessage("Session state unavailable"))?;
+        if details.favorited == target_favorited {
+            return Err(SessionError::ConflictWithMessage(
+                "Action is unavailable in this session state",
+            ));
+        }
+        let _reservation =
+            ws.metadata
+                .organization
+                .reserve(id)
+                .ok_or(SessionError::ConflictWithMessage(
+                    "A session action is already running",
+                ))?;
+        ws.metadata
+            .organization
+            .set_favorited(id, &meta.created_at, target_favorited)
+            .map_err(|_| SessionError::Internal("Could not save session state"))?;
+        if target_favorited {
+            if let Some(handle) = sessions.get_mut(id) {
+                handle.runtime.clear_auto_archive_warning();
+            }
+        }
+        Ok(ws
+            .metadata
+            .organization
+            .project(id, &meta.created_at, closed, runtime_active, &key))
     }
 
     fn finish_session_action(
@@ -247,7 +323,7 @@ impl SessionApplication {
         let mut deleted = false;
         let mut deletion_failed = false;
         match action {
-            SessionAction::Close => {}
+            SessionAction::Close | SessionAction::Favorite | SessionAction::Unfavorite => {}
             SessionAction::Archive | SessionAction::Restore => ws
                 .metadata
                 .organization
@@ -764,5 +840,92 @@ mod tests {
             .await
             .is_err());
         assert!(!*killed.borrow());
+    }
+
+    #[tokio::test]
+    async fn favorite_clears_active_warning_without_closing_and_rejects_stale_token() {
+        let (_dir, state, killed) = fixture(true);
+        {
+            let mut sessions = state.sessions.lock().unwrap();
+            let handle = sessions.get_mut("one").unwrap();
+            let now = chrono::Utc::now();
+            handle
+                .runtime
+                .set_auto_archive_warning(now, now + chrono::Duration::hours(24));
+        }
+        let before = SessionProjection::new(state.clone()).list().unwrap();
+        assert!(!before[0].organization.favorited);
+        assert!(before[0].auto_archive_warning.is_some());
+
+        let app = SessionApplication::new(state.clone());
+        let fav_req = request(&state, SessionAction::Favorite);
+        let stale_req = SessionActionRequest {
+            action: SessionAction::Favorite,
+            token: fav_req.token.clone(),
+        };
+        let updated = app.session_action("one", fav_req).await.unwrap().unwrap();
+        assert!(updated.favorited);
+        assert_eq!(updated.session_state, Some(SessionState::Active));
+        assert!(
+            !*killed.borrow(),
+            "favorite must never close an Active session"
+        );
+        assert!(
+            app.session_action("one", stale_req).await.is_err(),
+            "reusing the pre-favorite token must conflict"
+        );
+
+        let after = SessionProjection::new(state.clone()).list().unwrap();
+        assert!(after[0].organization.favorited);
+        assert!(
+            after[0].auto_archive_warning.is_none(),
+            "favoriting must clear any active in-memory auto-archive warning"
+        );
+
+        // Unfavorite while still Active works with fresh token.
+        let unfav_req = request(&state, SessionAction::Unfavorite);
+        let updated = app.session_action("one", unfav_req).await.unwrap().unwrap();
+        assert!(!updated.favorited);
+        assert_eq!(updated.session_state, Some(SessionState::Active));
+    }
+
+    #[tokio::test]
+    async fn unfavoriting_archived_session_resets_archived_at_clock() {
+        let (_dir, state, _) = fixture(false);
+        {
+            let ws = state.workspace.lock().unwrap();
+            let org = &ws.as_ref().unwrap().metadata.organization;
+            let dir = ws
+                .as_ref()
+                .unwrap()
+                .metadata
+                .root_path()
+                .join("session-state");
+            std::fs::create_dir_all(&dir).unwrap();
+            // Seed a legacy v1 archived record from 2024 -> auto-promoted to favorited: true.
+            std::fs::write(
+                dir.join("one.json"),
+                r#"{"version":1,"sessionId":"one","createdAt":"2024-01-01T00:00:00Z","state":"archived","revision":1,"changedAt":"2024-01-02T00:00:00Z"}"#,
+            )
+            .unwrap();
+            let details = org
+                .read_details("one", "2024-01-01T00:00:00Z", true, false)
+                .unwrap();
+            assert!(details.favorited);
+            assert_eq!(details.archived_at.as_deref(), Some("2024-01-02T00:00:00Z"));
+        }
+
+        let app = SessionApplication::new(state.clone());
+        let unfav = request(&state, SessionAction::Unfavorite);
+        let updated = app.session_action("one", unfav).await.unwrap().unwrap();
+        assert_eq!(updated.session_state, Some(SessionState::Archived));
+        assert!(!updated.favorited);
+        let new_archived_at = updated
+            .archived_at
+            .expect("archivedAt must be set after unfavoriting an Archived session");
+        assert_ne!(
+            new_archived_at, "2024-01-02T00:00:00Z",
+            "unfavoriting an Archived session must reset archivedAt to now"
+        );
     }
 }

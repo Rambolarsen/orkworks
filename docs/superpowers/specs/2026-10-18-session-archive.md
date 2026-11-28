@@ -107,13 +107,25 @@ cleanup remain binding; this feature makes no new atomic multi-file-delete claim
 
 ## Retention
 
-Archived sessions are excluded from automatic age/count deletion and from its
-count budget. Closed sessions keep the configured existing retention behavior.
-Restore makes the session eligible for that policy again, without falsifying
-its last-activity timestamp; explain this near Restore and in retention help.
-Archive/state commands and automatic deletion serialize and recheck final state
-before mutation. Unknown state is protected. Existing default 0/0 retention
-remains unchanged. No new per-session content-growth policy is added.
+> **Superseded on 2026-11-28** by
+> [Auto-archive, favorites, and staged session retention](2026-11-28-auto-archive-favorites-retention-design.md)
+> and [ADR 0124](../../adr/0124-staged-session-retention-and-favorites.md)
+> ([#2279](https://github.com/Rambolarsen/orkworks/issues/2279)).
+
+Legacy count/age deletion (`maxSessions` / `maxAgeDays`, defaulting to `0`/`0`)
+and indefinite retention exemption for all `Archived` sessions are replaced by
+Settings-controlled, fail-closed staged retention (`autoArchiveAfterDays = 7`,
+`autoArchiveActiveSessions = true`, `deleteArchivedAfterDays = 30`). Explicit
+`favorited: true` records, non-removed managed worktrees, and unreadable/corrupt
+organization records remain protected from automatic archival and deletion.
+Pre-existing `version: 1` `state == "archived"` records are automatically
+promoted to `favorited: true` on read so previously archived sessions keep their
+original protection. Restoring an `Archived` session stamps `restoredAt = now`
+(granting a fresh auto-archive window without rewriting `last_activity`), and
+unfavoriting an `Archived` session resets `archivedAt = now` (granting a fresh
+archived-deletion window). Archive/state commands and automatic retention still
+serialize under per-session reservations and recheck final state before
+mutation. No new per-session content-growth policy is added.
 
 ## Session list and context menu
 
