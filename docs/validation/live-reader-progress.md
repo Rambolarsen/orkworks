@@ -220,7 +220,7 @@ Every prior allowance and this allowance are spent; no retry, repaired input,
 changed selector, larger ceiling, new availability probe or automatic follow-on
 job is authorized. The qualification umbrella #1176 stays open.
 
-The next useful separate task is a source-only audit of the frozen MSVC-root
-walk and the remaining checkpoint gap. It should distinguish visible source
-costs from unknown runtime causes before proposing any changed reader or new
-finite experiment. This terminal record does not start or authorize that work.
+The [source-only MSVC audit](msvc-reader-source-audit.md) traces the frozen walk
+and its remaining checkpoint gap under #2253. It separates visible source costs
+from unknown runtime causes. A concrete diagnostic proposal is a separate next
+decision; this terminal record grants no changed reader or new finite experiment.
