@@ -103,52 +103,68 @@ fs.writeFileSync("appx-test.ci.json", JSON.stringify(config));
     $rendererToken = [guid]::NewGuid().ToString('N')
     $workspace = Join-Path $env:RUNNER_TEMP 'orkworks-appx-workspace'
     New-Item -Path $workspace -ItemType Directory | Out-Null
-    $start = @{
-        FilePath = (Join-Path $first.InstallLocation 'app/resources/orkworksd.exe')
-        WorkingDirectory = $env:RUNNER_TEMP
-        PassThru = $true
-        RedirectStandardOutput = $stdout
-    }
-    $env:ORKWORKS_RENDERER_TOKEN = $rendererToken
-    $env:PEON_ENABLED = 'false'
-    try {
-        $sidecar = Start-Process @start
-    } finally {
-        Remove-Item Env:ORKWORKS_RENDERER_TOKEN, Env:PEON_ENABLED
-    }
-    try {
-        $port = $null
-        for ($attempt = 0; $attempt -lt 50 -and -not $port; $attempt++) {
-            if ($sidecar.HasExited) { throw 'Installed sidecar exited before binding' }
-            if ((Get-Content -LiteralPath $stdout -Raw) -match 'ORKWORKSD_PORT=(\d+)') { $port = $Matches[1] }
-            if (-not $port) { Start-Sleep -Milliseconds 200 }
-        }
-        if (-not $port) { throw 'Installed sidecar did not announce a port' }
-        $health = Invoke-WebRequest -Uri "http://127.0.0.1:$port/health" -TimeoutSec 5
-        if ($health.StatusCode -ne 200) { throw 'Installed sidecar did not respond to its health probe' }
-        Write-Host 'Installed sidecar answered its health endpoint.'
+    $workspace = (Get-Item -LiteralPath $workspace).FullName
+    $workspaceBody = @{ path = $workspace; workspaceIdentity = "\\?\$workspace" } | ConvertTo-Json
 
-        $api = "http://127.0.0.1:$port"
-        $headers = @{ 'X-OrkWorks-Renderer-Token' = $rendererToken }
-        $workspaceBody = @{ path = $workspace; workspaceIdentity = $workspace } | ConvertTo-Json
-        Invoke-RestMethod -Method Post -Uri "$api/workspace" -Headers $headers -ContentType 'application/json' -Body $workspaceBody | Out-Null
-        $sessionBody = @{ harnessId = 'generic-shell'; expectedWorkspacePath = $workspace } | ConvertTo-Json
-        $session = Invoke-RestMethod -Method Post -Uri "$api/sessions" -Headers $headers -ContentType 'application/json' -Body $sessionBody
+    function Use-InstalledSidecar {
+        param($Installation, [scriptblock]$Probe)
+        $start = @{
+            FilePath = (Join-Path $Installation.InstallLocation 'app/resources/orkworksd.exe')
+            WorkingDirectory = $env:RUNNER_TEMP
+            PassThru = $true
+            RedirectStandardOutput = $stdout
+        }
+        $env:ORKWORKS_RENDERER_TOKEN = $rendererToken
+        $env:PEON_ENABLED = 'false'
+        try {
+            $sidecar = Start-Process @start
+        } finally {
+            Remove-Item Env:ORKWORKS_RENDERER_TOKEN, Env:PEON_ENABLED
+        }
+        try {
+            $port = $null
+            for ($attempt = 0; $attempt -lt 50 -and -not $port; $attempt++) {
+                if ($sidecar.HasExited) { throw 'Installed sidecar exited before binding' }
+                if ((Get-Content -LiteralPath $stdout -Raw) -match 'ORKWORKSD_PORT=(\d+)') { $port = $Matches[1] }
+                if (-not $port) { Start-Sleep -Milliseconds 200 }
+            }
+            if (-not $port) { throw 'Installed sidecar did not announce a port' }
+            $api = "http://127.0.0.1:$port"
+            $health = Invoke-WebRequest -Uri "$api/health" -UseBasicParsing -TimeoutSec 5
+            if ($health.StatusCode -ne 200) { throw 'Installed sidecar did not respond to its health probe' }
+            $headers = @{ 'X-OrkWorks-Renderer-Token' = $rendererToken }
+            Invoke-RestMethod -Method Post -Uri "$api/workspace" -Headers $headers -UseBasicParsing -ContentType 'application/json' -Body $workspaceBody -TimeoutSec 5 | Out-Null
+            & $Probe $api $headers
+        } finally {
+            if (-not $sidecar.HasExited) { Stop-Process -Id $sidecar.Id }
+            $sidecar.WaitForExit(5000) | Out-Null
+        }
+    }
+
+    $retainedSessionId = Use-InstalledSidecar $first {
+        param($api, $headers)
+        $sessionBody = @{ harnessId = 'generic-shell' } | ConvertTo-Json
+        $session = Invoke-RestMethod -Method Post -Uri "$api/sessions" -Headers $headers -UseBasicParsing -ContentType 'application/json' -Body $sessionBody -TimeoutSec 5
         try {
             $ready = $false
             for ($attempt = 0; $attempt -lt 50 -and -not $ready; $attempt++) {
-                $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -TimeoutSec 5
+                $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
                 $ready = [bool]($sessions | Where-Object { $_.id -eq $session.id -and $_.lifecycle -eq 'alive' })
                 if (-not $ready) { Start-Sleep -Milliseconds 200 }
             }
             if (-not $ready) { throw 'Installed sidecar did not start the test shell session' }
             Write-Host 'Installed sidecar opened the disposable workspace and started a shell session.'
         } finally {
-            Invoke-RestMethod -Method Delete -Uri "$api/sessions/$($session.id)" -Headers $headers -TimeoutSec 5 | Out-Null
+            Invoke-RestMethod -Method Delete -Uri "$api/sessions/$($session.id)" -Headers $headers -UseBasicParsing -TimeoutSec 5 | Out-Null
         }
-    } finally {
-        if (-not $sidecar.HasExited) { Stop-Process -Id $sidecar.Id }
-        $sidecar.WaitForExit(5000) | Out-Null
+        for ($attempt = 0; $attempt -lt 50; $attempt++) {
+            $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
+            if ($sessions | Where-Object { $_.id -eq $session.id -and $_.lifecycle -eq 'dead' }) {
+                return $session.id
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        throw 'The test shell session did not finish persisting'
     }
 
     $statePath = Join-Path $env:LOCALAPPDATA "Packages/$($first.PackageFamilyName)/LocalState"
@@ -164,6 +180,15 @@ fs.writeFileSync("appx-test.ci.json", JSON.stringify(config));
         throw 'Package LocalState did not survive the upgrade'
     }
     Write-Host "Upgraded to $($second.Version) and preserved package LocalState."
+
+    Use-InstalledSidecar $second {
+        param($api, $headers)
+        $sessions = Invoke-RestMethod -Uri "$api/sessions" -Headers $headers -UseBasicParsing -TimeoutSec 5
+        if (-not ($sessions | Where-Object { $_.id -eq $retainedSessionId -and $_.lifecycle -eq 'dead' })) {
+            throw 'The upgraded sidecar did not recover the test workspace session'
+        }
+        Write-Host 'The upgraded sidecar reopened the workspace and recovered the ended session.'
+    }
 
     $installedApp = Join-Path $second.InstallLocation 'app/OrkWorks.exe'
     Start-Process explorer.exe -ArgumentList "shell:AppsFolder\$($second.PackageFamilyName)!OrkWorksTest"
