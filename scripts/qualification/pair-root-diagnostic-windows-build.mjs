@@ -14,6 +14,8 @@ export const sourceFiles=Object.freeze([
  'scripts/qualification/pair-root-diagnostic-windows-build.ps1',
  'scripts/qualification/pair-root-diagnostic-windows-build-sdk.py',
  'scripts/qualification/pair-root-diagnostic-windows-build.inputs.json',
+ 'scripts/qualification/pair-root-diagnostic-windows-build.test.mjs',
+ 'scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1',
  'scripts/qualification/pair-progress-windows-build.mjs',
  'scripts/qualification/pair-progress-windows-build-protocol.mjs',
  'scripts/qualification/pair-progress-windows-build.inputs.json',

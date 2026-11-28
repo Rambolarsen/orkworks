@@ -72,6 +72,11 @@ export function settle(decoder,{code,drained,outputValid=false,sourceValid=false
  return Object.freeze({reader_complete:!!(known&&decoder.terminal==='ok'),charged:known?decoder.counters[0]:decoder.grant,unknown_work:!known,reason,drained:!!drained,tail_bytes:decoder.tailBytes,trace:Object.freeze([...decoder.trace])});
 }
 
+export function boundedJSON(value,limit,reason='result-limit') {
+ need(Number.isSafeInteger(limit)&&limit>=0&&limit<=65536,reason);
+ const json=JSON.stringify(value);need(Buffer.byteLength(json)<=limit,reason);return json;
+}
+
 export function encodeResult(result) {
  const traces=result.reader_traces??[];need(Array.isArray(traces)&&traces.length<=3,'trace-limit');
  let rows=0;const nonces=new Set();
@@ -90,7 +95,7 @@ export function encodeResult(result) {
   }else need(rest.metrics_status==='unavailable'&&rest.metrics===null,'trace-metadata-output');
   need(trace.length<=32&&trace.every(row=>Buffer.byteLength(JSON.stringify(row))<=144),'trace-limit');return rest;
  });
- need(rows<=69&&Buffer.byteLength(JSON.stringify(metadata))<=2048,'trace-metadata-limit');
- need(Buffer.byteLength(JSON.stringify(traces))<=18432,'trace-limit');
- const bytes=Buffer.from(JSON.stringify(result)+'\n');need(bytes.length<=65536,'result-limit');return bytes;
+ need(rows<=69,'trace-limit');boundedJSON(metadata,2048,'trace-metadata-limit');
+ boundedJSON(traces,18432,'trace-limit');
+ return Buffer.from(boundedJSON(result,65535)+'\n');
 }

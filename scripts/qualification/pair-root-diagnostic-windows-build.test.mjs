@@ -32,7 +32,7 @@ function manifest(f=65536,d=1) {
 
 test('v3 wire closes sparse samples without admitting missing work',async()=>{
  assert.ok(fs.existsSync(codecURL),'v3 codec behavior is not implemented');
- const {Decoder,WorkBudget,settle,encodeResult,parseStrict}=await import(codecURL);
+ const {Decoder,WorkBudget,settle,encodeResult,parseStrict,boundedJSON}=await import(codecURL);
  let vectors=0,injected=0;const suite = await fixturePool();
  function decode(rows,{mode='before',bytes=wire(rows),now=0}={}) {
   assert.ok(++vectors<=64);injected+=bytes.length;injectedVector(bytes);
@@ -61,6 +61,12 @@ test('v3 wire closes sparse samples without admitting missing work',async()=>{
  for(const bad of [Buffer.from(' '+wire(complete())),Buffer.from(wire(complete()).toString().replace('3,','3.0,')),Buffer.from('[3,0]\r\n'),Buffer.from([239,187,191]),Buffer.alloc(128,65),Buffer.alloc(4097,65),Buffer.from(wire(complete()).toString().slice(0,-1))]) {
   assert.equal(decode([],{bytes:bad}).end(),false);
  }
+ const maxLine='[3,"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",32,10,0,34359738368,65536,49992,345,11]\n';
+ assert.equal(Buffer.byteLength(maxLine),78);
+ const maxRows=complete();for(const row of maxRows){row[5]=34359738368;if(row[2]>=4)row[8]=345;}
+ maxRows[15][7]=49992;let maximumDirs=49992;for(let i=16;i<maxRows.length;i++){if(maxRows[i][3]===5&&maxRows[i][4]>0)maximumDirs++;maxRows[i][7]=maximumDirs;}
+ const maximum=new Decoder({nonce,mode:'before',grant:34359738368,ledger:suite});injectedVector(wire(maxRows));maximum.feed(wire(maxRows));assert.equal(maximum.end(),true,maximum.failure);assert.equal(maximum.trace[15][1][5],34359738368);
+ const tail=new Decoder({nonce,mode:'before',grant:1000,ledger:suite});injectedVector(Buffer.alloc(127,65));tail.feed(Buffer.alloc(127,65));assert.equal(tail.failure,null);assert.equal(tail.tailLength,127);tail.feed(Buffer.from('A'));assert.equal(tail.failure,'line-limit');
  const after=decode(complete());after.feed(Buffer.from('x'));assert.ok(after.failure);assert.equal(after.trace.length,32);
  const partial=decode(complete().slice(0,10));assert.equal(partial.end(),false);assert.equal(settle(partial,{code:1,drained:true,sourceValid:true}).charged,1000);
  const err=decode([literal(1,0,7),literal(2,9,7,123,0,0,0,2)]);assert.equal(settle(err,{code:1,drained:true,sourceValid:true}).charged,123);
@@ -78,7 +84,14 @@ test('v3 wire closes sparse samples without admitting missing work',async()=>{
  const receipt=encodeResult({success:false,reader_traces:[{...settle(full,{code:0,drained:true,sourceValid:true,outputValid:true}),mode:'before',nonce,metrics_status:'admitted',metrics:{strategy:'reuse',scratch_allocations:1,scratch_capacity_bytes:1048576,maximum_leases:1,hash_bytes:0},output_sha256:'a'.repeat(64),output_bytes:64}]});assert.equal(JSON.parse(receipt).reader_traces[0].trace.length,32);
  assert.throws(()=>encodeResult({reader_traces:[{trace:full.trace,note:'x'.repeat(2049)}]}),/metadata/);
  const metadata=JSON.parse(receipt).reader_traces[0];assert.throws(()=>encodeResult({reader_traces:[{...metadata,raw:'untrusted'}]}),/metadata/);assert.throws(()=>encodeResult({reader_traces:[metadata,metadata]}),/binding/);
- assert.throws(()=>encodeResult({reader_traces:[],note:'x'.repeat(65536)}),/result/);
+ assert.equal(typeof boundedJSON,'function','bounded encoding primitive required');
+ assert.equal(boundedJSON({x:'1234'},12),'{"x":"1234"}');assert.throws(()=>boundedJSON({x:'1234'},11),/result/);
+ const boundStatus=JSON.parse(receipt).reader_traces[0];
+ const rebound=(trace,mode,id)=>({...boundStatus,mode,nonce:id,trace:trace.map(([time,row])=>[time,row.map((v,i)=>i===1?id:v)])});
+ const maximumAggregate=[rebound(pre.trace,'preflight','b'.repeat(32)),rebound(full.trace,'before',nonce),rebound(full.trace,'after','c'.repeat(32))];
+ const aggregateBytes=encodeResult({reader_traces:maximumAggregate});injectedVector(aggregateBytes);
+ assert.equal(JSON.parse(aggregateBytes).reader_traces.reduce((n,t)=>n+t.trace.length,0),69);
+ const tooMany=structuredClone(maximumAggregate);tooMany[0].trace.push(tooMany[0].trace[0]);assert.throws(()=>encodeResult({reader_traces:tooMany}),/trace/);
  assert.throws(()=>parseStrict('{"x":1,"x":1}'));assert.throws(()=>parseStrict('{"x":1} true'));
  console.log(JSON.stringify({evidence_kind:'root-diagnostic-pure-fixture',vectors,injected_bytes:injected,stream_bytes:suite.streamed,native_capacity:'unverified',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
 });
@@ -90,7 +103,7 @@ test('complete output and held source admission precede settlement; live entry h
  const {main,validateOutput,sealSources,admitReader,receipt,sourceFiles}=await import(url);
  const {Decoder,WorkBudget}=await import(codecURL);
  const path=await import('node:path'),os=await import('node:os');
- const pool=await fixturePool();pool.hash(9*1024**2); // Three source/output cases, each at most two 1MiB source passes plus 1MiB output work.
+ const pool=await fixturePool();pool.hash(12*1024**2); // Four source/output cases, each at most two 1MiB source passes plus 1MiB output work.
  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'root-diag-admission-')));
  try {
   assert.throws(()=>main(),/live-entry-disabled/);assert.deepEqual(fs.readdirSync(dir),[]);
@@ -101,19 +114,24 @@ test('complete output and held source admission precede settlement; live entry h
   assert.throws(()=>validateOutput({...envelope,schema:1,evidence_kind:'progress-reader-output'},decoder()),/binding/);
   assert.throws(()=>validateOutput({...envelope,extra:0},decoder()),/fields/);
   assert.throws(()=>validateOutput({...envelope,data:{...data,files:[{root:'msvc',file:'bad',id:'00000001:0000000000000001',bytes:1,sha256:'0'.repeat(64)}]}},decoder()),/manifest|sample|count/);
-  let sourceBytes=0;for(const file of sourceFiles){sourceBytes+=fs.statSync(new URL('../../'+file,import.meta.url)).size;assert.ok(sourceBytes<=1048576);const dest=path.join(dir,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(new URL('../../'+file,import.meta.url),dest);}
-  const output=path.join(dir,'output.json');fs.writeFileSync(output,JSON.stringify(envelope));
-  for(const scenario of ['ok','output-rejected','source-replaced']){
+  let sourceBytes=0;const ownedFiles=new Set(),ownedDirs=new Set([dir]);
+  function ownWrite(file,bytes){const n=Buffer.byteLength(bytes);assert.ok(sourceBytes+n<=1048576);sourceBytes+=n;ownedFiles.add(file);assert.ok(ownedFiles.size<=32);fs.writeFileSync(file,bytes);}
+  for(const file of sourceFiles){sourceBytes+=fs.statSync(new URL('../../'+file,import.meta.url)).size;assert.ok(sourceBytes<=1048576);const dest=path.join(dir,file);ownedFiles.add(dest);assert.ok(ownedFiles.size<=32);ownedDirs.add(path.dirname(dest));ownedDirs.add(path.dirname(path.dirname(dest)));assert.ok(ownedDirs.size<=16);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(new URL('../../'+file,import.meta.url),dest);}
+  const fixtureCopy=path.join(dir,'scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1');
+  if(!fs.existsSync(fixtureCopy)){const original=new URL('./pair-root-diagnostic-windows-build-fixtures.ps1',import.meta.url);sourceBytes+=fs.statSync(original).size;assert.ok(sourceBytes<=1048576);fs.copyFileSync(original,fixtureCopy);}
+  const output=path.join(dir,'output.json');ownWrite(output,JSON.stringify(envelope));
+  for(const scenario of ['ok','output-rejected','source-replaced','fixture-source-replaced']){
    const budget=new WorkBudget();const seal=sealSources(dir,budget),reservation=budget.readerGrant();
    injectedVector(wire(complete(2)));const d=new Decoder({nonce,mode:'before',grant:reservation.grant,ledger:budget});d.feed(wire(complete(2)));
-   if(scenario==='output-rejected')fs.writeFileSync(output,JSON.stringify({...envelope,schema:1}));
-   if(scenario==='source-replaced')fs.appendFileSync(path.join(dir,sourceFiles[0]),'\n');
+   if(scenario==='output-rejected')ownWrite(output,JSON.stringify({...envelope,schema:1}));
+   if(scenario==='source-replaced'){assert.ok(++sourceBytes<=1048576);fs.appendFileSync(path.join(dir,sourceFiles[0]),'\n');}
+   if(scenario==='fixture-source-replaced'){assert.ok(++sourceBytes<=1048576);fs.appendFileSync(fixtureCopy,'\n');}
    const result=admitReader({decoder:d,close:{code:0,drained:true},reservation,budget,sourceRoot:dir,seal,output});
    assert.equal(result.disposition.reader_complete,scenario==='ok');
    assert.equal(result.disposition.charged,scenario==='ok'?100:d.grant);
    assert.equal(budget.readerOutstanding,false);assert.throws(()=>reservation.finish(0));
    const published=JSON.parse(receipt([result.disposition]));assert.equal(published.schema,4);assert.equal(published.runtime_qualified,false);assert.equal(published.candidate_evidence_complete,false);assert.equal(published.target_executions,0);assert.equal(published.reader_traces[0].trace.length,23);
-   fs.writeFileSync(output,JSON.stringify(envelope));
+   ownWrite(output,JSON.stringify(envelope));
   }
  }finally{fs.rmSync(dir,{recursive:true});}
 });
@@ -122,20 +140,23 @@ test('complete output and held source admission precede settlement; live entry h
 test('runner latches deadline/framing/stderr failures while retaining and charging prefixes',async()=>{
  const {WorkBudget,Decoder}=await import(codecURL);const {CommandRunner}=await import('./pair-root-diagnostic-windows-build.mjs');
  const {EventEmitter}=await import('node:events'),{PassThrough}=await import('node:stream');const pool=await fixturePool();
- for(const scenario of ['spawn-deadline','close-deadline','late-after-refusal','stderr']){
-  injectedVector();let now=0;const ledger=new WorkBudget({clock:()=>now,seconds:1});const stream=ledger.stream.bind(ledger);ledger.stream=n=>{pool.stream(n);stream(n);};
+ for(const scenario of ['spawn-deadline','close-deadline','late-after-refusal','stderr','unclosed-drain']){
+  injectedVector();let now=0;const ledger=new WorkBudget({clock:()=>now,seconds:1});if(scenario==='unclosed-drain')ledger.finalDeadline=1;const stream=ledger.stream.bind(ledger);ledger.stream=n=>{pool.stream(n);stream(n);};
   const d=new Decoder({nonce,mode:'before',grant:1000,ledger});let child;
   const runner=new CommandRunner(ledger,{spawnProcess:()=>{
-   child=new EventEmitter();Object.assign(child,{pid:123,exitCode:null,signalCode:null,stdout:new PassThrough(),stderr:new PassThrough()});
+   child=new EventEmitter();Object.assign(child,{pid:123,exitCode:null,signalCode:null,stdout:new PassThrough(),stderr:new PassThrough(),unref:()=>{child.unreferenced=true;}});
    if(scenario==='spawn-deadline')now=1000;
    else queueMicrotask(()=>{
     if(scenario==='stderr')child.stderr.write('unexpected');
+    else if(scenario==='unclosed-drain')child.stdout.write(Buffer.from('[2]\n'));
     else if(scenario==='late-after-refusal')child.stdout.write(Buffer.from('[2]\n'));
     else{child.stdout.write(wire([literal(1,0,7)]));now=1000;child.exitCode=0;child.emit('close',0);}
    });return child;
-  },terminate:c=>{queueMicrotask(()=>{if(scenario==='late-after-refusal')c.stdout.write(wire([literal(1,0,7)]));c.exitCode=1;c.emit('close',1);});return true;}});
-  await assert.rejects(()=>runner.run('literal-owned-double',[],{decoder:d,timeout:1000}),scenario.endsWith('deadline')?/time-limit/:scenario==='stderr'?/reader-stderr/:/framing/);
-  assert.equal(runner.drained,true);assert.equal(runner.commands.length,1);
+  },terminate:c=>{if(scenario==='unclosed-drain')return false;queueMicrotask(()=>{if(scenario==='late-after-refusal')c.stdout.write(wire([literal(1,0,7)]));c.exitCode=1;c.emit('close',1);});return true;}});
+  await assert.rejects(()=>runner.run('literal-owned-double',[],{decoder:d,timeout:1000}),scenario.endsWith('deadline')?/time-limit/:scenario==='stderr'?/reader-stderr/:scenario==='unclosed-drain'?/process-drain-unavailable/:/framing/);
+  assert.equal(runner.drained,scenario!=='unclosed-drain');assert.equal(runner.commands.length,1);
+  if(scenario!=='close-deadline'){assert.equal(runner.failureDeadline,scenario==='unclosed-drain'?1:now+120000);assert.equal(ledger.finalDeadline,runner.failureDeadline);await assert.rejects(()=>runner.run('forbidden-later-child',[]),/runner-stopped/);assert.equal(runner.commands.length,1);}
+  if(scenario==='unclosed-drain'){assert.equal(runner.terminationUnknown,true);assert.equal(child.unreferenced,true);}
   assert.equal(d.trace.length,scenario==='close-deadline'?1:0);
   if(scenario==='late-after-refusal')assert.equal(ledger.streamed,4+wire([literal(1,0,7)]).length);
  }
@@ -152,9 +173,11 @@ test('bounded owned Windows reader and final zero-hash timeout',{skip:process.pl
  const args=kind=>['-NoProfile','-NonInteractive','-File',path.resolve('scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1'),'-Case',kind];
  const traces=[];
  try {
+  for(let i=0;i<4;i++)injectedVector(); // Four memory-only storage boundary models in the checks worker.
   budget.hash(16*1024**2); // Reserve the complete checks-worker ceiling before any child work.
   const checks=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',args('checks'),{env,cwd,timeout:30000,stdoutLimit:65536});
-  assert.equal(checks.code,0,checks.stderr);assert.equal(checks.stderr,'');const checked=JSON.parse(checks.stdout);assert.equal(checked.tests_passed,true);assert.ok(checked.hash_bytes<=16*1024**2);
+  assert.equal(checks.code,0,checks.stderr);assert.equal(checks.stderr,'');const checked=JSON.parse(checks.stdout);assert.equal(checked.tests_passed,true);assert.equal(checked.resource_vectors,4);assert.ok(checked.hash_bytes<=16*1024**2);
+  for(const [key,cap] of [['files',512],['dirs',64],['inputs',2097152],['scratch',2097152]])assert.ok(checked.storage[key]<=cap);
   const seal=sealSources(repo,budget);budget.hash(1024**2); // Complete old-library comparison allowance, no refund.
   const finish=budget.reserve(1024**2),reservation={grant:1024**2,finish};
   const d=new Decoder({nonce,mode:'before',grant:reservation.grant,ledger:budget});
@@ -169,6 +192,9 @@ test('bounded owned Windows reader and final zero-hash timeout',{skip:process.pl
   budget.hash(16*1024**2);
   const refused=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',args('refusals'),{env,cwd,timeout:30000,stdoutLimit:65536});
   assert.equal(refused.code,0,refused.stderr);assert.equal(refused.stderr,'');const summary=JSON.parse(refused.stdout);assert.equal(summary.tests_passed,true);assert.equal(summary.cases.length,7);assert.ok(summary.hash_bytes<=16*1024**2);
+  for(const [key,cap] of [['files',512],['dirs',64],['inputs',524288],['scratch',2097152]])assert.ok(summary.storage[key]<=cap);
+  // Preallocated maxima across parent plus three workers, without per-case pool resets.
+  assert.ok(32+3*512<=2048);assert.ok(16+3*64<=256);assert.equal(1048576+2097152+2*524288,4194304);assert.equal(4*2097152,8388608);
   for(const item of summary.cases){
    const x=new Decoder({nonce:item.nonce,mode:'before',grant:16*1024**2,ledger:{stream:()=>{},active:()=>budget.check(),elapsed:()=>budget.elapsed()}});
    x.feed(Buffer.from(item.prefix));assert.equal(x.end(),true,x.failure);assert.equal(x.sample,item.stop);assert.equal(item.payload_bytes,item.stop>=5?3:0);
