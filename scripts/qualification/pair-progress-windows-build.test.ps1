@@ -95,14 +95,14 @@ try {
     [IO.Directory]::CreateDirectory((Join-Path $owned.registry 'fixture-index'))|Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $profile 'registry/cache/fixture-index'))|Out-Null
     [IO.File]::WriteAllText((Join-Path $owned.source 'literal'),'abc',[Text.UTF8Encoding]::new($false))
-    $script:budget=New-ReadBudget 4194304;$script:Seq=0;$script:F=0;$script:D=0;$script:A=0;$script:LiveProgress=$true
+    $script:budget=New-ReadBudget 4194304;$script:LiveSequence=0;$script:LiveFiles=0;$script:LiveDirectories=0;$script:LiveArchives=0;$script:LiveProgress=$true
     Emit-Progress 'start';Assert-ReaderRoots $owned 'before';Emit-Progress 'ready'
     $data=Invoke-ManifestRead $owned $script:budget @{packages=@{};scripts=@{};proc_macros=@{}} -EncodedLimit 32768
     $output=Join-Path $dir 'bound-output.json';Write-ReaderOutput $output $data 'before' ('a'*32) '1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6' $script:budget -EncodedLimit 32768
     $script:LiveProgress=$false
     $envelope=[IO.File]::ReadAllText($output)|ConvertFrom-Json -AsHashtable
     Assert ($envelope.mode -ceq 'before' -and $envelope.data.files.Count -eq 1 -and $envelope.data.files[0].sha256 -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'complete producer envelope'
-    Assert ($envelope.data.hash_bytes -eq $script:budget.hashed -and $script:Seq -eq 21) 'terminal settled encoding debit'
+    Assert ($envelope.data.hash_bytes -eq $script:budget.hashed -and $script:LiveSequence -eq 21) 'terminal settled encoding debit'
     $denied=$false;try{Write-ReaderOutput $output $data 'before' ('a'*32) $envelope.policy_sha256 $script:budget -EncodedLimit 32768}catch{$denied=$true};Assert $denied 'exclusive output'
     $total=0;foreach($b in $script:FixtureBudgets){$total+=$b.hashed};Assert ($total -le 67108864) 'suite cumulative work'
     [ordered]@{tests_passed=$true;envelope=$envelope;hash_bytes=$total;scratch_allocations=[OrkProgress.Payload]::Allocations;maximum_leases=[OrkProgress.Payload]::MaximumLeases;target_executions=0;runtime_qualified=$false;production_pin_accepted=$false}|ConvertTo-Json -Compress

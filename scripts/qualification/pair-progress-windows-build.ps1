@@ -145,7 +145,7 @@ function Get-SealedManifest($Roots,$Budget,[int]$FileLimit=200000,[int]$Director
             Charge-Encoding $Budget (Get-RowBound @($row.root,$row.file,$row.id))
             $encoded += [Text.Encoding]::UTF8.GetByteCount(($row|ConvertTo-Json -Compress))+1
             if ($encoded -gt $EncodedLimit) {throw 'manifest-limit'}
-            $dirs.Add($row);$script:D++
+            $dirs.Add($row);$script:LiveDirectories++
             foreach($entry in [IO.Directory]::EnumerateFileSystemEntries($item.full)) {
                 $name=[IO.Path]::GetFileName($entry)
                 $relative=if($item.relative) {$item.relative+'/'+$name}else{$name}
@@ -165,7 +165,7 @@ function Get-SealedManifest($Roots,$Budget,[int]$FileLimit=200000,[int]$Director
                     Charge-Encoding $Budget (Get-RowBound @($row.root,$row.file,$row.id))
             $encoded += [Text.Encoding]::UTF8.GetByteCount(($row|ConvertTo-Json -Compress))+1
                     if ($encoded -gt $EncodedLimit) {throw 'manifest-limit'}
-                    $files.Add($row);$bytes+=$sealed.bytes;$script:F++
+                    $files.Add($row);$bytes+=$sealed.bytes;$script:LiveFiles++
                 }
             }
         }
@@ -254,7 +254,7 @@ function Assert-CrateArchives([string]$Source,$Budget,$Policy) {
             if($relative -ceq '.cargo-ok'){if([IO.FileInfo]::new($p).Length -gt 32 -or [IO.File]::ReadAllText($p) -cne '{"v":1}'){throw 'cargo-marker'}}
             elseif(-not $files.ContainsKey($relative)){throw 'unlisted-crate-file'}
         }}
-        $script:A++
+        $script:LiveArchives++
         $crates.Add(@{package=$key;directory=($index+'/'+$leaf);archive=@{file=($index+'/'+$leaf+'.crate');bytes=$identity.bytes;sha256=$identity.sha256;id=$identity.id};files=$files;build_script=$build;proc_macro=$proc})
     }
     return @{crates=@($crates|Sort-Object package);archive_bytes=$archiveBytes;archive_count=$crates.Count;encoded_bytes=$encoded;cache_id=(Get-DirectoryIdentity $cache)}
@@ -299,14 +299,14 @@ function Assert-ReaderRoots($Roots,[string]$Mode) {
 }
 function Emit-Progress([string]$Phase,[string]$Root='',[string]$Reason='') {
     if (-not $script:LiveProgress) {return}
-    $script:Seq++
-    $tuple=@(2,$Nonce,$script:Seq,$Phase,$Root,[long]$script:budget.hashed,[long]$script:F,[long]$script:D,[long]$script:A)
+    $script:LiveSequence++
+    $tuple=@(2,$Nonce,$script:LiveSequence,$Phase,$Root,[long]$script:budget.hashed,[long]$script:LiveFiles,[long]$script:LiveDirectories,[long]$script:LiveArchives)
     if($Reason){$tuple+=,$Reason}
     $line=ConvertTo-Json -InputObject $tuple -Compress
-    if([Text.Encoding]::ASCII.GetByteCount($line)+1 -gt 192 -or $script:Seq -gt 21){throw 'output-limit'}
+    if([Text.Encoding]::ASCII.GetByteCount($line)+1 -gt 192 -or $script:LiveSequence -gt 21){throw 'output-limit'}
     [Console]::Out.Write($line+"`n");[Console]::Out.Flush()
 }
-$script:LiveProgress=$false;$script:F=0;$script:D=0;$script:A=0;$script:Seq=0
+$script:LiveProgress=$false;$script:LiveFiles=0;$script:LiveDirectories=0;$script:LiveArchives=0;$script:LiveSequence=0
 if ($MyInvocation.InvocationName -eq '.') {Initialize-Native;return}
 if (-not $IsWindows -or $env:ORK_PROGRESS_READER -cne '1' -or $Nonce -cnotmatch '\A[a-f0-9]{32}\z') {exit 1}
 $script:budget=$null;$bound=$false
