@@ -7255,15 +7255,15 @@ async fn create_session_workflow(
         Vec::new()
     };
 
-    let integration_enabled = if let Some(harness) = resolved_launch
+    let session_harness = resolved_launch
         .session_harness_id
         .as_deref()
-        .and_then(|id| registry.get(id))
-    {
+        .and_then(|id| registry.get(id));
+    let integration_enabled = if let Some(harness) = session_harness {
         let metadata_root = workspace_metadata_root.clone();
         let harness_id = harness.definition.id.clone();
         let registry = registry.clone();
-        match tokio::task::spawn_blocking(move || {
+        let integration_enabled = match tokio::task::spawn_blocking(move || {
             registry.get(&harness_id).map_or(Ok(false), |harness| {
                 harness.integration_launch_enabled(metadata_root.as_deref())
             })
@@ -7282,15 +7282,7 @@ async fn create_session_workflow(
                 tracing::warn!(%error, "harness launch integration state task failed");
                 false
             }
-        }
-    } else {
-        false
-    };
-    if let Some(harness) = resolved_launch
-        .session_harness_id
-        .as_deref()
-        .and_then(|id| registry.get(id))
-    {
+        };
         let reporter = crate::harness::integration::default_reporter_path();
         if let Err(error) = harness.augment_launch_for_integration(
             &mut resolved_launch.command,
@@ -7302,7 +7294,10 @@ async fn create_session_workflow(
                 "harness launch integration was not applied"
             );
         }
-    }
+        integration_enabled
+    } else {
+        false
+    };
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
 
@@ -7499,11 +7494,7 @@ async fn create_session_workflow(
         crate::runtime::session_runtime::DEFAULT_TERMINAL_ROWS,
         crate::runtime::session_runtime::DEFAULT_TERMINAL_COLS,
     );
-    if let Some(harness) = resolved_launch
-        .session_harness_id
-        .as_deref()
-        .and_then(|id| registry.get(id))
-    {
+    if let Some(harness) = session_harness {
         runtime.terminal_status_request =
             crate::runtime::terminal_status_launch::LaunchRequest::new(
                 harness,
