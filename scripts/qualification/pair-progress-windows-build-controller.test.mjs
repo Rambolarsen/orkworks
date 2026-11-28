@@ -353,3 +353,10 @@ test('publication precharges commitments before hashing bytes',async()=>{
  try{crypto.createHash=(...args)=>{events.push(['digest']);return original(...args);};m.publishEvidence(out,{schema:3,success:true},{'inputs.json':source},b);assert.ok(events.findIndex(e=>e[0]==='charge'&&e[1]===65539)<events.findIndex(e=>e[0]==='digest'));}
  finally{crypto.createHash=original;fs.rmSync(dir,{recursive:true});}
 });
+
+test('reserve expiry after a result write cannot leave a successful record',()=>{
+ need();const previousExitCode=process.exitCode;let now=0;const b=new m.WorkBudget({clock:()=>now,seconds:1}),dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'progress-final-expiry-'))),write=fs.writeFileSync;
+ try{fs.writeFileSync=(file,...rest)=>{const x=write(file,...rest);if(String(file)===path.join(dir,'result.json'))now=121000;return x;};
+  m.publishEvidence(dir,{schema:3,success:true}, {},b);assert.equal(fs.existsSync(path.join(dir,'result.json')),false);
+ }finally{fs.writeFileSync=write;fs.rmSync(dir,{recursive:true});process.exitCode=previousExitCode;}
+});

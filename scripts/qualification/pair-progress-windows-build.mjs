@@ -398,8 +398,10 @@ function publishBuffers(directory,result,data,budget,limit=256*MiB,sdk){
   publish(data);
  }catch(error){
   result.success=false;Object.assign(result,authority(false));result.reason=error.message==='time-limit'?'active-publication-expired':'evidence-limit';
+  // Withdraw already queued artifacts before any refusal return, even if a blocked
+  // final write crossed the reserve. This never reads/hashes or starts new work.
+  for(const n of ['result.json',...allowed]){try{fs.rmSync(path.join(directory,n),{force:true});}catch{result.cleanup='unavailable-publication-rollback';}}
   if(!publicationAvailable(budget,result)){unavailablePublication(result);return;}
-  for(const n of [...allowed,'result.json']){try{fs.rmSync(path.join(directory,n),{force:true});}catch{}}
   // Full trace and bounded SDK observations survive receipt-only publication.
   const receipt={schema:3,evidence_kind:'progress-sidecar-candidate',success:false,...authority(false),reason:result.reason,run_id:result.run_id,implementation_sha:result.implementation_sha,cleanup:result.cleanup,sdk_observed:result.sdk_observed,sdk_last_report:result.sdk_last_report,sdk_invocations:result.sdk_invocations,sdk_work_unknown:result.sdk_work_unknown===true,reader_traces:result.reader_traces??[],hash_work_unknown:result.hash_work_unknown===true,hash_bytes_charged:budget.hashed,stream_bytes:budget.streamed};
   if(!resultCharged)budget.hash(65536);receipt.hash_bytes_charged=budget.hashed;
