@@ -1,0 +1,54 @@
+name: Windows AppX test package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/windows-appx-test.yml
+      - scripts/qualification/windows-appx-test.ps1
+      - scripts/qualification/windows-appx-renderer-probe.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  appx-test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "12.18.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/orkworksd
+      - name: Install desktop dependencies
+        run: pnpm --dir apps/desktop install --frozen-lockfile
+      - name: Build the desktop app and sidecar
+        run: |
+          pnpm --dir apps/desktop build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo build --locked --release --manifest-path crates/orkworksd/Cargo.toml --bin orkworksd
+      - name: Package and qualify the test build
+        shell: powershell
+        run: ./scripts/qualification/windows-appx-test.ps1
+      - name: Retain test packages and public certificate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OrkWorks-Windows-x64-AppX-test
+          path: |
+            ${{ runner.temp }}/orkworks-appx-test/*.appx
+            ${{ runner.temp }}/orkworks-appx-test/*.cer
+          if-no-files-found: warn
+          retention-days: 7
