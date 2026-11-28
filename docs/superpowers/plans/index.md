@@ -423,3 +423,5 @@ Dated implementation plans; consult authoritative specs and issues for current s
 - [Replacement Windows candidate build](2026-11-27-pair-replacement-windows-build.md) — Proposed observed compiler input, same-job named SDK bracket and one finite build/oracle allowance; owner approval pending.
 
 - [Synthetic reader diagnostic implementation](2026-11-27-reader-diagnostic-implementation.md) — Accepted bounded fixture tooling implementation.
+
+- [Live reader progress](2026-11-28-live-reader-progress.md) — accepted isolated tooling and sole gated job implementation.

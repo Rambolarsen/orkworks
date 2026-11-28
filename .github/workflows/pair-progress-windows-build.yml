@@ -1,0 +1,52 @@
+name: Progress Windows sidecar candidate build
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed merged tooling SHA; one approved dispatch only
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pair-progress-build-allowance-2026-11-27
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One approved progress candidate attempt
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node ./scripts/qualification/pair-progress-windows-build.mjs
+      - name: Retain bounded allowlisted candidate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pair-progress-windows-build
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/result.json
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/inputs.json
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/cargo.jsonl
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/diagnostics.txt
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/compiler.json
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/oracle.c
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/oracle.i
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/sqlite3.lib
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/libsqlite3_sys.rlib
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/orkworksd.exe
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/candidate.map
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/dependencies.txt
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/archive-members.txt
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/link-custody.json
+            ${{ runner.temp }}/ork-pair-progress-windows-build-2026-11-27/evidence/sdk-record.json

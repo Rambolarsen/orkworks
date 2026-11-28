@@ -195,3 +195,5 @@ Capability research, validation results, and evidence fixtures.
 - [Codex custody spawn audit and isolated receiver witness](ordinary-review-codex-spawn-audit.md) — Actual launch families, bootstrap limitations and finite native process-separation evidence.
 
 - [Synthetic reader diagnostic fixtures](reader-diagnostic-synthetic.md) — Bounded synthetic parser, timeout and buffer comparison evidence.
+
+- [Live progress reader verification](live-reader-progress.md) — owned fixture evidence and the separately gated candidate attempt.

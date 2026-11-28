@@ -39,3 +39,17 @@ subject remains incomplete even when its expected-refusal test passes. Old
 collectors, grants and ADRs 0118/0119 are unchanged. No live integration,
 qualification job or renewed allowance follows. Removal of the new files and
 single step reverses the change without runtime state migration.
+
+## Amendment — 2026-11-28: isolated live profile
+
+The owner accepted the [live integration package](../superpowers/specs/2026-11-27-live-reader-integration-design.md)
+through “keep going” after merged #2222. Add a separate reader-live-progress-v2
+codec/controller/reader and byte-identical selected policy, preserving the
+synthetic v1 profile and all old spent tooling. The accepted contract fixes
+retained prefixes, one leased 1 MiB payload buffer, output/source admission
+before known settlement and the 132 MiB per-outstanding-reader parent share of
+the same 32 GiB ledger. It also accepts exactly one new 45-minute Windows job
+after verification, review, merge, immutable source freeze and fresh-history
+checks. No retry or runtime/production qualification follows. All ADRs 0118/0119
+constraints remain. Reverting the new isolated tooling/workflow/fixture step
+reverses integration; an attempted job's allowance remains spent.

@@ -123,3 +123,15 @@ docs/validation/root-preparation-effects.json text eol=lf
 # Replacement qualification controllers are sealed as checkout bytes.
 scripts/qualification/pair-replacement-windows-build* text eol=lf
 .github/workflows/pair-replacement-windows-build.yml text eol=lf
+
+# Isolated live-reader qualification sources require stable source seals.
+scripts/qualification/pair-progress-windows-build.mjs text eol=lf
+scripts/qualification/pair-progress-windows-build-protocol.mjs text eol=lf
+scripts/qualification/pair-progress-windows-build-controller.test.mjs text eol=lf
+scripts/qualification/pair-progress-windows-build.test.mjs text eol=lf
+scripts/qualification/pair-progress-windows-build.ps1 text eol=lf
+scripts/qualification/pair-progress-windows-build.test.ps1 text eol=lf
+scripts/qualification/pair-progress-windows-build.inputs.json text eol=lf
+scripts/qualification/pair-progress-windows-build-sdk.py text eol=lf
+scripts/qualification/pair-progress-windows-build-sdk.test.py text eol=lf
+.github/workflows/pair-progress-windows-build.yml text eol=lf
