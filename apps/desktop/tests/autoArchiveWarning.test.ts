@@ -40,6 +40,12 @@ test("nextAutoArchiveCountdownRefreshMs aligns to hour and minute boundaries", (
   const now = new Date("2026-11-26T12:00:00Z");
   assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T14:15:00Z", now), 15 * 60_000);
   assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T14:00:00Z", now), 60 * 60_000);
+  // 1h and sub-hour transitions from "1h" -> "59m" must refresh within <= 1 minute, not 1 hour.
+  assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T13:00:00Z", now), 60_000);
+  assert.equal(
+    nextAutoArchiveCountdownRefreshMs(new Date(now.getTime() + 3_599_990).toISOString(), now),
+    59_990,
+  );
   assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T12:10:20Z", now), 20_000);
   assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T12:00:15Z", now), 15_000);
   assert.equal(nextAutoArchiveCountdownRefreshMs("2026-11-26T11:59:00Z", now), null);

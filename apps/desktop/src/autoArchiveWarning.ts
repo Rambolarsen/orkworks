@@ -30,12 +30,11 @@ export function nextAutoArchiveCountdownRefreshMs(
   if (remainingMs <= 0) return null;
   const remainingMinutes = Math.ceil(remainingMs / 60_000);
   if (remainingMinutes <= 1) return Math.max(1_000, remainingMs);
-  if (remainingMinutes < 60) {
-    const msPastMinute = remainingMs % 60_000;
-    return Math.max(1_000, msPastMinute === 0 ? 60_000 : msPastMinute);
+  if (remainingMinutes <= 60) {
+    return Math.max(1_000, remainingMs - (remainingMinutes - 1) * 60_000);
   }
-  const msPastHour = remainingMs % 3_600_000;
-  return Math.max(1_000, msPastHour === 0 ? 3_600_000 : msPastHour);
+  const remainingHours = Math.ceil(remainingMinutes / 60);
+  return Math.max(1_000, remainingMs - (remainingHours - 1) * 3_600_000);
 }
 
 export function autoArchiveWarningKey(session: Pick<SessionInfo, "id" | "autoArchiveWarning">): string | null {
