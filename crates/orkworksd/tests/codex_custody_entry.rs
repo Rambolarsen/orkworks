@@ -63,6 +63,28 @@ fn sidecar_worker_keeps_its_channel_after_startup_and_drains_on_eof() {
     let (mut stream, mut child) = start(buffered_data, deadline).unwrap();
     expect_eof(&mut stream, deadline);
     assert_eq!(child.wait_until(deadline).unwrap().code(), Some(2));
+
+    check_entry_rejections(&tag);
+}
+
+fn check_entry_rejections(tag: &[u8; 32]) {
+    // These are independent refusal checks after the startup trials have
+    // closed and reaped. All blank pairs are sealed before either launch.
+    let [env_case, inventory_case, fixture_only, _unused] =
+        channels::seal_empty_channels().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    for (pair, input) in [
+        (env_case, LaunchInput::ExtraEnvironment),
+        (inventory_case, LaunchInput::ExtraEndpoint(&fixture_only.1)),
+    ] {
+        let nonce = *uuid::Uuid::new_v4().as_bytes();
+        pair.0.set_nonblocking(true).unwrap();
+        let challenge = bootstrap_frame::encode(Direction::Challenge, &nonce, tag);
+        deadline_io::write_all(&pair.0, &challenge, deadline).unwrap();
+        let (mut stream, mut child) = start_with_input(pair, input, deadline).unwrap();
+        expect_eof(&mut stream, deadline);
+        assert_eq!(child.wait_until(deadline).unwrap().code(), Some(2));
+    }
 }
 
 fn worker_command() -> Command {
@@ -76,19 +98,44 @@ fn worker_command() -> Command {
     command
 }
 
+enum LaunchInput<'a> {
+    Normal,
+    ExtraEnvironment,
+    ExtraEndpoint(&'a UnixStream),
+}
+
 fn start(
+    pair: (UnixStream, UnixStream),
+    deadline: Instant,
+) -> io::Result<(UnixStream, OwnedChild)> {
+    start_with_input(pair, LaunchInput::Normal, deadline)
+}
+
+fn start_with_input(
     (controller, worker): (UnixStream, UnixStream),
+    input: LaunchInput<'_>,
     deadline: Instant,
 ) -> io::Result<(UnixStream, OwnedChild)> {
     let mut command = worker_command();
     let fd = worker.as_raw_fd();
     command.arg(fd.to_string());
-    // SAFETY: the sealed endpoint is retained through spawn, and fcntl is
-    // async-signal-safe. Other descriptors remain sealed.
+    let additional = match input {
+        LaunchInput::Normal => None,
+        LaunchInput::ExtraEnvironment => {
+            command.env("ORKWORKS_QUALIFICATION_UNEXPECTED", "fixture");
+            None
+        }
+        LaunchInput::ExtraEndpoint(endpoint) => Some(endpoint.as_raw_fd()),
+    };
+    // SAFETY: each selected test endpoint stays open through spawn, and fcntl
+    // is async-signal-safe. Only the explicitly selected fixture descriptors
+    // have their child flags changed.
     unsafe {
         command.pre_exec(move || {
-            if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-                return Err(io::Error::last_os_error());
+            for fd in [Some(fd), additional].into_iter().flatten() {
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
             }
             Ok(())
         });
@@ -120,7 +167,11 @@ fn exchange(stream: &mut UnixStream, tag: &[u8; 32], deadline: Instant) {
 }
 
 fn expect_eof(stream: &mut UnixStream, deadline: Instant) {
-    assert_eq!(deadline_io::read(stream, &mut [0], deadline).unwrap(), 0);
+    match deadline_io::read(stream, &mut [0], deadline) {
+        Ok(0) => {}
+        Err(error) if error.kind() == io::ErrorKind::ConnectionReset => {}
+        result => panic!("worker sent data or failed to close: {result:?}"),
+    }
 }
 
 struct OwnedChild(Child);

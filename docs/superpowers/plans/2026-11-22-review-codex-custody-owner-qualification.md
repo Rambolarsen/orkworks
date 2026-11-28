@@ -127,7 +127,8 @@ startup. The parent launch supplies an empty environment. The actual macOS
 executable can acquire the platform's numeric `__CF_USER_TEXT_ENCODING` tuple
 before Rust runs. Entry accepts only that tuple if present, plus exactly
 three null standard streams and one connected Unix stream. Inspect the worker's complete descriptor inventory before creating a
-Rust-owned close-on-exec duplicate. The fixture execs the produced sidecar
+Rust-owned close-on-exec duplicate and releases the inherited original. The
+fixture execs the produced sidecar
 binary with only the intended endpoint made inheritable in the child.
 
 The challenge and ready messages retain the fixed 54-byte format. This
@@ -153,7 +154,9 @@ check required exactly four kernel-listed descriptors, and rejected a
 different startup tag and surplus bytes queued before readiness. A byte
 sent after readiness caused a protocol failure and reap. The parent launched
 with an empty environment. The observed platform locale tuple was the single
-allowlisted entry.
+allowlisted entry. Independent refusal cases supply a valid challenge with
+an extra blank fixture socket or an unexpected fixture environment entry.
+Both cases exit before sending readiness.
 
 Run both native fixtures with
 `cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --features codex-custody-qualification --test codex_custody_entry --test codex_custody_bootstrap`.

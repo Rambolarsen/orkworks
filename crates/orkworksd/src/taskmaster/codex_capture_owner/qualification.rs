@@ -63,6 +63,11 @@ fn run_worker(fd: RawFd) -> io::Result<()> {
     }
     // SAFETY: the successful duplicate is owned only by this worker.
     let mut stream = UnixStream::from(unsafe { OwnedFd::from_raw_fd(duplicate) });
+    // SAFETY: the original endpoint belongs to this exec worker, and no
+    // Rust object owns it. All subsequent I/O uses the fresh duplicate.
+    if unsafe { libc::close(fd) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
     verify_stream_kind(duplicate)?;
     stream.peer_addr()?;
     stream.set_nonblocking(true)?;
