@@ -8,8 +8,8 @@ const labelsSource = readFileSync(new URL("../src/labels.ts", import.meta.url), 
 
 test("WorkspaceHistoryList disables opening the current workspace but keeps pin/remove available", () => {
   assert.match(listSource, /disabled=\{isCurrent \|\| isSwitching\}/);
-  assert.match(listSource, /onClick=\{\(\) => \(pinned \? handleUnpin\(path\) : handlePin\(path\)\)\}/);
-  assert.match(listSource, /onClick=\{\(\) => handleForget\(path\)\}/);
+  assert.match(listSource, /pinned \? window\.orkworks\.unpinWorkspacePath\(path\) : window\.orkworks\.pinWorkspacePath\(path\)/);
+  assert.match(listSource, /window\.orkworks\.forgetWorkspacePath\(path\)/);
 });
 
 test("WorkspaceHistoryList disables opening the folder chooser while switching", () => {
