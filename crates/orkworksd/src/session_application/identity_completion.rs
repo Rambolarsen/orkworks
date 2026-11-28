@@ -1,6 +1,7 @@
 //! Identity publication and label reservation consume one transaction result.
 //! Neither follow-up rereads session JSON or adopts a replacement runtime.
 use super::*;
+use crate::codex_session_store::{DeferredLabelRefresh, LabelRefreshSchedule};
 use crate::runtime::session_runtime::{RuntimeCommand, RuntimeIdentity};
 
 struct Runtime {
@@ -125,20 +126,31 @@ impl Completion {
         &self,
         id: &str,
         native_id: &str,
-    ) -> Option<(RuntimeIdentity, u64)> {
-        let context = self.context.as_ref()?;
-        let identity = self.identity.as_ref()?;
-        let token = context.token.as_deref()?;
-        if identity.id != id
-            || identity.harness != "codex"
-            || identity
-                .resume
-                .as_ref()
-                .and_then(|r| r.harness_session_id.as_deref())
-                != Some(native_id)
-        {
+    ) -> Option<(RuntimeIdentity, LabelRefreshSchedule)> {
+        self.reserve_codex_label_refresh_with(id, native_id, None)
+    }
+
+    pub(crate) fn claim_deferred_codex_label_refresh(
+        &self,
+        id: &str,
+        native_id: &str,
+        deferred: &DeferredLabelRefresh,
+    ) -> Option<u64> {
+        let (_, LabelRefreshSchedule::Immediate(epoch)) =
+            self.reserve_codex_label_refresh_with(id, native_id, Some(deferred))?
+        else {
             return None;
-        }
+        };
+        Some(epoch)
+    }
+
+    fn reserve_codex_label_refresh_with(
+        &self,
+        id: &str,
+        native_id: &str,
+        deferred: Option<&DeferredLabelRefresh>,
+    ) -> Option<(RuntimeIdentity, LabelRefreshSchedule)> {
+        let context = self.context.as_ref()?;
         let state = context.state.upgrade()?;
         #[cfg(test)]
         testing::before_publication(&context.reader.root().join("label-reservation"));
@@ -146,33 +158,74 @@ impl Completion {
             id,
             native_id,
             std::time::Duration::from_secs(5),
+            deferred,
             |reserve| {
                 let workspace = state.workspace.lock().unwrap();
                 let ws = workspace.as_ref()?;
-                if !context.current_workspace(&state, ws)
-                    || !crate::runtime::terminal_runtime::verify_workflow_report_token(id, token)
-                {
-                    return None;
-                }
                 let sessions = state.sessions.lock().unwrap();
-                let h = sessions.get(id).filter(|h| {
-                    context.current_runtime(h, identity)
-                        && h.info.harness.as_deref() == Some("codex")
-                        && h.info
-                            .resume
-                            .as_ref()
-                            .and_then(|r| r.harness_session_id.as_deref())
-                            == Some(native_id)
-                })?;
-                if !crate::codex_session_store::accept_native_label_identity(id, native_id)
-                    || !should_schedule_codex_label_refresh(self.result, identity.label_source)
+                let h = sessions.get(id)?;
+                if !self.can_refresh_codex_label(&state, ws, h, native_id)
+                    || !crate::codex_session_store::accept_native_label_identity(id, native_id)
                 {
                     return None;
                 }
-                let epoch = reserve()?;
-                Some((h.runtime.identity(), epoch))
+                Some((h.runtime.identity(), reserve()?))
             },
         )
+    }
+
+    pub(crate) fn can_lookup_codex_label(
+        &self,
+        state: &Arc<AppState>,
+        id: &str,
+        native_id: &str,
+        epoch: u64,
+    ) -> bool {
+        crate::codex_session_store::with_label_refresh_generation(id, epoch, || {
+            if crate::codex_session_store::native_label_refresh_is_blocked(id, native_id) {
+                return false;
+            }
+            let workspace = state.workspace.lock().unwrap();
+            let Some(ws) = workspace.as_ref() else {
+                return false;
+            };
+            let sessions = state.sessions.lock().unwrap();
+            sessions
+                .get(id)
+                .is_some_and(|h| self.can_refresh_codex_label(state, ws, h, native_id))
+        })
+        .unwrap_or(false)
+    }
+
+    pub(super) fn can_refresh_codex_label(
+        &self,
+        state: &Arc<AppState>,
+        ws: &WorkspaceState,
+        h: &SessionHandle,
+        native_id: &str,
+    ) -> bool {
+        let (Some(context), Some(identity)) = (&self.context, &self.identity) else {
+            return false;
+        };
+        should_schedule_codex_label_refresh(self.result, identity.label_source)
+            && identity.harness == "codex"
+            && identity
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref())
+                == Some(native_id)
+            && context.current_workspace(state, ws)
+            && context.current_runtime(h, identity)
+            && h.info.lifecycle_phase == "active"
+            && h.info.harness.as_deref() == Some("codex")
+            && h.info
+                .resume
+                .as_ref()
+                .and_then(|r| r.harness_session_id.as_deref())
+                == Some(native_id)
+            && context.token.as_deref().is_some_and(|token| {
+                crate::runtime::terminal_runtime::verify_workflow_report_token(&identity.id, token)
+            })
     }
 }
 pub(crate) fn should_schedule_codex_label_refresh(

@@ -3531,6 +3531,7 @@ impl SessionApplication {
         label: String,
         runtime_identity: &crate::runtime::session_runtime::RuntimeIdentity,
         expected_refresh_generation: u64,
+        completion: Option<&identity_completion::Completion>,
     ) -> bool {
         if crate::codex_session_store::native_label_refresh_is_blocked(id, native_session_id) {
             return false;
@@ -3550,6 +3551,9 @@ impl SessionApplication {
                 if !handle.runtime.matches_identity(runtime_identity)
                     || handle.info.lifecycle_phase != "active"
                     || handle.info.harness.as_deref() != Some("codex")
+                    || completion.is_some_and(|report| {
+                        !report.can_refresh_codex_label(&self.state, ws, handle, native_session_id)
+                    })
                 {
                     return false;
                 }
@@ -16092,6 +16096,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 "Saved Codex name".into(),
                 &runtime_identity,
                 0,
+                None,
             )
         );
         let stored = state
@@ -16126,6 +16131,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 "Saved Codex name".into(),
                 &runtime_identity,
                 0,
+                None,
             )
         );
         assert_eq!(
@@ -16149,6 +16155,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 "Stale name".into(),
                 &wrong_identity,
                 0,
+                None,
             )
         );
         crate::codex_session_store::invalidate_label_refresh_generation(id);
@@ -16159,6 +16166,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 "Reset-stale name".into(),
                 &runtime_identity,
                 0,
+                None,
             )
         );
     }
@@ -16207,6 +16215,7 @@ if [ "$1" = debug ]; then printf '%s\n' "$0.db"; else touch "$0.started"; fi
                 "Native name".into(),
                 &runtime_identity,
                 0,
+                None,
             )
         );
         assert_eq!(

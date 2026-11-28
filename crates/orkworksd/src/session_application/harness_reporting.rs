@@ -283,13 +283,14 @@ pub(crate) async fn report_harness_session(
         )
     {
         let reservation = completion.reserve_codex_label_refresh(&id, &native_session_id);
-        if let Some((runtime_identity, refresh_epoch)) = reservation {
+        if let Some((runtime_identity, schedule)) = reservation {
             schedule_codex_label_refresh(
                 state,
                 id.clone(),
                 native_session_id,
                 runtime_identity,
-                refresh_epoch,
+                schedule,
+                completion,
             );
         }
     }
@@ -385,9 +386,27 @@ fn schedule_codex_label_refresh(
     session_id: String,
     native_session_id: String,
     runtime_identity: crate::runtime::session_runtime::RuntimeIdentity,
-    refresh_epoch: u64,
+    schedule: crate::codex_session_store::LabelRefreshSchedule,
+    completion: session_application::identity_completion::Completion,
 ) {
+    use crate::codex_session_store::LabelRefreshSchedule;
+
     tokio::spawn(async move {
+        let refresh_epoch = match schedule {
+            LabelRefreshSchedule::Immediate(epoch) => epoch,
+            LabelRefreshSchedule::Deferred(job) => {
+                tokio::time::sleep_until(job.not_before).await;
+                let Some(epoch) = completion.claim_deferred_codex_label_refresh(
+                    &session_id,
+                    &native_session_id,
+                    &job,
+                ) else {
+                    return;
+                };
+                epoch
+            }
+        };
+        let completion = Arc::new(completion);
         for delay in [
             std::time::Duration::ZERO,
             std::time::Duration::from_millis(100),
@@ -396,30 +415,39 @@ fn schedule_codex_label_refresh(
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }
-            let lookup_id = native_session_id.clone();
-            let candidate = tokio::task::spawn_blocking(move || {
-                crate::codex_session_store::lookup_label_candidate(&lookup_id)
-                    .ok()
-                    .flatten()
+            let lookup_state = state.clone();
+            let lookup_completion = completion.clone();
+            let lookup_session = session_id.clone();
+            let lookup_native = native_session_id.clone();
+            let Ok(Some(candidate)) = tokio::task::spawn_blocking(move || {
+                if !lookup_completion.can_lookup_codex_label(
+                    &lookup_state,
+                    &lookup_session,
+                    &lookup_native,
+                    refresh_epoch,
+                ) {
+                    return None;
+                }
+                Some(
+                    crate::codex_session_store::lookup_label_candidate(&lookup_native)
+                        .ok()
+                        .flatten(),
+                )
             })
             .await
-            .ok()
-            .flatten();
+            else {
+                return;
+            };
             let Some(candidate) = candidate else {
                 continue;
             };
-            if crate::codex_session_store::native_label_refresh_is_blocked(
-                &session_id,
-                &native_session_id,
-            ) {
-                return;
-            }
             if SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
                 &session_id,
                 &native_session_id,
                 candidate.text,
                 &runtime_identity,
                 refresh_epoch,
+                Some(&completion),
             ) {
                 return;
             }

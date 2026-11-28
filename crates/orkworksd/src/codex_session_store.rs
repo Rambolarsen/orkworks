@@ -2,6 +2,7 @@ use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Clone)]
 struct RefreshGeneration {
@@ -32,8 +33,24 @@ impl LabelRefreshToken {
 static LABEL_REFRESH_GENERATIONS: LazyLock<
     Mutex<std::collections::HashMap<String, RefreshGeneration>>,
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+struct LabelRefreshWindow {
+    native_session_id: String,
+    started_at: Instant,
+    deferred: bool,
+}
+
+pub(crate) enum LabelRefreshSchedule {
+    Immediate(u64),
+    Deferred(DeferredLabelRefresh),
+}
+
+pub(crate) struct DeferredLabelRefresh {
+    pub(crate) not_before: Instant,
+    token: LabelRefreshToken,
+}
+
 static LABEL_REFRESH_RESERVATIONS: LazyLock<
-    Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+    Mutex<std::collections::HashMap<String, LabelRefreshWindow>>,
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 static LABEL_REFRESH_GATES: LazyLock<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
@@ -69,64 +86,97 @@ pub(crate) fn clear_label_refresh_generation(session_id: &str) {
         .remove(session_id);
 }
 
-/// Throttle repeat hook-driven lookups for one session/native identity while
-/// still allowing later events to retry a label that Codex has not saved yet.
-#[cfg(test)]
-fn try_reserve_label_refresh_generation_at(
-    session_id: &str,
-    native_session_id: &str,
-    now: std::time::Instant,
-    minimum_interval: Duration,
-) -> Option<u64> {
-    let gate = label_refresh_gate(session_id);
-    let _gate = gate.lock().unwrap();
-    reserve_label_refresh_generation_at(session_id, native_session_id, now, minimum_interval)
-}
-
 /// Serializes an identity-checked refresh reservation with label persistence.
 /// The operation can hold the workspace lock while invoking `reserve`, so the
 /// persisted identity cannot change between validation and generation advance.
+/// A delayed claim has to present its original generation and pass the same
+/// admission checks as a new report.
 pub(crate) fn with_label_refresh_reservation<T>(
     session_id: &str,
     native_session_id: &str,
     minimum_interval: Duration,
-    operation: impl FnOnce(&mut dyn FnMut() -> Option<u64>) -> T,
-) -> T {
+    deferred: Option<&DeferredLabelRefresh>,
+    operation: impl FnOnce(&mut dyn FnMut() -> Option<LabelRefreshSchedule>) -> Option<T>,
+) -> Option<T> {
     let gate = label_refresh_gate(session_id);
     let _gate = gate.lock().unwrap();
+    if deferred
+        .is_some_and(|job| Instant::now() < job.not_before || !job.token.is_current(session_id))
+    {
+        return None;
+    }
     let mut reserve = || {
-        reserve_label_refresh_generation_at(
+        reserve_label_refresh_at(
             session_id,
             native_session_id,
-            std::time::Instant::now(),
+            Instant::now(),
             minimum_interval,
+            deferred.is_none(),
         )
     };
     operation(&mut reserve)
 }
 
-fn reserve_label_refresh_generation_at(
+fn current_label_refresh_token(id: &str) -> Option<LabelRefreshToken> {
+    let generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
+    Some(LabelRefreshToken {
+        epoch: generations.get(id)?.epoch.clone(),
+    })
+}
+
+fn reserve_label_refresh_at(
     session_id: &str,
     native_session_id: &str,
-    now: std::time::Instant,
+    now: Instant,
     minimum_interval: Duration,
-) -> Option<u64> {
+    retain_deferred: bool,
+) -> Option<LabelRefreshSchedule> {
     let mut reservations = LABEL_REFRESH_RESERVATIONS.lock().unwrap();
-    if reservations
-        .get(session_id)
-        .is_some_and(|(previous_id, at)| {
-            previous_id == native_session_id
-                && now.saturating_duration_since(*at) < minimum_interval
-        })
-    {
-        return None;
+    if let Some(window) = reservations.get_mut(session_id).filter(|window| {
+        window.native_session_id == native_session_id
+            && now.saturating_duration_since(window.started_at) < minimum_interval
+    }) {
+        if !retain_deferred || window.deferred {
+            return None;
+        }
+        let token = current_label_refresh_token(session_id)?;
+        window.deferred = true;
+        // Reserving the delayed slot does not invalidate the immediate refresh.
+        return Some(LabelRefreshSchedule::Deferred(DeferredLabelRefresh {
+            not_before: window.started_at + minimum_interval,
+            token,
+        }));
     }
-    reservations.insert(session_id.to_owned(), (native_session_id.to_owned(), now));
+    reservations.insert(
+        session_id.to_owned(),
+        LabelRefreshWindow {
+            native_session_id: native_session_id.to_owned(),
+            started_at: now,
+            deferred: false,
+        },
+    );
     let mut generations = LABEL_REFRESH_GENERATIONS.lock().unwrap();
     let generation = generations.entry(session_id.to_owned()).or_default();
     generation.number = generation.number.saturating_add(1);
     generation.epoch = Arc::new(());
-    Some(generation.number)
+    Some(LabelRefreshSchedule::Immediate(generation.number))
+}
+
+#[cfg(test)]
+fn try_reserve_label_refresh_generation_at(
+    session_id: &str,
+    native_session_id: &str,
+    now: Instant,
+    minimum_interval: Duration,
+) -> Option<u64> {
+    let gate = label_refresh_gate(session_id);
+    let _gate = gate.lock().unwrap();
+    let LabelRefreshSchedule::Immediate(epoch) =
+        reserve_label_refresh_at(session_id, native_session_id, now, minimum_interval, false)?
+    else {
+        return None;
+    };
+    Some(epoch)
 }
 
 pub(crate) fn block_native_label_refresh(session_id: &str, native_session_id: &str) {
@@ -641,7 +691,7 @@ mod tests {
     fn label_refresh_reservations_throttle_retries_per_native_identity() {
         let session_id = "native-label-refresh-throttle-test";
         clear_label_refresh_generation(session_id);
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let cooldown = Duration::from_secs(5);
 
         assert_eq!(
@@ -688,20 +738,25 @@ mod tests {
             session_id,
             "old-thread",
             Duration::from_secs(5),
+            None,
             |reserve| {
                 let current_native_id = "new-thread";
                 (current_native_id == "old-thread").then(reserve).flatten()
             },
         );
-        assert_eq!(stale_reservation, None);
+        assert!(stale_reservation.is_none());
 
         let current_reservation = with_label_refresh_reservation(
             session_id,
             "new-thread",
             Duration::from_secs(5),
+            None,
             |reserve| reserve(),
         );
-        assert_eq!(current_reservation, Some(1));
+        assert!(matches!(
+            current_reservation,
+            Some(LabelRefreshSchedule::Immediate(1))
+        ));
         clear_label_refresh_generation(session_id);
     }
 }
@@ -711,19 +766,14 @@ mod tests {
 pub(crate) fn try_reserve_native_label_refresh(id: &str, root: &str) -> Option<LabelRefreshToken> {
     let gate = label_refresh_gate(id);
     let _guard = gate.try_lock().ok()?;
-    reserve_label_refresh_generation_at(
+    reserve_label_refresh_at(
         id,
         root,
-        std::time::Instant::now(),
+        Instant::from_std(std::time::Instant::now()),
         Duration::from_secs(5),
+        false,
     )?;
-    let epoch = LABEL_REFRESH_GENERATIONS
-        .lock()
-        .unwrap()
-        .get(id)?
-        .epoch
-        .clone();
-    Some(LabelRefreshToken { epoch })
+    current_label_refresh_token(id)
 }
 
 #[cfg(test)]

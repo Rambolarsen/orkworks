@@ -914,7 +914,10 @@ characters. The persisted `labelContextRefined` marker prevents later output
 from churning the topic. Activity scans mirror the canonical title instead of
 copying their summary into live state. Codex keeps its exact-ID read-only adapter
 and five-second report-driven refresh cooldown, including after a native name
-was already accepted; identical native title/source values do not rewrite metadata.
+was already accepted. Reports within the cooldown coalesce into one deferred
+refresh for the same runtime and native thread. At the deadline the job must
+still pass the original workspace, report capability, identity and title
+generation checks. Identical native title/source values do not rewrite metadata.
 
 The independent ordinary-storage producer mode accepts
 `ORKWORKS_SESSION_STORAGE_PROTOCOL=sidecar-v1` and shares the authenticated
