@@ -149,7 +149,7 @@ Sources `apps/desktop/src/{terminalAttach,terminalStore}.ts`,
 | Live terminal absent | Still-current renderer awaits backend and attaches | Socket connecting |
 | Socket connecting | Connection opens and the handle is current | Interactive, with bounded pending input |
 | Socket attached | Socket closes or the component is disposed | Input disabled or attachment removed; PTY lifecycle proceeds independently |
-| Closed socket without a terminal end event | Renderer returns to the still-live session | Replace the closed handle and attach with bounded replay |
+| Closing or closed socket without a terminal end event | Renderer returns to the still-live session | Replace the unavailable transport and attach with bounded replay |
 | Healthy socket | Renderer returns to the session | Reuse the existing handle |
 | Socket closed without live output | Historical fetch succeeds for a still-owned handle | Bounded replay, at the recorded grid when available |
 | Historical terminal loading | Replay query settles for the current session | Loaded, empty, or error |
@@ -405,6 +405,15 @@ desktop disposed the terminal but still showed the deleted row. It now removes
 the acknowledged row immediately, keeps a newer selection, and rejects the
 older list. Failed deletes still reconcile against an authoritative list.
 [Issue #2281](https://github.com/Rambolarsen/orkworks/issues/2281)
+
+### Reselection reused a terminal socket during its close handshake
+
+The Electron fixture marks an inactive terminal socket Closing before returning
+to its still-live session. The old cache rule only replaced Closed sockets and
+reused a transport already shutting down. Reselection now replaces the handle
+in either state. The fixture delivers the old socket's close event afterward
+and verifies that the fresh handle still accepts input.
+[Issue #2289](https://github.com/Rambolarsen/orkworks/issues/2289)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or
