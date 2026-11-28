@@ -14,6 +14,8 @@ mod channels;
 mod deadline_io;
 #[path = "../src/taskmaster/codex_capture_owner/qualification_contract.rs"]
 mod qualification_contract;
+#[path = "../src/taskmaster/codex_capture_owner/slots.rs"]
+mod slots;
 
 use bootstrap_frame::{Direction, FRAME_SIZE};
 use qualification_contract::{qualification_tag, WORKER_ARG};
@@ -107,6 +109,76 @@ fn sidecar_workers_reach_readiness_and_drain_independently() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires the explicit compile-time macOS qualification build"]
+fn sidecar_failed_slot_is_charged_until_child_reap() {
+    use std::os::unix::process::ExitStatusExt;
+
+    assert!(qualification_contract::enabled());
+    let pairs = channels::seal_empty_channels().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let tag = qualification_tag();
+    let mut slots = slots::StartupSlots::new(deadline);
+
+    for pair in pairs {
+        let (slot, attempt) = slots.begin(Instant::now(), || None).unwrap();
+        let (stream, child) = start(pair, deadline).unwrap();
+        let (stream, child) = attempt.insert((Some(stream), child));
+        exchange(stream.as_mut().unwrap(), &tag, deadline);
+        assert!(child.0.try_wait().unwrap().is_none());
+        assert!(slots.publish_ready(slot, Instant::now()));
+    }
+    slots.close_startup();
+
+    let failed = 1;
+    assert!(slots.drain(failed).is_some());
+    assert!(!slots
+        .poll_reap(failed, |attempt| {
+            let (_, child) = attempt.as_mut().unwrap();
+            child.0.try_wait().map(|status| status.is_some())
+        })
+        .unwrap());
+    assert_eq!(slots.ready_count(), 3);
+    assert_eq!(slots.charged_count(), 4);
+    assert!(slots
+        .begin(Instant::now(), || panic!("replacement"))
+        .is_none());
+
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+    let (_, child) = slots.drain(failed).unwrap().as_mut().unwrap();
+    child.0.kill().unwrap();
+    assert!(slots
+        .poll_reap(failed, |attempt| {
+            let (_, child) = attempt.as_mut().unwrap();
+            assert_eq!(
+                child.wait_until(cleanup_deadline)?.signal(),
+                Some(libc::SIGKILL)
+            );
+            Ok(true)
+        })
+        .unwrap());
+    assert_eq!(slots.charged_count(), 3);
+    assert_eq!(slots.ready_count(), 3);
+    assert!(slots.drain(failed).is_none());
+
+    for slot in [0, 2, 3] {
+        let (stream, child) = slots.drain(slot).unwrap().as_mut().unwrap();
+        assert!(child.0.try_wait().unwrap().is_none());
+        drop(stream.take());
+        assert!(slots
+            .poll_reap(slot, |attempt| {
+                let (_, child) = attempt.as_mut().unwrap();
+                assert!(child.wait_until(cleanup_deadline)?.success());
+                Ok(true)
+            })
+            .unwrap());
+    }
+    assert_eq!(slots.charged_count(), 0);
+    assert!(slots
+        .begin(Instant::now(), || panic!("replacement"))
+        .is_none());
 }
 
 fn check_entry_rejections(tag: &[u8; 32]) {
