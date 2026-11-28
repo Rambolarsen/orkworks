@@ -47,8 +47,12 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
       setCommitOid("");
       setBranchCommits(null);
       setSelected(null);
+      if (comparison === "branch") {
+        setState(null);
+        setRefresh(n => n + 1);
+      }
     }
-  }, [sessionBranch]);
+  }, [sessionBranch, comparison]);
   useEffect(() => {
     if (!session) return;
     let active = true;
