@@ -3,10 +3,13 @@ export function validateGitChangesRequest(value: unknown): asserts value is GitC
   if (!value || typeof value !== "object") throw new Error("Invalid changes request.");
   const r = value as Record<string, unknown>;
   const id = (v: unknown) => typeof v === "string" && v.length <= 256 && /^[a-zA-Z0-9_-]+$/.test(v);
+  const validBaseRef = (v: unknown) => typeof v === "string" && v.length <= 4096 && /^refs\/(heads|remotes)\/[^\s~^:?*\[\]\\]+$/.test(v);
+  const validCommitOid = (v: unknown) => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
   if (!id(r.sessionId)) throw new Error("Invalid session ID.");
   if (r.kind === "bases") return;
   if (r.kind === "capture" && (r.comparison === "uncommitted" || r.comparison === "branch") &&
-    (r.baseRef === undefined || (typeof r.baseRef === "string" && r.baseRef.length <= 4096 && /^refs\/(heads|remotes)\/[^\s~^:?*\[\]\\]+$/.test(r.baseRef)))) return;
+    (r.baseRef === undefined || validBaseRef(r.baseRef)) &&
+    (r.commitOid === undefined || (r.comparison === "branch" && validBaseRef(r.baseRef) && validCommitOid(r.commitOid)))) return;
   if (r.kind === "file" && id(r.snapshotId) && id(r.fileId)) return;
   throw new Error("Invalid changes request.");
 }
@@ -19,6 +22,7 @@ export async function readGitChanges(baseUrl: string, input: unknown, token: str
   else {
     const query = new URLSearchParams({ comparison: input.comparison });
     if (input.comparison === "branch" && input.baseRef) query.set("baseRef", input.baseRef);
+    if (input.comparison === "branch" && input.commitOid) query.set("commitOid", input.commitOid);
     path = `${root}/git-changes?${query}`;
   }
   const response = await fetchImpl(path, { headers: { "x-orkworks-open-plan-token": token }, signal });

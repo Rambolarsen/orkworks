@@ -165,6 +165,49 @@ fallback to two-tip comparison. Detached HEAD is labeled with its commit ID and
 can still compare against a selected base. Local remote-tracking refs may be
 old; say **Local refs; no fetch performed** beside the base selector.
 
+### Single-commit inspection inside Branch changes
+
+Tracking: [#1900](https://github.com/Rambolarsen/orkworks/issues/1900).
+
+While **Branch changes** is selected with an eligible `baseRef`, Changes also
+offers a labeled **Commit** selector beside **Base branch** defaulting to
+**All branch changes** (`merge-base(selected base, HEAD) → HEAD`). The sidecar
+enumerates local commits reachable from `HEAD` and excluded by the unique
+`merge-base(selected base, HEAD)` in topological reverse-chronological order,
+capped at **100 commits** within the existing 5-second cooperative budget. Each
+entry exposes its full OID, 8-character abbreviated OID, sanitized single-line
+subject (at most 200 Unicode scalar values), commit kind (`ordinary`, `merge`,
+or `root`), parent count, and baseline OID. When the list reaches 100 commits
+with additional commits remaining, the UI discloses that the commit list is
+limited to 100 commits.
+
+Selecting a commit inspects only that commit's committed tree — uncommitted
+staged, unstaged, and untracked edits are never included:
+
+| Commit kind | Parent count | Baseline → target | Disclosed baseline |
+| --- | --- | --- | --- |
+| Ordinary | `1` | `parent[0]` tree → commit tree | `<short(parent)> → <short(commit)> · single commit · committed only` |
+| Merge | `≥ 2` | `parent[0]` tree → commit tree (first-parent diff) | `first parent <short(parent0)> → <short(commit)> · merge commit (<N> parents, first-parent diff) · committed only` |
+| Root | `0` | empty tree → commit tree | `empty tree → <short(commit)> · root commit · committed only` |
+
+The renderer passes the chosen commit via the existing authenticated capture
+route (`GET /sessions/:id/git-changes?comparison=branch&baseRef=...&commitOid=<40-hex-oid>`).
+Both Electron main and the sidecar reject non-40-hex commit IDs and requests
+supplying `commitOid` outside Branch changes. The sidecar verifies that the
+requested `commitOid` belongs to the current bounded `merge-base..HEAD` commit
+list before computing the diff; commits outside the current comparison (including
+after a branch switch or rebase) return an unavailable/refresh error rather than
+exposing an arbitrary revision API.
+
+Single-commit inspection reuses the existing filterable file list and
+Unified/Split diff viewer. The renderer keys capture and patch state by
+`comparison:baseRef:commitOid`, clearing prior results synchronously on every
+commit, base, comparison, or branch change and ignoring stale out-of-order
+responses so a previous commit's patch is never displayed under a new commit's
+heading. Switching branches or base refs resets the commit selector to
+**All branch changes**. An empty commit comparison (for example an empty commit
+or zero-delta merge) reports **No committed file changes in this commit**.
+
 Uncommitted comparisons honor stage-zero index modes when filesystem executable
 bits or native symlinks are disabled. Intentionally unmaterialized skip-worktree
 entries use index content, preserving staged differences. Built-in CRLF cleaning

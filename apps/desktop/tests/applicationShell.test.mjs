@@ -1127,6 +1127,33 @@ if (process.versions.electron) {
         await waitFor('document.querySelector(".git-changes-patch")?.textContent.includes("committed edit")');
         assert.match(await evaluate('document.querySelector(".git-changes").textContent'),/committed only/);
         assert.doesNotMatch(await evaluate('document.querySelector(".git-changes").textContent'),/working edit/);
+        // Single-commit inspection: two commits touching the same file + merge commit + stale-patch isolation.
+        await waitFor('document.querySelectorAll("[data-git-commit] option").length===4');
+        await evaluate('(()=>{const s=document.querySelector("[data-git-commit]");s.value="11111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector("[data-git-commit-summary]")?.textContent.includes("11111111 · First change") && document.querySelector(".git-changes-patch")?.textContent.includes("commit-1 edit")');
+        assert.match(await evaluate('document.querySelector("[data-git-commit-summary]").textContent'),/00000000 → 11111111 · single commit · committed only/);
+        // Switch to commit 2 while deferred: commit 1's patch and heading clear synchronously and never appear under commit 2.
+        await evaluate('fixture.deferChanges=true;const s=document.querySelector("[data-git-commit]");s.value="22222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";s.dispatchEvent(new Event("change",{bubbles:true}))');
+        await waitFor('!!fixture.finishChanges && !document.querySelector(".git-changes-patch") && !document.querySelector("[data-git-commit-summary]")');
+        await evaluate('fixture.deferChanges=false;fixture.finishChanges()');
+        await waitFor('document.querySelector("[data-git-commit-summary]")?.textContent.includes("22222222 · Second change") && document.querySelector(".git-changes-patch")?.textContent.includes("commit-2 edit")');
+        assert.doesNotMatch(await evaluate('document.querySelector(".git-changes-patch").textContent'),/commit-1 edit/);
+        // Merge commit displays first-parent merge baseline.
+        await evaluate('(()=>{const s=document.querySelector("[data-git-commit]");s.value="33333333cccccccccccccccccccccccccccccccc";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector("[data-git-commit-summary]")?.textContent.includes("merge commit (2 parents, first-parent diff)") && document.querySelector(".git-changes-patch")?.textContent.includes("merge-commit edit")');
+        // Returning to All branch changes restores the full branch diff.
+        await evaluate('(()=>{const s=document.querySelector("[data-git-commit]");s.value="";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('!document.querySelector("[data-git-commit-summary]") && document.querySelector(".git-changes-patch")?.textContent.includes("committed edit")');
+        // Switching branches while on All branch changes invalidates the old branch capture and reloads the new branch's commits.
+        await evaluate('fixture.branchCommitRequests=[];fixture.currentBranch="feature-two";fixture.sessionList[0]={...fixture.sessionList[0],branch:"feature-two"}');
+        await waitFor('document.querySelector(".git-changes-branch")?.textContent.includes("feature-two") && document.querySelectorAll("[data-git-commit] option").length===2 && document.querySelector("[data-git-commit]").textContent.includes("44444444 · Feature two commit")');
+        assert.equal(await evaluate('document.querySelector("[data-git-commit]").disabled'),false,'new branch commits stay selectable after branch switch');
+        // Switching back while a single commit is selected resets cleanly with a single All-branch-changes request (no stale commitOid capture).
+        await evaluate('(()=>{const s=document.querySelector("[data-git-commit]");s.value="44444444dddddddddddddddddddddddddddddddd";s.dispatchEvent(new Event("change",{bubbles:true}))})()');
+        await waitFor('document.querySelector("[data-git-commit-summary]")?.textContent.includes("44444444 · Feature two commit")');
+        await evaluate('fixture.branchCommitRequests=[];fixture.currentBranch="feature";fixture.sessionList[0]={...fixture.sessionList[0],branch:"feature"}');
+        await waitFor('document.querySelector(".git-changes-branch")?.textContent.includes("feature") && !document.querySelector("[data-git-commit-summary]") && document.querySelectorAll("[data-git-commit] option").length===4');
+        assert.deepEqual(await evaluate('fixture.branchCommitRequests'),[null],'branch switch from a selected commit issues one clean All-branch-changes capture');
         // A delayed refresh from the old comparison must never overwrite the new one.
         await evaluate('fixture.deferChanges=true;document.querySelector("[data-git-refresh]").click()');
         await waitFor('!!fixture.finishChanges');
@@ -3428,10 +3455,51 @@ if (process.versions.electron) {
           window.orkworks.forgetWorkspacePath=async()=>({pinned:[],recent:['/tmp/test'],diagnostic:null});
           window.orkworks.readGitChanges=async request=>{
             if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main','refs/heads/release'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
-            if(request.kind==='file'){const result={snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||(request.snapshotId.includes('branch')?'+committed edit':'+working edit'),notice:null};if(fixture.deferPatch)await new Promise(resolve=>fixture.finishPatch=resolve);return result;}
+            const branchName=fixture.currentBranch||'feature';
+            const branchCommits=branchName==='feature-two'
+              ? [{oid:'44444444dddddddddddddddddddddddddddddddd',shortOid:'44444444',subject:'Feature two commit',kind:'ordinary',parentCount:1,baselineOid:'00000000dddddddddddddddddddddddddddddddd'}]
+              : [
+                {oid:'33333333cccccccccccccccccccccccccccccccc',shortOid:'33333333',subject:'Merge feature',kind:'merge',parentCount:2,baselineOid:'22222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'},
+                {oid:'22222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',shortOid:'22222222',subject:'Second change',kind:'ordinary',parentCount:1,baselineOid:'11111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'},
+                {oid:'11111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',shortOid:'11111111',subject:'First change',kind:'ordinary',parentCount:1,baselineOid:'00000000dddddddddddddddddddddddddddddddd'},
+              ];
+            if(request.kind==='file'){
+              let defaultPatch=request.snapshotId.includes('branch')?'+committed edit':'+working edit';
+              if(request.snapshotId.includes('11111111'))defaultPatch='+commit-1 edit';
+              else if(request.snapshotId.includes('22222222'))defaultPatch='+commit-2 edit';
+              else if(request.snapshotId.includes('33333333'))defaultPatch='+merge-commit edit';
+              else if(request.snapshotId.includes('44444444'))defaultPatch='+feature-two edit';
+              const result={snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||defaultPatch,notice:null};
+              if(fixture.deferPatch)await new Promise(resolve=>fixture.finishPatch=resolve);
+              return result;
+            }
             fixture.captureCount=(fixture.captureCount||0)+1;
+            if(fixture.branchCommitRequests&&request.comparison==='branch')fixture.branchCommitRequests.push(request.commitOid||null);
             if(fixture.changeFailure)throw new Error('fixture refresh failed');
-            const result={snapshotId:request.comparison+'-'+request.sessionId+'-'+fixture.captureCount,sessionId:request.sessionId,worktree:fixture.worktree||'/tmp/test',gitContextSource:fixture.worktree?'agent':'launch',branch:'feature',comparison:request.comparison,baseRef:request.baseRef||null,baseOid:'bbbbbbbb',baselineOid:'aaaaaaaa',headOid:'cccccccc',capturedAt:'2026-10-24T10:00:00Z',partial:!!fixture.partialChanges,notice:null,files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}]};
+            const selectedCommit=request.comparison==='branch'&&request.commitOid?branchCommits.find(c=>c.oid===request.commitOid)||null:null;
+            const snapTag=selectedCommit?(request.comparison+'-'+selectedCommit.shortOid):request.comparison;
+            const result={
+              snapshotId:snapTag+'-'+request.sessionId+'-'+fixture.captureCount,
+              sessionId:request.sessionId,
+              worktree:fixture.worktree||'/tmp/test',
+              gitContextSource:fixture.worktree?'agent':'launch',
+              branch:branchName,
+              comparison:request.comparison,
+              baseRef:request.baseRef||null,
+              baseOid:'bbbbbbbb',
+              baselineOid:selectedCommit?selectedCommit.baselineOid:'aaaaaaaa',
+              headOid:'cccccccc',
+              commitOid:selectedCommit?selectedCommit.oid:null,
+              commitKind:selectedCommit?selectedCommit.kind:null,
+              commitSubject:selectedCommit?selectedCommit.subject:null,
+              commitParentCount:selectedCommit?selectedCommit.parentCount:null,
+              commits:request.comparison==='branch'?branchCommits:[],
+              commitsLimited:false,
+              capturedAt:'2026-10-24T10:00:00Z',
+              partial:!!fixture.partialChanges,
+              notice:null,
+              files:[{id:'file',path:'src/change.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null}],
+            };
             if(${javascriptLiteral(scenario)}==='app-review-changes')result.files.push({id:'other-file',path:'src/other.ts',oldPath:null,status:'Modified',additions:1,deletions:0,notice:null});
             if(fixture.omitOtherFile)result.files=result.files.filter(f=>f.id!=='other-file');
             if(fixture.emptyChanges)result.files=[];

@@ -2,11 +2,11 @@ import { gitLocationLabel } from "../gitLocationLabel";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SessionInfo } from "../api";
 import type { GitChangeBases, GitChangesCapture, GitComparison, GitFilePatch } from "../gitChangesTypes";
+import { type BranchCommitCache, commitOptionLabel, comparisonBaselineLabel, comparisonKey, isCaptureMatchingSelection, isPatchMatchingCapture, selectActiveBranchCommits, shortOid } from "../gitChangesCommit";
 import { RefreshCw, GitBranch, Search } from "lucide-react";
 import GitDiff from "./GitDiff";
 
 const message = (e: unknown) => e instanceof Error ? e.message : "Changes unavailable; retry.";
-const short = (oid: string | null) => oid?.slice(0, 8) ?? "empty tree";
 
 export default function GitChangesPanel({ session }: { session: SessionInfo | null }) {
   // The shell keys this component by workspace generation and selected-session ID.
@@ -14,6 +14,8 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
   const [bases, setBases] = useState<GitChangeBases | null>(null);
   const [baseError, setBaseError] = useState<string | null>(null);
   const [baseRef, setBaseRef] = useState("");
+  const [commitOid, setCommitOid] = useState("");
+  const [branchCommits, setBranchCommits] = useState<BranchCommitCache | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [filter, setFilter] = useState("");
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
@@ -24,15 +26,33 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
   const readingPosition = useRef<{ key: string; top: number; left: number } | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const fileHeading = useRef<HTMLHeadingElement>(null);
+  const sessionBranch = session?.branch ?? "";
+  const sessionBranchRef = useRef(sessionBranch);
+  sessionBranchRef.current = sessionBranch;
+  const prevBranch = useRef(sessionBranch);
   const comparisonBase = comparison === "branch" ? baseRef : "";
-  const key = `${comparison}:${comparisonBase}`;
+  const comparisonCommit = comparison === "branch" ? commitOid : "";
+  const key = comparisonKey(comparison, comparisonBase, comparisonCommit);
   const current = state?.key === key ? state : null;
   const capture = current?.capture;
+  const activeCommits = selectActiveBranchCommits(comparison, comparisonBase, sessionBranch, branchCommits);
   const file = capture?.files.find(f => f.path === selected) ?? capture?.files[0];
   const visibleFiles = capture?.files.filter(f => `${f.oldPath ?? ""} ${f.path}`.toLowerCase().includes(filter.toLowerCase())) ?? [];
   const patchKey = capture && file ? `${capture.snapshotId}:${file.id}` : "";
 
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => {
+    if (prevBranch.current !== sessionBranch) {
+      prevBranch.current = sessionBranch;
+      setCommitOid("");
+      setBranchCommits(null);
+      setSelected(null);
+      if (comparison === "branch") {
+        setState(null);
+        setRefresh(n => n + 1);
+      }
+    }
+  }, [sessionBranch, comparison]);
   useEffect(() => {
     if (!session) return;
     let active = true;
@@ -47,12 +67,23 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
   useEffect(() => {
     if (!session || (comparison === "branch" && !comparisonBase)) return;
     let active = true;
+    const requestBranch = sessionBranchRef.current;
     setState(old => ({ key, capture: old?.key === key ? old.capture : null, error: null, loading: true }));
-    window.orkworks.readGitChanges({ sessionId: session.id, kind: "capture", comparison,
-      ...(comparison === "branch" ? { baseRef: comparisonBase } : {}) }).then(result => {
+    window.orkworks.readGitChanges({
+      sessionId: session.id,
+      kind: "capture",
+      comparison,
+      ...(comparison === "branch" ? { baseRef: comparisonBase } : {}),
+      ...(comparison === "branch" && comparisonCommit ? { commitOid: comparisonCommit } : {}),
+    }).then(result => {
       if (!active) return;
       const c = result as GitChangesCapture;
-      if (c.sessionId !== session.id || c.comparison !== comparison || (comparison === "branch" && c.baseRef !== comparisonBase)) throw new Error("Inspection source changed; refresh.");
+      if (!isCaptureMatchingSelection(c, session.id, comparison, comparisonBase, comparisonCommit)) {
+        throw new Error("Inspection source changed; refresh.");
+      }
+      if (comparison === "branch") {
+        setBranchCommits({ baseRef: comparisonBase, sessionBranch: requestBranch, commits: c.commits ?? [], limited: Boolean(c.commitsLimited) });
+      }
       setState({ key, capture: c, error: null, loading: false });
       setSelected(old => {
         if (old && c.files.some(f => f.path === old)) return old;
@@ -62,10 +93,15 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
     }).catch(e => {
       if (!active) return;
       const error = message(e);
-      setState(old => ({ key, capture: /source changed|Session unavailable|No available|Worktree unavailable/i.test(error) ? null : old?.key === key ? old.capture : null, error, loading: false }));
+      setState(old => ({
+        key,
+        capture: /source changed|Session unavailable|No available|Worktree unavailable|not in the current branch comparison/i.test(error) ? null : old?.key === key ? old.capture : null,
+        error,
+        loading: false,
+      }));
     });
     return () => { active = false; };
-  }, [session?.id, comparison, comparisonBase, refresh, key]);
+  }, [session?.id, comparison, comparisonBase, comparisonCommit, refresh, key]);
 
   useEffect(() => {
     if (!session || !capture || !file) return;
@@ -75,7 +111,7 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
     window.orkworks.readGitChanges({ sessionId: session.id, kind: "file", snapshotId: capture.snapshotId, fileId: file.id }).then(result => {
       if (!active) return;
       const p = result as GitFilePatch;
-      if (p.snapshotId !== capture.snapshotId || p.fileId !== file.id) throw new Error("Inspection expired; refresh.");
+      if (!isPatchMatchingCapture(p, capture.snapshotId, file.id)) throw new Error("Inspection expired; refresh.");
       setPatch({ key: patchKey, result: p });
     }).catch(e => { if (active) setPatch({ key: patchKey, error: message(e) }); });
     return () => { active = false; };
@@ -93,10 +129,11 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
     readingPosition.current = { key: viewKey, top: scroller.scrollTop, left: scroller.scrollLeft };
   }, [text, viewKey]);
 
-  const choose = (value: GitComparison) => { setComparison(value); setSelected(null); };
+  const choose = (value: GitComparison) => { setComparison(value); setCommitOid(""); setSelected(null); };
   const name = (path: string) => path.split("/").at(-1) || path;
   const folder = (path: string) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "Repository root";
   const totals = (added: number, removed: number) => <span className="git-changes-totals"><span className="git-added">+{added}</span> <span className="git-removed">−{removed}</span></span>;
+  const baselineText = comparisonBaselineLabel(comparison, baseRef, capture);
   return <section className="git-changes" aria-label="Git changes">
     <header className="git-changes-header"><div><h2 ref={heading} data-shell-page-heading tabIndex={-1}>Changes</h2>
       <p className="git-changes-branch"><GitBranch size={14} aria-hidden="true" />{capture?.branch ?? session?.branch ?? "No branch"}</p></div>
@@ -105,19 +142,28 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
     <label>Comparison<select data-git-comparison value={comparison} onChange={e => choose(e.target.value as GitComparison)}>
       <option value="uncommitted">Uncommitted changes</option><option value="branch">Branch changes</option>
     </select></label>
-    {comparison === "branch" &&
-      <label>Base branch<select value={baseRef} onChange={e => { setBaseRef(e.target.value); setSelected(null); }}>
+    {comparison === "branch" && <>
+      <label>Base branch<select data-git-base value={baseRef} onChange={e => { setBaseRef(e.target.value); setCommitOid(""); setBranchCommits(null); setSelected(null); }}>
         <option value="">Choose a base branch</option>{bases?.refs.map(ref => <option key={ref} value={ref}>{ref.replace(/^refs\/(heads|remotes)\//, "")}</option>)}
-      </select></label>}
+      </select></label>
+      <label>Commit<select data-git-commit value={commitOid} disabled={!baseRef || !activeCommits?.commits.length} onChange={e => { setCommitOid(e.target.value); setSelected(null); }}>
+        <option value="">All branch changes</option>
+        {activeCommits?.commits.map(commit => <option key={commit.oid} value={commit.oid}>{commitOptionLabel(commit)}</option>)}
+      </select></label>
+    </>}
       <div className="git-changes-refresh"><span>{capture ? `Updated ${new Date(capture.capturedAt).toLocaleTimeString()}` : "No capture yet"}</span>
         <button type="button" data-git-refresh disabled={!session || current?.loading} onClick={() => setRefresh(n => n + 1)}><RefreshCw size={14} aria-hidden="true" />Refresh</button></div>
     </div>
-    {comparison === "branch" && <div className="git-changes-local-refs">Local refs; no fetch performed.{bases?.limited && " Ref list limited to 500 entries."}</div>}
+    {comparison === "branch" && <div className="git-changes-local-refs">Local refs; no fetch performed.{bases?.limited && " Ref list limited to 500 entries."}{activeCommits?.limited && " Commit list limited to 100 commits."}</div>}
+    {comparison === "branch" && capture?.commitOid && <div className="git-changes-commit-summary" data-git-commit-summary>
+      <strong>{shortOid(capture.commitOid)} · {capture.commitSubject ?? "(no subject)"}</strong>
+      <span>{baselineText}</span>
+    </div>}
     <details className="git-changes-details"><summary>Comparison details</summary>
       <dl><dt>Worktree</dt><dd className="git-changes-subject">{capture?.worktree ?? session?.worktreeBinding?.root ?? session?.repoRoot ?? session?.cwd}</dd>
       <dt>Source</dt><dd>{gitLocationLabel(capture ? capture.gitContextSource : session?.gitContextSource)}</dd>
-      <dt>Baseline</dt><dd className="git-changes-baseline">{comparison === "uncommitted" ? "HEAD → working tree · staged, unstaged, new files" : `merge-base(${baseRef.replace(/^refs\/(heads|remotes)\//, "") || "choose base"}, HEAD) → HEAD · committed only`}</dd>
-      {capture && <><dt>Commits</dt><dd>{short(capture.baselineOid)} → {comparison === "branch" ? short(capture.headOid) : "working tree"}{comparison === "branch" && ` · base tip ${short(capture.baseOid)}`}</dd></>}
+      <dt>Baseline</dt><dd className="git-changes-baseline">{baselineText}</dd>
+      {capture && <><dt>Commits</dt><dd>{shortOid(capture.baselineOid)} → {comparison === "branch" ? shortOid(capture.commitOid ?? capture.headOid) : "working tree"}{comparison === "branch" && ` · base tip ${shortOid(capture.baseOid)}`}{capture.commitOid && ` · branch HEAD ${shortOid(capture.headOid)}`}</dd></>}
       <dt>Scope</dt><dd>Worktree and branch changes may include other sessions’ work. Worktree reads describe a capture interval.</dd></dl>
     </details>
     <div className="git-changes-status">
@@ -136,7 +182,7 @@ export default function GitChangesPanel({ session }: { session: SessionInfo | nu
       <h3 ref={fileHeading} tabIndex={-1}>Changed files <span>{capture.files.length}{capture.partial ? " shown" : ""}</span></h3>
       {capture.partial ? <span className="git-changes-count">Totals unavailable</span> : totals(capture.files.reduce((n,f) => n+(f.additions??0),0),capture.files.reduce((n,f) => n+(f.deletions??0),0))}</div>
       <label className="git-changes-filter"><Search size={14} aria-hidden="true" /><span className="sr-only">Filter changed files</span><input type="search" placeholder="Filter files…" value={filter} onChange={e => setFilter(e.target.value)} /></label>
-      {!capture.files.length && <p>{capture.partial ? "Comparison incomplete; refresh or inspect in your coding tool." : comparison === "branch" ? "No committed branch changes since the merge base." : "No net uncommitted changes against HEAD."}</p>}
+      {!capture.files.length && <p>{capture.partial ? "Comparison incomplete; refresh or inspect in your coding tool." : comparison === "branch" ? (capture.commitOid ? "No committed file changes in this commit." : "No committed branch changes since the merge base.") : "No net uncommitted changes against HEAD."}</p>}
       {!!capture.files.length && !visibleFiles.length && <p role="status">No files match “{filter}”.</p>}
       <ul className="git-changes-files">{visibleFiles.map(f => <li key={f.id}><button type="button" aria-pressed={f.id === file?.id}
         aria-label={`${f.status}: ${f.oldPath ? `${f.oldPath} → ` : ""}${f.path}${f.additions !== null ? `, +${f.additions} −${f.deletions}` : ""}`} onClick={() => setSelected(f.path)}>
