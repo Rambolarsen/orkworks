@@ -283,3 +283,25 @@ installer or production availability. Existing chunk warnings are outside the
 diff. Generated pnpm executable lock metadata was inspected/restored. Foreign
 shared-checkout edits/worktrees remain untouched. Owner approval and the actual
 #1981 application-boundary qualification remain pending.
+
+## Pending launch after startup closes
+
+Reserve the slot before starting a launch. The qualification owner retains
+the result receiver and polls it without waiting. After the shared deadline,
+the slot stays charged while the launch is pending. If a child arrives, the
+draining owner closes its controller channel and polls that exact child until
+reap is confirmed. A failed or disconnected launch report leaves cleanup
+unconfirmed and keeps the charge.
+
+Exercise the pending, failed-report, and confirmed-reap states with
+deterministic controls. On macOS arm64, hold the native launch behind a test
+gate across the same three-second budget that starts before channel sealing.
+Keep a healthy worker ready throughout. Release the test gate after the
+startup phase closes and require reap of the late child and the healthy peer.
+The launch delay is injected before the native spawn call.
+
+On macOS 26.6.2 arm64, all seven policy tests and four native opt-in
+tests passed. The late-launch case passed three additional runs. Startup
+closed while the launch was waiting for its gate. After the gate opened,
+the exact child reaped and the healthy peer exited normally. The source
+qualification uses the existing empty worker channels.

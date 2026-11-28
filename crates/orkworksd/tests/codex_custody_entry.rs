@@ -16,12 +16,15 @@ mod bootstrap_frame;
 mod channels;
 #[path = "../src/taskmaster/codex_capture_owner/deadline_io.rs"]
 mod deadline_io;
+#[path = "../src/taskmaster/codex_capture_owner/launch.rs"]
+mod launch;
 #[path = "../src/taskmaster/codex_capture_owner/qualification_contract.rs"]
 mod qualification_contract;
 #[path = "../src/taskmaster/codex_capture_owner/slots.rs"]
 mod slots;
 
 use bootstrap_frame::{Direction, FRAME_SIZE};
+use launch::{LaunchOwner, SpawnedAttempt};
 use qualification_contract::{qualification_tag, WORKER_ARG};
 use slots::{AttemptOwner, StartupSlots};
 
@@ -161,6 +164,70 @@ fn sidecar_failed_slot_is_charged_until_child_reap() {
         .is_none());
 }
 
+#[test]
+#[ignore = "requires the explicit compile-time macOS qualification build"]
+fn sidecar_late_launch_stays_owned_after_startup_deadline() {
+    assert!(qualification_contract::enabled());
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let [healthy_pair, delayed_pair, _unused_one, _unused_two] =
+        channels::seal_empty_channels().unwrap();
+    let tag = qualification_tag();
+    let mut slots = StartupSlots::new(deadline);
+    let (healthy, attempt) = slots.begin(Instant::now(), LaunchOwner::default).unwrap();
+    attempt
+        .start(move || SlotWorker::spawn(healthy_pair))
+        .unwrap();
+    loop {
+        assert!(Instant::now() < deadline);
+        if let Some(worker) = attempt.poll_spawned().unwrap() {
+            worker.confirm_readiness(&tag, deadline);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(slots.publish_ready(healthy, Instant::now()));
+
+    let (release, gate) = std::sync::mpsc::channel();
+    let (entered, entry) = std::sync::mpsc::channel();
+    let (delayed, attempt) = slots.begin(Instant::now(), LaunchOwner::default).unwrap();
+    attempt
+        .start(move || {
+            entered.send(()).map_err(io::Error::other)?;
+            gate.recv().map_err(io::Error::other)?;
+            SlotWorker::spawn(delayed_pair)
+        })
+        .unwrap();
+    entry
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .unwrap();
+    assert!(attempt.poll_spawned().unwrap().is_none());
+
+    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    assert!(slots
+        .begin(Instant::now(), || panic!("startup closed"))
+        .is_none());
+    assert!(!slots.publish_ready(delayed, Instant::now()));
+    assert_eq!(slots.ready_count(), 1);
+    assert_eq!(slots.charged_count(), 2);
+    assert!(slots.poll_reap(delayed).unwrap().is_none());
+
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+    release.send(()).unwrap();
+    assert_eq!(
+        wait_for_slot_reap(&mut slots, delayed, cleanup_deadline).code(),
+        Some(2)
+    );
+    assert_eq!(slots.charged_count(), 1);
+    assert_eq!(slots.ready_count(), 1);
+    assert!(!slots.publish_ready(delayed, Instant::now()));
+    slots.drain(healthy).unwrap();
+    assert!(wait_for_slot_reap(&mut slots, healthy, cleanup_deadline).success());
+    assert_eq!(slots.charged_count(), 0);
+    assert!(slots
+        .begin(Instant::now(), || panic!("replacement"))
+        .is_none());
+}
+
 #[derive(Default)]
 struct SlotWorker {
     running: RefCell<Option<RunningSlotWorker>>,
@@ -172,19 +239,34 @@ struct RunningSlotWorker {
 }
 
 impl SlotWorker {
+    fn spawn(pair: (UnixStream, UnixStream)) -> io::Result<Self> {
+        let (controller, child) = spawn_with_input(pair, LaunchInput::Normal)?;
+        Ok(Self {
+            running: RefCell::new(Some(RunningSlotWorker {
+                controller: Some(controller),
+                child,
+            })),
+        })
+    }
+
     fn start_and_exchange(
         &self,
         pair: (UnixStream, UnixStream),
         tag: &[u8; 32],
         deadline: Instant,
     ) {
+        assert!(self.running.borrow().is_none());
         let (controller, child) = start(pair, deadline).unwrap();
-        let mut running = self.running.borrow_mut();
-        assert!(running.is_none());
-        let worker = running.insert(RunningSlotWorker {
+        *self.running.borrow_mut() = Some(RunningSlotWorker {
             controller: Some(controller),
             child,
         });
+        self.confirm_readiness(tag, deadline);
+    }
+
+    fn confirm_readiness(&self, tag: &[u8; 32], deadline: Instant) {
+        let mut running = self.running.borrow_mut();
+        let worker = running.as_mut().unwrap();
         exchange(worker.controller.as_mut().unwrap(), tag, deadline);
         assert!(worker.child.0.try_wait().unwrap().is_none());
     }
@@ -213,8 +295,16 @@ impl AttemptOwner for SlotWorker {
     }
 }
 
-fn wait_for_slot_reap(
-    slots: &mut StartupSlots<SlotWorker>,
+impl SpawnedAttempt for SlotWorker {
+    fn close_channel(&mut self) {
+        if let Some(worker) = self.running.get_mut() {
+            drop(worker.controller.take());
+        }
+    }
+}
+
+fn wait_for_slot_reap<T: AttemptOwner<Exit = ExitStatus>>(
+    slots: &mut StartupSlots<T>,
     slot: usize,
     deadline: Instant,
 ) -> ExitStatus {
@@ -272,9 +362,19 @@ fn start(
 }
 
 fn start_with_input(
-    (controller, worker): (UnixStream, UnixStream),
+    pair: (UnixStream, UnixStream),
     input: LaunchInput<'_>,
     deadline: Instant,
+) -> io::Result<(UnixStream, OwnedChild)> {
+    assert!(Instant::now() < deadline);
+    let owner = spawn_with_input(pair, input)?;
+    assert!(Instant::now() < deadline);
+    Ok(owner)
+}
+
+fn spawn_with_input(
+    (controller, worker): (UnixStream, UnixStream),
+    input: LaunchInput<'_>,
 ) -> io::Result<(UnixStream, OwnedChild)> {
     let mut command = worker_command();
     let fd = worker.as_raw_fd();
@@ -300,9 +400,7 @@ fn start_with_input(
             Ok(())
         });
     }
-    assert!(Instant::now() < deadline);
     let child = OwnedChild(command.spawn()?);
-    assert!(Instant::now() < deadline);
     controller.set_nonblocking(true)?;
     Ok((controller, child))
 }

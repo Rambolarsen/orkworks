@@ -4,8 +4,12 @@ use std::io;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+#[path = "../src/taskmaster/codex_capture_owner/launch.rs"]
+mod launch;
 #[path = "../src/taskmaster/codex_capture_owner/slots.rs"]
 mod slots;
+
+use launch::{LaunchOwner, SpawnedAttempt};
 
 use slots::{AttemptOwner, StartupSlots};
 
@@ -147,4 +151,135 @@ fn confirmed_early_failure_leaves_only_the_other_three_startup_slots() {
     assert_eq!(slots.charged_count(), 3);
     assert_eq!(slots.ready_count(), 3);
     assert!(slots.begin(now, || panic!("replacement")).is_none());
+}
+
+struct DelayedChild {
+    closed: bool,
+    polls: usize,
+}
+
+impl AttemptOwner for DelayedChild {
+    type Exit = usize;
+
+    fn try_reap(&mut self) -> io::Result<Option<Self::Exit>> {
+        assert!(self.closed);
+        self.polls += 1;
+        Ok((self.polls == 2).then_some(7))
+    }
+}
+
+impl SpawnedAttempt for DelayedChild {
+    fn close_channel(&mut self) {
+        self.closed = true;
+    }
+}
+
+#[test]
+fn expired_slot_keeps_pending_launch_and_reaps_the_late_child() {
+    let now = Instant::now();
+    let deadline = now + Duration::from_secs(3);
+    let mut slots = StartupSlots::new(deadline);
+    let (release, gate) = std::sync::mpsc::channel();
+    let (slot, owner) = slots.begin(now, LaunchOwner::default).unwrap();
+    owner
+        .start(move || {
+            gate.recv().unwrap();
+            Ok(DelayedChild {
+                closed: false,
+                polls: 0,
+            })
+        })
+        .unwrap();
+    assert!(owner.poll_spawned().unwrap().is_none());
+    assert_eq!(
+        owner
+            .start(|| panic!("duplicate launch"))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::AlreadyExists
+    );
+
+    assert!(!slots.publish_ready(slot, deadline));
+    assert_eq!(slots.charged_count(), 1);
+    assert_eq!(slots.ready_count(), 0);
+    assert_eq!(slots.poll_reap(slot).unwrap(), None);
+    assert!(slots
+        .begin(deadline, || panic!("new attempt after deadline"))
+        .is_none());
+
+    release.send(()).unwrap();
+    let wait_until = Instant::now() + Duration::from_secs(3);
+    loop {
+        assert!(Instant::now() < wait_until);
+        if let Some(exit) = slots.poll_reap(slot).unwrap() {
+            assert_eq!(exit, 7);
+            break;
+        }
+        assert_eq!(slots.charged_count(), 1);
+        std::thread::yield_now();
+    }
+    assert_eq!(slots.charged_count(), 0);
+    assert!(!slots.publish_ready(slot, deadline));
+}
+
+#[test]
+fn failed_launch_report_keeps_the_slot_charged() {
+    for disconnected in [false, true] {
+        let now = Instant::now();
+        let mut slots =
+            StartupSlots::<LaunchOwner<DelayedChild>>::new(now + Duration::from_secs(3));
+        let (slot, owner) = slots.begin(now, LaunchOwner::default).unwrap();
+        owner
+            .start(move || {
+                assert!(!disconnected, "simulated loss of launch result");
+                Err(io::ErrorKind::PermissionDenied.into())
+            })
+            .unwrap();
+        slots.close_startup();
+
+        let wait_until = Instant::now() + Duration::from_secs(3);
+        loop {
+            assert!(Instant::now() < wait_until);
+            match slots.poll_reap(slot) {
+                Ok(None) => std::thread::yield_now(),
+                Err(error) => {
+                    let expected = if disconnected {
+                        io::ErrorKind::BrokenPipe
+                    } else {
+                        io::ErrorKind::PermissionDenied
+                    };
+                    assert_eq!(error.kind(), expected);
+                    break;
+                }
+                Ok(Some(_)) => panic!("unconfirmed launch retired"),
+            }
+        }
+        assert!(slots.poll_reap(slot).is_err());
+        assert_eq!(slots.charged_count(), 1);
+    }
+}
+
+struct DropNotice(std::sync::mpsc::Sender<()>);
+
+impl Drop for DropNotice {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
+#[test]
+fn abandoning_a_pending_result_drops_the_late_owner() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let (dropped, notice) = std::sync::mpsc::channel();
+    let owner = LaunchOwner::default();
+    owner
+        .start(move || {
+            gate.recv().unwrap();
+            Ok(DropNotice(dropped))
+        })
+        .unwrap();
+
+    drop(owner);
+    release.send(()).unwrap();
+    notice.recv_timeout(Duration::from_secs(3)).unwrap();
 }
