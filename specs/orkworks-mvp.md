@@ -864,6 +864,11 @@ The first useful MVP should include:
   replaces the previous title. The user submits the task prompt in the
   terminal. Cancel or change of session or workspace discards an unsaved
   draft. This action sends no terminal input.
+- The Terminal header for a live session shown as Idle offers **Copy
+  continuation prompt**. The explicit click copies the fixed text “Keep going
+  with the current task.” to the clipboard and reports success or failure.
+  The user chooses where to paste it and when to submit. The action uses
+  the displayed attention state for visibility and sends no terminal input.
 - An ended session with an available resume option exposes a split Resume
   button in the selected-session header and Details. The main action resumes
   the preferred available strategy; its arrow exposes all existing options and

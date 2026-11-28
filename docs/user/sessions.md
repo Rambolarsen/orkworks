@@ -137,6 +137,13 @@ your instructions in the same terminal. The title replaces the previous
 title and stays until you rename it or choose **Use automatic title** in
 Details. Published installers may not include this action yet.
 
+## Continue an idle session
+
+In current source builds, the Terminal header for a live session shown as
+Idle offers **Copy continuation prompt**. It copies “Keep going with the
+current task.” Paste it in the terminal and submit when ready. Published
+installers may lack this action.
+
 ## Resume an ended session
 
 In current source builds, select an ended session and use the Resume split

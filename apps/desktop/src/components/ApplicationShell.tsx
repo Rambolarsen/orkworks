@@ -1,6 +1,6 @@
 import { isSessionAlive } from "../sessionRuntimeState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X } from "lucide-react";
+import { PanelLeft, PanelRight, Plus, ChevronDown, ArrowRight, Lightbulb, BookOpen, Settings, Pin, PinOff, X, Copy, Check, CircleAlert } from "lucide-react";
 import type {
   CentralSurface,
   FocusTarget,
@@ -36,6 +36,32 @@ export type { ShellCommand, ShellDestination };
 
 type TerminalFocusIntent = "terminal" | { resumeSessionId: string; workspaceGeneration: number };
 const enabledResumeButton = "button[data-shell-resume]:enabled";
+
+function CopyContinuationPrompt() {
+  const [status, setStatus] = useState<"ready" | "copying" | "copied" | "failed">("ready");
+
+  async function copyPrompt() {
+    setStatus("copying");
+    try {
+      await navigator.clipboard.writeText("Keep going with the current task.");
+      setStatus("copied");
+    } catch {
+      setStatus("failed");
+    }
+  }
+
+  const notice = status === "copied"
+    ? "Prompt copied. Paste it into the terminal and submit it when ready."
+    : status === "failed" ? "Could not copy the continuation prompt. Try again." : "";
+  const Icon = status === "copied" ? Check : status === "failed" ? CircleAlert : Copy;
+  return <>
+    <button type="button" data-copy-continuation-prompt aria-label="Copy continuation prompt"
+      title={notice || "Copy continuation prompt"} disabled={status === "copying"} onClick={() => void copyPrompt()}>
+      <Icon size={16} aria-hidden="true" />
+    </button>
+    <span className="sr-only" role="status">{notice}</span>
+  </>;
+}
 
 export function shouldShowRecommendationsPanel(session: Pick<SessionInfo, "harnessId" | "harness"> | null | undefined): boolean {
   const harnessId = session?.harnessId?.trim() || session?.harness?.trim();
@@ -633,6 +659,8 @@ export default function ApplicationShell(props: Props) {
             key={`${actionsScope}:${session.id}`} sessionId={session.id} title={session.label}
             workspaceIdentity={workspace.info.workspaceIdentity || workspace.info.path} onUpdated={sessions.onTitleUpdated}
             onTaskStarted={sessions.onFocusTerminal} onDialogOpenChange={setStartTaskDialogOpen} />}
+          {showTerminal && sourcesReady && isSessionAlive(session) && session.attention === "idle" &&
+            <CopyContinuationPrompt key={`copy-prompt:${actionsScope}:${session.id}`} />}
           {!showComposer && canResume && session && <ResumeChooser key={`${workspaceGeneration}:${session.id}`} header compact={compact}
             pending={isResuming} options={resumeChoices(session)} onWarningOpenChange={setToolbarResumeWarningOpen} onSelect={option => sessions.onResume(session.id, option.strategy)} />}
           {session?.hasOpenablePlan && review.onOpen && !showComposer && <button type="button" data-shell-command="review"

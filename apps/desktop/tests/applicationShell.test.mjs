@@ -477,6 +477,34 @@ if (process.versions.electron) {
         assert.equal(await evaluate('document.querySelector("[data-review-changes]").disabled'), true, 'unavailable destinations explain their disabled state');
         assert.deepEqual(await evaluate('fixture.errors'), []);
         return;
+      } else if (scenario === 'copy-continuation-prompt') {
+        const button = '[data-copy-continuation-prompt]';
+        await evaluate('fixture.setSessionState({attention:"working"})');
+        await waitFor(`!document.querySelector("${button}")`);
+        await evaluate(`
+          fixture.clipboardWrites = [];
+          Object.defineProperty(navigator, "clipboard", { value: {
+            writeText: async text => {
+              if (fixture.clipboardUnavailable) throw new Error("Clipboard unavailable");
+              fixture.clipboardWrites.push(text);
+            }
+          } });
+          fixture.setSessionState({attention:"idle"});
+        `);
+        await waitFor(`document.querySelector("${button}")`);
+        assert.equal(await evaluate(`document.querySelector("${button}").getAttribute("aria-label")`), "Copy continuation prompt");
+        await evaluate(`fixture.clipboardUnavailable = true;document.querySelector("${button}").click()`);
+        await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Could not copy")`);
+        await evaluate(`fixture.clipboardUnavailable = false;document.querySelector("${button}").click()`);
+        await waitFor(`document.querySelector("${button}")?.nextElementSibling?.textContent.includes("Prompt copied")`);
+        assert.deepEqual(await evaluate('fixture.clipboardWrites'), ['Keep going with the current task.']);
+        assert.deepEqual(await evaluate('fixture.input'), []);
+        await evaluate('fixture.setSessionState({attention:"needs_you"})');
+        await waitFor(`!document.querySelector("${button}")`);
+        await evaluate('fixture.setSessionState({attention:"idle",lifecycle:"dead",status:"ended"})');
+        assert.equal(await evaluate(`!!document.querySelector("${button}")`), false);
+        assert.deepEqual(await evaluate('fixture.errors'), []);
+        return;
       } else if (scenario === 'session-title') {
         await click('details');
         await evaluate('document.querySelector(".session-info summary").click()');
@@ -3193,7 +3221,7 @@ if (process.versions.electron) {
   const { tmpdir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const { build } = await import('esbuild');
-  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
+  for (const scenario of ['app-settings-keyboard','app-coding-tools-keyboard','app-review-terminal-fill','app-review-branch-recovery','app-review-inert-improvement','app-review-replay','recommendations-inbox','recommendation-action-dismiss','recommendation-action-cleanup','recommendation-action-cleanup-pending-read','app-review-branch-documents','session-menu','session-title','copy-continuation-prompt','session-capacity-inherited','session-capacity-checking','session-capped-aging','app-skills-picker','app-workspace-hook-notice','app-session-attention-alerts','app-session-alert-resume-warning','app-startup-composer','app-review-terminal-links','recommendation-status-error','app-review-changes','open-session-app','compact-menus','sidebar-icon-rail','app-review-archived-stale','recommendations-main','skills-main','inspector-dismissal','inspector-toolbar-focus','inspector-overlay','toolbar-summary','actions-sources','actions-short-window','actions','app-review-cancel-workspace','app-review-create-persistence','app-review-terminal-noop','app-review-native-focus','app-review-shared-request','app-review-composer-origin','app-review-stale-read-restore','app-review-composer-return','app-review-initial-error','app-review-details-request','app-review-navigation-recovery','app-review-opening-navigation','app-review-history','app-review-pending-enrichment','app-review-pending-enrichment-restore','app-review-pending-enrichment-race-restore','app-review-restore','app-review','resume-session','app-new-session','new-session','workspace-navigation','short-sidebar','sidebar-controls','baseline','region-focus','focus','sessions-toggle','sessions-browse','terminal-reattach','terminal-output-gap','backend-loss','utility-sessions-focus','hidden-resize','empty-terminal-return','preferences-migration','preferences-recovery','reset-confirmation','utility-scope']) test('fixed shell: '+scenario, async () => {
     const require = createRequire(import.meta.url);
     const root = fileURLToPath(new URL('../', import.meta.url));
     const directory = mkdtempSync(join(tmpdir(), 'orkworks-shell-'));
