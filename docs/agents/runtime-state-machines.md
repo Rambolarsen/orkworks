@@ -118,6 +118,10 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Resume pending | Successful resume also owns the foreground and no intervening selection occurred | Focus the resumed row |
 | Resume pending | Archive, delete, or another organization action supersedes the same row | The older resume cannot publish or focus the row |
 | Resume pending | Current failure or admission closes | Clear progress for the owned operation; recover current data on failure |
+| Active session write idle | Renderer submits the active row under current admission | Queue and send one write |
+| Active session write in flight | Another selection is submitted in the same workspace | Queue it behind the current write |
+| Active session write in flight | Current write succeeds or fails | Settle its caller and release the next queued write |
+| Active session write queued | Workspace or admission changes | Skip the stale write. Replacement workspace submissions use a fresh queue |
 | Shell Terminal or Review | Explicit session selection | Terminal for the selected session |
 | Shell Terminal | Current selected session opens an available review artifact | Review with a return target |
 | Shell Review or inspector | Close or target disappears | Restore a valid surface and focus target, or apply a visible fallback |
@@ -368,6 +372,16 @@ left no timer. The warning now remains visible until the retry confirms the
 hook is active. The same fixture checks that a late response from a previous
 workspace cannot reintroduce a warning.
 [Issue #2255](https://github.com/Rambolarsen/orkworks/issues/2255)
+
+### A slow selection write could restore the wrong session on restart
+
+The sidecar remembers the last active-session request it handles. The
+controller regression delays the first write until after the second selection
+is made. Previously the older write could finish last and leave the older ID
+in workspace memory. Writes now settle in submission order within each
+workspace and admission lifetime. Tests verify that rejection releases the
+next write and workspace replacement retires queued writes.
+[Issue #2262](https://github.com/Rambolarsen/orkworks/issues/2262)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

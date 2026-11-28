@@ -98,6 +98,11 @@ export function createWorkspaceSessionController(
   let streamHealthy = false;
   let reconnectingForRefresh = false;
   let workspaceGeneration = 0;
+  let activeSessionWrites = {
+    admission: admissionGeneration,
+    workspace: workspaceGeneration,
+    tail: Promise.resolve(),
+  };
   const pendingResumes = new Map<string, { superseded: boolean }>();
   function publishResumes(): void { options.onResumingSessions?.(new Set(pendingResumes.keys())); }
   function clearResumes(): void {
@@ -390,10 +395,23 @@ export function createWorkspaceSessionController(
   async function submitActiveSession(id: string, expectedAdmissionToken?: number | null): Promise<boolean> {
     if (expectedAdmissionToken === null) return false;
     const admissionToken = expectedAdmissionToken ?? requireAdmission();
-    const baseUrl = await deps.getBackendUrl();
-    if (!isCurrentAdmission(admissionToken)) return false;
-    await deps.setActiveWorkspaceSession(baseUrl, id);
-    return isCurrentAdmission(admissionToken);
+    const workspaceToken = workspaceGeneration;
+    const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
+    if (!current()) return false;
+    if (activeSessionWrites.admission !== admissionToken || activeSessionWrites.workspace !== workspaceToken) {
+      activeSessionWrites = { admission: admissionToken, workspace: workspaceToken, tail: Promise.resolve() };
+    }
+
+    // The sidecar remembers the last write it receives. Keep it in selection order.
+    const result = activeSessionWrites.tail.then(async () => {
+      if (!current()) return false;
+      const baseUrl = await deps.getBackendUrl();
+      if (!current()) return false;
+      await deps.setActiveWorkspaceSession(baseUrl, id);
+      return current();
+    });
+    activeSessionWrites.tail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   function selectSession(id: string): boolean {

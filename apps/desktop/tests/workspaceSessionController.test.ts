@@ -527,6 +527,92 @@ test("disabling admission invalidates an in-flight create", async () => {
   controller.dispose();
 });
 
+test("active-session writes commit in renderer selection order", async () => {
+  const started = deferred<void>();
+  const releaseOlder = deferred<void>();
+  const writes: string[] = [];
+  let remembered: string | null = null;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      setActiveWorkspaceSession: async (_baseUrl, id) => {
+        writes.push(id);
+        if (id === "one") {
+          started.resolve();
+          await releaseOlder.promise;
+        }
+        remembered = id;
+      },
+    }),
+  });
+
+  const older = controller.submitActiveSession("one");
+  await started.promise;
+  const newer = controller.submitActiveSession("two");
+  await new Promise(resolve => setImmediate(resolve));
+  releaseOlder.resolve();
+  assert.deepEqual(await Promise.all([older, newer]), [true, true]);
+  assert.deepEqual(writes, ["one", "two"]);
+  assert.equal(remembered, "two");
+  controller.dispose();
+});
+
+test("a failed active-session write releases the next selection", async () => {
+  const started = deferred<void>();
+  const blocked = deferred<void>();
+  const writes: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      setActiveWorkspaceSession: async (_baseUrl, id) => {
+        writes.push(id);
+        if (id === "one") {
+          started.resolve();
+          await blocked.promise;
+        }
+      },
+    }),
+  });
+  const older = assert.rejects(controller.submitActiveSession("one"), /could not save/);
+  await started.promise;
+  const newer = controller.submitActiveSession("two");
+  blocked.reject(new Error("could not save"));
+  await older;
+  assert.equal(await newer, true);
+  assert.deepEqual(writes, ["one", "two"]);
+  controller.dispose();
+});
+
+test("workspace replacement retires queued active-session writes", async () => {
+  const started = deferred<void>();
+  const releaseOld = deferred<void>();
+  const writes: string[] = [];
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      setActiveWorkspaceSession: async (_baseUrl, id) => {
+        writes.push(id);
+        if (id === "old") {
+          started.resolve();
+          await releaseOld.promise;
+        }
+      },
+    }),
+  });
+  await controller.adoptRestoredWorkspace(workspace("/old"));
+  const inFlight = controller.submitActiveSession("old");
+  await started.promise;
+  const queued = controller.submitActiveSession("queued");
+  await new Promise(resolve => setImmediate(resolve));
+  await controller.adoptRestoredWorkspace(workspace("/new"));
+  const current = controller.submitActiveSession("current");
+  await new Promise(resolve => setImmediate(resolve));
+  const writesWhileOldWasSettling = [...writes];
+  releaseOld.resolve();
+  assert.equal(await current, true);
+  assert.deepEqual(await Promise.all([inFlight, queued]), [false, false]);
+  assert.deepEqual(writesWhileOldWasSettling, ["old", "current"]);
+  assert.deepEqual(writes, ["old", "current"]);
+  controller.dispose();
+});
+
 test("foreground session submission returns stale after admission closes during the write", async () => {
   const submission = deferred<void>();
   const controller = createWorkspaceSessionController({
