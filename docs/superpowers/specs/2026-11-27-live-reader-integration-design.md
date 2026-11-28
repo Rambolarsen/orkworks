@@ -4,7 +4,7 @@ title: Progress reader for one Windows candidate batch
 description: Proposes an isolated live-profile reader with retained progress and buffer reuse, plus one separately gated candidate job under unchanged outer limits.
 tags: [orkworks, hierarchy, windows, qualification, diagnostics]
 status: draft
-workflow_status: proposed-owner-acceptance-required
+workflow_status: accepted-implementation-in-progress
 ---
 
 # Progress reader for one Windows candidate batch
@@ -446,3 +446,12 @@ raising any limit. Static arithmetic modeled three settlements and maximal-h
 refusal; it did not execute a reader or establish installed capacity. Both
 reviewers left native closure/capacity and historical timeout cause UNVERIFIED.
 No implementation, live inspection, workflow creation or dispatch occurred.
+
+## Owner acceptance — 2026-11-28
+
+The owner replied “keep going” after merged #2222 and its concrete combined
+acceptance handoff. This accepts the named new tooling, unchanged candidate and
+exactly one new 45-minute job together, with the verification, merge, freeze and
+fresh-history gates above. It does not reopen earlier spent allowances. The
+[implementation plan](../plans/2026-11-28-live-reader-progress.md) tracks delivery;
+no installed-input execution follows merely from this status amendment.
