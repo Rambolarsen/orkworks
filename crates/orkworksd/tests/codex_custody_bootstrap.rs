@@ -13,6 +13,9 @@ mod channels;
 #[path = "../src/taskmaster/codex_capture_owner/bootstrap_frame.rs"]
 mod bootstrap_frame;
 
+#[path = "../src/taskmaster/codex_capture_owner/deadline_io.rs"]
+mod deadline_io;
+
 #[path = "support/custody_worker_probe.rs"]
 mod worker_probe;
 
