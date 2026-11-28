@@ -111,6 +111,9 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Recommendation action pending | Dismiss or Run cleanup succeeds in the current workspace | Clear the acted-on audit notice and reconcile through a read started after the write |
 | Recommendation action pending | Workspace changes or admission closes | Clear local progress and ignore late completion |
 | Resume idle | Resume admitted for the row | Pending, with one operation per row |
+| Create pending | Receipt arrives before the list has observed the new row | Publish the pre-spawn row and track its startup outcome |
+| Create pending | A session list has already observed the row when the receipt arrives | Keep the observed row and reconcile its startup outcome |
+| Created row tracked | A structured startup failure or error row is observed | Report the failure once and retire its tracking |
 | Resume pending | Backend URL resolves while admission and the row reservation are current | Send the resume to the sidecar |
 | Resume pending | Backend URL resolves after admission or the reservation is invalidated | Skip the stale dispatch |
 | Resume pending | Duplicate request, or old operation finishes after replacement | Current pending operation is unchanged |
@@ -382,6 +385,15 @@ in workspace memory. Writes now settle in submission order within each
 workspace and admission lifetime. Tests verify that rejection releases the
 next write and workspace replacement retires queued writes.
 [Issue #2262](https://github.com/Rambolarsen/orkworks/issues/2262)
+
+### A late create receipt rewound a newer session row to Creating
+
+The create endpoint returns the pre-spawn row. The controller tests delay that
+reply until the session list has published either Running or Failed. The
+original controller replaced both rows with Creating and deferred the failure
+notification until another list. It now retains the observed row and reports
+an already-observed startup failure once the receipt confirms ownership.
+[Issue #2273](https://github.com/Rambolarsen/orkworks/issues/2273)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

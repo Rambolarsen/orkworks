@@ -143,14 +143,18 @@ export function createWorkspaceSessionController(
     options.onSessions?.(next);
   };
 
-  function acceptSessionList(list: readonly SessionInfo[]): SessionInfo[] {
-    deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
+  function reconcileCreateStartup(list: readonly SessionInfo[]): void {
     const resolution = resolvePendingCreates(pendingCreateIds, list);
     pendingCreateIds = resolution.ids;
     if (resolution.erroredIds.length > 0) {
       const failure = resolution.erroredSessions[0]?.startupFailure;
       publishError("create", startupFailureMessage(failure) ?? "Couldn't start a new session.");
     }
+  }
+
+  function acceptSessionList(list: readonly SessionInfo[]): SessionInfo[] {
+    deps.pruneTerminals(new Set(list.filter((session) => !isHistoricalSession(session)).map((session) => session.id)));
+    reconcileCreateStartup(list);
 
     const [next, nextLastResortAt] = mergeSessionsById(sessions, list, lastResortAt, new Date());
     lastResortAt = nextLastResortAt;
@@ -338,9 +342,14 @@ export function createWorkspaceSessionController(
       foregroundGeneration += 1;
       stream?.resync();
       pendingCreateIds = trackPendingCreate(pendingCreateIds, created.id);
-      const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
-      lastResortAt = nextLastResortAt;
-      publishSessions(next);
+      if (sessions.some((session) => session.id === created.id)) {
+        // The list can observe the launch outcome before the pre-spawn receipt arrives.
+        reconcileCreateStartup(sessions);
+      } else {
+        const [next, nextLastResortAt] = mergeSessionsById(sessions, [...sessions, created], lastResortAt, new Date());
+        lastResortAt = nextLastResortAt;
+        publishSessions(next);
+      }
       if (shouldSelect()) {
         activeSessionId = created.id;
         options.onActiveSession?.(created.id);
