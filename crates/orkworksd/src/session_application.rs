@@ -6569,19 +6569,19 @@ fn prepare_resume_launch(
         codex_saved_session_exists,
     );
     let strategy = crate::resume_diagnostics::validate_launch(&ctx, requested_strategy)?;
-    let Some(command) = harness.build_resume(
-        strategy.clone(),
-        &meta.cwd,
-        meta.resume
-            .as_ref()
-            .and_then(|resume| resume.harness_session_id.as_deref()),
-        meta.repo_root.as_deref(),
-        (!meta.model.is_empty()).then_some(meta.model.as_str()),
-    ) else {
-        return Err(SessionError::BadRequest(
+    let command = harness
+        .build_resume(
+            strategy.clone(),
+            &meta.cwd,
+            meta.resume
+                .as_ref()
+                .and_then(|resume| resume.harness_session_id.as_deref()),
+            meta.repo_root.as_deref(),
+            (!meta.model.is_empty()).then_some(meta.model.as_str()),
+        )
+        .ok_or(SessionError::BadRequest(
             crate::resume_diagnostics::REASON_NO_REMEMBERED_SESSION,
-        ));
-    };
+        ))?;
     Ok(PreparedResumeLaunch {
         meta,
         command,
@@ -6606,27 +6606,28 @@ async fn resume_session_workflow(
         .clone();
     let preparation = {
         let ws_guard = state.workspace.lock().unwrap();
-        let Some(ws) = ws_guard.as_ref() else {
-            return Err(SessionError::Conflict);
-        };
-        let Some(meta) = ws.metadata.read_session(&id) else {
-            return Err(SessionError::NotFound);
-        };
+        let ws = ws_guard.as_ref().ok_or(SessionError::Conflict)?;
+        let meta = ws
+            .metadata
+            .read_session(&id)
+            .ok_or(SessionError::NotFound)?;
         let expected_generation = check_resume_lifecycle_state(&state, ws, &id, &meta)?;
-        let codex_native_id = if meta.harness == "codex"
-            && matches!(
-                requested_strategy,
-                None | Some(harness::ResumeStrategy::Exact)
-            ) {
-            crate::resume_diagnostics::valid_native_session_id(
-                meta.resume
-                    .as_ref()
-                    .and_then(|resume| resume.harness_session_id.as_deref()),
-            )
-            .map(str::to_string)
-        } else {
-            None
-        };
+        let codex_native_id = meta
+            .resume
+            .as_ref()
+            .filter(|_| {
+                meta.harness == "codex"
+                    && matches!(
+                        requested_strategy,
+                        None | Some(harness::ResumeStrategy::Exact)
+                    )
+            })
+            .and_then(|resume| {
+                crate::resume_diagnostics::valid_native_session_id(
+                    resume.harness_session_id.as_deref(),
+                )
+            })
+            .map(str::to_string);
         if let Some(native_session_id) = codex_native_id {
             ResumePreparation::NeedsCodexPreflight {
                 expected_generation,
@@ -6673,12 +6674,11 @@ async fn resume_session_workflow(
             .await
             .map_err(|_| SessionError::Internal("application operation failed"))?;
             let ws_guard = state.workspace.lock().unwrap();
-            let Some(ws) = ws_guard.as_ref() else {
-                return Err(SessionError::Conflict);
-            };
-            let Some(meta) = ws.metadata.read_session(&id) else {
-                return Err(SessionError::NotFound);
-            };
+            let ws = ws_guard.as_ref().ok_or(SessionError::Conflict)?;
+            let meta = ws
+                .metadata
+                .read_session(&id)
+                .ok_or(SessionError::NotFound)?;
             if ws.metadata.root_path() != root_path
                 || meta.harness != "codex"
                 || meta
