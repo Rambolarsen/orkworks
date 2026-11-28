@@ -6,6 +6,10 @@ Dated design records; these do not establish current product behavior.
 
 ## Documents
 
+- [Opt-in worktree launch for new agent sessions](2026-11-28-new-session-worktree-design.md) — Owner-approved opt-in worktree provisioning, hook reconciliation, agent handoff, and safe archive-time cleanup design; runtime implementation pending.
+
+- [Auto-archive, favorites, and staged session retention](2026-11-28-auto-archive-favorites-retention-design.md) — Owner-approved staged session retention lifecycle replacing legacy deletion with default-on auto-archive, active-session idle warnings, favorites, and archived deletion; runtime implementation pending.
+
 - [Evidence for atomic evaluation publication](2026-11-27-evaluation-publication-witness-design.md) — Proposed source-owned evidence for complete effects, bounds, recovery and retry under #1176.
 
 - [Task actions in an existing session](2026-11-27-session-task-actions-design.md) — Proposed prompt actions, readiness authority, and explicit title ownership.

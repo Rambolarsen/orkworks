@@ -4,6 +4,10 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 ## Documents
 
+- [Auto-archive, favorites, and staged session retention implementation](2026-11-28-auto-archive-favorites-retention.md) — Proposed OrganizationStore v2, Favorites, fail-closed staged retention settings, idle-active warnings, and workspace GC plan.
+
+- [Opt-in worktree launch for new agent sessions implementation](2026-11-28-new-session-worktree.md) — Proposed opt-in New Agent Session worktree provisioning, Git-safe hook reconciliation, agent handoff, and safe archive/delete cleanup plan.
+
 - [Deliver explicit task actions for existing sessions](2026-11-27-session-task-actions.md) — Proposed qualification, sidecar delivery, title ownership, and desktop checks for #2140.
 
 - [Windows Codex image storage and delivery](2026-11-26-windows-codex-image-storage.md) — Proposed private NTFS storage and native qualification before Windows activation.
