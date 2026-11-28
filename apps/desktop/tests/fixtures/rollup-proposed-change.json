@@ -41,5 +41,17 @@
       ],
       "verification": "Confirm the page exists"
     }
-  }
+  },
+  "sensitiveTargets": [
+    { "path": ".pre-commit-config.yaml", "sensitive": true },
+    { "path": "lefthook.yml", "sensitive": true },
+    { "path": "pnpm-workspace.yaml", "sensitive": true },
+    { "path": "rust-toolchain.toml", "sensitive": true },
+    { "path": "tests/conftest.py", "sensitive": true },
+    { "path": "tests/setup.ts", "sensitive": true },
+    { "path": "tests/helpers/run.sh", "sensitive": true },
+    { "path": "tests/api.test.ts", "sensitive": false },
+    { "path": "tests/setup.md", "sensitive": false },
+    { "path": "docs/config.json", "sensitive": false }
+  ]
 }

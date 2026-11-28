@@ -1122,6 +1122,26 @@ test("proposed change prompt helpers match the shared Rust fixture", () => {
     ],
     verification: fixture.invisibleCharacters.expectedReference.verification,
   });
+  for (const entry of fixture.sensitiveTargets) {
+    const sample = {
+      summary: "Update repository configuration",
+      targets: [
+        {
+          path: entry.path,
+          action: "edit" as const,
+          instruction: "Update configuration entry",
+          sensitive: entry.sensitive,
+        },
+      ],
+      verification: "Read the file and confirm the change",
+    };
+    assert.equal(
+      proposedChangeGuidance(sample).endsWith(fixture.sensitive.expectedGuidanceSuffix),
+      entry.sensitive,
+      entry.path,
+    );
+    assert.equal(formatProposedChange(sample).targets[0].sensitive, entry.sensitive, entry.path);
+  }
 });
 
 test("proposed change helpers strip all bidi controls and zero-width characters", () => {

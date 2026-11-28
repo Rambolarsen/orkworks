@@ -155,9 +155,12 @@ sessions, impact, or confidence, and `executing`, `accepted`, and terminal
 parents keep the value they had. The rollup prompt version advances to
 `taskmaster-rollup-v2`, so cached `v1` results are never applied. No session
 creation, file edit, or acceptance is introduced. Instruction and configuration
-surfaces are allowed targets; the sidecar flags those that can change hooks,
-permissions, or CI as `sensitive`, and the handoff tells the session to tell
-the user before editing them.
+surfaces are allowed targets; the sidecar flags those that can execute code or
+change hooks, toolchain configuration, permissions, or CI as `sensitive`
+(including every root-level `.json`/`.yml`/`.yaml`/`.toml` config file and
+code-bearing test-harness files such as `conftest.py`, shell scripts, and
+setup/teardown scripts inside test directories), and the handoff tells the
+session to tell the user before editing them.
 
 One behavior is refined, not reversed. The decision above rejects invalid rollup
 output as part of rejecting the combined provider response, which also discarded unrelated
