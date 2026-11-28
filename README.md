@@ -244,9 +244,8 @@ before upload; the Windows job additionally runs the installer smoke test.
 The stable publish job creates a draft GitHub Release after both platforms
 pass. The nightly job uses an immutable source tag, uploads to a draft, verifies
 the complete remote asset set, and only then publishes a prerelease. Nightly
-tag/release writes require the protected environment's CI-only
-`RELEASE_GITHUB_TOKEN`; source tests and packaging without that external setup
-are not evidence of release trust.
+tag/release writes require a repository-scoped GitHub App in the protected
+`release` environment. Hosted release verification requires that configuration.
 
 The Windows release job also silently installs and uninstalls its NSIS artifact
 in a temporary directory, checking the installed executable, Rust sidecar, and

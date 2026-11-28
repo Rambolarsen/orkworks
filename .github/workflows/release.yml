@@ -100,12 +100,23 @@ jobs:
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
+      - name: Mint nightly release token
+        id: release_token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Prepare immutable nightly release
         id: prepare
         working-directory: apps/desktop
         run: node scripts/prepareDailyRelease.mjs
         env:
-          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          RELEASE_GITHUB_TOKEN: ${{ steps.release_token.outputs.token }}
           ORKWORKS_SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
           ORKWORKS_RUN_STARTED_AT: ${{ needs.preflight.outputs.run_started_at }}
 
@@ -490,11 +501,22 @@ jobs:
           test -f artifacts/publish/nightly-mac.yml
           test -f artifacts/publish/nightly.yml
 
+      - name: Mint nightly release token
+        id: release_token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Validate and publish nightly prerelease
         working-directory: apps/desktop
         run: node scripts/publishDailyRelease.mjs
         env:
-          RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+          RELEASE_GITHUB_TOKEN: ${{ steps.release_token.outputs.token }}
           ORKWORKS_SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
           ORKWORKS_NIGHTLY_VERSION: ${{ needs.prepare_nightly.outputs.version }}
           ORKWORKS_NIGHTLY_TAG: ${{ needs.prepare_nightly.outputs.tag }}

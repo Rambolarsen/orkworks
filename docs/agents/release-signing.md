@@ -115,13 +115,19 @@ Create these exact environment secrets and variable:
 | `WIN_CSC_LINK` | Secret | Base64-encoded trusted Authenticode `.pfx`/`.p12`. |
 | `WIN_CSC_KEY_PASSWORD` | Secret | Password for the Windows certificate. |
 | `WIN_EXPECTED_PUBLISHER` | Environment variable | Exact Windows certificate `SimpleName`; it is verifier input, not a secret. |
-| `RELEASE_GITHUB_TOKEN` | Secret | CI-only fine-grained token for nightly tag/release operations, scoped to this repository with Contents and Workflows write access. |
+| `RELEASE_APP_CLIENT_ID` | Environment variable | Client ID of the private nightly release GitHub App. |
+| `RELEASE_APP_PRIVATE_KEY` | Secret | The complete GitHub App private key PEM, including its header and footer. |
 
-The default workflow token remains read-only on nightly jobs. The fine-grained
-token is required because tagging a commit that changes workflow files can
-require Workflows write permission. Do not reuse a personal interactive token,
-expose it to pull requests, or put it in an application bundle. A missing,
-expired, or under-scoped token fails before packaging.
+Register a private GitHub App owned by `Rambolarsen` with webhooks disabled
+and repository permissions **Contents** and **Workflows** set to **Read
+and write**. Install it only on `Rambolarsen/orkworks`. Use the app's client
+ID and generate a private key for the protected `release` environment above.
+Tagging a commit that changes workflow files can require Workflows write access.
+
+Nightly preparation and publication mint their own installation token in the
+protected environment and use it only for the release script in that job. The
+default workflow token remains read-only on nightly jobs. Missing app credentials
+or insufficient installation permissions fail before packaging.
 If preparation finds its exact immutable candidate tag already present, it
 proves write capability without changing the ref by repeating the create-ref
 request: GitHub authorizes the endpoint and returns 422 for the duplicate;
@@ -174,9 +180,9 @@ Rotate credentials as one controlled release change:
    exact `SimpleName`.
 3. Confirm the `release` environment reviewers and deployment restrictions for
    `main` and stable tags still apply, then run a new release through every
-   native gate. Rotate `RELEASE_GITHUB_TOKEN` on the same controlled schedule
-   and verify its repository and Contents/Workflows scopes before retiring the
-   prior token.
+   native gate. Rotate the release app private key on the same controlled
+   schedule. Replace `RELEASE_APP_PRIVATE_KEY`, verify a release with the new
+   key, then retire the previous key.
 4. Revoke or retire the old certificate/API key only after the replacement
    release has passed its native checks. Never record either credential in
    source, logs, screenshots, or reports.
