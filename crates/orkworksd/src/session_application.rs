@@ -6731,20 +6731,17 @@ async fn resume_session_workflow(
 
     // A non-exact resume starts a fresh native conversation binding, just as a
     // new launch does. Retain the previous metadata only for admission rollback.
-    let resume_native_session_id = if strategy == harness::ResumeStrategy::Exact {
-        meta.resume
-            .as_ref()
-            .and_then(|resume| resume.harness_session_id.clone())
-    } else {
-        None
-    };
     let mut resumed_memory = meta.resume.clone();
-    if let Some(memory) = resumed_memory.as_mut() {
-        memory.harness_session_id = resume_native_session_id.clone();
-        if strategy != harness::ResumeStrategy::Exact {
-            memory.last_seen_at = None;
-        }
+    if let Some(memory) = resumed_memory
+        .as_mut()
+        .filter(|_| strategy != harness::ResumeStrategy::Exact)
+    {
+        memory.harness_session_id = None;
+        memory.last_seen_at = None;
     }
+    let resume_native_session_id = resumed_memory
+        .as_ref()
+        .and_then(|resume| resume.harness_session_id.clone());
 
     let (kill_tx, _kill_rx) = tokio::sync::watch::channel(false);
     let info = SessionInfo {
