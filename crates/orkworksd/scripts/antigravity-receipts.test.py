@@ -167,8 +167,11 @@ class ReceiptTests(unittest.TestCase):
         readonly = self.root / "readonly"
         readonly.mkdir(mode=0o500)
         self.addCleanup(readonly.chmod, 0o700)
-        destinations = [public, linked, linked_parent / "receipts", plain, readonly,
+        destinations = [public, linked, linked_parent / "receipts", plain,
                         self.root / "absent", Path("relative-receipts")]
+        # Root can bypass owner write bits; only test denial when it applies.
+        if os.geteuid() != 0:
+            destinations.append(readonly)
         for dest in destinations:
             with self.subTest(destination=dest):
                 before = len(self.requests)
