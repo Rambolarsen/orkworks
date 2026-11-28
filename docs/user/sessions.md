@@ -93,11 +93,12 @@ title**; **Cancel** leaves it unchanged. Titles can contain up to 100 characters
 A manual title stays through later observations and conversation resets.
 
 Automatic titles describe the task. Codex sessions can follow the saved native
-thread name when an authenticated integration report arrives; an idle rename
-may appear after the next report. Other tools use Peon's naming fallback, which
-can refine its initial guess once useful task context arrives. Activity summaries
-remain separate. These changes describe source builds; published installers may
-not include them yet.
+thread name when an authenticated integration report arrives. An idle rename
+may appear after the next report. In current source builds, a title update
+during a short turn can appear after the refresh cooldown without another turn.
+Other tools use Peon's naming fallback, which can refine its initial guess once
+useful task context arrives. Activity summaries remain separate. Published
+installers may lag these source changes.
 
 ## Close, archive or delete a session
 

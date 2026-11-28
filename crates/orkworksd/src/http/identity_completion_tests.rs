@@ -266,6 +266,168 @@ fn clear_label_fixture() {
     crate::codex_session_store::clear_native_label_refresh_block("observation");
 }
 
+#[tokio::test(start_paused = true)]
+async fn identity_merge_snapshot_retains_one_label_refresh_during_cooldown() {
+    use crate::codex_session_store::{test_lookup_label_candidate_at, LabelRefreshSchedule};
+
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (dir, state, _commands) = label_fixture(metadata::LabelSource::Codex);
+    let app = SessionApplication::new(state.clone());
+    let session = "observation";
+    let native = "native-snapshot";
+    let store = dir.path().join("codex-state.sqlite");
+    let connection = rusqlite::Connection::open(&store).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT);
+             INSERT INTO threads VALUES ('native-snapshot', 'Old native name', NULL);",
+        )
+        .unwrap();
+
+    let (runtime, LabelRefreshSchedule::Immediate(first)) = completion(&state, true)
+        .reserve_codex_label_refresh(session, native)
+        .unwrap()
+    else {
+        panic!("the first accepted report must refresh immediately");
+    };
+    let old = test_lookup_label_candidate_at(&store, native)
+        .unwrap()
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE threads SET name = 'New native name' WHERE id = ?1",
+            [native],
+        )
+        .unwrap();
+
+    let stopped = completion(&state, true);
+    let (_, LabelRefreshSchedule::Deferred(job)) = stopped
+        .reserve_codex_label_refresh(session, native)
+        .expect("the second authenticated report must retain one refresh")
+    else {
+        panic!("a refresh within the cooldown must be deferred");
+    };
+    assert!(completion(&state, true)
+        .reserve_codex_label_refresh(session, native)
+        .is_none());
+    assert!(app.persist_codex_label_for_runtime(session, native, old.text, &runtime, first, None));
+    assert!(stopped
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .is_none());
+
+    tokio::time::advance(Duration::from_secs(5)).await;
+    let epoch = stopped
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .unwrap();
+    assert!(stopped
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .is_none());
+    let new = test_lookup_label_candidate_at(&store, native)
+        .unwrap()
+        .unwrap();
+    assert!(app.persist_codex_label_for_runtime(
+        session,
+        native,
+        new.text,
+        &runtime,
+        epoch,
+        Some(&stopped)
+    ));
+    assert_eq!(
+        state.sessions.lock().unwrap()[session].info.label,
+        "New native name"
+    );
+    clear_label_fixture();
+}
+
+#[tokio::test(start_paused = true)]
+async fn identity_merge_snapshot_drops_deferred_label_refresh_after_authority_changes() {
+    use crate::codex_session_store::{clear_label_refresh_generation, LabelRefreshSchedule};
+
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, _commands) = label_fixture(metadata::LabelSource::Codex);
+    let session = "observation";
+    let native = "native-snapshot";
+    completion(&state, true)
+        .reserve_codex_label_refresh(session, native)
+        .unwrap();
+    let stopped = completion(&state, true);
+    let (_, LabelRefreshSchedule::Deferred(job)) = stopped
+        .reserve_codex_label_refresh(session, native)
+        .unwrap()
+    else {
+        panic!("expected a delayed title refresh");
+    };
+    tokio::time::advance(Duration::from_secs(5)).await;
+    crate::runtime::terminal_runtime::clear_workflow_report_token(session);
+    assert!(stopped
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .is_none());
+
+    crate::runtime::terminal_runtime::set_workflow_report_token(session, "snapshot-token".into());
+    clear_label_refresh_generation(session);
+    assert!(matches!(
+        completion(&state, true).reserve_codex_label_refresh(session, native),
+        Some((_, LabelRefreshSchedule::Immediate(1)))
+    ));
+    tokio::time::advance(Duration::from_secs(5)).await;
+    assert!(stopped
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .is_none());
+    clear_label_fixture();
+}
+
+#[tokio::test(start_paused = true)]
+async fn identity_merge_snapshot_revocation_after_claim_blocks_lookup_and_publication() {
+    use crate::codex_session_store::LabelRefreshSchedule;
+
+    let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
+    let (_dir, state, _commands) = label_fixture(metadata::LabelSource::Codex);
+    let session = "observation";
+    let native = "native-snapshot";
+    let report = completion(&state, true);
+    report.reserve_codex_label_refresh(session, native).unwrap();
+    let (runtime, LabelRefreshSchedule::Deferred(job)) =
+        report.reserve_codex_label_refresh(session, native).unwrap()
+    else {
+        panic!("expected a delayed title refresh");
+    };
+    tokio::time::advance(Duration::from_secs(5)).await;
+    let epoch = report
+        .claim_deferred_codex_label_refresh(session, native, &job)
+        .unwrap();
+    assert!(report.can_lookup_codex_label(&state, session, native, epoch));
+
+    crate::runtime::terminal_runtime::clear_workflow_report_token(session);
+    assert!(!report.can_lookup_codex_label(&state, session, native, epoch));
+    let previous = state.sessions.lock().unwrap()[session].info.label.clone();
+    assert!(
+        !SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
+            session,
+            native,
+            "Revoked title".into(),
+            &runtime,
+            epoch,
+            Some(&report),
+        )
+    );
+    assert_eq!(state.sessions.lock().unwrap()[session].info.label, previous);
+    assert_eq!(
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .read_session(session)
+            .unwrap()
+            .label,
+        previous
+    );
+    clear_label_fixture();
+}
+
 #[tokio::test]
 async fn identity_merge_snapshot_label_reservation_rejects_stale_context() {
     let _guard = crate::runtime::peon_runtime::diagnostic_test_guard();
@@ -430,16 +592,20 @@ async fn identity_merge_snapshot_later_user_title_still_wins_label_persistence()
         .unwrap()
         .info
         .label = "User owns title".into();
-    let (runtime, epoch) = completed
+    let (runtime, crate::codex_session_store::LabelRefreshSchedule::Immediate(epoch)) = completed
         .reserve_codex_label_refresh("observation", "native-snapshot")
-        .unwrap();
+        .unwrap()
+    else {
+        panic!("expected an immediate refresh");
+    };
     assert!(
         !SessionApplication::new(state.clone()).persist_codex_label_for_runtime(
             "observation",
             "native-snapshot",
             "Late native label".into(),
             &runtime,
-            epoch
+            epoch,
+            Some(&completed),
         )
     );
     assert_eq!(
