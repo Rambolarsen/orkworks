@@ -6612,20 +6612,22 @@ async fn resume_session_workflow(
             .read_session(&id)
             .ok_or(SessionError::NotFound)?;
         let expected_generation = check_resume_lifecycle_state(&state, ws, &id, &meta)?;
-        let codex_native_id = if meta.harness == "codex"
-            && matches!(
-                requested_strategy,
-                None | Some(harness::ResumeStrategy::Exact)
-            ) {
-            crate::resume_diagnostics::valid_native_session_id(
-                meta.resume
-                    .as_ref()
-                    .and_then(|resume| resume.harness_session_id.as_deref()),
-            )
-            .map(str::to_string)
-        } else {
-            None
-        };
+        let codex_native_id = meta
+            .resume
+            .as_ref()
+            .filter(|_| {
+                meta.harness == "codex"
+                    && matches!(
+                        requested_strategy,
+                        None | Some(harness::ResumeStrategy::Exact)
+                    )
+            })
+            .and_then(|resume| {
+                crate::resume_diagnostics::valid_native_session_id(
+                    resume.harness_session_id.as_deref(),
+                )
+            })
+            .map(str::to_string);
         if let Some(native_session_id) = codex_native_id {
             ResumePreparation::NeedsCodexPreflight {
                 expected_generation,
