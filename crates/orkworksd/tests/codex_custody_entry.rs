@@ -193,7 +193,8 @@ fn sidecar_late_launch_stays_owned_after_startup_deadline() {
     attempt
         .start(move || {
             entered.send(()).map_err(io::Error::other)?;
-            gate.recv().map_err(io::Error::other)?;
+            gate.recv_timeout(Duration::from_secs(10))
+                .map_err(io::Error::other)?;
             SlotWorker::spawn(delayed_pair)
         })
         .unwrap();

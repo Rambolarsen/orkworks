@@ -183,7 +183,7 @@ fn expired_slot_keeps_pending_launch_and_reaps_the_late_child() {
     let (slot, owner) = slots.begin(now, LaunchOwner::default).unwrap();
     owner
         .start(move || {
-            gate.recv().unwrap();
+            gate.recv_timeout(Duration::from_secs(4)).unwrap();
             Ok(DelayedChild {
                 closed: false,
                 polls: 0,
@@ -274,7 +274,7 @@ fn abandoning_a_pending_result_drops_the_late_owner() {
     let owner = LaunchOwner::default();
     owner
         .start(move || {
-            gate.recv().unwrap();
+            gate.recv_timeout(Duration::from_secs(4)).unwrap();
             Ok(DropNotice(dropped))
         })
         .unwrap();
