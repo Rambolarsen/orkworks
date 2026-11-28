@@ -19,7 +19,7 @@ f937ab9f5586cfafbc3182de5a7a8bb0a1cea9c7. All four source pins and the exact
 
 ## Delivery and interfaces
 
-- [ ] Task 1: Add the dedicated v2 codec and monotonic job ledger in
+- [x] Task 1: Add the dedicated v2 codec and monotonic job ledger in
   scripts/qualification/pair-progress-windows-build-protocol.mjs, with pure
   tests in pair-progress-windows-build.test.mjs. Decoder consumes nonce/mode/
   grant and one shared ledger; it returns immutable arrival traces and closed
@@ -28,7 +28,7 @@ f937ab9f5586cfafbc3182de5a7a8bb0a1cea9c7. All four source pins and the exact
   v1/v2 separation, all framing/order/count limits, late/overflow/partial/error
   paths, three sequential grants, maximal debit refusal, source/output-before-
   settlement and receipt prefix retention. Run Node tests; expected all pass.
-- [ ] Task 2: Fork the complete old PowerShell reader into the new
+- [x] Task 2: Fork the complete old PowerShell reader into the new
   pair-progress-windows-build.ps1 and byte-identical .inputs.json. Preserve all
   archive/helper/PE/reparse/source checks. Replace only request/root derivation,
   progress emission, expanded-read precharges, exclusive reusable payload scratch
@@ -36,7 +36,7 @@ f937ab9f5586cfafbc3182de5a7a8bb0a1cea9c7. All four source pins and the exact
   refusal, bounded canonical nonce request, immutable output, exclusive lease,
   empty/large-short digest goldens and every inherited refusal. New native
   harness exercises owned inputs only, within the accepted three-child envelope.
-- [ ] Task 3: Fork the candidate controller and SDK wrapper into
+- [x] Task 3: Fork the candidate controller and SDK wrapper into
   pair-progress-windows-build.mjs and -sdk.py, using the new ledger/codec and
   streaming own runner. Keep the literal build/oracle/link/SDK recipe; retain
   complete parent validators bound to the new policy. Admit held sources/output

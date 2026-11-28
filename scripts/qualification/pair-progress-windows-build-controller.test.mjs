@@ -360,3 +360,16 @@ test('reserve expiry after a result write cannot leave a successful record',()=>
   m.publishEvidence(dir,{schema:3,success:true}, {},b);assert.equal(fs.existsSync(path.join(dir,'result.json')),false);
  }finally{fs.writeFileSync=write;fs.rmSync(dir,{recursive:true});process.exitCode=previousExitCode;}
 });
+
+test('bulk snapshots refuse before spending the failure receipt credit',()=>{
+ need();const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'progress-copy-credit-'))),source=path.join(dir,'source'),out=path.join(dir,'out');fs.mkdirSync(out);fs.writeFileSync(source,Buffer.alloc(131072));
+ const b=new m.WorkBudget({hashLimit:131072});try{m.publishEvidence(out,{schema:3,success:true},{'inputs.json':source},b);assert.equal(JSON.parse(fs.readFileSync(path.join(out,'result.json'))).success,false);assert.equal(b.hashed,65536);}finally{fs.rmSync(dir,{recursive:true});}
+});
+test('ordinary controller work cannot spend the protected final tail',()=>{
+ need();const b=new m.WorkBudget({hashLimit:4*1024**2});b.keepTail=true;b.hash(1024**2);assert.throws(()=>b.hash(1));assert.throws(()=>b.reserve(1));b.emergency();b.hash(1024**2+131072);assert.equal(b.remaining(),1966080);
+});
+test('undrained timeout detaches owned pipes at the final deadline',async()=>{
+ need();const {EventEmitter}=await import('node:events');let now=0,destroyed=0,unref=false;const b=new m.WorkBudget({clock:()=>now,seconds:1});
+ const r=new m.CommandRunner(b,{spawnProcess:()=>{now=120999;const c=new EventEmitter();c.stdout=new EventEmitter();c.stderr=new EventEmitter();for(const stream of [c.stdout,c.stderr])stream.destroy=()=>destroyed++;c.pid=45;c.exitCode=null;c.signalCode=null;c.unref=()=>{unref=true;};return c;},terminate:()=>false});
+ await assert.rejects(()=>r.run('owned',[],{timeout:1000}),/process-drain-unavailable/);assert.equal(destroyed,2);assert.equal(unref,true);assert.equal(r.drained,false);
+});

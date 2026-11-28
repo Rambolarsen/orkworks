@@ -305,7 +305,7 @@ export class CommandRunner {
     if(failed)return;failed=reason;this.stopped=true;decoder?.fail(reason);
     if(this.failureDeadline===undefined)this.failureDeadline=Math.min(this.budget.finalDeadline,this.budget.clock()+120000);
     this.budget.finalDeadline=this.failureDeadline;
-    drainTimer=setTimeout(()=>{clearTimeout(timer);reject(Error('process-drain-unavailable'));},Math.max(1,this.failureDeadline-this.budget.clock()));
+    drainTimer=setTimeout(()=>{clearTimeout(timer);this.terminationUnknown=true;this.drained=false;c?.stdout.destroy();c?.stderr.destroy();c?.unref();reject(Error('process-drain-unavailable'));},Math.max(1,this.failureDeadline-this.budget.clock()));
     if(c&&!closed&&c.exitCode===null&&c.signalCode===null&&c.pid){
      if(this.kills===0){this.kills++;
       if(this.terminate){if(this.terminate(c)===false)this.terminationUnknown=true;}
@@ -367,8 +367,18 @@ function unavailablePublication(result){
  console.error(JSON.stringify({schema:3,evidence_kind:'progress-sidecar-candidate',success:false,...authority(false),publication:result.publication??'unavailable',cleanup:result.cleanup??'unavailable'}));
  process.exitCode=1;
 }
+function admitSnapshot(files,budget,limit){
+ let total=0;const sizes={};
+ for(const [name,file]of Object.entries(files)){
+  need(allowed.includes(name),'foreign-evidence');const stat=fs.lstatSync(file);
+  need(stat.isFile()&&!stat.isSymbolicLink(),'file-limit');sizes[name]=stat.size;total+=stat.size;
+  need(Number.isSafeInteger(total)&&total+131072<=limit,'evidence-limit');
+ }
+ // Snapshot read + commitment pass + bounded SDK/result receipts, all before I/O.
+ need(2*total+131072<=budget.remaining(),'hash-limit');return sizes;
+}
 export function publishEvidence(directory,result,files,budget,limit=256*MiB,sdk){
- const data={};try{for(const [name,file]of Object.entries(files)){need(allowed.includes(name),'foreign-evidence');data[name]=boundedRead(file,budget,limit);}}
+ const data={};try{const sizes=admitSnapshot(files,budget,limit);for(const [name,file]of Object.entries(files)){need(allowed.includes(name),'foreign-evidence');data[name]=boundedRead(file,budget,sizes[name]);need(data[name].length===sizes[name],'file-drift');}}
  catch{result.success=false;result.reason='evidence-limit';for(const n of Object.keys(data))delete data[n];}
  return publishBuffers(directory,result,data,budget,limit,sdk);
 }
@@ -690,6 +700,7 @@ async function main() {
   const budget = new WorkBudget(),
     runner = new CommandRunner(budget),
     sdk = new SdkLedger(budget);
+  budget.keepTail=true;
   const result = {
     schema: 3,
     evidence_kind: "progress-sidecar-candidate",
@@ -1195,6 +1206,7 @@ async function main() {
     result.success = false;
   }
   if(!result.success){runner.stopped=true;budget.finalDeadline=Math.min(budget.finalDeadline,budget.clock()+120000);if(!publicationAvailable(budget,result)){unavailablePublication(result);return;}}
+  budget.finalizing=true;
   try{if(runner.drained&&controllers)verifySources();else throw Error('source-final-unavailable');}
   catch{result.success=false;result.reason='source-final-unavailable';}
   if(!result.success&&!publicationAvailable(budget,result)){unavailablePublication(result);return;}
@@ -1210,13 +1222,15 @@ async function main() {
         home: e.USERPROFILE,
       }),
     );
+    need(Object.keys(files).length===allowed.length-1&&allowed.filter(n=>n!=='sdk-record.json').every(n=>Object.hasOwn(files,n)),'evidence-set');
+    const snapshotSizes=admitSnapshot(files,budget,256*MiB);
     let total = 0;
     for (const [name, file] of Object.entries(files)) {
-      if (!fs.existsSync(file)) continue;
       const n = fs.lstatSync(file).size;
       total += n;
       need(total + 65536 + 32768 <= 256 * MiB, "evidence-limit");
-      data[name] = boundedRead(file, budget, 256 * MiB);
+      data[name] = boundedRead(file, budget, snapshotSizes[name]);
+      need(data[name].length===snapshotSizes[name],'file-drift');
     }
   } catch {
     result.success = false;

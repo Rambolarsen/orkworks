@@ -36,7 +36,29 @@ One fixed read-only review round covered correctness and missing coverage. Its
 findings led to a shared strict request decoder/manifest pipeline/output writer
 exercised by the native fixture, explicit conservative row/output encoding
 precharges, and an explicit unavailable-publication outcome on reserve expiry.
-Windows native fixture and full repository verification remain pending. Passing model tests do not establish physical native work,
+Full repository verification passed at the unchanged product base: 3,752 Rust
+unit tests (25 ignored) plus integrations, 59 OpenCode reporter tests, desktop
+type/native checks, 1,815 desktop passes (five skipped), desktop build and all
+2,583 docs tests/build. Warnings concern unchanged Rust/bundler code. Later
+qualification-only fixes rerun their scoped Node tests and hosted CI.
+
+The owned Windows producer-to-parent fixture passed at code head84c19fb07d638c36b3c1f787dd553f9dc37a6020
+in [job140878369446](https://github.com/Rambolarsen/orkworks/actions/runs/46112288334/job/140878369446):
+Node22.23.5,21 tests,21 progress records,1,157,447 charged fixture bytes,
+2,867 stream bytes,one PS child,one final zero-hash Node timeout,one payload
+allocation/max lease,one owned termination and scratch removal. This tests
+owned inputs, not installed candidate capacity. Earlier native runs exposed a
+PowerShell counter/fixture scope collision and truncated fixture-summary JSON;
+both were corrected without weakening an assertion or extending a timeout.
+
+Hosted review found a successful-publication deadline gap. Injected-clock
+regressions reproduced expiry before/during writes and at the final result
+write; publication now withdraws queued records before refusal. Further tests
+protect final receipt credit from ordinary work and aggregate snapshot costs,
+and require undrained pipes to detach at the final deadline. Local suite now
+has24 passes/one Windows skip. Final-code hosted review/CI remains pending.
+The separate auxiliary Windows Job failure matches open [#2211](https://github.com/Rambolarsen/orkworks/issues/2211);
+no ownership code/assertion was changed. Passing model tests do not establish physical native work,
 capacity, historical timeout cause, runtime qualification or production pins.
 
 The normal-CI live-reader harness reaches only owned synthetic files, archive
@@ -44,8 +66,8 @@ refusals and process doubles, at most one PowerShell fixture child and one final
 zero-hash Node timeout child. Its PS tests report cumulative hash work, exclusive
 allocation metrics and false qualification flags; parent applies the cumulative
 64 MiB work and 1 MiB streams ceilings. Installed selectors/live main cannot be
-called from these fixtures. Native evidence is unavailable until that exact
-hosted job passes. Encoding work is deliberately overcharged: each primary row
+called from these fixtures. The cited native evidence applies to that exact hosted source head; later code
+changes need their own passing fixture before merge. Encoding work is deliberately overcharged: each primary row
 reserves 512 plus six times the root/path/identity string lengths before JSON
 conversion; archive member rows likewise use their names/digests. The final
 serializer charges its whole allowed output ceiling before allocating JSON/UTF-8.

@@ -20,11 +20,13 @@ export class WorkBudget {
  emergency(){this.failurePhase=true;if(this.clock()>=this.finalDeadline)throw Error('publication-time-limit');}
  hash(n){
   if(!Number.isSafeInteger(n)||n<0||n>this.remaining())throw Error('hash-limit');
+  if(this.keepTail&&!this.finalizing&&!this.failurePhase&&!this.readerOutstanding&&n+3*MiB>this.remaining())throw Error('hash-limit');
   if(this.readerOutstanding&&this.parentUsed+n>129*MiB)throw Error('admission-work-limit');
   this.hashed+=n;if(this.readerOutstanding)this.parentUsed+=n;
  }
  reserve(n){
   this.check();if(!Number.isSafeInteger(n)||n<0||n>this.remaining())throw Error('hash-limit');
+  if(this.keepTail&&!this.finalizing&&!this.failurePhase&&n+3*MiB>this.remaining())throw Error('hash-limit');
   this.reserved+=n;let done=false;
   return actual=>{if(done||!Number.isSafeInteger(actual)||actual<0||actual>n)throw Error('reservation-invalid');done=true;this.reserved-=n;this.hashed+=actual;};
  }
