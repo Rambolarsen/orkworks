@@ -16,11 +16,10 @@ enum Profile {
 }
 
 fn profile(definition: &ProviderDefinition) -> Option<Profile> {
-    // An arbitrary command wrapper cannot claim the safety properties of a CLI.
-    match (definition.id.as_str(), definition.command.as_str()) {
-        ("codex", "codex") => Some(Profile::Codex),
-        ("claude-code", "claude") => Some(Profile::Claude),
-        _ => None,
+    match super::native_inference::NativeProfile::from_provider_definition(definition) {
+        Some(super::native_inference::NativeProfile::Codex) => Some(Profile::Codex),
+        Some(super::native_inference::NativeProfile::Claude) => Some(Profile::Claude),
+        Some(super::native_inference::NativeProfile::Ollama) | None => None,
     }
 }
 
