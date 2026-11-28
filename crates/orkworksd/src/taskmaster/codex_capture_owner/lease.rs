@@ -12,7 +12,7 @@
 
 use std::ffi::CString;
 use std::io::{self, ErrorKind};
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -382,6 +382,12 @@ impl LeasePool {
 
     pub(crate) fn slot_pid(&self, slot: usize) -> Option<u32> {
         self.custody.slot_identity(slot).map(|(pid, _)| pid)
+    }
+
+    pub(crate) fn controller_fds(&self) -> Vec<(RawFd, RawFd)> {
+        (0..MAX_SLOTS)
+            .filter_map(|slot| self.custody.slot_controller_fds(slot))
+            .collect()
     }
 
     pub(crate) fn accounting(&self) -> PoolAccounting {

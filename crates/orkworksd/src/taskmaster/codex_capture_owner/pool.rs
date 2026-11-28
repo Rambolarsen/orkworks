@@ -358,6 +358,16 @@ impl CustodyPool {
         }
     }
 
+    pub(crate) fn slot_controller_fds(&self, slot: usize) -> Option<(RawFd, RawFd)> {
+        match self.slots.get(slot) {
+            Some(SlotState::Ready(worker)) => Some((
+                worker.request_tx.as_raw_fd(),
+                worker.response_rx.as_raw_fd(),
+            )),
+            _ => None,
+        }
+    }
+
     pub(crate) fn with_ready_worker<R>(
         &mut self,
         slot: usize,

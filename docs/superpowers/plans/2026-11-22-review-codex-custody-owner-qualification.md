@@ -361,9 +361,59 @@ Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
   termination/reap/retirement during `BindAndObserve`, `Revalidate`, and
   `Release`, and permanent quarantine on stale `ReleaseAck`.
 
-Step 3 (actual concurrent application-launch race proof across `std` / probe /
-PTY boundaries) remains open under #1981; this bounded synthetic probe is not
+This bounded synthetic probe qualifies reusable lease mechanics only and is not
 the complete five-file observer or source owner.
+
+## Actual boundary race evidence (Step 3)
+
+Native evidence on macOS 26.6.2 arm64 (debug `orkworksd` executable,
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_boundary_race`,
+passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
+`codex_custody_slots`, `codex_custody_entry`, `codex_custody_worker`, and
+`codex_custody_lease`):
+
+- **Object-identity positive controls:** Receiving a temporary file over
+  `SCM_RIGHTS` directly in the parent (confirming `FD_CLOEXEC == 0`) plus one
+  deliberately unsealed `AF_UNIX` socket and OS `pipe()` were detected by exact
+  macOS kernel object identity (`PROC_PIDFDVNODEINFO` `(vst_dev, vst_ino)`,
+  `PROC_PIDFDSOCKETINFO` `(soi_so, soi_pcb)`, and `PROC_PIDFDPIPEINFO`
+  `pipe_handle`) across the child's full `PROC_PIDLISTFDS` table under both
+  `std::process::Command` and `probe_process::ProbeService::run`.
+- **Sealed-channel non-inheritance during startup:** Diffing the parent's
+  `PROC_PIDLISTFDS` before and after `seal_split_channels()` captured all 16
+  newly sealed endpoints (8 `AF_UNIX` socket ends and 8 OS `pipe()` ends across
+  4 slots) and launched unrelated children through `std::process::Command`,
+  `probe_process::ProbeService::run`, and `portable_pty::native_pty_system()`
+  *during* active `CustodyPool` startup (before slot 0 and at slot 1), observing
+  zero matching socket or pipe kernel identities across all 6 startup-window
+  probes.
+- **Both receive/launch race orders across `std`, `probe_process`, and `portable_pty`:**
+  - *Order A (bind/receive-first):* After `BindAndObserve` transferred all 3
+    temporary roots to a real `orkworksd` worker, launches through
+    `std::process::Command`, `probe_process::ProbeService::run`, and
+    `portable_pty` observed zero inherited root/probe vnodes, controller
+    sockets, or controller pipes.
+  - *Order B (launch-first + barrier-synchronized concurrent overlap):* A
+    two-stage launch-first parent (`READY`/`GO` -> grandchild via `std`) and 6
+    barrier-synchronized concurrent overlap rounds across `std`,
+    `probe_process`, and `portable_pty` (pre-initializing runtime/service/PTY
+    before the barrier and looping `BindAndObserve` -> `Revalidate` -> `Release`
+    continuously until each child launch finishes) observed zero inherited
+    vnode, socket, or pipe objects in every trial.
+  - Throughout every trial, the parent `PROC_PIDLISTFDS` never contained the
+    synthetic probe file inode and every custody worker reported zero child
+    processes (`proc_listchildpids == 0`).
+- **Boundary lifecycle controls:** Verified independent cleanup and confirmed
+  reap (`waitid(WNOWAIT)` -> `ECHILD`) after a lost `Revalidate` reply on slot
+  0 while real `orkworksd` siblings on slots 1–3 stayed live and clean,
+  expired lease refusal without renewal, and sidecar replacement (`sidecar_a`
+  workers confirmed reaped; `sidecar_b` rejected `sidecar_a`'s handle and
+  operated cleanly with zero descriptor leakage).
+
+This completes Steps 1–3 of #1981's bounded macOS qualification while keeping
+the custody pool dormant during normal sidecar startup; Step 4 (planning the
+fixed five-resource physical observer and production activation) remains a
+separate gated slice.
 
 ## Bounded executable qualification after approval
 
