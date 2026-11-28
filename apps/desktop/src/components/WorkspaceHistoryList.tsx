@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Pin, PinOff } from "lucide-react";
 import { VOCAB } from "../labels";
 import type { WorkspaceHistorySnapshot } from "../orkworksWindow";
@@ -23,6 +23,9 @@ export function WorkspaceHistoryList({
   onError,
 }: WorkspaceHistoryListProps) {
   const [snapshot, setSnapshot] = useState<WorkspaceHistorySnapshot | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const openOtherFolder = useRef<HTMLButtonElement>(null);
+  const focusAfterChange = useRef<{ invoker: HTMLButtonElement; pinPath?: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,23 +35,27 @@ export function WorkspaceHistoryList({
     return () => { cancelled = true; };
   }, [onError]);
 
-  const handlePin = useCallback((path: string) => {
-    window.orkworks.pinWorkspacePath(path)
-      .then(setSnapshot)
-      .catch(() => onError("Couldn't pin workspace."));
-  }, [onError]);
+  const updateHistory = (
+    operation: Promise<WorkspaceHistorySnapshot>,
+    invoker: HTMLButtonElement,
+    error: string,
+    pinPath?: string,
+  ) => {
+    void operation.then(next => {
+      focusAfterChange.current = document.activeElement === invoker ? { invoker, pinPath } : null;
+      setSnapshot(next);
+    }).catch(() => onError(error));
+  };
 
-  const handleUnpin = useCallback((path: string) => {
-    window.orkworks.unpinWorkspacePath(path)
-      .then(setSnapshot)
-      .catch(() => onError("Couldn't unpin workspace."));
-  }, [onError]);
-
-  const handleForget = useCallback((path: string) => {
-    window.orkworks.forgetWorkspacePath(path)
-      .then(setSnapshot)
-      .catch(() => onError("Couldn't remove workspace from history."));
-  }, [onError]);
+  useLayoutEffect(() => {
+    const pending = focusAfterChange.current;
+    focusAfterChange.current = null;
+    if (!pending || pending.invoker.isConnected || document.activeElement !== document.body) return;
+    const pin = pending.pinPath === undefined
+      ? null
+      : list.current?.querySelector<HTMLButtonElement>(`[data-workspace-pin-path="${CSS.escape(pending.pinPath)}"]`);
+    (pin ?? openOtherFolder.current)?.focus();
+  }, [snapshot]);
 
   if (!snapshot) return null;
 
@@ -73,7 +80,13 @@ export function WorkspaceHistoryList({
           className="workspace-history-row-action"
           aria-label={pinned ? VOCAB.unpinWorkspace : VOCAB.pinWorkspace}
           title={pinned ? VOCAB.unpinWorkspace : VOCAB.pinWorkspace}
-          onClick={() => (pinned ? handleUnpin(path) : handlePin(path))}
+          data-workspace-pin-path={path}
+          onClick={event => updateHistory(
+            pinned ? window.orkworks.unpinWorkspacePath(path) : window.orkworks.pinWorkspacePath(path),
+            event.currentTarget,
+            pinned ? "Couldn't unpin workspace." : "Couldn't pin workspace.",
+            path,
+          )}
         >
           {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
         </button>
@@ -82,7 +95,7 @@ export function WorkspaceHistoryList({
           className="workspace-history-row-action"
           aria-label={VOCAB.removeWorkspace}
           title={VOCAB.removeWorkspace}
-          onClick={() => handleForget(path)}
+          onClick={event => updateHistory(window.orkworks.forgetWorkspacePath(path), event.currentTarget, "Couldn't remove workspace from history.")}
         >
           ✕
         </button>
@@ -93,7 +106,7 @@ export function WorkspaceHistoryList({
   const isEmpty = snapshot.pinned.length === 0 && snapshot.recent.length === 0;
 
   return (
-    <div className="workspace-history-list">
+    <div ref={list} className="workspace-history-list">
       {snapshot.diagnostic && (
         <p role="alert" className="workspace-history-diagnostic">{snapshot.diagnostic.message}</p>
       )}
@@ -114,6 +127,7 @@ export function WorkspaceHistoryList({
       )}
       <button
         type="button"
+        ref={openOtherFolder}
         className="workspace-history-other-folder"
         disabled={isSwitching}
         onClick={onOpenOtherFolder}

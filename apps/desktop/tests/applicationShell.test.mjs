@@ -2731,10 +2731,44 @@ if (process.versions.electron) {
             await waitFor('document.querySelector(".workspace-history-row-open:not(:disabled)")');
           };
           await openPicker();
-          await evaluate('document.querySelector(".workspace-history-row-action").click()');
+          const press = keyCode => {
+            win.webContents.sendInputEvent({type:'keyDown',keyCode});
+            win.webContents.sendInputEvent({type:'keyUp',keyCode});
+          };
+          const otherRow = `document.querySelector('.workspace-history-row-open[title="/tmp/other"]')?.closest('li')`;
+          const otherAction = label => `${otherRow}?.querySelector('button[aria-label="${label}"]')`;
+          const focusAction = label => evaluate(otherAction(label)+'.focus()');
+          const focusedAction = label => evaluate(otherAction(label)+'===document.activeElement');
+          const otherFolderFocused = 'document.activeElement.matches(".workspace-history-other-folder")';
+          assert.equal(await evaluate(`(() => {
+            const current = document.querySelector('.workspace-history-row-open[title="/tmp/test"]');
+            return current.disabled && current.closest('li').querySelectorAll('.workspace-history-row-action:enabled').length === 2;
+          })()`), true, 'the current workspace keeps Pin and Remove available');
+          await focusAction('Pin workspace');
+          assert.equal(await focusedAction('Pin workspace'),true,'the fixture starts on Pin workspace');
+          press('Space');
           await waitFor('fixture.pins===1');
+          await waitFor(otherAction('Unpin workspace'));
+          assert.equal(await focusedAction('Unpin workspace'),true,'pinning keeps focus on the moved row');
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),true,'pinning preserves outer menu');
-          await evaluate('const row=document.querySelector(".workspace-history-row-open:not(:disabled)");row.focus();row.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+          press('Space');
+          await waitFor(otherAction('Pin workspace'));
+          assert.equal(await focusedAction('Pin workspace'),true,'unpinning keeps focus on the moved row');
+          await evaluate('fixture.deferWorkspacePin=true');
+          press('Space');
+          await waitFor('typeof fixture.finishWorkspacePin==="function"');
+          press('Tab');
+          await waitFor(otherAction('Remove from history')+'===document.activeElement');
+          press('Tab');
+          await waitFor(otherFolderFocused);
+          await evaluate('fixture.finishWorkspacePin()');
+          await waitFor(otherAction('Unpin workspace'));
+          assert.equal(await evaluate(otherFolderFocused),true,'a late result leaves the new control focused');
+          await focusAction('Remove from history');
+          press('Space');
+          await waitFor('!('+otherRow+')');
+          assert.equal(await evaluate(otherFolderFocused),true,'removing the focused row moves focus to Open other folder');
+          await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
           await waitFor('!document.querySelector(".workspace-history-panel")');
           assert.equal(await evaluate('document.activeElement.className'),'titlebar-switch-button','nested Escape returns focus to workspace switcher');
           assert.equal(await evaluate('document.querySelector(".shell-navigation-menu").open'),true,'nested Escape preserves outer disclosure');
@@ -3301,7 +3335,13 @@ if (process.versions.electron) {
           window.orkworks.openSessionApp=async(...args)=>{if(fixture.nativeFailure)throw new Error('App refused');fixture.nativeOpened.push(args)};
           fixture.titleRequests=[];
           window.orkworks.sessionTitle=async request=>{fixture.titleRequests.push(request);if(fixture.deferTitle)await new Promise(resolve=>fixture.finishTitle=resolve);if(fixture.failTitle)throw new Error('Could not confirm title');return {title:request.action==='automatic'?'Automatic login topic':request.title,automatic:request.action!=='set'}};
-          window.orkworks.pinWorkspacePath=async()=>{fixture.pins++;return {pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null}};
+          window.orkworks.pinWorkspacePath=async path=>{
+            fixture.pins++;
+            if(fixture.deferWorkspacePin)await new Promise(resolve=>{fixture.finishWorkspacePin=resolve;});
+            return {pinned:[path],recent:['/tmp/test'],diagnostic:null};
+          };
+          window.orkworks.unpinWorkspacePath=async()=>({pinned:[],recent:['/tmp/test','/tmp/other'],diagnostic:null});
+          window.orkworks.forgetWorkspacePath=async()=>({pinned:[],recent:['/tmp/test'],diagnostic:null});
           window.orkworks.readGitChanges=async request=>{
             if(request.kind==='bases'){if(fixture.deferBases)await new Promise(resolve=>fixture.finishBases=resolve);return {refs:['refs/heads/main','refs/heads/release'],defaultRef:'refs/heads/main',limited:false,unavailableReason:null};}
             if(request.kind==='file'){const result={snapshotId:request.snapshotId,fileId:request.fileId,patch:fixture.changePatch||(request.snapshotId.includes('branch')?'+committed edit':'+working edit'),notice:null};if(fixture.deferPatch)await new Promise(resolve=>fixture.finishPatch=resolve);return result;}
