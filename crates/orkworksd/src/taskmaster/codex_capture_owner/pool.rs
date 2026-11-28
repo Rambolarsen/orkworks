@@ -40,12 +40,18 @@ pub(crate) struct ShutdownReport {
     pub cleanup_unconfirmed: usize,
 }
 
-/// Owned child handle spawned via `posix_spawn`. Tracks the real exit status
-/// once reaped so a recycled PID is never signaled or waited on after exit
-/// confirmation and repeated waits never fabricate a zero exit status.
+#[derive(Clone, Copy)]
+enum ChildState {
+    Owned,
+    Reaped(ExitStatus),
+    Lost,
+}
+
+/// Owned child handle spawned via `posix_spawn`. Confirmed exits remain
+/// cached. A lost identity permanently stops operations on the stored PID.
 pub(crate) struct OwnedChild {
     pid: libc::pid_t,
-    reaped: Option<ExitStatus>,
+    state: ChildState,
     #[cfg(test)]
     wait_allowed: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -60,7 +66,7 @@ impl OwnedChild {
         }
         Ok(Self {
             pid,
-            reaped: None,
+            state: ChildState::Owned,
             #[cfg(test)]
             wait_allowed: None,
         })
@@ -71,8 +77,10 @@ impl OwnedChild {
     }
 
     pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        if let Some(status) = self.reaped {
-            return Ok(Some(status));
+        match self.state {
+            ChildState::Owned => {}
+            ChildState::Reaped(status) => return Ok(Some(status)),
+            ChildState::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
         }
         #[cfg(test)]
         if self
@@ -91,20 +99,23 @@ impl OwnedChild {
             }
             if ret == self.pid {
                 let exit = ExitStatus::from_raw(status);
-                self.reaped = Some(exit);
+                self.state = ChildState::Reaped(exit);
                 return Ok(Some(exit));
             }
             let err = io::Error::last_os_error();
             if err.kind() == ErrorKind::Interrupted {
                 continue;
             }
+            self.record_wait_error(&err);
             return Err(err);
         }
     }
 
     pub(crate) fn kill(&mut self) -> io::Result<()> {
-        if self.reaped.is_some() {
-            return Ok(());
+        match self.state {
+            ChildState::Owned => {}
+            ChildState::Reaped(_) => return Ok(()),
+            ChildState::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
         }
         // SAFETY: `self.pid > 0` is our owned, unreaped child process.
         if unsafe { libc::kill(self.pid, libc::SIGKILL) } < 0 {
@@ -118,8 +129,10 @@ impl OwnedChild {
     }
 
     pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
-        if let Some(status) = self.reaped {
-            return Ok(status);
+        match self.state {
+            ChildState::Owned => {}
+            ChildState::Reaped(status) => return Ok(status),
+            ChildState::Lost => return Err(io::Error::from_raw_os_error(libc::ECHILD)),
         }
         let mut status: libc::c_int = 0;
         loop {
@@ -127,15 +140,25 @@ impl OwnedChild {
             let ret = unsafe { libc::waitpid(self.pid, &mut status, 0) };
             if ret == self.pid {
                 let exit = ExitStatus::from_raw(status);
-                self.reaped = Some(exit);
+                self.state = ChildState::Reaped(exit);
                 return Ok(exit);
             }
             let err = io::Error::last_os_error();
             if err.kind() == ErrorKind::Interrupted {
                 continue;
             }
+            self.record_wait_error(&err);
             return Err(err);
         }
+    }
+    fn record_wait_error(&mut self, error: &io::Error) {
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            self.state = ChildState::Lost;
+        }
+    }
+
+    fn identity_lost(&self) -> bool {
+        matches!(self.state, ChildState::Lost)
     }
 }
 
@@ -533,8 +556,18 @@ fn reap_unresolved(mut children: UnreapedChildren) {
                 Err(_) => {}
             }
         }
-        if children.iter().any(Option::is_some) {
+        if children
+            .iter()
+            .flatten()
+            .any(|child| !child.identity_lost())
+        {
             thread::sleep(Duration::from_millis(25));
+        } else if children.iter().any(Option::is_some) {
+            // Keep unresolved identities until sidecar exit without polling
+            // or signaling any of their former PIDs.
+            loop {
+                thread::park();
+            }
         }
     }
 }
@@ -781,12 +814,16 @@ fn terminate_bounded(mut child: OwnedChild, wait_budget: Duration) -> SlotState 
         Ok(None) => {
             let _ = child.kill();
         }
+        Err(_) if child.identity_lost() => return SlotState::CleanupUnconfirmed(child),
         Err(_) => {}
     }
     let deadline = Instant::now() + wait_budget;
     loop {
         if matches!(child.try_wait(), Ok(Some(_))) {
             return SlotState::Retired;
+        }
+        if child.identity_lost() {
+            return SlotState::CleanupUnconfirmed(child);
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -802,8 +839,65 @@ mod tests {
     use std::process::{Command, Stdio};
 
     #[test]
+    fn wait_identity_loss_stays_unconfirmed() {
+        let mut child = OwnedChild::try_from_pid(std::process::id() as libc::pid_t).unwrap();
+        child.record_wait_error(&io::Error::from(ErrorKind::Interrupted));
+        assert!(!child.identity_lost());
+
+        child.record_wait_error(&io::Error::from_raw_os_error(libc::ECHILD));
+        assert!(child.identity_lost());
+        let SlotState::CleanupUnconfirmed(mut child) = terminate_bounded(child, Duration::ZERO)
+        else {
+            panic!("lost identity reported as reaped");
+        };
+        assert!(child.identity_lost());
+        assert_eq!(
+            child.try_wait().unwrap_err().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+        assert_eq!(child.wait().unwrap_err().raw_os_error(), Some(libc::ECHILD));
+    }
+
+    #[test]
     fn dropping_pool_preserves_an_already_owned_unconfirmed_child() {
+        use std::io::Read;
         use std::sync::atomic::{AtomicBool, Ordering};
+
+        const FIXTURE: &str = "ORKWORKS_CUSTODY_DROP_FIXTURE";
+        const MARKER: &str = "running isolated custody drop fixture";
+        if std::env::var(FIXTURE).as_deref() != Ok("1") {
+            let module = module_path!().split_once("::").unwrap().1;
+            let name =
+                format!("{module}::dropping_pool_preserves_an_already_owned_unconfirmed_child");
+            let mut fixture = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &name, "--nocapture"])
+                .env(FIXTURE, "1")
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(12);
+            let status = loop {
+                if let Some(status) = fixture.try_wait().unwrap() {
+                    break status;
+                }
+                if Instant::now() >= deadline {
+                    let _ = fixture.kill();
+                    let _ = fixture.wait();
+                    panic!("isolated custody drop fixture timed out");
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            let mut output = String::new();
+            fixture
+                .stdout
+                .take()
+                .unwrap()
+                .read_to_string(&mut output)
+                .unwrap();
+            assert!(status.success() && output.contains(MARKER), "{output}");
+            return;
+        }
+        println!("{MARKER}");
 
         let wait_allowed = [
             Arc::new(AtomicBool::new(false)),
@@ -829,8 +923,8 @@ mod tests {
                 Ok(owned)
             },
         );
-        let mut first = observed.recv_timeout(Duration::from_secs(1)).unwrap();
-        let mut second = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let first = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second = observed.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(pool.shutdown(Duration::ZERO).cleanup_unconfirmed, 2);
         assert_eq!(pool.counts().cleanup_unconfirmed, 2);
 
@@ -845,16 +939,12 @@ mod tests {
         // the second slot's reap. Release both gates before any assertion.
         wait_allowed[1].store(true, Ordering::Release);
         let second_reaped = drop_bounded && observe_reap(second.id());
+        let first_waitable = child_still_waitable(first.id()).is_ok_and(|waitable| waitable);
         wait_allowed[0].store(true, Ordering::Release);
         dropping.join().unwrap();
         let first_reaped = observe_reap(first.id());
-        if !first_reaped {
-            let _ = first.wait();
-        }
-        if !second_reaped {
-            let _ = second.wait();
-        }
         assert!(drop_bounded, "pool drop waited for an unresolved child");
+        assert!(first_waitable, "first child reaped before its gate opened");
         assert!(
             second_reaped,
             "later child could not reap while first was held"
@@ -868,23 +958,35 @@ mod tests {
     fn observe_reap(pid: u32) -> bool {
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
-            // SAFETY: This only observes our exact native child. WNOWAIT
-            // leaves the real reap exclusively with the cleanup owner.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-                )
-            };
-            if result != 0 && io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD) {
+            if child_still_waitable(pid).is_ok_and(|waitable| !waitable) {
                 return true;
             }
             thread::sleep(Duration::from_millis(5));
         }
         false
+    }
+
+    fn child_still_waitable(pid: u32) -> io::Result<bool> {
+        // SAFETY: This only observes our exact native children. WNOWAIT
+        // leaves the real reap exclusively with their cleanup owner.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ECHILD) {
+            Ok(false)
+        } else {
+            Err(error)
+        }
     }
 
     #[test]
