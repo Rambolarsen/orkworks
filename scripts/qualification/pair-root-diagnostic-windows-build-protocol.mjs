@@ -11,7 +11,7 @@ export class Decoder {
   need(/^[a-f0-9]{32}$/.test(nonce)&&['preflight','before','after'].includes(mode)&&Number.isSafeInteger(grant)&&grant>=0&&grant<=34359738368,'bad-request');
   Object.assign(this,{nonce,mode,grant,ledger});
   this.expected=mode==='preflight'?[[0,7],[1,7],[6,7],[7,7],[8,7]]:phases;
-  this.position=0;this.sample=0;this.rootOpen=null;this.trace=[];this.counters=[0,0,0,0];
+  this.position=0;this.sample=0;this.rootOpen=null;this.msvcClosed=false;this.trace=[];this.counters=[0,0,0,0];
   this.tail=Buffer.alloc(127);this.tailLength=0;this.tailBytes=0;this.received=0;this.failure=null;this.terminal=null;this.ended=false;
  }
  fail(reason) {
@@ -43,12 +43,12 @@ export class Decoder {
    need(valid,'sample-counter');this.sample=detail;
   }else if(kind===9){
    need(root===7&&detail>=1&&detail<=8,'terminal');
-   if(this.rootOpen===0)need(this.sample>=minimumSamples(f,d),'missing-sample');
+   if(!this.msvcClosed)need(this.sample>=minimumSamples(f,d),'missing-sample');
   }else{
    const expected=this.expected[this.position];
    need(expected&&kind===expected[0]&&root===expected[1]&&detail===0,'phase-order');
    if(kind===5&&root===0)need(d>=1&&this.sample>=minimumSamples(f,d),'missing-sample');
-   if(kind===4)this.rootOpen=root;if(kind===5)this.rootOpen=null;
+   if(kind===4)this.rootOpen=root;if(kind===5){this.rootOpen=null;if(root===0)this.msvcClosed=true;}
    this.position++;
   }
   const row=Object.freeze([this.ledger.elapsed(),Object.freeze([...t])]);
@@ -74,9 +74,20 @@ export function settle(decoder,{code,drained,outputValid=false,sourceValid=false
 
 export function encodeResult(result) {
  const traces=result.reader_traces??[];need(Array.isArray(traces)&&traces.length<=3,'trace-limit');
- let rows=0;
+ let rows=0;const nonces=new Set();
  const metadata=traces.map(({trace,...rest})=>{
   need(Array.isArray(trace),'trace-limit');rows+=trace.length;
+  const base=['reader_complete','charged','unknown_work','reason','drained','tail_bytes','mode','nonce','metrics','metrics_status'];
+  const fields=rest.metrics_status==='admitted'?[...base,'output_sha256','output_bytes']:base;
+  need(Object.keys(rest).length===fields.length&&Object.keys(rest).every(key=>fields.includes(key)),'trace-metadata-fields');
+  need(['preflight','before','after'].includes(rest.mode)&&/^[a-f0-9]{32}$/.test(rest.nonce)&&!nonces.has(rest.nonce),'trace-binding');nonces.add(rest.nonce);
+  need(typeof rest.reader_complete==='boolean'&&typeof rest.unknown_work==='boolean'&&typeof rest.drained==='boolean'&&Number.isSafeInteger(rest.charged)&&rest.charged>=0&&rest.charged<=34359738368&&Number.isSafeInteger(rest.tail_bytes)&&rest.tail_bytes>=0&&rest.tail_bytes<=127,'trace-metadata-values');
+  need([...reasons,...failures,'undrained','bad-close','ok'].includes(rest.reason),'trace-metadata-reason');
+  if(rest.reader_complete){
+   const m=rest.metrics;
+   need(!rest.unknown_work&&rest.drained&&rest.metrics_status==='admitted'&&/^[a-f0-9]{64}$/.test(rest.output_sha256)&&Number.isSafeInteger(rest.output_bytes)&&rest.output_bytes>0&&rest.output_bytes<=67108864,'trace-metadata-output');
+   need(m&&Object.keys(m).length===5&&['strategy','scratch_allocations','scratch_capacity_bytes','maximum_leases','hash_bytes'].every(k=>Object.hasOwn(m,k))&&m.strategy==='reuse'&&m.scratch_allocations===1&&m.scratch_capacity_bytes===1048576&&m.maximum_leases===1&&Number.isSafeInteger(m.hash_bytes)&&m.hash_bytes>=0&&m.hash_bytes<=rest.charged,'trace-metadata-metrics');
+  }else need(rest.metrics_status==='unavailable'&&rest.metrics===null,'trace-metadata-output');
   need(trace.length<=32&&trace.every(row=>Buffer.byteLength(JSON.stringify(row))<=144),'trace-limit');return rest;
  });
  need(rows<=69&&Buffer.byteLength(JSON.stringify(metadata))<=2048,'trace-metadata-limit');

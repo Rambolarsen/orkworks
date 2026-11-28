@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const codecURL = new URL('./pair-root-diagnostic-windows-build-protocol.mjs', import.meta.url);
 const nonce = 'a'.repeat(32);
+let sharedPool;
+const fixtureCounts={vectors:0,injected:0};
+async function fixturePool(){if(!sharedPool){const {WorkBudget}=await import(codecURL);sharedPool=new WorkBudget({hashLimit:64*1024**2,streamLimit:1024**2,seconds:120});}return sharedPool;}
+function injectedVector(bytes=Buffer.alloc(0)){assert.ok(++fixtureCounts.vectors<=64);assert.ok(bytes.length<=8192);fixtureCounts.injected+=bytes.length;assert.ok(fixtureCounts.injected<=512*1024);}
+
 
 // Independent literal structural order, not the implementation's phase builder.
 const structure = [[0,7],[1,7],[2,7],[3,7],[4,0],[5,0],[4,1],[5,1],[4,2],[5,2],[4,3],[5,3],[4,4],[5,4],[4,5],[5,5],[4,6],[5,6],[6,7],[7,7],[8,7]];
@@ -28,9 +33,9 @@ function manifest(f=65536,d=1) {
 test('v3 wire closes sparse samples without admitting missing work',async()=>{
  assert.ok(fs.existsSync(codecURL),'v3 codec behavior is not implemented');
  const {Decoder,WorkBudget,settle,encodeResult,parseStrict}=await import(codecURL);
- let vectors=0,injected=0;const suite = new WorkBudget({hashLimit:64*1024**2,streamLimit:1024**2,seconds:120});
+ let vectors=0,injected=0;const suite = await fixturePool();
  function decode(rows,{mode='before',bytes=wire(rows),now=0}={}) {
-  assert.ok(++vectors<=64);assert.ok(bytes.length<=8192);injected+=bytes.length;assert.ok(injected<=512*1024);
+  assert.ok(++vectors<=64);injected+=bytes.length;injectedVector(bytes);
   const ledger={stream:n=>suite.stream(n),active:()=>{if(now>=2400000)throw Error('time-limit');},elapsed:()=>now};
   const d=new Decoder({nonce,mode,grant:1000,ledger});d.feed(bytes);return d;
  }
@@ -47,7 +52,7 @@ test('v3 wire closes sparse samples without admitting missing work',async()=>{
  }
  const wrongManifest=decode(complete(7));assert.throws(()=>wrongManifest.validateSamples(manifest(16)),/sample/);
  for(const mutate of [
-  r=>{r[0][0]=2;}, r=>{r[0].push(0);}, r=>{r[5][9]=2;},
+  r=>{r[0][0]=1;},r=>{r[0][0]=2;}, r=>{r[0].push(0);}, r=>{r[5][9]=2;},
   r=>{r[5][4]=1;},r=>{r[8][6]=1;},r=>{r[12][6]=17;},
   r=>{r[6][9]=1;},r=>{r[0][2]=2;},r=>{r[0][5]=1001;},
   r=>{r[0][6]=200001;},r=>{r[0][7]=50001;},r=>{r[0][8]=346;},
@@ -61,16 +66,18 @@ test('v3 wire closes sparse samples without admitting missing work',async()=>{
  const err=decode([literal(1,0,7),literal(2,9,7,123,0,0,0,2)]);assert.equal(settle(err,{code:1,drained:true,sourceValid:true}).charged,123);
  assert.equal(settle(err,{code:1,drained:true,sourceValid:false}).charged,1000);
  assert.equal(settle(full,{code:0,drained:false,sourceValid:true,outputValid:true}).charged,1000);
+ const impossibleEarly=decode([literal(1,0,7,100,1,1),literal(2,9,7,100,1,1,0,2)]);assert.equal(settle(impossibleEarly,{code:1,drained:true,sourceValid:true}).charged,1000);
  const missing=decode([literal(1,0,7),literal(2,1,7),literal(3,2,7),literal(4,3,7),literal(5,4,0),literal(6,9,7,100,16,1,0,2)]);
  assert.equal(settle(missing,{code:1,drained:true,sourceValid:true}).charged,1000);
  assert.equal(decode([literal(1,0,7)],{now:2400000}).end(),false);
  const pre=decode([[0,7],[1,7],[6,7],[7,7],[8,7]].map(([k,r],i)=>literal(i+1,k,r)),{mode:'preflight'});assert.equal(pre.end(),true);
  assert.equal(decode([literal(1,10,0,100,0,0,0,1)],{mode:'preflight'}).end(),false);
- const split=new Decoder({nonce,mode:'before',grant:1000,ledger:suite});for(const b of wire(complete()))split.feed(Buffer.from([b]));assert.equal(split.end(),true,split.failure);
+ injectedVector(wire(complete()));const split=new Decoder({nonce,mode:'before',grant:1000,ledger:suite});for(const b of wire(complete()))split.feed(Buffer.from([b]));assert.equal(split.end(),true,split.failure);
  const reserve=new WorkBudget();const grants=[];for(let i=0;i<3;i++){const r=reserve.readerGrant();grants.push(r.grant);reserve.hash(1024**2);r.finish(100);assert.throws(()=>r.finish(0));}assert.ok(grants[0]>grants[1]&&grants[1]>grants[2]);
  const max=new WorkBudget();const r=max.readerGrant();max.hash(129*1024**2);assert.throws(()=>max.hash(1));r.finish(r.grant);assert.equal(max.remaining(),3*1024**2);assert.throws(()=>max.readerGrant());
- const receipt=encodeResult({success:false,reader_traces:[{...settle(full,{code:0,drained:true,sourceValid:true,outputValid:true}),mode:'before',nonce}]});assert.equal(JSON.parse(receipt).reader_traces[0].trace.length,32);
+ const receipt=encodeResult({success:false,reader_traces:[{...settle(full,{code:0,drained:true,sourceValid:true,outputValid:true}),mode:'before',nonce,metrics_status:'admitted',metrics:{strategy:'reuse',scratch_allocations:1,scratch_capacity_bytes:1048576,maximum_leases:1,hash_bytes:0},output_sha256:'a'.repeat(64),output_bytes:64}]});assert.equal(JSON.parse(receipt).reader_traces[0].trace.length,32);
  assert.throws(()=>encodeResult({reader_traces:[{trace:full.trace,note:'x'.repeat(2049)}]}),/metadata/);
+ const metadata=JSON.parse(receipt).reader_traces[0];assert.throws(()=>encodeResult({reader_traces:[{...metadata,raw:'untrusted'}]}),/metadata/);assert.throws(()=>encodeResult({reader_traces:[metadata,metadata]}),/binding/);
  assert.throws(()=>encodeResult({reader_traces:[],note:'x'.repeat(65536)}),/result/);
  assert.throws(()=>parseStrict('{"x":1,"x":1}'));assert.throws(()=>parseStrict('{"x":1} true'));
  console.log(JSON.stringify({evidence_kind:'root-diagnostic-pure-fixture',vectors,injected_bytes:injected,stream_bytes:suite.streamed,native_capacity:'unverified',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
@@ -83,21 +90,22 @@ test('complete output and held source admission precede settlement; live entry h
  const {main,validateOutput,sealSources,admitReader,receipt,sourceFiles}=await import(url);
  const {Decoder,WorkBudget}=await import(codecURL);
  const path=await import('node:path'),os=await import('node:os');
+ const pool=await fixturePool();pool.hash(9*1024**2); // Three source/output cases, each at most two 1MiB source passes plus 1MiB output work.
  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'root-diag-admission-')));
  try {
   assert.throws(()=>main(),/live-entry-disabled/);assert.deepEqual(fs.readdirSync(dir),[]);
-  const decoder=()=>{const d=new Decoder({nonce,mode:'before',grant:1000,ledger:new WorkBudget()});d.feed(wire(complete(2)));return d;};
+  const decoder=()=>{injectedVector(wire(complete(2)));const d=new Decoder({nonce,mode:'before',grant:1000,ledger:new WorkBudget()});d.feed(wire(complete(2)));return d;};
   const data={success:true,files:[],directories:['msvc','registry','rust','sdk_bin','sdk_include','sdk_lib','source'].map(root=>({root,file:'',id:'00000001:0000000000000001'})),file_bytes:0,file_count:0,directory_count:7,hash_bytes:100,crates:[],archive_cache_id:'00000001:0000000000000001'};
   const envelope={schema:2,evidence_kind:'root-diagnostic-reader-output',mode:'before',nonce,policy_sha256:'1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6',data,metrics:{strategy:'reuse',scratch_allocations:1,scratch_capacity_bytes:1048576,maximum_leases:1,hash_bytes:0}};
   assert.equal(validateOutput(envelope,decoder()),data);
   assert.throws(()=>validateOutput({...envelope,schema:1,evidence_kind:'progress-reader-output'},decoder()),/binding/);
   assert.throws(()=>validateOutput({...envelope,extra:0},decoder()),/fields/);
   assert.throws(()=>validateOutput({...envelope,data:{...data,files:[{root:'msvc',file:'bad',id:'00000001:0000000000000001',bytes:1,sha256:'0'.repeat(64)}]}},decoder()),/manifest|sample|count/);
-  for(const file of sourceFiles){const dest=path.join(dir,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(new URL('../../'+file,import.meta.url),dest);}
+  let sourceBytes=0;for(const file of sourceFiles){sourceBytes+=fs.statSync(new URL('../../'+file,import.meta.url)).size;assert.ok(sourceBytes<=1048576);const dest=path.join(dir,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(new URL('../../'+file,import.meta.url),dest);}
   const output=path.join(dir,'output.json');fs.writeFileSync(output,JSON.stringify(envelope));
   for(const scenario of ['ok','output-rejected','source-replaced']){
    const budget=new WorkBudget();const seal=sealSources(dir,budget),reservation=budget.readerGrant();
-   const d=new Decoder({nonce,mode:'before',grant:reservation.grant,ledger:budget});d.feed(wire(complete(2)));
+   injectedVector(wire(complete(2)));const d=new Decoder({nonce,mode:'before',grant:reservation.grant,ledger:budget});d.feed(wire(complete(2)));
    if(scenario==='output-rejected')fs.writeFileSync(output,JSON.stringify({...envelope,schema:1}));
    if(scenario==='source-replaced')fs.appendFileSync(path.join(dir,sourceFiles[0]),'\n');
    const result=admitReader({decoder:d,close:{code:0,drained:true},reservation,budget,sourceRoot:dir,seal,output});
@@ -111,12 +119,34 @@ test('complete output and held source admission precede settlement; live entry h
 });
 
 
+test('runner latches deadline/framing/stderr failures while retaining and charging prefixes',async()=>{
+ const {WorkBudget,Decoder}=await import(codecURL);const {CommandRunner}=await import('./pair-root-diagnostic-windows-build.mjs');
+ const {EventEmitter}=await import('node:events'),{PassThrough}=await import('node:stream');const pool=await fixturePool();
+ for(const scenario of ['spawn-deadline','close-deadline','late-after-refusal','stderr']){
+  injectedVector();let now=0;const ledger=new WorkBudget({clock:()=>now,seconds:1});const stream=ledger.stream.bind(ledger);ledger.stream=n=>{pool.stream(n);stream(n);};
+  const d=new Decoder({nonce,mode:'before',grant:1000,ledger});let child;
+  const runner=new CommandRunner(ledger,{spawnProcess:()=>{
+   child=new EventEmitter();Object.assign(child,{pid:123,exitCode:null,signalCode:null,stdout:new PassThrough(),stderr:new PassThrough()});
+   if(scenario==='spawn-deadline')now=1000;
+   else queueMicrotask(()=>{
+    if(scenario==='stderr')child.stderr.write('unexpected');
+    else if(scenario==='late-after-refusal')child.stdout.write(Buffer.from('[2]\n'));
+    else{child.stdout.write(wire([literal(1,0,7)]));now=1000;child.exitCode=0;child.emit('close',0);}
+   });return child;
+  },terminate:c=>{queueMicrotask(()=>{if(scenario==='late-after-refusal')c.stdout.write(wire([literal(1,0,7)]));c.exitCode=1;c.emit('close',1);});return true;}});
+  await assert.rejects(()=>runner.run('literal-owned-double',[],{decoder:d,timeout:1000}),scenario.endsWith('deadline')?/time-limit/:scenario==='stderr'?/reader-stderr/:/framing/);
+  assert.equal(runner.drained,true);assert.equal(runner.commands.length,1);
+  assert.equal(d.trace.length,scenario==='close-deadline'?1:0);
+  if(scenario==='late-after-refusal')assert.equal(ledger.streamed,4+wire([literal(1,0,7)]).length);
+ }
+});
+
 test('bounded owned Windows reader and final zero-hash timeout',{skip:process.platform!=='win32'},async()=>{
  const {WorkBudget,Decoder,settle}=await import(codecURL);
  const {CommandRunner,validateOutput,sealSources,admitReader,readOutput}=await import('./pair-root-diagnostic-windows-build.mjs');
  const {validateManifest}=await import('./pair-progress-windows-build.mjs');
  const path=await import('node:path'),os=await import('node:os');
- const budget=new WorkBudget({hashLimit:64*1024**2,streamLimit:1024**2,seconds:120}),runner=new CommandRunner(budget);
+ const budget=await fixturePool(),runner=new CommandRunner(budget);
  const cwd=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'root-diag-native-'))),repo=path.resolve('.');
  const env={SystemRoot:'C:\\Windows',WINDIR:'C:\\Windows',PATH:'C:\\Windows\\System32',TEMP:cwd,TMP:cwd};
  const args=kind=>['-NoProfile','-NonInteractive','-File',path.resolve('scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1'),'-Case',kind];
@@ -147,6 +177,11 @@ test('bounded owned Windows reader and final zero-hash timeout',{skip:process.pl
   assert.ok(Buffer.byteLength(JSON.stringify(traces))<=18432);
   await assert.rejects(()=>runner.run(process.execPath,['-e','setInterval(()=>{},1000)'],{env,cwd,timeout:50,stdoutLimit:0}),/time-limit/);
   assert.equal(runner.kills,1);assert.equal(runner.drained,true);
-  console.log(JSON.stringify({evidence_kind:'root-diagnostic-owned-fixture',tests_passed:true,ps_children:3,node_timeout_children:1,hash_bytes:budget.hashed,stream_bytes:budget.streamed,trace_records:d.trace.length,controlled_refusals:7,legacy_assertions:checked.assertions,forced_terminations:runner.kills,cleanup:'owned-scratch-removed',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
+  console.log(JSON.stringify({evidence_kind:'root-diagnostic-owned-fixture',tests_passed:true,node_version:process.version,ps_children:3,node_timeout_children:1,hash_bytes:budget.hashed,stream_bytes:budget.streamed,trace_records:d.trace.length,controlled_refusals:7,legacy_assertions:checked.assertions,forced_terminations:runner.kills,cleanup:'owned-scratch-removed',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
  }finally{if(runner.drained)fs.rmSync(cwd,{recursive:true});}
+});
+
+test('fixture accounting stays in one cumulative pool',async()=>{
+ const pool=await fixturePool();assert.ok(pool.hashed<=64*1024**2);assert.ok(pool.streamed<=1024**2);assert.ok(fixtureCounts.vectors<=64);assert.ok(fixtureCounts.injected<=512*1024);
+ console.log(JSON.stringify({evidence_kind:'root-diagnostic-fixture-pool',vectors:fixtureCounts.vectors,injected_bytes:fixtureCounts.injected,hash_bytes_charged:pool.hashed,stream_bytes:pool.streamed,native_executed:process.platform==='win32',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
 });

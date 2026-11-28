@@ -4,7 +4,7 @@ title: Isolated root reader diagnostics on owned fixtures
 description: Delivers accepted v3 sparse checkpoints with disabled live entry and bounded synthetic verification.
 tags: [orkworks, qualification, diagnostics, implementation]
 status: draft
-workflow_status: ready
+workflow_status: active
 ---
 
 # Isolated root reader diagnostics on owned fixtures
@@ -98,5 +98,6 @@ Review: Ready. Dependencies 1 (guarded local imports), blast radius 1 (new
 profile, CLI disabled), state changes 2 (additive wire domain only),
 reversibility 1 (remove new files/config step), uncertainty 3 (native behavior
 must be observed in owned Windows CI); total 8. No runtime state or rollback
-migration. One fixed final read-only review round will check correctness and
-coverage; no writer delegation or additional coding harness.
+migration. One fixed final read-only review round, maximum two lower-cost Luna reviewers,
+checks correctness and coverage independently against the same merged draft.
+Root remains sole writer; no writer delegation or additional coding harness.
