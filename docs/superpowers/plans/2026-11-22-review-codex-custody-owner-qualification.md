@@ -411,9 +411,10 @@ passing across 10 consecutive runs alongside `codex_custody_bootstrap`,
   operated cleanly with zero descriptor leakage).
 
 This completes Steps 1–3 of #1981's bounded macOS qualification while keeping
-the custody pool dormant during normal sidecar startup; Step 4 (planning the
-fixed five-resource physical observer and production activation) remains a
-separate gated slice.
+the custody pool dormant during normal sidecar startup; Step 4 is now governed
+by [the five-resource observer qualification plan](2026-11-28-review-codex-five-resource-observer.md)
+under [#2304](https://github.com/Rambolarsen/orkworks/issues/2304), while
+production activation remains a separate gated slice.
 
 ## Bounded executable qualification after approval
 
