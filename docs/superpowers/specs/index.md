@@ -394,6 +394,6 @@ Dated design records; these do not establish current product behavior.
 
 - [Research command effects and original proof closure](2026-11-23-research-command-proof-design.md) — Accepted for written logical closure: command-wide effects, captured header, coalesced versions, accounting and original proofs; executable/physical/runtime qualification remains gated.
 
-- [Live reader integration for one Windows candidate batch](2026-11-27-live-reader-integration-design.md) — Proposed v2 retained progress, live-profile buffer reuse and one new finite candidate package; acceptance required.
+- [Live reader integration for one Windows candidate batch](2026-11-27-live-reader-integration-design.md) — Accepted isolated v2 tooling and sole candidate attempt; terminal unavailable, allowance spent.
 
 - [Synthetic reader progress and buffer reuse](2026-11-27-reader-diagnostic-contract-design.md) — Proposed bounded diagnostic framing, timeout retention and paired buffer evidence on owned fixtures only; implementation acceptance required, no qualification allowance.

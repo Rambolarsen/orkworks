@@ -4,7 +4,7 @@ title: Live reader progress for the accepted Windows candidate
 description: Implements the accepted isolated reader package before its sole gated candidate attempt.
 tags: [orkworks, qualification, windows, diagnostics]
 status: draft
-workflow_status: ready
+workflow_status: completed-terminal-unavailable
 ---
 
 # Live reader progress implementation
@@ -45,12 +45,12 @@ f937ab9f5586cfafbc3182de5a7a8bb0a1cea9c7. All four source pins and the exact
   deadline crossing, streaming before close, cooperative error/bad close,
   drain/cleanup, source/output admission, publication failure and new schema.
   Pure guarded imported helpers remain sealed; imported main/runner never runs.
-- [ ] Task 4: Add the new manual workflow, exact own LF rules and one five-minute
+- [x] Task 4: Add the new manual workflow, exact own LF rules and one five-minute
   fixture step in the existing SDK fixture job. CI can reach only owned fake
   inputs; no installed discovery or live main. Document test evidence and
   narrow fork differences. Run scoped fixtures, full scripts/verify-repo.sh,
   doc/worktree checks and current-diff review; merge only after applicable CI.
-- [ ] Task 5: Freeze the reviewed merged tooling SHA, exact policy/commands and
+- [x] Task 5: Freeze the reviewed merged tooling SHA, exact policy/commands and
   accepted one-job allowance on #1176. Verify fresh workflow history 0/1 and
   unchanged main, dispatch once, independently read bounded allowlisted evidence,
   record success or unavailable, close all unused slots and remove owned copies.
@@ -76,3 +76,14 @@ risk descriptions, not admission. The existing design investigation supplies
 failure and capacity limits; no new design choice or second approval is needed.
 One final read-only review round will cover correctness and missing coverage,
 root applies findings; no implementer subagents or second review loop.
+
+## Terminal disposition
+
+Tooling #2241 merged, source freeze preceded sole run46114787230/attempt1 at
+d870796b634a0f8259d0c418fb0455ea0079a8a1, and independent bounded readback
+verified the [terminal unavailable record](../../validation/live-reader-progress.md#sole-candidate-attempt-terminal-unavailable-2026-11-28).
+The before reader timed out after the retained root-begin/msvc checkpoint;
+no build/oracle/target execution started. Allowance1/1 is spent, all unused
+slots closed and every production/activation gate remains separate. No retry
+or new experiment follows. Owned raw local readback copies are deleted after
+publication of the terminal record.
