@@ -140,10 +140,13 @@ Files: `crates/orkworksd/src/managed_worktree.rs`;
 - [ ] Write failing temp-Git-repo tests and implement fail-closed clean-only
   removal in `managed_worktree.rs`: verify `(sessionId, createdAt)` ownership,
   closed runtime, strict `~/.orkworks/worktrees/<workspace-hash>/` containment,
-  no other live session referencing the path, external deletion pruning, and
-  `git status --porcelain=v1 --untracked-files=all` filtering only exact-matching
-  regular-file SHA-256 `managedHookFiles` entries (any tracked diff or modified/
-  extra untracked file marks the worktree dirty).
+  no other live session referencing the path, external deletion pruning,
+  explicit on-disk SHA-256 verification of every recorded `managedHookFiles`
+  entry (modified/symlinked ignored hooks mark the worktree dirty), and
+  `git status --porcelain=v1 --untracked-files=all --ignored=traditional`
+  preserving ignored user files (such as `.env`) as dirty while excluding only
+  exact-matching `managedHookFiles` and the spec's narrow disposable cache
+  directory allowlist (`node_modules/`, `target/`, etc.).
 - [ ] Wire cleanup into manual Archive and staged auto-archive (from Plan 1):
   clean -> `git worktree remove` (preserving branch/commits) +
   `cleanupStatus = "removed"`; dirty -> complete Archive, keep worktree, set

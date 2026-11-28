@@ -218,11 +218,19 @@ sidecar restart anyway and keeping warning state in memory avoids PTY hot-path
      currently active on `SessionHandle`, record in memory:
      - `auto_archive_warned_at = now`
      - `auto_archive_scheduled_at = max(last_interactive_at_or_activity + autoArchiveAfterDays, now + leadTime)`
-   - **Sleep / wake safety invariant:** Computing `auto_archive_scheduled_at`
-     with `max(..., now + leadTime)` guarantees that if the user's machine slept
-     for two weeks while OrkWorks stayed running, an idle Active session still
-     gets a full `leadTime` grace window after wake and visible notification
-     before OrkWorks closes it.
+   - **Sleep / wake safety invariant (both before and after warning issuance):**
+     - Computing initial `auto_archive_scheduled_at` with `max(..., now + leadTime)`
+       protects sessions whose inactivity threshold passed while the machine was
+       asleep before a warning existed.
+     - In addition, the retention loop records the wall-clock timestamp of its
+       previous tick (`last_retention_tick_at`). Whenever a tick observes a
+       wall-clock jump indicating host sleep/suspension (`now -
+       last_retention_tick_at > 15 minutes`, i.e., `3x` the 5-minute tick
+       interval), OrkWorks **renews every active warning deadline before
+       evaluating expiration** (`auto_archive_scheduled_at =
+       max(auto_archive_scheduled_at, now + leadTime)`). Thus a warning issued
+       *before* sleep whose deadline elapsed during sleep still gets a full
+       post-wake `leadTime` grace window before Close-first runs.
 3. **Warning presentation:**
    - Project `autoArchiveWarning: { warnedAt, scheduledAt }` onto `SessionInfo`
      from `SessionHandle`.
@@ -409,7 +417,9 @@ Update `dir_has_retention_protected_records`
     `settings.json` legacy migration, Closed → Archived after threshold,
     Restore clock reset, Unfavorite-on-Archived `archivedAt` clock reset, idle
     Active warning issuance (ignoring raw `last_output_at` redraws while
-    honoring terminal input) + sleep-safe grace window + reset on
+    honoring terminal input) + sleep-safe grace window (both when sleep
+    precedes warning issuance and when sleep begins after a warning is already
+    active and spans its original deadline) + reset on
     input/working/favorite/settings-change + Close-first archival + timeout
     refusal, Archived → Deleted after `archivedAt` threshold, Favorite exemption
     across all stages, dirty-worktree auto-delete protection, `workspace_gc`

@@ -341,13 +341,26 @@ OrkWorks may remove a worktree **only** when every check passes:
 5. If the directory no longer exists on disk, run `git -C <workspace> worktree
    prune` and transition `cleanupStatus` to `removed`.
 6. Otherwise verify it is a linked worktree sharing `managedWorktree.commonDir`
-   (never the primary checkout), then run cleanliness inspection:
-   - Run `git -C <root> status --porcelain=v1 --untracked-files=all`.
-   - Ignore only untracked (`??`) entries that exactly match a recorded entry in
-     `managedHookFiles` (same relative path, regular file, not a symlink,
-     matching SHA-256 digest). Tracked modifications (`M`, `D`, etc.) and any
-     unmatched or modified untracked files always classify the worktree as
-     **dirty**.
+   (never the primary checkout), then run cleanliness inspection covering
+   tracked, untracked, **and ignored** files:
+   - First verify every recorded entry in `managedHookFiles` directly on disk:
+     if the file still exists and is either a symlink or its SHA-256 no longer
+     matches the recorded digest (meaning the user or agent edited the ignored
+     hook file), immediately classify the worktree as **dirty**.
+   - Run `git -C <root> status --porcelain=v1 --untracked-files=all --ignored=traditional`.
+   - Any tracked change (`M`, `A`, `D`, `R`, `C`, `U`) or untracked entry (`??`)
+     always classifies the worktree as **dirty** (except an exact-matching
+     regular file recorded in `managedHookFiles`).
+   - Any ignored entry (`!!`) also classifies the worktree as **dirty** (so
+     ignored user files such as `.env` or `.env.local` are never silently
+     destroyed by `git worktree remove`), **except**:
+     1. Exact-matching regular files recorded in `managedHookFiles` (verified by
+        SHA-256 above), and
+     2. An explicit, narrow allowlist of regenerable dependency/build cache
+        directories (`node_modules/`, `target/`, `.vitepress/cache/`,
+        `.vitepress/dist/`, `dist/`, `.next/`, `__pycache__/`, `.venv/`,
+        `.pytest_cache/`, `.mypy_cache/`). Any other ignored file or directory
+        preserves the worktree as **dirty**.
 
 ### Behavior on Archive
 
@@ -489,12 +502,14 @@ Archived (or restored) sessions with `cleanupStatus = "retained_dirty"` or
     creation from local and remote-tracking refs, unborn/non-Git/bare refusal,
     branch collision handling, synchronous pre-record rollback and async
     `publish_startup_failure` rollback, Git-safe hook reconciliation (ignored
-    install, tracked shared-file no-op vs degraded fallback, digest filtering,
-    modified-hook-counts-as-dirty), pinned `worktreeBinding` rejection,
-    dirty-worktree archive retention + flag, Delete with clean vs dirty
-    worktree returning `preservedWorktreePath`, concurrent-session refusal,
-    external deletion pruning, resume refusal after removal, and env-var
-    stripping on non-managed launches.
+    install, tracked shared-file no-op vs degraded fallback, explicit on-disk
+    digest verification, modified-ignored-hook-counts-as-dirty), ignored-file
+    protection (`.env` marks worktree dirty while allowlisted `node_modules/` /
+    `target/` remain clean), pinned `worktreeBinding` rejection, dirty-worktree
+    archive retention + flag, Delete with clean vs dirty worktree returning
+    `preservedWorktreePath`, concurrent-session refusal, external deletion
+    pruning, resume refusal after removal, and env-var stripping on non-managed
+    launches.
   - Desktop tests for composer visibility, non-sticky default reset, base-branch
     selection, error preservation of draft, Details dirty-worktree flag /
     retry action / hook degradation note, and Delete confirmation + post-delete

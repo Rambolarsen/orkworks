@@ -114,8 +114,12 @@ Files: `crates/orkworksd/src/main.rs`; `crates/orkworksd/src/http/retention_hand
   `Active` warning issuance (ignoring raw `last_output_at` redraws, honoring
   terminal input, excluding `working` / `creating` / `stopping` / `finalizing` /
   `favorited` / orchestration-owned sessions); sleep-safe
-  `max(..., now + leadTime)` scheduling; Close-first archival after grace expiry
-  with locks released across awaits and refusal on Close timeout; Stage 2
+  `max(..., now + leadTime)` scheduling AND wall-clock sleep-gap detection
+  (`now - last_retention_tick_at > 15m`) renewing existing active warning
+  deadlines before expiration (including a dedicated test where sleep begins
+  after warning issuance and spans the original deadline); Close-first archival
+  after grace expiry with locks released across awaits and refusal on Close
+  timeout; Stage 2
   `Archived -> Deleted` using `archivedAt` while skipping `favorited`,
   non-removed `managedWorktree`, pending, and corrupt records.
 - [ ] Implement the staged retention loop in `runtime/retention.rs` (removing
