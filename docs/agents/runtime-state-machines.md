@@ -121,6 +121,8 @@ See [workspace update transport](../adr/0092-workspace-update-stream.md) and
 | Resume pending | Successful resume also owns the foreground and no intervening selection occurred | Focus the resumed row |
 | Resume pending | Archive, delete, or another organization action supersedes the same row | The older resume cannot publish or focus the row |
 | Resume pending | Current failure or admission closes | Clear progress for the owned operation; recover current data on failure |
+| Delete pending | Current workspace receives successful removal | Dispose its terminal, remove the row, and reconcile the remaining list |
+| Delete pending | Delete fails, including after partial cleanup | Keep the error and reconcile removal only if a current list omits the row |
 | Active session write idle | Renderer submits the active row under current admission | Queue and send one write |
 | Active session write in flight | Another selection is submitted in the same workspace | Queue it behind the current write |
 | Active session write in flight | Current write succeeds or fails | Settle its caller and release the next queued write |
@@ -394,6 +396,15 @@ original controller replaced both rows with Creating and deferred the failure
 notification until another list. It now retains the observed row and reports
 an already-observed startup failure once the receipt confirms ownership.
 [Issue #2273](https://github.com/Rambolarsen/orkworks/issues/2273)
+
+### A successful Delete left its row visible until refresh
+
+The controller test delays both a pre-receipt list and the post-delete read.
+The sidecar acknowledges deletion, then the current read fails. Previously the
+desktop disposed the terminal but still showed the deleted row. It now removes
+the acknowledged row immediately, keeps a newer selection, and rejects the
+older list. Failed deletes still reconcile against an authoritative list.
+[Issue #2281](https://github.com/Rambolarsen/orkworks/issues/2281)
 
 The inventory covers the workflows above at their ownership boundaries. It does
 not exhaustively enumerate every harness-specific adapter, release job, or

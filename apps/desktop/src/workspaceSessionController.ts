@@ -469,7 +469,11 @@ export function createWorkspaceSessionController(
       if (!current()) return;
       await deps.sessionAction(baseUrl, id, action, actionToken);
       if (!current()) return;
-      if (action === "delete") disposeDeletedRow();
+      if (action === "delete") {
+        disposeDeletedRow();
+        const remaining = sessions.filter((session) => session.id !== id);
+        if (remaining.length !== sessions.length) publishSessions(remaining);
+      }
       const refreshed = await refreshAfterAction();
       if (current() && refreshed !== null && !refreshed.some(session => session.id === id)) disposeDeletedRow();
     } catch (error) {

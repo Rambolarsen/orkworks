@@ -469,6 +469,52 @@ test("the delete action disposes and deliberately clears the active session befo
   controller.dispose();
 });
 
+test("a Delete receipt removes its row before a failed refresh and preserves newer selection", async () => {
+  const target = { ...session("target", "dead", "ended"), sessionState: "closed" as const };
+  const initialRows = [target, session("other")];
+  const receipt = deferred<void>();
+  const oldRead = deferred<SessionInfo[]>();
+  const refresh = deferred<SessionInfo[]>();
+  const refreshStarted = deferred<void>();
+  const disposed: string[] = [];
+  const selections: Array<string | null> = [];
+  let rows: readonly SessionInfo[] = [];
+  let listCalls = 0;
+  const controller = createWorkspaceSessionController({
+    deps: deps({
+      sessionAction: () => receipt.promise,
+      listSessions: async () => {
+        if (++listCalls === 1) return initialRows;
+        if (listCalls === 2) return oldRead.promise;
+        refreshStarted.resolve();
+        return refresh.promise;
+      },
+      disposeTerminal: id => disposed.push(id),
+    }),
+    onSessions: list => { rows = list; },
+    onActiveSession: id => selections.push(id),
+  });
+
+  await controller.refreshSessions();
+  controller.selectSession("target");
+  const deleting = controller.sessionAction("target", "delete", "token");
+  const stale = controller.refreshSessions();
+  controller.selectSession("other");
+  receipt.resolve();
+  await refreshStarted.promise;
+  const beforeRefresh = rows.map(row => row.id);
+  refresh.reject(new Error("list unavailable"));
+  await deleting;
+  oldRead.resolve(initialRows);
+  await stale;
+
+  assert.deepEqual(beforeRefresh, ["other"], "the receipt removes the row without waiting for a list");
+  assert.deepEqual(rows.map(row => row.id), ["other"], "a stale list cannot restore the deleted row");
+  assert.deepEqual(disposed, ["target"]);
+  assert.deepEqual(selections, ["target", "other"]);
+  controller.dispose();
+});
+
 test("polling prunes terminal attachments before publishing the snapshot", async () => {
   const events: string[] = [];
   const controller = createWorkspaceSessionController({
