@@ -98,7 +98,7 @@ export function createWorkspaceSessionController(
   let streamHealthy = false;
   let reconnectingForRefresh = false;
   let workspaceGeneration = 0;
-  const pendingResumes = new Map<string, symbol>();
+  const pendingResumes = new Map<string, { superseded: boolean }>();
   function publishResumes(): void { options.onResumingSessions?.(new Set(pendingResumes.keys())); }
   function clearResumes(): void {
     if (!pendingResumes.size) return;
@@ -351,8 +351,10 @@ export function createWorkspaceSessionController(
   async function resumeSession(id: string, strategy?: ResumeStrategy): Promise<void> {
     const admissionToken = requireAdmission();
     if (pendingResumes.has(id)) return;
-    const operation = Symbol();
+    const operation = { superseded: false };
     const selection = selectionGeneration;
+    const ownsResume = () => isCurrentAdmission(admissionToken) &&
+      pendingResumes.get(id) === operation && !operation.superseded;
     pendingResumes.set(id, operation);
     publishResumes();
     pendingSnapshotActions.delete(`${workspaceGeneration}:${id}`);
@@ -361,19 +363,19 @@ export function createWorkspaceSessionController(
       deps.disposeTerminal(id);
       const baseUrl = await deps.getBackendUrl();
       // Workspace replacement clears the reservation even if admission stays open.
-      if (!isCurrentAdmission(admissionToken) || pendingResumes.get(id) !== operation) return;
+      if (!ownsResume()) return;
       const resumed = await deps.resumeSession(baseUrl, id, strategy);
-      if (!isCurrent(token) || !isCurrentAdmission(admissionToken)) return;
+      if (!ownsResume()) return;
       // Reads begun during resume can still carry the previous runtime.
       sourceGeneration++;
       stream?.resync();
       publishSessions(sessions.map((session) => session.id === id ? resumed : session));
-      if (selection === selectionGeneration) {
+      if (isCurrent(token) && selection === selectionGeneration) {
         activeSessionId = resumed.id;
         options.onActiveSession?.(resumed.id);
       }
     } catch (error) {
-      if (isCurrent(token) && isCurrentAdmission(admissionToken)) {
+      if (isCurrent(token) && ownsResume()) {
         publishError("resume", error instanceof Error ? error.message : "Couldn't resume session.");
         await refreshSessions();
       }
@@ -410,6 +412,8 @@ export function createWorkspaceSessionController(
     if (pendingActions.has(pendingKey)) throw new Error("A session action is already running.");
     pendingSnapshotActions.delete(pendingKey);
     pendingActions.add(pendingKey);
+    const resume = pendingResumes.get(id);
+    if (resume) resume.superseded = true;
     foregroundGeneration += 1;
     const current = () => isCurrentAdmission(admissionToken) && workspaceToken === workspaceGeneration;
     let targetDisposed = false;
