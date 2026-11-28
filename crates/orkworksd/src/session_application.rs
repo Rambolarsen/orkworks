@@ -7216,40 +7216,38 @@ async fn create_session_workflow(
         )?;
     }
 
-    if !req.initial_images.is_empty()
-        && req.expected_workspace_path.as_deref() != Some(cwd.as_str())
-    {
-        return Err(SessionError::Conflict);
-    }
-    let image_route = if req.initial_images.is_empty() {
-        None
+    let (image_route, validated_images) = if req.initial_images.is_empty() {
+        (None, Vec::new())
     } else {
-        Some(crate::image_context::delivery(
+        if req.expected_workspace_path.as_deref() != Some(cwd.as_str()) {
+            return Err(SessionError::Conflict);
+        }
+        let route = crate::image_context::delivery(
             resolved_launch.session_harness_id.as_deref().unwrap_or_default(),
             &resolved_launch.command.program,
             workspace_metadata_root.as_deref(),
-        ).await.ok_or(SessionError::BadRequest("Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images."))?)
-    };
-    #[cfg(all(windows, target_arch = "x86_64"))]
-    if let Some(crate::image_context::ImageDelivery::NativeWindowsCodex(qualified)) =
-        image_route.as_ref()
-    {
-        resolved_launch
-            .command
-            .program
-            .clone_from(&qualified.program);
-    }
-    let validated_images = if image_route.is_some() {
+        )
+        .await
+        .ok_or(SessionError::BadRequest(
+            "Image context is not verified for this coding tool/version/platform. Choose a supported tool or remove the images.",
+        ))?;
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        {
+            let crate::image_context::ImageDelivery::NativeWindowsCodex(qualified) = &route;
+            resolved_launch
+                .command
+                .program
+                .clone_from(&qualified.program);
+        }
         let image_inputs = req.initial_images;
         let image_prompt = req.initial_prompt.clone().unwrap_or_default();
-        tokio::task::spawn_blocking(move || {
+        let validated = tokio::task::spawn_blocking(move || {
             crate::image_context::validate(&image_inputs, &image_prompt)
         })
         .await
         .map_err(|_| SessionError::Internal("Image validation failed"))?
-        .map_err(SessionError::BadRequest)?
-    } else {
-        Vec::new()
+        .map_err(SessionError::BadRequest)?;
+        (Some(route), validated)
     };
 
     let session_harness = resolved_launch
