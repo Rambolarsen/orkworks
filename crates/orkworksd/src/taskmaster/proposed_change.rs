@@ -226,12 +226,26 @@ pub(crate) fn is_in_scope(path: &str) -> bool {
             .any(|ext| file.ends_with(ext))
 }
 
+/// Unicode bidirectional controls (UAX #9 / Trojan Source) and zero-width
+/// format characters that can visually spoof displayed text or paths (#716).
+pub(crate) fn is_forbidden_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
+}
+
 fn validate_text(value: &str, limit: usize) -> Result<(), ChangeValidationError> {
     if value.trim().is_empty()
         || value.chars().count() > limit
         || value
             .chars()
-            .any(|c| c.is_control() || c == '<' || c == '>')
+            .any(|c| c.is_control() || is_forbidden_invisible(c) || c == '<' || c == '>')
     {
         return Err(ChangeValidationError::TextOutOfBounds);
     }
@@ -256,7 +270,7 @@ fn validate_path_syntax(path: &str) -> Result<(), ChangeValidationError> {
     }
     if path
         .chars()
-        .any(|c| c.is_control() || matches!(c, '\\' | ':' | '<' | '>'))
+        .any(|c| c.is_control() || is_forbidden_invisible(c) || matches!(c, '\\' | ':' | '<' | '>'))
     {
         return invalid;
     }
@@ -520,6 +534,70 @@ mod tests {
                 .as_str()
                 .unwrap()
         ));
+
+        let spoofed_model: ModelProposedChange = serde_json::from_value(serde_json::json!({
+            "summary": fixture["invisibleCharacters"]["change"]["summary"],
+            "targets": [{
+                "path": fixture["invisibleCharacters"]["change"]["targets"][0]["path"],
+                "action": fixture["invisibleCharacters"]["change"]["targets"][0]["action"],
+                "instruction": fixture["invisibleCharacters"]["change"]["targets"][0]["instruction"],
+            }],
+            "verification": fixture["invisibleCharacters"]["change"]["verification"],
+        }))
+        .unwrap();
+        assert!(validate_proposed_change(&spoofed_model).is_err());
+
+        let spoofed_stored: ProposedChange =
+            serde_json::from_value(fixture["invisibleCharacters"]["change"].clone()).unwrap();
+        assert_eq!(
+            crate::taskmaster::clean_proposed_change_reference(&spoofed_stored),
+            fixture["invisibleCharacters"]["expectedReference"]
+        );
+    }
+
+    #[test]
+    fn rejects_bidi_controls_and_zero_width_characters_in_text_and_paths() {
+        let forbidden = [
+            '\u{061C}', '\u{200B}', '\u{200C}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{202A}',
+            '\u{202B}', '\u{202C}', '\u{202D}', '\u{202E}', '\u{2060}', '\u{2066}', '\u{2067}',
+            '\u{2068}', '\u{2069}', '\u{FEFF}',
+        ];
+        for ch in forbidden {
+            let spoofed_path = format!("docs/{ch}guide.md");
+            assert_eq!(
+                validate_proposed_change(&model(&spoofed_path, TargetAction::Create)),
+                Err(ChangeValidationError::PathInvalid),
+                "path should reject U+{:04X}",
+                ch as u32
+            );
+
+            let mut spoofed_summary = model("docs/guide.md", TargetAction::Create);
+            spoofed_summary.summary = format!("Update {ch}docs");
+            assert_eq!(
+                validate_proposed_change(&spoofed_summary),
+                Err(ChangeValidationError::TextOutOfBounds),
+                "summary should reject U+{:04X}",
+                ch as u32
+            );
+
+            let mut spoofed_instruction = model("docs/guide.md", TargetAction::Create);
+            spoofed_instruction.targets[0].instruction = format!("Add {ch}heading");
+            assert_eq!(
+                validate_proposed_change(&spoofed_instruction),
+                Err(ChangeValidationError::TextOutOfBounds),
+                "instruction should reject U+{:04X}",
+                ch as u32
+            );
+
+            let mut spoofed_verification = model("docs/guide.md", TargetAction::Create);
+            spoofed_verification.verification = format!("Confirm {ch}heading exists");
+            assert_eq!(
+                validate_proposed_change(&spoofed_verification),
+                Err(ChangeValidationError::TextOutOfBounds),
+                "verification should reject U+{:04X}",
+                ch as u32
+            );
+        }
     }
 
     fn model(path: &str, action: TargetAction) -> ModelProposedChange {

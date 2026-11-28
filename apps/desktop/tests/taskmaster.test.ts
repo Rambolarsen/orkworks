@@ -1107,6 +1107,54 @@ test("proposed change prompt helpers match the shared Rust fixture", () => {
   assert.deepEqual(proposedChangeReference(fixture.plain.change), fixture.plain.expectedReference);
   assert.equal(proposedChangeGuidance(fixture.plain.change), fixture.plain.expectedGuidance);
   assert.ok(proposedChangeGuidance(fixture.sensitive.change).endsWith(fixture.sensitive.expectedGuidanceSuffix));
+  assert.deepEqual(
+    proposedChangeReference(fixture.invisibleCharacters.change),
+    fixture.invisibleCharacters.expectedReference,
+  );
+  assert.deepEqual(formatProposedChange(fixture.invisibleCharacters.change), {
+    summary: fixture.invisibleCharacters.expectedReference.summary,
+    targets: [
+      {
+        label: `Create ${fixture.invisibleCharacters.expectedReference.targets[0].path}`,
+        instruction: fixture.invisibleCharacters.expectedReference.targets[0].instruction,
+        sensitive: false,
+      },
+    ],
+    verification: fixture.invisibleCharacters.expectedReference.verification,
+  });
+});
+
+test("proposed change helpers strip all bidi controls and zero-width characters", () => {
+  const forbidden = [
+    "\u061C", "\u200B", "\u200C", "\u200D", "\u200E", "\u200F", "\u202A",
+    "\u202B", "\u202C", "\u202D", "\u202E", "\u2060", "\u2066", "\u2067",
+    "\u2068", "\u2069", "\uFEFF",
+  ];
+  const base = proposedChangeFixture.plain.change;
+  for (const ch of forbidden) {
+    const dirty = {
+      summary: `Update ${ch}docs`,
+      targets: [{
+        path: `docs/${ch}retry.md`,
+        action: "create" as const,
+        instruction: `Write ${ch}policy`,
+        sensitive: false,
+      }],
+      verification: `Check ${ch}file`,
+    };
+    const cleaned = proposedChangeReference(dirty);
+    assert.equal(cleaned.summary, "Update docs");
+    assert.equal(cleaned.targets[0].path, "docs/retry.md");
+    assert.equal(cleaned.targets[0].instruction, "Write policy");
+    assert.equal(cleaned.verification, "Check file");
+
+    const formatted = formatProposedChange(dirty);
+    assert.equal(formatted.summary, "Update docs");
+    assert.equal(formatted.targets[0].label, "Create docs/retry.md");
+    assert.equal(formatted.targets[0].instruction, "Write policy");
+    assert.equal(formatted.verification, "Check file");
+  }
+  assert.deepEqual(proposedChangeReference(base), proposedChangeFixture.plain.expectedReference);
 });
 
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
