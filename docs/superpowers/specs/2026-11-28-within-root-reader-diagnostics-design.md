@@ -4,7 +4,7 @@ title: Bounded checkpoints inside the MSVC reader root
 description: Proposes an isolated sparse reader wire domain and owned-fixture verification without renewing any installed-input allowance.
 tags: [orkworks, hierarchy, qualification, windows, diagnostics]
 status: draft
-workflow_status: proposed-awaiting-owner-decision
+workflow_status: accepted-tooling-owned-fixtures-only
 ---
 
 # Bounded checkpoints inside the MSVC reader root
@@ -311,3 +311,12 @@ ceilings; 32 × 128 = 4,096 and 69 × 144 + 2,048 = 11,984 < 18,432. This is
 size arithmetic only; it imports/executes no reader or candidate controller.
 Native behavior, installed capacity, runtime cost and historical cause remain
 UNVERIFIED. No tooling, workflow or installed-input experiment ran in this task.
+
+## Owner acceptance — 2026-11-28
+
+The owner replied “keep going” after merged #2267 and its tooling/fixture-only
+handoff. This accepts the isolated v3 tooling and the finite owned synthetic
+fixture suite above. [Implementation #2274](https://github.com/Rambolarsen/orkworks/issues/2274)
+and the [delivery plan](../plans/2026-11-28-root-reader-diagnostics.md) track that
+scope. Live entry stays disabled; no installed-input/candidate allowance or
+qualification workflow is accepted. Every earlier allowance remains spent.
