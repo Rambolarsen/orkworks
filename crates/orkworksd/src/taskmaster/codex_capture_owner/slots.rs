@@ -11,13 +11,20 @@ enum Slot<T> {
     Retired,
 }
 
+/// The retained attempt supplies the result for its own child.
+pub(super) trait AttemptOwner {
+    type Exit;
+
+    fn try_reap(&mut self) -> io::Result<Option<Self::Exit>>;
+}
+
 pub(super) struct StartupSlots<T> {
     deadline: Instant,
     closed: bool,
     slots: [Slot<T>; 4],
 }
 
-impl<T> StartupSlots<T> {
+impl<T: AttemptOwner> StartupSlots<T> {
     pub(super) fn new(deadline: Instant) -> Self {
         Self {
             deadline,
@@ -32,7 +39,7 @@ impl<T> StartupSlots<T> {
         &mut self,
         now: Instant,
         new_owner: impl FnOnce() -> T,
-    ) -> Option<(usize, &mut T)> {
+    ) -> Option<(usize, &T)> {
         if now >= self.deadline {
             self.close_startup();
         }
@@ -76,7 +83,7 @@ impl<T> StartupSlots<T> {
         }
     }
 
-    pub(super) fn drain(&mut self, index: usize) -> Option<&mut T> {
+    pub(super) fn drain(&mut self, index: usize) -> Option<&T> {
         let slot = self.slots.get_mut(index)?;
         if matches!(slot, Slot::Starting(_) | Slot::Ready(_)) {
             move_to_draining(slot);
@@ -87,23 +94,16 @@ impl<T> StartupSlots<T> {
         }
     }
 
-    /// The observation must come from the retained process owner.
-    pub(super) fn poll_reap(
-        &mut self,
-        index: usize,
-        observe: impl FnOnce(&mut T) -> io::Result<bool>,
-    ) -> io::Result<bool> {
-        let Some(slot) = self.slots.get_mut(index) else {
-            return Ok(false);
+    /// Poll the exact draining owner and return its confirmed exit once.
+    pub(super) fn poll_reap(&mut self, index: usize) -> io::Result<Option<T::Exit>> {
+        let Some(Slot::Draining(owner)) = self.slots.get_mut(index) else {
+            return Ok(None);
         };
-        let Slot::Draining(owner) = slot else {
-            return Ok(false);
+        let Some(exit) = owner.try_reap()? else {
+            return Ok(None);
         };
-        if !observe(owner)? {
-            return Ok(false);
-        }
-        *slot = Slot::Retired;
-        Ok(true)
+        self.slots[index] = Slot::Retired;
+        Ok(Some(exit))
     }
 
     pub(super) fn ready_count(&self) -> usize {

@@ -186,8 +186,9 @@ Use the existing total startup deadline. Closing startup moves unfinished
 attempts to draining and preserves workers already ready. A failure after
 readiness removes only that worker from the ready set.
 
-Retain each draining owner and its charge through a pending or failed poll.
-Only confirmed reap releases the charge, and the slot is permanently retired.
+The controller polls the retained draining owner and keeps its charge through
+a pending or failed poll. Only that owner's confirmed exit releases the charge
+and permanently retires the slot.
 No fifth attempt or replacement can be admitted. Deterministic tests exercise
 pending, error, confirmation, late readiness, and admission after close. The
 opt-in native test obtains confirmation from the retained child process.
