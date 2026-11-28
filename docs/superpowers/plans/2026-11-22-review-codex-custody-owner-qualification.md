@@ -178,6 +178,27 @@ Both opt-in tests passed on macOS 26.6.2 arm64. The four-worker case also
 passed six additional runs of the same test executable. Concurrent
 application-launch and resource-lease checks remain open.
 
+## Failed slot accounting
+
+Exercise the controller's account of a four-slot startup in the private
+qualification fixtures. Reserve a slot before beginning its owned attempt.
+Use the existing total startup deadline. Closing startup moves unfinished
+attempts to draining and preserves workers already ready. A failure after
+readiness removes only that worker from the ready set.
+
+The controller polls the retained draining owner and keeps its charge through
+a pending or failed poll. Only that owner's confirmed exit releases the charge
+and permanently retires the slot.
+No fifth attempt or replacement can be admitted. Deterministic tests exercise
+pending, error, confirmation, late readiness, and admission after close. The
+opt-in native test obtains confirmation from the retained child process.
+
+On macOS 26.6.2 arm64, four policy tests and all three opt-in native tests
+passed. The new native case passed six more runs. It retains a pending
+draining child while the other three slots stay ready, confirms reap of the
+failed child, and closes and reaps the peers independently. Actual startup
+supervision, leases, and ordinary application launch isolation remain open.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin
