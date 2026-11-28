@@ -654,12 +654,40 @@ age is between zero and 1,209,600 seconds inclusive at one server-owned UTC
 evaluation instant. Missing, malformed or future timestamps do not qualify;
 both Peon and agent sources use this age rule. Derive new evidence, recurrence,
 affected sessions, impact and confidence only from that recent set. Existing
-lineage and dismissal-watermark conditions remain necessary. Existing proposed
-IDs and members of live proposed rollups retain their update/merge rules and
-embedded history; no age-based list/get/accept/complete rejection, automatic
-cleanup or retroactive count rewrite is introduced. Invalid evaluation time
-permits no proposed writes. The accepted [first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
+lineage and dismissal-watermark conditions remain necessary. Existing proposed IDs and members of live proposed rollups retain their
+update/merge rules and embedded history; no age-based list/get/accept/complete
+rejection, automatic cleanup or retroactive count rewrite is introduced. Invalid
+evaluation time permits no proposed writes. The accepted
+[first #1077 policy slice](../docs/superpowers/specs/2026-11-23-workflow-evidence-policy-design.md)
 defines precise compatibility and ordinary Brain application fences.
+
+Carried and newly qualifying evidence on an exact-family `improve_workflow` card
+is deterministically bounded during evaluation so pre-trim evaluations cannot
+accumulate unbounded embedded snapshots while a card stays `proposed` (or as an
+active `rolled_up` member):
+
+- **Pre-trim anti-spam compaction:** Within each session, non-first, non-latest,
+  non-highest-impact `peon`-origin entries arriving within the 30-minute
+  (`1,800`s) anti-spam window of the previous kept `peon` entry for that session
+  are compacted out. `agent`-origin reports, negative clock steps, and
+  unparseable timestamps are never dropped by compaction.
+- **Snapshot cap:** Each exact-family card retains at most **64** embedded
+  evidence entries and **128 KiB** of compact serialized JSON (matching the
+  rollup parent evidence cap). When capping drops entries, the evaluator
+  deterministically preserves the latest, highest-impact (tie-broken by newest
+  `sequence`), and earliest entries in that priority order, fills remaining
+  capacity from newest to oldest by `sequence`, and restores ascending
+  `sequence` order.
+- **Truthful counts and terminal checks:** `recurrenceCount`, `observationIds`,
+  `affectedSessionIds`, `sourceSessionIds`, `priority`/`impact`, `confidence`,
+  and `reason` are derived strictly from the bounded retained `evidence` so a
+  card never claims more recurrences or sessions than its evidence contains.
+  When the 64-entry or 128 KiB cap drops entries, `reason` states
+  `"<N> retained qualifying observations (capped) across <M> sessions..."`.
+  Because every compacted or capped card preserves its highest `sequence`, a
+  retained observation triggers a new generation after a terminal predecessor
+  only when its `observationId` is absent from the predecessor's evidence and
+  its `sequence` exceeds the predecessor's maximum retained `sequence`.
 
 ### Identity and rollup contract
 
