@@ -255,12 +255,42 @@ test("release workflow freezes and validates stable or nightly sources before si
     "${{ needs.preflight.outputs.source_sha }}",
   );
   assert.match(source, /refs\/heads\/main/);
-  assert.match(source, /RELEASE_GITHUB_TOKEN: \$\{\{ secrets\.RELEASE_GITHUB_TOKEN \}\}/);
+  assert.doesNotMatch(source, /secrets\.RELEASE_GITHUB_TOKEN/);
   assert.match(source, /prepareDailyRelease\.mjs/);
   assert.match(source, /publishDailyRelease\.mjs/);
   assert.match(source, /ORKWORKS_RELEASE_CHANNEL/);
   assert.match(source, /nightly\*\.yml/);
   assert.match(findStep(workflow.jobs.publish_nightly, "Assemble exact nightly assets").run, /uniq -d/);
+});
+
+test("nightly release jobs mint a repository-scoped token beside each release script", () => {
+  const workflow = yamlLoad(readFileSync(releaseWorkflowPath, "utf8"));
+  for (const [jobName, stepName] of [
+    ["prepare_nightly", "Prepare immutable nightly release"],
+    ["publish_nightly", "Validate and publish nightly prerelease"],
+  ]) {
+    const job = workflow.jobs[jobName];
+    const script = findStep(job, stepName);
+    const mint = job.steps[job.steps.indexOf(script) - 1];
+
+    assert.equal(job.environment, "release");
+    assert.equal(job.permissions.contents, "read");
+    assert.match(mint.uses, /^actions\/create-github-app-token@[0-9a-f]{40}$/);
+    assert.deepEqual(mint.with, {
+      "client-id": "${{ vars.RELEASE_APP_CLIENT_ID }}",
+      "private-key": "${{ secrets.RELEASE_APP_PRIVATE_KEY }}",
+      owner: "${{ github.repository_owner }}",
+      repositories: "${{ github.event.repository.name }}",
+      "permission-contents": "write",
+      "permission-workflows": "write",
+    });
+    assert.equal(script.env.RELEASE_GITHUB_TOKEN, `\${{ steps.${mint.id}.outputs.token }}`);
+  }
+
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (name === "prepare_nightly" || name === "publish_nightly") continue;
+    assert.doesNotMatch(JSON.stringify(job), /RELEASE_APP_PRIVATE_KEY|create-github-app-token/);
+  }
 });
 
 test("release workflow rejects non-main manual dispatches before checkout or install", () => {

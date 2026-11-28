@@ -95,3 +95,23 @@ The artifact signing and native verification contract remains governed by
 [ADR 0058](./0058-signed-release-artifacts-and-native-verification.md). The
 detailed daily-release behavior remains governed by
 [`specs/release-pipeline.md`](../../specs/release-pipeline.md).
+
+## Amendment — 2026-11-28
+
+Nightly preparation and publication mint separate installation access tokens
+from a private, repository-scoped GitHub App inside the protected `release`
+environment. The app is installed only on the OrkWorks repository and grants
+Contents and Workflows write access. Each job requests that scope explicitly
+using GitHub's token action pinned to an immutable commit and passes the token
+only to its release script. The app client ID is an environment variable and
+the private key is an environment secret. Signing and stable release jobs keep
+their existing credentials. Release reviews and tag protection still apply.
+
+The installation tokens replace the long-lived fine-grained token described
+above. They are minted on demand and revoked by the action at job completion.
+If the app is unavailable or its scope is insufficient, the nightly fails
+closed. Recovery is to repair or rotate the app credentials and rerun the job
+against the same immutable source. Reverting the workflow would require
+restoring the previous CI-only credential separately. Hosted acceptance
+requires a signed manual nightly and an unchanged-source no-op run, as tracked
+in [issue #510](https://github.com/Rambolarsen/orkworks/issues/510).

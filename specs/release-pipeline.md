@@ -49,8 +49,9 @@ source SHA. ADR 0059 records the environment and CI-token trust boundary.
 
 Source and mixed-feed tests cover this wiring. Delivery of issue #510 still
 requires the repository owner to configure the protected `release` environment
-and `RELEASE_GITHUB_TOKEN`, then record one successful signed manual nightly and
-an unchanged-SHA no-op run using the steps in the
+and a repository-scoped GitHub App to mint separate installation tokens for
+nightly preparation and publication, then record one successful signed manual
+nightly and an unchanged-SHA no-op run using the steps in the
 [signed release runbook](../docs/agents/release-signing.md).
 
 ### Purpose and distribution channels
