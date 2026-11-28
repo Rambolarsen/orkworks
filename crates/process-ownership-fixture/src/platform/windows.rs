@@ -917,6 +917,13 @@ fn observe_census_member(
     registered_identities: &[NativeIdentity],
 ) -> Result<Option<ProcessObservation>, DescendantObservationFailure> {
     confirm_job_membership(process, job)?;
+    let identity = capture_identity(process, pid)
+        .map_err(|error| DescendantObservationFailure::CaptureIdentity(win32_error(&error)))?;
+    // Roots are observed independently through their retained handles. A root
+    // may exit after the Job census; exclude only its exact native birth identity.
+    if registered_identities.contains(&identity) {
+        return Ok(None);
+    }
     if wait_result(process, 0)
         .map_err(|error| DescendantObservationFailure::Wait(win32_error(&error)))?
         != WAIT_TIMEOUT
@@ -926,18 +933,7 @@ fn observe_census_member(
             matches_registered_pid: registered_identities
                 .iter()
                 .any(|registered| registered.diagnostic_pid == pid),
-            matches_registered_identity: capture_identity(process, pid)
-                .ok()
-                .map(|identity| registered_identities.contains(&identity)),
         });
-    }
-    let identity = capture_identity(process, pid)
-        .map_err(|error| DescendantObservationFailure::CaptureIdentity(win32_error(&error)))?;
-    if registered_identities
-        .iter()
-        .any(|registered| registered == &identity)
-    {
-        return Ok(None);
     }
     Ok(Some(ProcessObservation {
         identity,
@@ -1193,7 +1189,7 @@ mod tests {
     impl Drop for CensusProcess {
         fn drop(&mut self) {
             let _ = self.0.kill();
-            let _ = self.0.wait();
+            let _ = wait_for_process(self.0.as_raw_handle(), COMPLETION_TIMEOUT);
         }
     }
 
@@ -1264,7 +1260,6 @@ mod tests {
             Err(DescendantObservationFailure::NotRunning {
                 diagnostic_pid: process.0.id(),
                 matches_registered_pid: true,
-                matches_registered_identity: Some(false),
             })
         );
     }
@@ -1283,7 +1278,6 @@ mod tests {
             Err(DescendantObservationFailure::NotRunning {
                 diagnostic_pid: process.0.id(),
                 matches_registered_pid: false,
-                matches_registered_identity: Some(false),
             })
         );
     }

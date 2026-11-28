@@ -71,9 +71,6 @@ pub enum DescendantObservationFailure {
         /// PID-only hint for correlating this failure with the snapshot's roots.
         /// This does not establish native birth identity or cleanup authority.
         matches_registered_pid: bool,
-        /// Full birth-identity comparison from the same opened census handle.
-        /// `None` means identity capture failed; this diagnostic grants no authority.
-        matches_registered_identity: Option<bool>,
     },
     /// Native identity capture failed, with its Win32 code if available.
     CaptureIdentity(Option<i32>),
