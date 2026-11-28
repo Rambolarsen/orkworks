@@ -424,4 +424,4 @@ Dated implementation plans; consult authoritative specs and issues for current s
 
 - [Synthetic reader diagnostic implementation](2026-11-27-reader-diagnostic-implementation.md) — Accepted bounded fixture tooling implementation.
 
-- [Live reader progress](2026-11-28-live-reader-progress.md) — accepted isolated tooling and sole gated job implementation.
+- [Live reader progress](2026-11-28-live-reader-progress.md) — Completed isolated tooling, frozen attempt and terminal readback; allowance spent.

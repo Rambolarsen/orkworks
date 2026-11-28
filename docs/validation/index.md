@@ -196,4 +196,4 @@ Capability research, validation results, and evidence fixtures.
 
 - [Synthetic reader diagnostic fixtures](reader-diagnostic-synthetic.md) — Bounded synthetic parser, timeout and buffer comparison evidence.
 
-- [Live progress reader verification](live-reader-progress.md) — owned fixture evidence and the separately gated candidate attempt.
+- [Live progress reader verification](live-reader-progress.md) — Owned fixture evidence and the sole MSVC-start timeout terminal result.

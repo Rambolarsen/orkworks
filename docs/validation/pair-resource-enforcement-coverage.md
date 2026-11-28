@@ -18,15 +18,17 @@ not backend implementation or a numerical native E/S search.
 meanings. Native host allocation, helper workspaces and stacks remain outside
 those numeric guarantees. All lower/source/lifetime/authority gates remain.
 
-Current status: the [replacement batch terminal result](#replacement-build-terminal-result-2026-11-27)
-records a source-verification timeout after twelve PE pins, one named SDK pass
-and one locked fetch. No build, oracle or target execution started. The new
-allowance and every earlier allowance are spent. Actual effective flags, linked
-artifact, startup and native mechanisms remain unqualified; Gate 1 is still
-Investigate and no executable slice is unlocked.
-The [source-only reader diagnosis](pair-reader-timeout-diagnosis.md) traces the
-combined work and missing progress boundary; it does not identify the runtime
-hot path or authorize another attempt.
+Current status: the [live-progress batch terminal result](live-reader-progress.md#sole-candidate-attempt-terminal-unavailable-2026-11-28)
+records another source-verification timeout after twelve PE pins, one named SDK
+pass and one locked fetch. The retained prefix reached archives-end (257 reported
+packages), then root-begin/msvc; no complete input manifest, build, oracle or
+target execution was admitted. The new allowance and every earlier allowance
+are spent. Actual effective flags, linked artifact, startup and native mechanisms
+remain unqualified; Gate1 is still Investigate and no executable slice is unlocked.
+The [older replacement result](#replacement-build-terminal-result-2026-11-27)
+and [source-only diagnosis](pair-reader-timeout-diagnosis.md) retain their
+historical scope. The new prefix narrows the latest attempt's last observed phase;
+it does not identify an individual runtime hot path or authorize another attempt.
 
 ## Result, source identity and evidence limits
 

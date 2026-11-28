@@ -4,7 +4,7 @@ title: Progress reader for one Windows candidate batch
 description: Proposes an isolated live-profile reader with retained progress and buffer reuse, plus one separately gated candidate job under unchanged outer limits.
 tags: [orkworks, hierarchy, windows, qualification, diagnostics]
 status: draft
-workflow_status: accepted-implementation-in-progress
+workflow_status: implemented-terminal-unavailable-allowance-spent
 ---
 
 # Progress reader for one Windows candidate batch
@@ -455,3 +455,14 @@ exactly one new 45-minute job together, with the verification, merge, freeze and
 fresh-history gates above. It does not reopen earlier spent allowances. The
 [implementation plan](../plans/2026-11-28-live-reader-progress.md) tracks delivery;
 no installed-input execution follows merely from this status amendment.
+
+## Accepted package terminal state — 2026-11-28
+
+Tooling #2241 merged and the sole newly accepted run46114787230/attempt1 ended
+unavailable at its120-second before-reader deadline. The
+[canonical terminal record](../../validation/live-reader-progress.md#sole-candidate-attempt-terminal-unavailable-2026-11-28)
+retains root-begin/msvc after archives-end, independent bounded readback and
+closed unused slots. Allowance1/1 is spent. No build, oracle or target execution
+started; no retry, renewed availability probe, changed input/method/ceiling or
+follow-on qualification is authorized. All earlier allowances remain spent and
+runtime/production/activation gates remain closed.
