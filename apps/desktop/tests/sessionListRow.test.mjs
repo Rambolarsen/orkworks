@@ -63,3 +63,103 @@ test("a read live failed row keeps loud treatment and its failed status icon", (
   assert.ok(!classes.includes("session-row--unread"));
   assert.match(html, /class="status-indicator" data-attention="failed" role="img" aria-label="Failed"/);
 });
+
+test("areSessionListRowPropsEqual ignores enrichment-only churn and detects rendered field changes", () => {
+  const areEqual = component.exports.areSessionListRowPropsEqual;
+  assert.equal(typeof areEqual, "function", "SessionListPanel must export areSessionListRowPropsEqual");
+  const baseSession = {
+    id: "row-1",
+    label: "Build API",
+    status: "running",
+    lifecycle: "alive",
+    attention: "working",
+    needsUserInput: false,
+    terminalOutcome: undefined,
+    usageLimitReached: false,
+    usageLimitInherited: false,
+    capacityCheckPending: false,
+    memoryState: "live",
+    resumeStrategy: "none",
+    harnessId: "codex",
+    harness: "Codex",
+    cwd: "/repo",
+    branch: "main",
+    dirty: false,
+    created_at: "2026-11-28T10:00:00Z",
+    enrichmentRevision: "rev-1",
+    enrichment: { state: "ready", checkedAt: 1000 },
+  };
+  const harnesses = [];
+  const itemRefs = new Map();
+  const onSelect = () => {};
+  const onOpenMenu = () => {};
+  const baseProps = {
+    session: baseSession,
+    selected: false,
+    isUnread: false,
+    acknowledged: false,
+    pendingAction: undefined,
+    resuming: false,
+    menuOpen: false,
+    harnesses,
+    activityTime: "2m",
+    itemRefs,
+    onSelect,
+    onOpenMenu,
+  };
+
+  // Enrichment / stale / Git / summary-only updates must NOT trigger a row re-render.
+  assert.equal(
+    areEqual(baseProps, {
+      ...baseProps,
+      session: {
+        ...baseSession,
+        branch: "feature",
+        dirty: true,
+        changedFiles: 5,
+        summary: "Updated summary",
+        enrichmentRevision: "rev-2",
+        enrichment: { state: "stale", checkedAt: 6000 },
+      },
+    }),
+    true,
+    "enrichment-only session changes must not re-render SessionListRow",
+  );
+
+  // Every rendered session field change MUST trigger a row re-render.
+  for (const [field, value] of [
+    ["label", "Renamed"],
+    ["lifecycle", "dead"],
+    ["sessionState", "archived"],
+    ["terminalOutcome", "error"],
+    ["attention", "needs_you"],
+    ["usageLimitInherited", true],
+    ["capacityCheckPending", true],
+    ["harnessId", "claude"],
+    ["harness", "Claude"],
+  ]) {
+    assert.equal(
+      areEqual(baseProps, { ...baseProps, session: { ...baseSession, [field]: value } }),
+      false,
+      `changing rendered session field ${field} must re-render SessionListRow`,
+    );
+  }
+
+  // Non-session row props must trigger a re-render.
+  for (const [prop, value] of [
+    ["selected", true],
+    ["isUnread", true],
+    ["acknowledged", true],
+    ["pendingAction", "archive"],
+    ["resuming", true],
+    ["menuOpen", true],
+    ["activityTime", "3m"],
+    ["harnesses", [{ id: "codex", name: "Codex" }]],
+  ]) {
+    assert.equal(
+      areEqual(baseProps, { ...baseProps, [prop]: value }),
+      false,
+      `changing prop ${prop} must re-render SessionListRow`,
+    );
+  }
+});

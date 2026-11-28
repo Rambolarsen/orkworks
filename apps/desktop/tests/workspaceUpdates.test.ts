@@ -244,3 +244,123 @@ test("workspace subscription offers its renderer credential and requests the spl
     else delete globals.window;
   }
 });
+
+test("enrichment delta retains existing row object when fields and freshness are unchanged", () => {
+  const state = createStreamState("/workspace");
+  const initial = state.apply({
+    ...header,
+    type: "snapshot",
+    sequence: 0,
+    capability: "status-enrichment-v1",
+    sessions: [
+      { ...row("a"), branch: "main", dirty: false, enrichmentRevision: "r1", enrichment: { state: "ready", checkedAt: 1000 } },
+      { ...row("b"), branch: "dev", enrichmentRevision: "r2", enrichment: { state: "ready", checkedAt: 1000 } },
+    ],
+  }).sessions!;
+  const unchanged = state.apply({
+    ...header,
+    type: "session-enrichment-delta",
+    base: 0,
+    sequence: 1,
+    changed: [
+      { id: "a", revision: "r1", data: { cwd: "/tmp", branch: "main", dirty: false }, state: "ready", checkedAt: 1000 },
+    ],
+  }).sessions!;
+  assert.strictEqual(unchanged[0], initial[0], "unchanged enrichment entry should retain its row object reference");
+  assert.strictEqual(unchanged[1], initial[1], "untouched row should retain its object reference");
+
+  const updated = state.apply({
+    ...header,
+    type: "session-enrichment-delta",
+    base: 1,
+    sequence: 2,
+    changed: [
+      { id: "a", revision: "r1", data: { cwd: "/tmp", branch: "main", dirty: true }, state: "ready", checkedAt: 2000 },
+    ],
+  }).sessions!;
+  assert.notStrictEqual(updated[0], initial[0]);
+  assert.equal(updated[0].dirty, true);
+  assert.equal(updated[0].enrichment?.checkedAt, 2000);
+});
+
+test("workspace updates only arms an expiry timer while ready rows exist and disarms once stale", async () => {
+  const sockets: Array<{
+    onmessage: ((event: { data: string }) => void) | null;
+    onclose: (() => void) | null;
+    onerror: (() => void) | null;
+    close(): void;
+  }> = [];
+  const timers = new Map<number, { at: number; delay: number; callback: () => void }>();
+  const originalNow = Date.now;
+  let now = 1_000;
+  Date.now = () => now;
+  let timerId = 0;
+  const nonHeartbeatDelays: number[] = [];
+  const published: Array<string | undefined> = [];
+  const advanceTo = (until: number) => {
+    for (;;) {
+      const next = [...timers].sort((left, right) => left[1].at - right[1].at)[0];
+      if (!next || next[1].at > until) break;
+      const [id, { at, callback }] = next;
+      now = at;
+      timers.delete(id);
+      callback();
+    }
+    now = until;
+  };
+  const stream = startWorkspaceUpdates({
+    workspacePath: "/workspace",
+    getBackendUrl: async () => "http://localhost:1234",
+    createSocket: () => {
+      const socket = { onmessage: null, onclose: null, onerror: null, close() {} };
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+    scheduler: {
+      set(callback, delay) {
+        if (delay < 30_000) nonHeartbeatDelays.push(delay);
+        timers.set(++timerId, { at: now + delay, delay, callback });
+        return timerId;
+      },
+      clear(handle) { timers.delete(handle as number); },
+    },
+    onHealthy() {},
+    onSessions(list) { published.push(list[0]?.enrichment?.state); },
+    onRecommendationsInvalidated() {},
+  });
+
+  try {
+    await Promise.resolve();
+    const socket = sockets[0];
+    // Before snapshot arrives, no expiry timer should be polling.
+    assert.equal(nonHeartbeatDelays.length, 0, "no expiry timer should poll before a ready snapshot arrives");
+
+    socket.onmessage?.({ data: JSON.stringify(splitSnapshot()) });
+    assert.deepEqual(published, ["ready"]);
+    assert.equal(nonHeartbeatDelays.length, 1, "one expiry timer should be armed for the ready row");
+
+    // Advance past the 5s expiry deadline; row becomes stale and no further expiry timer should run.
+    advanceTo(6_000);
+    assert.deepEqual(published, ["ready", "stale"]);
+    const countAtStale = nonHeartbeatDelays.length;
+    advanceTo(20_000);
+    assert.equal(nonHeartbeatDelays.length, countAtStale, "stale rows must not keep polling an expiry timer");
+
+    // A fresh ready enrichment re-arms the expiry timer once.
+    socket.onmessage?.({
+      data: JSON.stringify({
+        ...header,
+        type: "session-enrichment-delta",
+        base: 0,
+        sequence: 1,
+        changed: [{ id: "a", revision: "r1", data: { cwd: "/tmp", branch: "main" }, state: "ready", checkedAt: 20_000 }],
+      }),
+    });
+    assert.deepEqual(published, ["ready", "stale", "ready"]);
+    advanceTo(25_000);
+    assert.deepEqual(published, ["ready", "stale", "ready", "stale"]);
+  } finally {
+    stream.dispose();
+    Date.now = originalNow;
+  }
+});
