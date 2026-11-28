@@ -895,7 +895,12 @@ impl PlatformAdapter for OwnerDomain {
                 .map_err(|error| DescendantObservationFailure::Wait(win32_error(&error)))?
                 != WAIT_TIMEOUT
             {
-                return Err(DescendantObservationFailure::NotRunning);
+                return Err(DescendantObservationFailure::NotRunning {
+                    diagnostic_pid: pid,
+                    matches_registered_pid: registered_identities
+                        .iter()
+                        .any(|registered| registered.diagnostic_pid == pid),
+                });
             }
             let identity = capture_identity(process.as_raw_handle(), pid).map_err(|error| {
                 DescendantObservationFailure::CaptureIdentity(win32_error(&error))
