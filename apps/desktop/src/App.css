@@ -3390,6 +3390,8 @@ dialog.modal-backdrop::backdrop { background: transparent; }
 .git-changes-toolbar select { max-width: 100%; }
 .git-changes-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-left: auto; font-size: var(--text-xs); color: var(--text-muted); }
 .git-changes-local-refs { padding: 0 22px 10px; font-size: var(--text-xs); color: var(--text-muted); }
+.git-changes-commit-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 8px 22px; border-top: 1px solid var(--border-subtle); background: var(--surface-0); font-size: var(--text-xs); color: var(--text-muted); flex: 0 0 auto; }
+.git-changes-commit-summary strong { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); }
 .git-changes-details { padding: 10px 22px; border-top: 1px solid var(--border-subtle); font-size: var(--text-xs); color: var(--text-muted); flex: 0 0 auto; }
 .git-changes-details summary { cursor: pointer; width: fit-content; }
 .git-changes-details dl { display: grid; grid-template-columns: 80px minmax(0,1fr); gap: 8px 16px; padding-top: 14px; line-height: 1.6; }

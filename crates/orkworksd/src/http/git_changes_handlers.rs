@@ -16,6 +16,7 @@ use std::sync::{atomic::Ordering, Arc};
 pub(crate) struct CaptureQuery {
     comparison: Comparison,
     base_ref: Option<String>,
+    commit_oid: Option<String>,
 }
 fn failure(status: StatusCode, message: impl Into<String>) -> Response {
     (
@@ -70,7 +71,7 @@ async fn request(
             match operation{
                 Operation::Bases=>serde_json::to_value(git_changes::bases(&root)?).map_err(|e|e.to_string()),
                 Operation::Capture(q)=>{
-                    let mut capture=git_changes::capture(&root,q.comparison,q.base_ref.as_deref())?;capture.session_id=id.clone();capture.git_context_source=Some(source);
+                    let mut capture=git_changes::capture_commit(&root,q.comparison,q.base_ref.as_deref(),q.commit_oid.as_deref())?;capture.session_id=id.clone();capture.git_context_source=Some(source);
                     let value=serde_json::to_value(&capture).map_err(|e|e.to_string())?;
                     store.lock().unwrap().insert(capture);Ok(value)
                 }
@@ -260,5 +261,121 @@ mod tests {
             .contains(&response.status()));
         assert!(subject(&state, "../../outside").is_err());
         assert!(subject(&state, "unknown").is_err());
+    }
+
+    #[tokio::test]
+    async fn authenticated_router_serves_bounded_branch_commits_and_rejects_foreign_commit_oids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir(&root).unwrap();
+        assert!(std::process::Command::new("git")
+            .args(["init", "-qb", "main"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success());
+        let repo = git2::Repository::open(&root).unwrap();
+        let sig = git2::Signature::now("test", "test@example.com").unwrap();
+        let empty_tree = repo
+            .find_tree(repo.index().unwrap().write_tree().unwrap())
+            .unwrap();
+        let main_oid = repo
+            .commit(Some("HEAD"), &sig, &sig, "base", &empty_tree, &[])
+            .unwrap();
+        let feature = tmp.path().join("feature");
+        repo.worktree("feature", &feature, None).unwrap();
+        let feature_repo = git2::Repository::open(&feature).unwrap();
+        std::fs::write(feature.join("a.txt"), "commit-one\n").unwrap();
+        let mut idx = feature_repo.index().unwrap();
+        idx.add_path(std::path::Path::new("a.txt")).unwrap();
+        let t1 = feature_repo.find_tree(idx.write_tree().unwrap()).unwrap();
+        let parent = feature_repo.find_commit(main_oid).unwrap();
+        let c1_oid = feature_repo
+            .commit(Some("HEAD"), &sig, &sig, "first commit", &t1, &[&parent])
+            .unwrap();
+        std::fs::write(feature.join("a.txt"), "UNCOMMITTED\n").unwrap();
+
+        let state = crate::test_support::test_app_state_with_workspace(tmp.path());
+        let mut meta = crate::test_support::test_session_metadata(
+            "git-commit-subject",
+            "Subject",
+            &root.display().to_string(),
+            "ended",
+            "2026-10-24T00:00:00Z",
+            "2026-10-24T00:00:00Z",
+        );
+        meta.cwd = root.display().to_string();
+        meta.worktree_binding = Some(
+            crate::session_location::WorktreeBinding::resolve(&meta.cwd, feature.to_str().unwrap())
+                .unwrap(),
+        );
+        state
+            .workspace
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .metadata
+            .write_session(&meta);
+        let _token = crate::test_support::open_plan_token::set("git-commit-test-token").await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let router = crate::build_router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        struct Server(tokio::task::JoinHandle<()>);
+        impl Drop for Server {
+            fn drop(&mut self) {
+                self.0.abort();
+            }
+        }
+        let _server = Server(server);
+        let client = reqwest::Client::new();
+
+        // Single-commit request for c1 returns only committed c1 diff and excludes uncommitted edit.
+        let commit_url = format!(
+            "http://{addr}/sessions/git-commit-subject/git-changes?comparison=branch&baseRef=refs%2Fheads%2Fmain&commitOid={c1_oid}"
+        );
+        let body: serde_json::Value = client
+            .get(&commit_url)
+            .header("x-orkworks-open-plan-token", "git-commit-test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(body["commitOid"], c1_oid.to_string());
+        assert_eq!(body["commitKind"], "ordinary");
+        assert_eq!(body["commits"].as_array().unwrap().len(), 1);
+        let snap = body["snapshotId"].as_str().unwrap();
+        let file = body["files"][0]["id"].as_str().unwrap();
+        let patch: serde_json::Value = client
+            .get(format!(
+                "http://{addr}/sessions/git-commit-subject/git-changes/{snap}/files/{file}"
+            ))
+            .header("x-orkworks-open-plan-token", "git-commit-test-token")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert!(patch["patch"].as_str().unwrap().contains("+commit-one"));
+        assert!(!patch["patch"].as_str().unwrap().contains("UNCOMMITTED"));
+
+        // Requesting main_oid (outside merge-base..HEAD) is rejected with 422.
+        let bad_url = format!(
+            "http://{addr}/sessions/git-commit-subject/git-changes?comparison=branch&baseRef=refs%2Fheads%2Fmain&commitOid={main_oid}"
+        );
+        assert_eq!(
+            client
+                .get(&bad_url)
+                .header("x-orkworks-open-plan-token", "git-commit-test-token")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 }

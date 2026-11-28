@@ -10,11 +10,30 @@ pub const INPUT_LIMIT: usize = 1024 * 1024;
 const PATCH_LIMIT: usize = 256 * 1024;
 const TOTAL_LIMIT: usize = 4 * 1024 * 1024;
 const CANDIDATES: usize = 10_000;
+pub const MAX_BRANCH_COMMITS: usize = 100;
+const MAX_COMMIT_SUBJECT_CHARS: usize = 200;
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Comparison {
     Uncommitted,
     Branch,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CommitKind {
+    Ordinary,
+    Merge,
+    Root,
+}
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchCommit {
+    pub oid: String,
+    pub short_oid: String,
+    pub subject: String,
+    pub kind: CommitKind,
+    pub parent_count: usize,
+    pub baseline_oid: Option<String>,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +67,12 @@ pub struct Capture {
     pub base_oid: Option<String>,
     pub baseline_oid: Option<String>,
     pub head_oid: Option<String>,
+    pub commit_oid: Option<String>,
+    pub commit_kind: Option<CommitKind>,
+    pub commit_subject: Option<String>,
+    pub commit_parent_count: Option<usize>,
+    pub commits: Vec<BranchCommit>,
+    pub commits_limited: bool,
     pub captured_at: String,
     pub partial: bool,
     pub notice: Option<String>,
@@ -1120,12 +1145,118 @@ fn branch_label(repo: &Repository, head_id: Option<Oid>) -> String {
         })
 }
 
+fn is_valid_commit_oid(oid: &str) -> bool {
+    oid.len() == 40
+        && oid
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn sanitize_commit_subject(raw: Option<&str>) -> String {
+    let mut cleaned = String::new();
+    let mut last_space = true;
+    for ch in raw.unwrap_or("").chars() {
+        if cleaned.chars().count() >= MAX_COMMIT_SUBJECT_CHARS {
+            break;
+        }
+        if ch.is_whitespace() {
+            if !last_space {
+                cleaned.push(' ');
+                last_space = true;
+            }
+        } else if !ch.is_control() {
+            cleaned.push(ch);
+            last_space = false;
+        }
+    }
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "(no subject)".into()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// Enumerates local commits in `merge_base..head_id` in topological
+/// reverse-chronological order, bounded to `MAX_BRANCH_COMMITS` and the shared
+/// 5-second cooperative inspection budget.
+fn enumerate_branch_commits(
+    repo: &Repository,
+    head_id: Oid,
+    merge_base: Oid,
+    start: Instant,
+) -> Result<(Vec<BranchCommit>, bool), String> {
+    if head_id == merge_base {
+        return Ok((Vec::new(), false));
+    }
+    let mut walk = repo.revwalk().map_err(err)?;
+    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)
+        .map_err(err)?;
+    walk.push(head_id).map_err(err)?;
+    walk.hide(merge_base).map_err(err)?;
+
+    let mut commits = Vec::new();
+    let mut limited = false;
+    for item in walk {
+        if start.elapsed() > Duration::from_secs(5) {
+            limited = true;
+            break;
+        }
+        let oid = item.map_err(err)?;
+        if commits.len() == MAX_BRANCH_COMMITS {
+            limited = true;
+            break;
+        }
+        let commit = repo.find_commit(oid).map_err(err)?;
+        let parent_count = commit.parent_count();
+        let kind = match parent_count {
+            0 => CommitKind::Root,
+            1 => CommitKind::Ordinary,
+            _ => CommitKind::Merge,
+        };
+        let baseline_oid = if parent_count > 0 {
+            Some(commit.parent_id(0).map_err(err)?.to_string())
+        } else {
+            None
+        };
+        let oid_str = oid.to_string();
+        let short_oid = oid_str.chars().take(8).collect();
+        commits.push(BranchCommit {
+            oid: oid_str,
+            short_oid,
+            subject: sanitize_commit_subject(commit.summary()),
+            kind,
+            parent_count,
+            baseline_oid,
+        });
+    }
+    Ok((commits, limited))
+}
+
+#[cfg(test)]
 pub fn capture(
     cwd: &Path,
     comparison: Comparison,
     base_ref: Option<&str>,
 ) -> Result<Capture, String> {
+    capture_commit(cwd, comparison, base_ref, None)
+}
+
+pub fn capture_commit(
+    cwd: &Path,
+    comparison: Comparison,
+    base_ref: Option<&str>,
+    commit_oid: Option<&str>,
+) -> Result<Capture, String> {
     let start = Instant::now();
+    if let Some(raw) = commit_oid {
+        if comparison != Comparison::Branch {
+            return Err("Single-commit inspection requires Branch changes.".into());
+        }
+        if !is_valid_commit_oid(raw) {
+            return Err("Invalid commit ID.".into());
+        }
+    }
     let repo = open(cwd)?;
     let worktree = repo
         .workdir()
@@ -1141,11 +1272,48 @@ pub fn capture(
         head_id,
         head_tree.as_ref(),
     )?;
-    let old = tree_files(&repo, baseline.as_ref(), start)?;
-    let target = if comparison == Comparison::Branch {
-        tree_files(&repo, head_tree.as_ref(), start)?
+    let (commits, commits_limited) = match (comparison, head_id, baseline_id) {
+        (Comparison::Branch, Some(head), Some(merge_base)) => {
+            enumerate_branch_commits(&repo, head, merge_base, start)?
+        }
+        _ => (Vec::new(), false),
+    };
+    let selected_commit = match commit_oid {
+        Some(raw) => Some(
+            commits
+                .iter()
+                .find(|commit| commit.oid == raw)
+                .cloned()
+                .ok_or_else(|| {
+                    "Selected commit is not in the current branch comparison; refresh.".to_owned()
+                })?,
+        ),
+        None => None,
+    };
+    let (effective_baseline_id, old, target) = if let Some(ref chosen) = selected_commit {
+        let oid = Oid::from_str(&chosen.oid).map_err(err)?;
+        let commit = repo.find_commit(oid).map_err(err)?;
+        let parent_tree = if commit.parent_count() > 0 {
+            Some(commit.parent(0).and_then(|p| p.tree()).map_err(err)?)
+        } else {
+            None
+        };
+        let target_tree = commit.tree().map_err(err)?;
+        (
+            chosen.baseline_oid.clone(),
+            tree_files(&repo, parent_tree.as_ref(), start)?,
+            tree_files(&repo, Some(&target_tree), start)?,
+        )
     } else {
-        BTreeMap::new()
+        (
+            baseline_id.map(|x| x.to_string()),
+            tree_files(&repo, baseline.as_ref(), start)?,
+            if comparison == Comparison::Branch {
+                tree_files(&repo, head_tree.as_ref(), start)?
+            } else {
+                BTreeMap::new()
+            },
+        )
     };
     let temp = tempfile::tempdir().map_err(err)?;
     let scratch = Repository::init(temp.path()).map_err(err)?;
@@ -1168,8 +1336,14 @@ pub fn capture(
         comparison,
         base_ref: base_ref.map(str::to_owned),
         base_oid: base_oid.map(|x| x.to_string()),
-        baseline_oid: baseline_id.map(|x| x.to_string()),
+        baseline_oid: effective_baseline_id,
         head_oid: head_id.map(|x| x.to_string()),
+        commit_oid: selected_commit.as_ref().map(|c| c.oid.clone()),
+        commit_kind: selected_commit.as_ref().map(|c| c.kind),
+        commit_subject: selected_commit.as_ref().map(|c| c.subject.clone()),
+        commit_parent_count: selected_commit.as_ref().map(|c| c.parent_count),
+        commits,
+        commits_limited,
         captured_at: chrono::Utc::now().to_rfc3339(),
         partial: staging.partial,
         notice: staging
@@ -1885,5 +2059,206 @@ mod tests {
         assert!(!a.patches.values().any(|p| p.contains("MUST NOT APPEAR")));
         assert!(safe_path(Path::new("../escape")).is_err());
         assert!(safe_path(Path::new(".git/config")).is_err());
+    }
+
+    #[test]
+    fn single_commit_inspection_covers_ordinary_merge_root_empty_and_excludes_uncommitted() {
+        let d = init();
+        // Capture the main commit OID before branching so we can verify out-of-range rejection.
+        let main_oid = Repository::open(d.path())
+            .unwrap()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Create an unrelated orphan branch with a single root commit so merging it
+        // brings a real root commit (parent_count == 0) into the branch comparison.
+        git(d.path(), &["checkout", "--orphan", "orphan-side"]);
+        git(d.path(), &["rm", "-rfq", "."]);
+        std::fs::write(d.path().join("orphan.txt"), "root-commit-content\n").unwrap();
+        git(d.path(), &["add", "."]);
+        git(d.path(), &["commit", "-qm", "orphan root commit"]);
+        let orphan_root_oid = Repository::open(d.path())
+            .unwrap()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Switch back to main and create feature branch.
+        git(d.path(), &["checkout", "-q", "main"]);
+        git(d.path(), &["checkout", "-qb", "feature"]);
+
+        // Empty comparison: feature == main -> 0 commits.
+        let empty = capture(d.path(), Comparison::Branch, Some("refs/heads/main")).unwrap();
+        assert!(empty.commits.is_empty());
+        assert!(!empty.commits_limited);
+        assert!(empty.files.is_empty());
+
+        // Commit 1 and Commit 2 both modify shared.txt.
+        std::fs::write(d.path().join("shared.txt"), "line-from-commit-1\n").unwrap();
+        git(d.path(), &["add", "shared.txt"]);
+        git(d.path(), &["commit", "-qm", "first change to shared"]);
+        let commit1_oid = Repository::open(d.path())
+            .unwrap()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        std::fs::write(
+            d.path().join("shared.txt"),
+            "line-from-commit-1\nline-from-commit-2\n",
+        )
+        .unwrap();
+        git(d.path(), &["add", "shared.txt"]);
+        git(d.path(), &["commit", "-qm", "second change to shared"]);
+        let commit2_oid = Repository::open(d.path())
+            .unwrap()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Merge the unrelated orphan branch into feature so we have a merge commit + root commit.
+        git(
+            d.path(),
+            &[
+                "merge",
+                "--no-ff",
+                "--allow-unrelated-histories",
+                "-qm",
+                "merge orphan history",
+                "orphan-side",
+            ],
+        );
+        let merge_oid = Repository::open(d.path())
+            .unwrap()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Add dirty uncommitted edits (staged, unstaged, untracked) — must NEVER appear in commit diffs.
+        std::fs::write(d.path().join("shared.txt"), "DIRTY UNCOMMITTED EDIT\n").unwrap();
+        std::fs::write(d.path().join("untracked-dirty.txt"), "DIRTY UNTRACKED\n").unwrap();
+
+        // Full branch capture lists all 4 commits in topological reverse-chronological order.
+        let branch = capture(d.path(), Comparison::Branch, Some("refs/heads/main")).unwrap();
+        assert!(!branch.commits_limited);
+        assert_eq!(branch.commits.len(), 4);
+        assert_eq!(branch.commits[0].oid, merge_oid);
+        assert_eq!(branch.commits[0].kind, CommitKind::Merge);
+        assert_eq!(branch.commits[0].parent_count, 2);
+        assert_eq!(
+            branch.commits[0].baseline_oid.as_deref(),
+            Some(commit2_oid.as_str())
+        );
+
+        // Ordinary Commit 1: only line-from-commit-1, no commit-2 or uncommitted edits.
+        let c1 = capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&commit1_oid),
+        )
+        .unwrap();
+        assert_eq!(c1.commit_oid.as_deref(), Some(commit1_oid.as_str()));
+        assert_eq!(c1.commit_kind, Some(CommitKind::Ordinary));
+        assert_eq!(c1.commit_parent_count, Some(1));
+        assert_eq!(c1.baseline_oid.as_deref(), Some(main_oid.as_str()));
+        assert_eq!(c1.files.len(), 1);
+        assert_eq!(c1.files[0].path, "shared.txt");
+        let c1_patch = &c1.patches[&c1.files[0].id];
+        assert!(c1_patch.contains("+line-from-commit-1"));
+        assert!(!c1_patch.contains("line-from-commit-2"));
+        assert!(!c1_patch.contains("DIRTY"));
+
+        // Ordinary Commit 2: parent is commit1, adds only line-from-commit-2, excludes uncommitted edits.
+        let c2 = capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&commit2_oid),
+        )
+        .unwrap();
+        assert_eq!(c2.commit_oid.as_deref(), Some(commit2_oid.as_str()));
+        assert_eq!(c2.commit_kind, Some(CommitKind::Ordinary));
+        assert_eq!(c2.baseline_oid.as_deref(), Some(commit1_oid.as_str()));
+        assert_eq!(c2.files.len(), 1);
+        assert_eq!(c2.files[0].path, "shared.txt");
+        let c2_patch = &c2.patches[&c2.files[0].id];
+        assert!(c2_patch.contains("+line-from-commit-2"));
+        assert!(!c2_patch.contains("DIRTY"));
+
+        // Merge commit: first-parent diff (commit2 -> merge) brings in orphan.txt only.
+        let cm = capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&merge_oid),
+        )
+        .unwrap();
+        assert_eq!(cm.commit_kind, Some(CommitKind::Merge));
+        assert_eq!(cm.commit_parent_count, Some(2));
+        assert_eq!(cm.baseline_oid.as_deref(), Some(commit2_oid.as_str()));
+        assert_eq!(cm.files.len(), 1);
+        assert_eq!(cm.files[0].path, "orphan.txt");
+        assert!(cm.patches[&cm.files[0].id].contains("+root-commit-content"));
+
+        // Root commit: empty-tree baseline (baseline_oid == None) -> orphan.txt.
+        let cr = capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&orphan_root_oid),
+        )
+        .unwrap();
+        assert_eq!(cr.commit_kind, Some(CommitKind::Root));
+        assert_eq!(cr.commit_parent_count, Some(0));
+        assert_eq!(cr.baseline_oid, None);
+        assert_eq!(cr.files.len(), 1);
+        assert_eq!(cr.files[0].path, "orphan.txt");
+        assert!(cr.patches[&cr.files[0].id].contains("+root-commit-content"));
+
+        // Security & validation: reject out-of-range main commit, non-hex revisions, and uncommitted+commitOid.
+        assert!(capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&main_oid),
+        )
+        .is_err());
+        assert!(capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some("HEAD~1"),
+        )
+        .is_err());
+        assert!(
+            capture_commit(d.path(), Comparison::Uncommitted, None, Some(&commit1_oid)).is_err()
+        );
+
+        // Switching branches invalidates the previous branch's commit OID.
+        git(d.path(), &["checkout", "-qf", "main"]);
+        assert!(capture_commit(
+            d.path(),
+            Comparison::Branch,
+            Some("refs/heads/main"),
+            Some(&commit1_oid),
+        )
+        .is_err());
     }
 }
