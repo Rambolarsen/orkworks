@@ -1,20 +1,29 @@
+param([ValidateSet('checks','pipeline','refusals')][string]$Case='checks')
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $script=Join-Path $PSScriptRoot 'pair-root-diagnostic-windows-build.ps1'
 if (-not (Test-Path -LiteralPath $script)) { throw 'Replacement bounded data reader is not implemented' }
 . $script -Nonce ('a'*32)
-function Assert($v,$message) { if (-not $v) { throw $message } }
+function Assert($v,$message) { $script:Assertions++;if (-not $v) { throw $message } }
+$script:Assertions=0
 $script:FixtureBudgets=[Collections.Generic.List[object]]::new()
+$script:FixtureHashLimit=if($Case -ceq 'pipeline'){2097152}else{16777216}
+$script:MakeBudget=${function:New-ReadBudget}
+function New-ReadBudget([long]$Maximum) {
+    $used=[long]0;foreach($b in $script:FixtureBudgets){$used+=$b.hashed}
+    return & $script:MakeBudget ([Math]::Min($Maximum,$script:FixtureHashLimit-$used))
+}
 $dir=Join-Path ([IO.Path]::GetTempPath()) ('progress-reader-'+[guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($dir)|Out-Null
 try {
+  if($Case -ceq 'checks'){
     $golden=Join-Path $dir 'golden';[IO.File]::WriteAllText($golden,'abc',[Text.UTF8Encoding]::new($false))
     Assert ((Read-SealedFile $golden (New-ReadBudget 3)).sha256 -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'native owned file sealing golden'
     [IO.File]::Delete($golden)
-    $request='[2,"pinned-windows-candidate-v1","before","'+('a'*32)+'",1000000,"1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6"]'
+    $request='[3,"pinned-windows-root-diagnostic-v1","before","'+('a'*32)+'",1000000,"1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6"]'
     $parsed=Read-LiveRequest $request ('a'*32)
     Assert ($parsed[2] -ceq 'before') 'canonical live request'
-    foreach($bad in @($request.Replace('[2,','[1,'),$request.Replace('[2,','["2",'),(' '+$request),$request.Replace('before','reference'),$request.Replace('1f5c','0f5c'))){$denied=$false;try{Read-LiveRequest $bad ('a'*32)|Out-Null}catch{$denied=$true};Assert $denied 'request binding refusal'}
+    foreach($bad in @($request.Replace('[3,','[1,'),$request.Replace('[3,','["2",'),(' '+$request),$request.Replace('before','reference'),$request.Replace('1f5c','0f5c'))){$denied=$false;try{Read-LiveRequest $bad ('a'*32)|Out-Null}catch{$denied=$true};Assert $denied 'request binding refusal'}
     $roots=@{source=$dir;msvc=(Join-Path $dir 'absent');registry=(Join-Path $dir 'missing/src')}
     Assert-ReaderRoots $roots 'preflight'
     $denied=$false;try{Assert-ReaderRoots $roots 'before'}catch{$denied=$true};Assert $denied 'missing live roots denied without repair'
@@ -87,26 +96,72 @@ try {
     Assert ($largeHash -ceq '30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58') 'large zero golden'
     [IO.File]::WriteAllBytes($large,[byte[]]::new(0))
     Assert ((Read-SealedFile $large (New-ReadBudget 0)).sha256 -ceq 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') 'empty after large'
-    Assert ([OrkProgress.Payload]::Allocations -eq 1 -and [OrkProgress.Payload]::MaximumLeases -eq 1) 'exclusive reuse metrics'
-    $lease=[OrkProgress.Payload]::Acquire();$denied=$false;try{[OrkProgress.Payload]::Acquire()|Out-Null}catch{$denied=$true}finally{$lease.Dispose()};Assert $denied 'nested lease denial'
-    # Run the same request decoder, manifest pipeline and writer on seven owned roots.
+    Assert ([OrkRootDiagnostic.Payload]::Allocations -eq 1 -and [OrkRootDiagnostic.Payload]::MaximumLeases -eq 1) 'exclusive reuse metrics'
+    $lease=[OrkRootDiagnostic.Payload]::Acquire();$denied=$false;try{[OrkRootDiagnostic.Payload]::Acquire()|Out-Null}catch{$denied=$true}finally{$lease.Dispose()};Assert $denied 'nested lease denial'
+
+    $stderr=[IO.StringWriter]::new();$originalError=[Console]::Error
+    try{[Console]::SetError($stderr);& $script -Nonce ('c'*32);$exitCode=$LASTEXITCODE}finally{[Console]::SetError($originalError)}
+    Assert ($exitCode -eq 1 -and $stderr.ToString().Trim() -ceq 'live-entry-disabled') 'reader CLI refuses without a child or installed access'
+  }
+  $cases=[Collections.Generic.List[object]]::new()
+  if($Case -cne 'checks'){
     $profile=Join-Path $dir 'profile';[IO.Directory]::CreateDirectory($profile)|Out-Null
     $owned=@{};foreach($label in @('msvc','registry','rust','sdk_bin','sdk_include','sdk_lib','source')){$owned[$label]=Join-Path $profile $label;[IO.Directory]::CreateDirectory($owned[$label])|Out-Null}
     $owned.registry=Join-Path $profile 'registry/src';[IO.Directory]::CreateDirectory($owned.registry)|Out-Null
-    [IO.Directory]::CreateDirectory((Join-Path $profile 'registry/cache'))|Out-Null
-    # The archive verifier requires one index; an empty fixed index admits zero packages.
     [IO.Directory]::CreateDirectory((Join-Path $owned.registry 'fixture-index'))|Out-Null
     [IO.Directory]::CreateDirectory((Join-Path $profile 'registry/cache/fixture-index'))|Out-Null
+    $nested=Join-Path $owned.msvc 'nested';[IO.Directory]::CreateDirectory($nested)|Out-Null
+    foreach($i in 1..16){[IO.File]::WriteAllText((Join-Path $nested ('f'+$i)),'abc',[Text.UTF8Encoding]::new($false))}
     [IO.File]::WriteAllText((Join-Path $owned.source 'literal'),'abc',[Text.UTF8Encoding]::new($false))
-    $script:budget=New-ReadBudget 4194304;$script:LiveSequence=0;$script:LiveFiles=0;$script:LiveDirectories=0;$script:LiveArchives=0;$script:LiveProgress=$true
-    Emit-Progress 'start';Assert-ReaderRoots $owned 'before';Emit-Progress 'ready'
-    $data=Invoke-ManifestRead $owned $script:budget @{packages=@{};scripts=@{};proc_macros=@{}} -EncodedLimit 32768
-    $output=Join-Path $dir 'bound-output.json';Write-ReaderOutput $output $data 'before' ('a'*32) '1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6' $script:budget -EncodedLimit 32768
-    $script:LiveProgress=$false
-    $envelope=[IO.File]::ReadAllText($output)|ConvertFrom-Json -AsHashtable
-    Assert ($envelope.mode -ceq 'before' -and $envelope.data.files.Count -eq 1 -and $envelope.data.files[0].sha256 -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'complete producer envelope'
-    Assert ($envelope.data.hash_bytes -eq $script:budget.hashed -and $script:LiveSequence -eq 21) 'terminal settled encoding debit'
-    $denied=$false;try{Write-ReaderOutput $output $data 'before' ('a'*32) $envelope.policy_sha256 $script:budget -EncodedLimit 32768}catch{$denied=$true};Assert $denied 'exclusive output'
-    $total=0;foreach($b in $script:FixtureBudgets){$total+=$b.hashed};Assert ($total -le 67108864) 'suite cumulative work'
-    [ordered]@{tests_passed=$true;powershell_version=$PSVersionTable.PSVersion.ToString();envelope=$envelope;hash_bytes=$total;scratch_allocations=[OrkProgress.Payload]::Allocations;maximum_leases=[OrkProgress.Payload]::MaximumLeases;target_executions=0;runtime_qualified=$false;production_pin_accepted=$false}|ConvertTo-Json -Depth 14 -Compress
-} finally {Remove-Item -LiteralPath $dir -Recurse -Force}
+    $policy=@{packages=@{};scripts=@{};proc_macros=@{}}
+    function Reset-Reader([long]$Maximum){
+      $script:budget=New-ReadBudget $Maximum;$script:LiveSequence=0;$script:LiveSample=0;$script:LiveFiles=0;$script:LiveDirectories=0;$script:LiveArchives=0;$script:LiveProgress=$true
+    }
+    if($Case -ceq 'pipeline'){
+      # The old reader is a guarded library over these exact owned identities only.
+      $baseline=& {
+        . (Join-Path $PSScriptRoot 'pair-progress-windows-build.ps1') -Nonce ('b'*32)
+        $baselineBudget=New-ReadBudget 1048576
+        $data=Invoke-ManifestRead $owned $baselineBudget $policy -EncodedLimit 32768
+        Charge-Encoding $baselineBudget 32768
+        return $data
+      }
+      $bytes=[Text.UTF8Encoding]::new($false,$true).GetBytes(($baseline|ConvertTo-Json -Depth 14 -Compress))
+      Assert ($bytes.Length -le 32768) 'bounded baseline encoding'
+      $file=[IO.FileStream]::new((Join-Path $env:TEMP 'root-baseline.json'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+      try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+      $Nonce='a'*32;Reset-Reader 1048576
+      Emit-Progress 'start';Assert-ReaderRoots $owned 'before';Emit-Progress 'ready'
+      $data=Invoke-ManifestRead $owned $script:budget $policy -EncodedLimit 32768
+      Write-ReaderOutput (Join-Path $env:TEMP 'root-output.json') $data 'before' $Nonce '1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6' $script:budget -EncodedLimit 32768
+      return
+    }
+    $script:RealEmitSample=${function:Emit-Sample}
+    foreach($stop in 1..7){
+      $Nonce=('{0:x32}' -f $stop);$script:StopSample=$stop
+      function Emit-Sample([int]$Detail){& $script:RealEmitSample $Detail;if($Detail -eq $script:StopSample){throw 'fixture-stopped'}}
+      $capture=[IO.StringWriter]::new();$originalOutput=[Console]::Out;$stopped=$false
+      $payloadBefore=[OrkRootDiagnostic.Payload]::HashBytes
+      try{
+        [Console]::SetOut($capture);Reset-Reader 131072
+        Emit-Progress 'start';Assert-ReaderRoots $owned 'before';Emit-Progress 'ready'
+        try{Invoke-ManifestRead $owned $script:budget $policy -EncodedLimit 32768|Out-Null}catch{
+          if($_.Exception.Message -cne 'fixture-stopped'){throw};$stopped=$true;Emit-Progress 'error' '' 'input-denied'
+        }
+      }finally{[Console]::SetOut($originalOutput);$script:LiveProgress=$false}
+      Assert $stopped 'controlled completion boundary refusal'
+      $payload=[OrkRootDiagnostic.Payload]::HashBytes-$payloadBefore
+      Assert ($payload -eq $(if($stop -ge 5){3}else{0})) 'payload hash occurs only after first held checkpoint'
+      Assert ([Text.Encoding]::ASCII.GetByteCount($capture.ToString()) -le 4096) 'bounded refused prefix'
+      $cases.Add(@{stop=$stop;nonce=$Nonce;prefix=$capture.ToString();payload_bytes=$payload})
+    }
+    Set-Item Function:Emit-Sample -Value $script:RealEmitSample
+  }
+  $total=[long]0;foreach($b in $script:FixtureBudgets){$total+=$b.hashed}
+  Assert ($total -le $script:FixtureHashLimit) 'one cumulative fixture work pool'
+  Assert ([OrkRootDiagnostic.Payload]::Allocations -eq 1 -and [OrkRootDiagnostic.Payload]::MaximumLeases -eq 1) 'single exclusive payload buffer'
+  $report=[ordered]@{tests_passed=$true;case=$Case;powershell_version=$PSVersionTable.PSVersion.ToString();assertions=$script:Assertions;cases=@($cases);hash_bytes=$total;scratch_allocations=1;maximum_leases=1;target_executions=0;runtime_qualified=$false;production_pin_accepted=$false}
+  $json=$report|ConvertTo-Json -Depth 14 -Compress
+  Assert ([Text.Encoding]::UTF8.GetByteCount($json) -le 65536) 'bounded fixture result'
+  [Console]::Out.Write($json+"`n")
+}finally{Remove-Item -LiteralPath $dir -Recurse -Force}

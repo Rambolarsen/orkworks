@@ -112,24 +112,41 @@ test('complete output and held source admission precede settlement; live entry h
 
 
 test('bounded owned Windows reader and final zero-hash timeout',{skip:process.platform!=='win32'},async()=>{
- const {WorkBudget,Decoder}=await import(codecURL);
- const {CommandRunner,validateOutput}=await import('./pair-root-diagnostic-windows-build.mjs');
+ const {WorkBudget,Decoder,settle}=await import(codecURL);
+ const {CommandRunner,validateOutput,sealSources,admitReader,readOutput}=await import('./pair-root-diagnostic-windows-build.mjs');
+ const {validateManifest}=await import('./pair-progress-windows-build.mjs');
  const path=await import('node:path'),os=await import('node:os');
  const budget=new WorkBudget({hashLimit:64*1024**2,streamLimit:1024**2,seconds:120}),runner=new CommandRunner(budget);
- const cwd=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'root-diag-native-')));
+ const cwd=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'root-diag-native-'))),repo=path.resolve('.');
  const env={SystemRoot:'C:\\Windows',WINDIR:'C:\\Windows',PATH:'C:\\Windows\\System32',TEMP:cwd,TMP:cwd};
+ const args=kind=>['-NoProfile','-NonInteractive','-File',path.resolve('scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1'),'-Case',kind];
+ const traces=[];
  try {
-  const result=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',['-NoProfile','-NonInteractive','-File',path.resolve('scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1')],{env,cwd,timeout:30000,stdoutLimit:65536});
-  assert.equal(result.code,0,result.stderr);assert.equal(result.stderr,'');
-  const lines=result.stdout.trimEnd().split('\n'),summary=JSON.parse(lines.pop());
-  const d=new Decoder({nonce,mode:'before',grant:4194304,ledger:{stream:()=>{},active:()=>budget.check(),elapsed:()=>budget.elapsed()}});
-  d.feed(Buffer.from(lines.join('\n')+'\n'));assert.equal(d.end(),true,d.failure);
-  const admitted=validateOutput(summary.envelope,d);
-  assert.equal(summary.tests_passed,true);assert.equal(admitted.files[0].sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
-  assert.equal(summary.scratch_allocations,1);assert.equal(summary.maximum_leases,1);assert.equal(summary.target_executions,0);
-  budget.hash(summary.hash_bytes);
+  budget.hash(16*1024**2); // Reserve the complete checks-worker ceiling before any child work.
+  const checks=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',args('checks'),{env,cwd,timeout:30000,stdoutLimit:65536});
+  assert.equal(checks.code,0,checks.stderr);assert.equal(checks.stderr,'');const checked=JSON.parse(checks.stdout);assert.equal(checked.tests_passed,true);assert.ok(checked.hash_bytes<=16*1024**2);
+  const seal=sealSources(repo,budget);budget.hash(1024**2); // Complete old-library comparison allowance, no refund.
+  const finish=budget.reserve(1024**2),reservation={grant:1024**2,finish};
+  const d=new Decoder({nonce,mode:'before',grant:reservation.grant,ledger:budget});
+  const pipeline=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',args('pipeline'),{env,cwd,timeout:30000,stdoutLimit:4096,decoder:d});
+  assert.equal(pipeline.code,0,pipeline.stderr);assert.equal(pipeline.stderr,'');assert.equal(d.trace.length,29);
+  const admitted=admitReader({decoder:d,close:{code:pipeline.code,drained:runner.drained},reservation,budget,sourceRoot:repo,seal,output:path.join(cwd,'root-output.json')});
+  assert.equal(admitted.disposition.reader_complete,true,JSON.stringify(admitted.disposition));traces.push(d.trace);
+  const baseline=readOutput(path.join(cwd,'root-baseline.json'),budget).value;
+  const labels=['msvc','registry','rust','sdk_bin','sdk_include','sdk_lib','source'];
+  assert.deepEqual(validateManifest(admitted.data,labels),validateManifest(baseline,labels));
+  assert.equal(admitted.data.files.length,17);assert.equal(admitted.data.files[0].sha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  budget.hash(16*1024**2);
+  const refused=await runner.run('C:\\Program Files\\PowerShell\\7\\pwsh.exe',args('refusals'),{env,cwd,timeout:30000,stdoutLimit:65536});
+  assert.equal(refused.code,0,refused.stderr);assert.equal(refused.stderr,'');const summary=JSON.parse(refused.stdout);assert.equal(summary.tests_passed,true);assert.equal(summary.cases.length,7);assert.ok(summary.hash_bytes<=16*1024**2);
+  for(const item of summary.cases){
+   const x=new Decoder({nonce:item.nonce,mode:'before',grant:16*1024**2,ledger:{stream:()=>{},active:()=>budget.check(),elapsed:()=>budget.elapsed()}});
+   x.feed(Buffer.from(item.prefix));assert.equal(x.end(),true,x.failure);assert.equal(x.sample,item.stop);assert.equal(item.payload_bytes,item.stop>=5?3:0);
+   assert.equal(settle(x,{code:1,drained:true,sourceValid:true}).reader_complete,false);traces.push(x.trace);
+  }
+  assert.ok(Buffer.byteLength(JSON.stringify(traces))<=18432);
   await assert.rejects(()=>runner.run(process.execPath,['-e','setInterval(()=>{},1000)'],{env,cwd,timeout:50,stdoutLimit:0}),/time-limit/);
   assert.equal(runner.kills,1);assert.equal(runner.drained,true);
-  console.log(JSON.stringify({evidence_kind:'root-diagnostic-owned-fixture',tests_passed:true,ps_children:1,node_timeout_children:1,hash_bytes:budget.hashed,stream_bytes:budget.streamed,trace_records:d.trace.length,forced_terminations:runner.kills,cleanup:'owned-scratch-removed',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
+  console.log(JSON.stringify({evidence_kind:'root-diagnostic-owned-fixture',tests_passed:true,ps_children:3,node_timeout_children:1,hash_bytes:budget.hashed,stream_bytes:budget.streamed,trace_records:d.trace.length,controlled_refusals:7,legacy_assertions:checked.assertions,forced_terminations:runner.kills,cleanup:'owned-scratch-removed',runtime_qualified:false,production_pin_accepted:false,target_executions:0}));
  }finally{if(runner.drained)fs.rmSync(cwd,{recursive:true});}
 });
