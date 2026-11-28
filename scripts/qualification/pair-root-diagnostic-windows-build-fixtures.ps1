@@ -52,6 +52,12 @@ try {
     $golden=Join-Path $dir 'golden';Write-FixtureText ($golden) ('abc') ([Text.UTF8Encoding]::new($false))
     Assert ((Read-SealedFile $golden (New-ReadBudget 3)).sha256 -ceq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'native owned file sealing golden'
     [IO.File]::Delete($golden)
+    $emptyTree=Get-SealedManifest @{msvc=$dir} (New-ReadBudget 131072)
+    Assert ($emptyTree.files.Count -eq 0 -and $emptyTree.directories.Count -eq 1) 'empty MSVC tree retains its root identity'
+    $emptyFile=Join-Path $dir 'empty-first';Write-FixtureBytes $emptyFile ([byte[]]::new(0))
+    $emptyFirst=Get-SealedManifest @{msvc=$dir} (New-ReadBudget 131072)
+    Assert ($emptyFirst.files.Count -eq 1 -and $emptyFirst.files[0].bytes -eq 0 -and $emptyFirst.files[0].sha256 -ceq 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') 'empty first MSVC file seals with the literal digest'
+    [IO.File]::Delete($emptyFile)
     $request='[3,"pinned-windows-root-diagnostic-v1","before","'+('a'*32)+'",1000000,"1f5c006379597223a48939f2451ddaf4a530a9e31c83d52c7a8b676d95fecfa6"]'
     $parsed=Read-LiveRequest $request ('a'*32)
     Assert ($parsed[2] -ceq 'before') 'canonical live request'
