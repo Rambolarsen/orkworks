@@ -401,3 +401,12 @@ Shutdown must report an unresolved launch while it is pending and allow
 later reconciliation. If the pool is dropped before handoff, the launch
 task owns cleanup of any child it obtains. The test uses empty channels and
 a gate immediately before the native spawn call.
+
+On macOS 26.6.2 arm64, the deadline regression failed on the previous
+synchronous implementation and passed with supervised launch. All 17
+tests in the native worker target passed. One test skipped a task first
+scheduled at the deadline. A second test confirmed the pending launch
+appeared in the shutdown report and reconciled after release. A separate
+test dropped the pool before release and observed reap of the resulting
+child. Moving cleanup ownership after a child has already been handed to
+the pool remains a separate shutdown boundary.

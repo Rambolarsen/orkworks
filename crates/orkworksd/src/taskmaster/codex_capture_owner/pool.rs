@@ -168,6 +168,7 @@ impl CustodyPool {
         )
     }
 
+    /// A successful hook hands off its child. An error must leave no live child.
     pub(crate) fn start_with_slot_hook(
         expected_build: [u8; 32],
         budget: Duration,
@@ -203,7 +204,7 @@ impl CustodyPool {
             }
 
             let spawn_slot = Arc::clone(&spawn_slot);
-            let Ok(pending) = supervise_spawn(channels, move |request, response| {
+            let Ok(pending) = supervise_spawn(channels, deadline, move |request, response| {
                 spawn_slot(slot, request, response)
             }) else {
                 continue;
@@ -457,12 +458,17 @@ impl Drop for CustodyPool {
 
 fn supervise_spawn(
     channels: SlotChannels,
+    deadline: Instant,
     spawn: impl FnOnce(RawFd, RawFd) -> io::Result<OwnedChild> + Send + 'static,
 ) -> io::Result<PendingSpawn> {
     // No buffered result can be abandoned on receiver drop. A failed
     // rendezvous leaves the exact process owned by this background task.
     let (complete, pending) = mpsc::sync_channel(0);
     thread::Builder::new().spawn(move || {
+        if Instant::now() >= deadline {
+            let _ = complete.send(Err(ErrorKind::TimedOut.into()));
+            return;
+        }
         let SlotChannels {
             request_tx,
             request_rx,
@@ -708,6 +714,17 @@ fn terminate_bounded(mut child: OwnedChild, wait_budget: Duration) -> SlotState 
 mod tests {
     use super::*;
     use std::process::{Command, Stdio};
+
+    #[test]
+    fn expired_queued_spawn_skips_native_launch() {
+        let [channels, _one, _two, _three] = channels::seal_split_channels().unwrap();
+        let pending = supervise_spawn(channels, Instant::now(), |_, _| {
+            panic!("expired launch entered the native operation")
+        })
+        .unwrap();
+        let result = pending.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(result.err().unwrap().kind(), ErrorKind::TimedOut);
+    }
 
     #[test]
     fn owned_child_rejects_non_positive_pids_and_preserves_real_exit_status() {

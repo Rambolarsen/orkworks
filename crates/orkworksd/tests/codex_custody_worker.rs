@@ -477,17 +477,21 @@ fn pool_returns_at_deadline_with_spawn_attempt_still_pending() {
         .ping_slot(1, Instant::now() + Duration::from_secs(1))
         .is_err());
 
-    release.send(()).unwrap();
-    assert!(spawned_pid.recv_timeout(Duration::from_secs(2)).unwrap() > 0);
-    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
     let report = pool.shutdown(Duration::from_secs(1));
     assert_eq!(report.clean_exits, 1);
+    assert_eq!(report.cleanup_unconfirmed, 1);
+    assert_eq!(pool.counts().cleanup_unconfirmed, 1);
+
+    release.send(()).unwrap();
+    let pid = spawned_pid.recv_timeout(Duration::from_secs(2)).unwrap();
+    let cleanup_deadline = Instant::now() + Duration::from_secs(3);
     while pool.counts().cleanup_unconfirmed > 0 {
         assert!(Instant::now() < cleanup_deadline);
         pool.shutdown(Duration::ZERO);
         thread::sleep(Duration::from_millis(2));
     }
     assert_eq!(pool.counts().retired, MAX_SLOTS);
+    assert_child_reaped(pid);
 }
 
 #[test]
@@ -517,6 +521,11 @@ fn dropping_pool_leaves_late_child_cleanup_with_its_launch_task() {
     release.send(()).unwrap();
 
     let pid = observed_child.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_child_reaped(pid);
+}
+
+fn assert_child_reaped(pid: u32) {
+    assert!(pid > 0);
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         // SAFETY: The reported pid is our exact freshly spawned child.
