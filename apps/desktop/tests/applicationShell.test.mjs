@@ -2421,7 +2421,13 @@ if (process.versions.electron) {
             })()`);
           };
           await setSessionFilter('active');
-          await waitFor('!document.querySelector("[data-session-id=coding]")');
+          await waitFor('!document.querySelector("[data-session-id=coding]") && document.querySelector("[data-session-id=other]")');
+          await evaluate('document.querySelector("#sessions-list").focus()');
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'Tab'});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'Tab'});
+          await waitFor('document.activeElement.id!=="sessions-list"');
+          assert.equal(await evaluate('document.activeElement.hasAttribute("data-shell-settings")'),true,'Tab follows the list order when the selected row is filtered out');
+          assert.deepEqual(await evaluate('fixture.resumed'),[],'Tab does not activate Resume');
           await pressSessionEnter();
           await waitFor('document.activeElement.hasAttribute("data-shell-terminal-focus")');
           assert.deepEqual(await evaluate('fixture.resumed'),[],'Enter does not resume a session hidden by the filter');
