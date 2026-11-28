@@ -121,8 +121,8 @@ selected descriptor was rejected before constructing an owned stream.
 
 ## Sidecar executable entry check
 
-Use the opt-in `codex-custody-qualification` Cargo feature on macOS arm64.
-The private worker dispatch runs before the Git helper and normal sidecar
+Set `ORKWORKS_CUSTODY_QUALIFICATION=1` at compile time for the macOS arm64
+debug qualification build. The private worker dispatch runs before the Git helper and normal sidecar
 startup. The parent launch supplies an empty environment. The actual macOS
 executable can acquire the platform's numeric `__CF_USER_TEXT_ENCODING` tuple
 before Rust runs. Entry accepts only that tuple if present, plus exactly
@@ -142,8 +142,9 @@ controller and confirms reap. A source-derived tag covers this startup entry
 and its frame contract. Exact artifact provenance and full lease framing
 remain separate qualification checks.
 
-Plan review for this check: **Ready.** The feature is off by default. The
-normal startup owner has no code that selects or starts the worker. The test
+Plan review for this check: **Ready.** Release builds omit the entry, and
+default debug builds leave the dispatch disabled. The normal startup owner
+has no code that selects or starts the worker. The test
 uses only the private channel, a bounded startup exchange, and exact child
 cleanup. Process cost, resource transfer, and concurrent application launch
 qualification remain open.
@@ -158,8 +159,10 @@ allowlisted entry. Independent refusal cases supply a valid challenge with
 an extra blank fixture socket or an unexpected fixture environment entry.
 Both cases exit before sending readiness.
 
-Run both native fixtures with
-`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --features codex-custody-qualification --test codex_custody_entry --test codex_custody_bootstrap`.
+Run the executable fixture with
+`ORKWORKS_CUSTODY_QUALIFICATION=1 cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_entry -- --ignored`.
+Run the synthetic fixture with
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --test codex_custody_bootstrap`.
 
 ## Bounded executable qualification after approval
 

@@ -1,8 +1,4 @@
-#![cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "codex-custody-qualification"
-))]
+#![cfg(all(target_os = "macos", target_arch = "aarch64", debug_assertions))]
 
 use std::io;
 use std::os::fd::AsRawFd;
@@ -16,11 +12,19 @@ mod bootstrap_frame;
 mod channels;
 #[path = "../src/taskmaster/codex_capture_owner/deadline_io.rs"]
 mod deadline_io;
+#[path = "../src/taskmaster/codex_capture_owner/qualification_contract.rs"]
+mod qualification_contract;
 
-use bootstrap_frame::{qualification_tag, Direction, FRAME_SIZE, WORKER_ARG};
+use bootstrap_frame::{Direction, FRAME_SIZE};
+use qualification_contract::{qualification_tag, WORKER_ARG};
 
 #[test]
+#[ignore = "requires the explicit compile-time macOS qualification build"]
 fn sidecar_worker_keeps_its_channel_after_startup_and_drains_on_eof() {
+    assert!(
+        qualification_contract::enabled(),
+        "rebuild with ORKWORKS_CUSTODY_QUALIFICATION=1"
+    );
     let [ready, wrong_tag, extra_data, buffered_data] = channels::seal_empty_channels().unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
     let tag = qualification_tag();

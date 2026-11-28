@@ -17,11 +17,7 @@ mod branch_documents;
 mod branch_documents_store;
 mod capacity_analysis;
 mod capacity_state;
-#[cfg(all(
-    target_os = "macos",
-    target_arch = "aarch64",
-    feature = "codex-custody-qualification"
-))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64", debug_assertions))]
 #[path = "taskmaster/codex_capture_owner/qualification.rs"]
 mod codex_custody_qualification;
 mod codex_session_store;
@@ -234,11 +230,7 @@ impl AppState {
 }
 
 fn main() {
-    #[cfg(all(
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "codex-custody-qualification"
-    ))]
+    #[cfg(all(target_os = "macos", target_arch = "aarch64", debug_assertions))]
     if let Some(code) = codex_custody_qualification::run_if_selected() {
         std::process::exit(code);
     }

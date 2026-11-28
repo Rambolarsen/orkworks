@@ -10,10 +10,17 @@ use std::time::{Duration, Instant};
 mod bootstrap_frame;
 #[path = "deadline_io.rs"]
 mod deadline_io;
+#[path = "qualification_contract.rs"]
+mod qualification_contract;
 
-use bootstrap_frame::{Direction, FRAME_SIZE, WORKER_ARG};
+use bootstrap_frame::{Direction, FRAME_SIZE};
+use qualification_contract::WORKER_ARG;
 
 pub(crate) fn run_if_selected() -> Option<i32> {
+    if !qualification_contract::enabled() {
+        return None;
+    }
+
     let mut args = std::env::args_os().skip(1);
     if args.next()?.as_os_str() != WORKER_ARG {
         return None;
@@ -75,7 +82,7 @@ fn run_worker(fd: RawFd) -> io::Result<()> {
     let mut challenge = [0; FRAME_SIZE];
     deadline_io::read_exact(&mut stream, &mut challenge, deadline)?;
     let nonce: [u8; 16] = challenge[6..22].try_into().expect("fixed nonce range");
-    let tag = bootstrap_frame::qualification_tag();
+    let tag = qualification_contract::qualification_tag();
     if !bootstrap_frame::matches(&challenge, Direction::Challenge, &nonce, &tag) {
         return Err(io::ErrorKind::InvalidData.into());
     }
