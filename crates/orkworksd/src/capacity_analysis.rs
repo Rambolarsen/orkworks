@@ -1,6 +1,8 @@
 //! Pure per-runtime capacity evidence. Its mutex is also fail-fast projection admission.
-use crate::capacity_state::{CapacityObservation, CapacityState};
+use crate::capacity_state::{CapacityObservation, CapacityState, UsageLimitLatchMatch};
+use crate::peon::UsageLimitMatch;
 use crate::runtime::session_runtime::{RuntimeCommand, RuntimeIdentity};
+use crate::session_types::UsageLimitEvidenceSource;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -25,8 +27,8 @@ pub(crate) struct PreparedCapacity {
 struct LineCache {
     generation: u64,
     fingerprint: Option<Vec<u8>>,
-    lines: HashMap<u64, (bool, Option<String>)>,
-    raw: Option<(String, (bool, Option<String>))>,
+    lines: HashMap<u64, (Option<UsageLimitMatch>, Option<String>)>,
+    raw: Option<(String, (Option<UsageLimitMatch>, Option<String>))>,
 }
 
 #[derive(Default)]
@@ -45,7 +47,7 @@ impl CapacityAnalysisCache {
     fn analyze_with(
         &mut self,
         inputs: Vec<CapacityInput>,
-        mut scan: impl FnMut(&[String], &str) -> (bool, Option<String>),
+        mut scan: impl FnMut(&[String], &str) -> (Option<UsageLimitMatch>, Option<String>),
     ) -> HashMap<String, PreparedCapacity> {
         let ids: HashSet<_> = inputs.iter().map(|input| input.id.as_str()).collect();
         self.sessions.retain(|id, _| ids.contains(id.as_str()));
@@ -72,28 +74,42 @@ impl CapacityAnalysisCache {
                         .state
                         .observe_with(input.lines.len(), &input.raw, |range, raw| {
                             if patterns.is_empty() {
-                                return (false, None);
+                                return (None, None);
                             }
-                            let mut detected = false;
+                            let mut line_match: Option<UsageLimitMatch> = None;
                             let mut hint = None;
                             for (revision, text) in &input.lines[range] {
                                 let evidence = cache
                                     .lines
                                     .entry(*revision)
                                     .or_insert_with(|| scan(patterns, text));
-                                detected |= evidence.0;
+                                if let Some(matched) = &evidence.0 {
+                                    line_match = Some(matched.clone());
+                                }
                                 if evidence.1.is_some() {
                                     hint = evidence.1.clone();
                                 }
                             }
+                            let line_latch = line_match.map(|matched| UsageLimitLatchMatch {
+                                pattern: matched.pattern,
+                                matched_row: matched.matched_row,
+                                source: UsageLimitEvidenceSource::LineSnapshot,
+                            });
                             if raw.is_empty() {
-                                return (detected, hint);
+                                return (line_latch, hint);
                             }
                             if cache.raw.as_ref().is_none_or(|(text, _)| text != raw) {
                                 cache.raw = Some((raw.to_string(), scan(patterns, raw)));
                             }
-                            let evidence = &cache.raw.as_ref().unwrap().1;
-                            (detected || evidence.0, hint.or_else(|| evidence.1.clone()))
+                            let raw_evidence = &cache.raw.as_ref().unwrap().1;
+                            let latch_match = line_latch.or_else(|| {
+                                raw_evidence.0.as_ref().map(|matched| UsageLimitLatchMatch {
+                                    pattern: matched.pattern.clone(),
+                                    matched_row: matched.matched_row.clone(),
+                                    source: UsageLimitEvidenceSource::RawScanBuffer,
+                                })
+                            });
+                            (latch_match, hint.or_else(|| raw_evidence.1.clone()))
                         })
                 });
                 (input.id.clone(), PreparedCapacity { input, observation })
@@ -193,6 +209,43 @@ mod tests {
         assert!(
             calls > previous,
             "a resumed generation cannot reuse old line identities"
+        );
+    }
+
+    #[test]
+    fn analyze_distinguishes_line_snapshot_from_raw_scan_buffer_evidence() {
+        let mut cache = CapacityAnalysisCache::default();
+        let line_result = cache.analyze(vec![input(
+            1,
+            vec![(1, Arc::from("\x1b[31musage limit resets in 2h\x1b[0m"))],
+        )]);
+        assert_eq!(
+            line_result["cache"]
+                .observation
+                .as_ref()
+                .unwrap()
+                .latch_match,
+            Some(UsageLimitLatchMatch {
+                pattern: "usage limit".into(),
+                matched_row: "usage limit resets in 2h".into(),
+                source: UsageLimitEvidenceSource::LineSnapshot,
+            })
+        );
+
+        let mut raw_only = input(2, vec![(1, Arc::from("ordinary output"))]);
+        raw_only.raw = "\x1b[1;1Husage limit · resets 3pm".into();
+        let raw_result = cache.analyze(vec![raw_only]);
+        assert_eq!(
+            raw_result["cache"]
+                .observation
+                .as_ref()
+                .unwrap()
+                .latch_match,
+            Some(UsageLimitLatchMatch {
+                pattern: "usage limit".into(),
+                matched_row: "usage limit · resets 3pm".into(),
+                source: UsageLimitEvidenceSource::RawScanBuffer,
+            })
         );
     }
 }

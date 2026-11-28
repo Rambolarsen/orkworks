@@ -83,8 +83,9 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
     // The aged Capped display (#1082) must advance at its own boundaries —
     // an inactive capped session updates none of the other timestamps.
     nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitLatchedAt, currentNow));
+    nextRefresh = minDelay(nextRefresh, nextRelativeTimeRefreshMs(active.usageLimitEvidence?.observedAt, currentNow));
     return nextRefresh;
-  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.usageLimitLatchedAt]));
+  }, [active?.id, active?.peonLastInference, active?.lastActivityAt, active?.created_at, active?.usageLimitLatchedAt, active?.usageLimitEvidence?.observedAt]));
 
   // Reset synchronously (during render, not in an effect) so a session
   // switch never paints the previous session's task history under the new
@@ -328,6 +329,17 @@ function SessionDetailPanel({ sessions, visibleSessionId, harnesses, resumingSes
             {active.sessionState === "archived" ? "Archived" : active.sessionState === "closed" ? "Closed" : active.sessionState === "active" ? "Active" : "Unavailable"}
             {active.sessionStateError && <span className="session-detail-value-sub">{active.sessionStateError}</span>}
           </DetailField>}
+          {attn === "capped" && active.usageLimitEvidence && (
+            <DetailField className="detail-fact detail-fact--wide usage-limit-evidence" label="Capped evidence">
+              <span className="usage-limit-evidence-row">{active.usageLimitEvidence.matchedRow}</span>
+              <span className="session-detail-value-sub usage-limit-evidence-meta">
+                Pattern &ldquo;{active.usageLimitEvidence.pattern}&rdquo; · {active.usageLimitEvidence.source === "raw_scan_buffer" ? "raw scan buffer" : "line snapshot"}
+                {active.usageLimitEvidence.observedAt
+                  ? ` · ${relativeTime(active.usageLimitEvidence.observedAt, now) || active.usageLimitEvidence.observedAt}`
+                  : ""}
+              </span>
+            </DetailField>
+          )}
           {showDebugMetadata && (
             <>
               <DetailField className="detail-fact" label="Work phase">

@@ -2185,11 +2185,13 @@ dialog.modal-backdrop::backdrop { background: transparent; }
    width — give them their own full-width row and set them in the mono
    face, matching every other identifier in the panel (branch chip, Peon
    diagnostics values). */
-.detail-fact--id {
+.detail-fact--id,
+.detail-fact--wide {
   grid-column: 1 / -1;
 }
 
-.detail-fact--id .session-detail-value {
+.detail-fact--id .session-detail-value,
+.usage-limit-evidence-row {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;

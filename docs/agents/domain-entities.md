@@ -83,6 +83,13 @@ File: `crates/orkworksd/src/metadata.rs`
   presented as zero. Listings reuse Git context per discovered worktree root,
   including sessions in different subdirectories, and refresh it next listing.
   These are worktree totals, shared across sessions, not session authorship.
+- `usageLimitEvidence` is an optional **API-only** capacity-latch projection
+  (`{ pattern, matchedRow, source, observedAt? }`) populated only for a
+  session's own usage-limit latch (`line_snapshot` or `raw_scan_buffer`).
+  `matchedRow` is ANSI-stripped and bounded. It updates on recheck
+  reconfirmation, clears when the latch clears or resets, is never persisted
+  in `SessionMetadata`, and is omitted for inherited peer displays and
+  debug-injected `capped` attention.
 - `last_user_input`
 
 `normalize_session_metadata` runs on every read to backfill defaults and reconcile `lifecycle`/`lifecycle_phase` drift between old and new records.

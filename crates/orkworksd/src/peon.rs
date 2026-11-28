@@ -307,23 +307,69 @@ fn strip_ansi_escape<I: Iterator<Item = char>>(
     }
 }
 
+const USAGE_LIMIT_EVIDENCE_ROW_MAX_CHARS: usize = 200;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UsageLimitMatch {
+    pub(crate) pattern: String,
+    pub(crate) matched_row: String,
+}
+
+fn bounded_evidence_row(segment: &str) -> String {
+    let cleaned: String = segment
+        .chars()
+        .filter_map(|c| {
+            if c == '\t' {
+                Some(' ')
+            } else if c.is_control() {
+                None
+            } else {
+                Some(c)
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim();
+    let mut chars = trimmed.chars();
+    let prefix: String = chars
+        .by_ref()
+        .take(USAGE_LIMIT_EVIDENCE_ROW_MAX_CHARS)
+        .collect();
+    if chars.next().is_some() {
+        let mut truncated: String = prefix
+            .chars()
+            .take(USAGE_LIMIT_EVIDENCE_ROW_MAX_CHARS - 1)
+            .collect();
+        truncated.truncate(truncated.trim_end().len());
+        truncated.push('…');
+        truncated
+    } else {
+        prefix
+    }
+}
+
 /// Normalize a retained line once, preserving first-row matching and hint order.
-pub(crate) fn capacity_line_evidence(patterns: &[String], text: &str) -> (bool, Option<String>) {
+pub(crate) fn capacity_line_evidence(
+    patterns: &[String],
+    text: &str,
+) -> (Option<UsageLimitMatch>, Option<String>) {
     if patterns.is_empty() || text.is_empty() {
-        return (false, None);
+        return (None, None);
     }
     let plain = strip_ansi_for_usage_limit(text);
-    let detected = plain.split(['\r', '\n']).any(|segment| {
-        patterns
-            .iter()
-            .any(|p| bounded_limit_match(segment, &p.to_ascii_lowercase()))
+    let matched = plain.split(['\r', '\n']).find_map(|segment| {
+        patterns.iter().find_map(|pattern| {
+            bounded_limit_match(segment, &pattern.to_ascii_lowercase()).then(|| UsageLimitMatch {
+                pattern: pattern.clone(),
+                matched_row: bounded_evidence_row(segment),
+            })
+        })
     });
     let hint = plain.split(['\r', '\n']).find_map(|segment| {
         patterns
             .iter()
             .find_map(|p| colocated_banner_hint(segment, &p.to_ascii_lowercase()))
     });
-    (detected, hint)
+    (matched, hint)
 }
 
 pub fn detect_usage_limit<S: AsRef<str>>(patterns: &[S], lines: &[String]) -> bool {
@@ -2452,6 +2498,43 @@ mod tests {
         assert_eq!(
             detect_usage_limit_hint_raw(&["you've hit your session limit"], text).as_deref(),
             Some("resets 1pm (Europe/Oslo)")
+        );
+    }
+
+    #[test]
+    fn capacity_line_evidence_captures_ansi_stripped_bounded_row_and_pattern() {
+        let patterns = vec!["Usage Limit Reached".to_string()];
+        let (matched, hint) = capacity_line_evidence(
+            &patterns,
+            "\x1b[31m  Usage limit reached · resets in 2h  \x1b[0m",
+        );
+        assert_eq!(
+            matched,
+            Some(UsageLimitMatch {
+                pattern: "Usage Limit Reached".to_string(),
+                matched_row: "Usage limit reached · resets in 2h".to_string(),
+            })
+        );
+        assert_eq!(hint.as_deref(), Some("resets in 2h"));
+
+        let (none_match, none_hint) = capacity_line_evidence(&patterns, "ordinary status output");
+        assert_eq!(none_match, None);
+        assert_eq!(none_hint, None);
+
+        let long_pattern = format!("usage limit {}", "detail ".repeat(30));
+        let long_banner = format!("{long_pattern} · resets in 2h");
+        let (bounded, _) = capacity_line_evidence(&[long_pattern.clone()], &long_banner);
+        let bounded = bounded.expect("long pattern banner should match and bound its row");
+        assert_eq!(bounded.pattern, long_pattern);
+        assert_eq!(
+            bounded.matched_row.chars().count(),
+            USAGE_LIMIT_EVIDENCE_ROW_MAX_CHARS
+        );
+        assert!(bounded.matched_row.ends_with('…'));
+        assert!(bounded.matched_row.starts_with("usage limit detail"));
+        assert_eq!(
+            bounded_evidence_row("  \tUsage\x07 limit\t  "),
+            "Usage limit"
         );
     }
 

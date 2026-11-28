@@ -920,6 +920,7 @@ pub(crate) mod test_support {
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
             usage_limit_latched_at: None,
+            usage_limit_evidence: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,

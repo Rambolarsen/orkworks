@@ -383,6 +383,7 @@ pub(crate) fn project_session_info(
         usage_limit_reset_hint: info.usage_limit_reset_hint,
         usage_limit_inherited: info.usage_limit_inherited,
         usage_limit_latched_at: info.usage_limit_latched_at,
+        usage_limit_evidence: info.usage_limit_evidence,
         metadata_source: meta
             .map(|m| m.metadata_source.clone())
             .or(info.metadata_source),
@@ -532,6 +533,7 @@ mod tests {
             usage_limit_reset_hint: None,
             usage_limit_inherited: None,
             usage_limit_latched_at: None,
+            usage_limit_evidence: None,
             metadata_source: None,
             metadata_confidence: None,
             repo_root: None,
