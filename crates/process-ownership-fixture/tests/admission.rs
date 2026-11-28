@@ -137,7 +137,7 @@ fn wait_for_complete<A: PlatformAdapter>(supervisor: &mut Supervisor<A>) -> Obse
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AdapterFault {
     UnresolvedContainment,
-    DescendantCensusFailure,
+    DescendantCensusFailure(DescendantObservationFailure),
     #[cfg(any(target_os = "linux", windows))]
     ObserverUnavailable,
     BirthIdentityMismatch,
@@ -278,8 +278,8 @@ impl PlatformAdapter for FaultAdapter {
         _registered_identities: &[NativeIdentity],
         _deadline: Instant,
     ) -> Result<Vec<ProcessObservation>, DescendantObservationFailure> {
-        if self.fault == AdapterFault::DescendantCensusFailure {
-            return Err(DescendantObservationFailure::JobCensus(Some(5)));
+        if let AdapterFault::DescendantCensusFailure(failure) = self.fault {
+            return Err(failure);
         }
         Ok(Vec::new())
     }
@@ -564,17 +564,26 @@ fn unresolved_containment_is_rejected_before_release() {
 }
 
 #[test]
-fn descendant_census_failure_keeps_the_snapshot_unresolved_with_its_stage() {
-    let mut supervisor = prepared_with_fault(AdapterFault::DescendantCensusFailure);
-    let snapshot = supervisor.observe();
+fn descendant_census_failure_keeps_the_snapshot_unresolved_with_its_context() {
+    for failure in [
+        DescendantObservationFailure::JobCensus(Some(5)),
+        DescendantObservationFailure::NotRunning {
+            diagnostic_pid: 1856,
+            matches_registered_pid: true,
+        },
+        DescendantObservationFailure::NotRunning {
+            diagnostic_pid: 4216,
+            matches_registered_pid: false,
+        },
+    ] {
+        let mut supervisor = prepared_with_fault(AdapterFault::DescendantCensusFailure(failure));
+        let snapshot = supervisor.observe();
 
-    assert!(snapshot.observation_unresolved);
-    assert!(!is_complete(&snapshot));
-    assert!(snapshot.descendants.is_empty());
-    assert_eq!(
-        snapshot.descendant_observation_failure,
-        Some(DescendantObservationFailure::JobCensus(Some(5)))
-    );
+        assert!(snapshot.observation_unresolved);
+        assert!(!is_complete(&snapshot));
+        assert!(snapshot.descendants.is_empty());
+        assert_eq!(snapshot.descendant_observation_failure, Some(failure));
+    }
 }
 
 #[test]

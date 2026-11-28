@@ -65,7 +65,13 @@ pub enum DescendantObservationFailure {
     /// The nonblocking liveness check failed, with its Win32 code if available.
     Wait(Option<i32>),
     /// The liveness check did not report that the process was still running.
-    NotRunning,
+    NotRunning {
+        /// Census entry whose nonblocking liveness check did not report running.
+        diagnostic_pid: u32,
+        /// PID-only hint for correlating this failure with the snapshot's roots.
+        /// This does not establish native birth identity or cleanup authority.
+        matches_registered_pid: bool,
+    },
     /// Native identity capture failed, with its Win32 code if available.
     CaptureIdentity(Option<i32>),
 }
