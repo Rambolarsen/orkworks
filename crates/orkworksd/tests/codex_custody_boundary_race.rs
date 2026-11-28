@@ -990,128 +990,159 @@ fn both_receive_and_launch_orders_isolate_descriptors_across_std_probe_and_pty()
 
     // --- Order B2: Barrier-synchronized concurrent overlap across std, probe, and PTY ---
     // Pre-initialize runtime/ProbeService and PTY pair BEFORE the barrier so the barrier
-    // aligns directly with the actual child spawn, and loop bind/revalidate/release continuously
-    // on the custody thread until the launcher completes so both sides genuinely overlap.
-    for round in 0..6 {
-        struct SetOnDrop(Arc<AtomicBool>);
-        impl Drop for SetOnDrop {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::Release);
-            }
-        }
-
-        let barrier = Arc::new(Barrier::new(2));
-        let launcher_done = Arc::new(AtomicBool::new(false));
-        let b_launch = Arc::clone(&barrier);
-        let done_launch = Arc::clone(&launcher_done);
-        let t_launch = targets.clone();
-
-        let launcher = thread::spawn(move || {
-            let _mark_done = SetOnDrop(done_launch);
-            match round % 3 {
-                0 => {
-                    let mut cmd = Command::new(std::env::current_exe().unwrap());
-                    cmd.args([
-                        "--exact",
-                        "inspect_inherited_objects_child",
-                        "--ignored",
-                        "--nocapture",
-                    ]);
-                    t_launch.apply_to_std(&mut cmd);
-                    b_launch.wait();
-                    let output = cmd.output().expect("concurrent std inspector");
-                    assert!(output.status.success());
-                    parse_inspect_output(&String::from_utf8_lossy(&output.stdout))
-                }
-                1 => {
-                    let rt = tokio_rt();
-                    let service = ProbeService::new().expect("create isolated ProbeService");
-                    let mut cmd = Command::new(std::env::current_exe().unwrap());
-                    cmd.args([
-                        "--exact",
-                        "inspect_inherited_objects_child",
-                        "--ignored",
-                        "--nocapture",
-                    ]);
-                    t_launch.apply_to_std(&mut cmd);
-                    let policy = ProbePolicy {
-                        max_bytes: 64 * 1024,
-                        reject_overflow: true,
-                        require_success: true,
-                    };
-                    b_launch.wait();
-                    let captured = rt.block_on(async {
-                        let out = service
-                            .run(&mut cmd, policy, Duration::from_secs(5))
-                            .await
-                            .expect("concurrent ProbeService::run inspector");
-                        service.shutdown().await;
-                        out
-                    });
-                    parse_inspect_output(&String::from_utf8_lossy(&captured.stdout))
-                }
-                _ => {
-                    let pty_system = native_pty_system();
-                    let pair = pty_system
-                        .openpty(PtySize {
-                            rows: 24,
-                            cols: 120,
-                            pixel_width: 0,
-                            pixel_height: 0,
-                        })
-                        .expect("openpty");
-                    let mut cmd = CommandBuilder::new(std::env::current_exe().unwrap());
-                    cmd.args([
-                        "--exact",
-                        "inspect_inherited_objects_child",
-                        "--ignored",
-                        "--nocapture",
-                    ]);
-                    t_launch.apply_to_pty(&mut cmd);
-                    let mut reader = pair.master.try_clone_reader().expect("clone pty reader");
-                    b_launch.wait();
-                    let mut child = pair.slave.spawn_command(cmd).expect("concurrent pty spawn");
-                    drop(pair.slave);
-                    let reader_thread = thread::spawn(move || {
-                        let mut buf = Vec::new();
-                        let _ = reader.read_to_end(&mut buf);
-                        String::from_utf8_lossy(&buf).into_owned()
-                    });
-                    let status = child.wait().expect("wait concurrent pty child");
-                    assert!(status.success());
-                    drop(pair.master);
-                    let stdout = reader_thread.join().expect("join pty reader");
-                    parse_inspect_output(&stdout)
-                }
-            }
-        });
-
-        barrier.wait();
-        let mut custody_cycles = 0usize;
-        while custody_cycles == 0 || !launcher_done.load(Ordering::Acquire) {
-            let h = pool
-                .bind_and_observe(
-                    &temp.workspace,
-                    &temp.home,
-                    &temp.packaged,
-                    DEFAULT_LEASE_TTL,
-                    DEFAULT_OP_DEADLINE,
-                )
-                .expect("concurrent bind_and_observe");
-            assert!(!process_has_vnode(std::process::id() as i32, probe_id));
-            assert_eq!(child_process_count(h.worker_pid()).unwrap(), 0);
-            assert_eq!(
-                pool.revalidate(&h, DEFAULT_OP_DEADLINE).unwrap(),
-                RevalidateOutcome::Fresh
+    // aligns directly with the actual child spawn, and loop bind/revalidate/release
+    // while `launcher_running` is true. Only count a trial if custody activity actually
+    // overlapped the live launch (`overlapping_cycles >= 1`), retrying any sequential slip.
+    for family in 0..3 {
+        let mut confirmed_overlaps = 0usize;
+        let mut attempts = 0usize;
+        while confirmed_overlaps < 2 {
+            attempts += 1;
+            assert!(
+                attempts <= 12,
+                "failed to observe 2 genuinely overlapping trials for launch family {family} within 12 attempts"
             );
-            pool.release(h, DEFAULT_OP_DEADLINE).unwrap();
-            custody_cycles += 1;
-        }
 
-        let res = launcher.join().expect("join concurrent launcher");
-        res.assert_clean(&format!(
-            "Order B2 concurrent overlap round {round} ({custody_cycles} overlapping cycles)"
-        ));
+            struct FinishLaunchGuard {
+                running: Arc<AtomicBool>,
+                done: Arc<AtomicBool>,
+            }
+            impl Drop for FinishLaunchGuard {
+                fn drop(&mut self) {
+                    self.running.store(false, Ordering::Release);
+                    self.done.store(true, Ordering::Release);
+                }
+            }
+
+            let barrier = Arc::new(Barrier::new(2));
+            let launcher_running = Arc::new(AtomicBool::new(false));
+            let launcher_done = Arc::new(AtomicBool::new(false));
+            let b_launch = Arc::clone(&barrier);
+            let running_launch = Arc::clone(&launcher_running);
+            let done_launch = Arc::clone(&launcher_done);
+            let t_launch = targets.clone();
+
+            let launcher = thread::spawn(move || {
+                let _finish_guard = FinishLaunchGuard {
+                    running: Arc::clone(&running_launch),
+                    done: done_launch,
+                };
+                match family {
+                    0 => {
+                        let mut cmd = Command::new(std::env::current_exe().unwrap());
+                        cmd.args([
+                            "--exact",
+                            "inspect_inherited_objects_child",
+                            "--ignored",
+                            "--nocapture",
+                        ]);
+                        t_launch.apply_to_std(&mut cmd);
+                        b_launch.wait();
+                        running_launch.store(true, Ordering::Release);
+                        let output = cmd.output().expect("concurrent std inspector");
+                        assert!(output.status.success());
+                        parse_inspect_output(&String::from_utf8_lossy(&output.stdout))
+                    }
+                    1 => {
+                        let rt = tokio_rt();
+                        let service = ProbeService::new().expect("create isolated ProbeService");
+                        let mut cmd = Command::new(std::env::current_exe().unwrap());
+                        cmd.args([
+                            "--exact",
+                            "inspect_inherited_objects_child",
+                            "--ignored",
+                            "--nocapture",
+                        ]);
+                        t_launch.apply_to_std(&mut cmd);
+                        let policy = ProbePolicy {
+                            max_bytes: 64 * 1024,
+                            reject_overflow: true,
+                            require_success: true,
+                        };
+                        b_launch.wait();
+                        running_launch.store(true, Ordering::Release);
+                        let captured = rt.block_on(async {
+                            let out = service
+                                .run(&mut cmd, policy, Duration::from_secs(5))
+                                .await
+                                .expect("concurrent ProbeService::run inspector");
+                            service.shutdown().await;
+                            out
+                        });
+                        parse_inspect_output(&String::from_utf8_lossy(&captured.stdout))
+                    }
+                    _ => {
+                        let pty_system = native_pty_system();
+                        let pair = pty_system
+                            .openpty(PtySize {
+                                rows: 24,
+                                cols: 120,
+                                pixel_width: 0,
+                                pixel_height: 0,
+                            })
+                            .expect("openpty");
+                        let mut cmd = CommandBuilder::new(std::env::current_exe().unwrap());
+                        cmd.args([
+                            "--exact",
+                            "inspect_inherited_objects_child",
+                            "--ignored",
+                            "--nocapture",
+                        ]);
+                        t_launch.apply_to_pty(&mut cmd);
+                        let mut reader = pair.master.try_clone_reader().expect("clone pty reader");
+                        b_launch.wait();
+                        running_launch.store(true, Ordering::Release);
+                        let mut child =
+                            pair.slave.spawn_command(cmd).expect("concurrent pty spawn");
+                        drop(pair.slave);
+                        let reader_thread = thread::spawn(move || {
+                            let mut buf = Vec::new();
+                            let _ = reader.read_to_end(&mut buf);
+                            String::from_utf8_lossy(&buf).into_owned()
+                        });
+                        let status = child.wait().expect("wait concurrent pty child");
+                        assert!(status.success());
+                        drop(pair.master);
+                        let stdout = reader_thread.join().expect("join pty reader");
+                        parse_inspect_output(&stdout)
+                    }
+                }
+            });
+
+            barrier.wait();
+            let mut overlapping_cycles = 0usize;
+            while !launcher_done.load(Ordering::Acquire) {
+                let active_before = launcher_running.load(Ordering::Acquire);
+                let h = pool
+                    .bind_and_observe(
+                        &temp.workspace,
+                        &temp.home,
+                        &temp.packaged,
+                        DEFAULT_LEASE_TTL,
+                        DEFAULT_OP_DEADLINE,
+                    )
+                    .expect("concurrent bind_and_observe");
+                let active_mid = launcher_running.load(Ordering::Acquire);
+                assert!(!process_has_vnode(std::process::id() as i32, probe_id));
+                assert_eq!(child_process_count(h.worker_pid()).unwrap(), 0);
+                assert_eq!(
+                    pool.revalidate(&h, DEFAULT_OP_DEADLINE).unwrap(),
+                    RevalidateOutcome::Fresh
+                );
+                pool.release(h, DEFAULT_OP_DEADLINE).unwrap();
+                if active_before || active_mid {
+                    overlapping_cycles += 1;
+                }
+            }
+
+            let res = launcher.join().expect("join concurrent launcher");
+            res.assert_clean(&format!(
+                "Order B2 family {family} attempt {attempts} ({overlapping_cycles} overlapping cycles)"
+            ));
+            if overlapping_cycles >= 1 {
+                confirmed_overlaps += 1;
+            }
+        }
     }
 
     let report = pool.shutdown(Duration::from_secs(2));
