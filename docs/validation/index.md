@@ -201,3 +201,5 @@ Capability research, validation results, and evidence fixtures.
 - [Live progress reader verification](live-reader-progress.md) — Owned fixture evidence and the sole MSVC-start timeout terminal result.
 
 - [MSVC reader source audit](msvc-reader-source-audit.md) — Frozen operation counts and the within-root observation gap; no new execution allowance.
+
+- [Root reader diagnostics verification](root-reader-diagnostics.md) — Owned v3 checkpoint and custody evidence; live entry disabled and no renewed allowance.

@@ -70,6 +70,10 @@ jobs:
         timeout-minutes: 5
         run: node scripts/qualification/pair-progress-windows-build.test.mjs
 
+      - name: Test bounded root reader diagnostics on owned fixtures
+        timeout-minutes: 5
+        run: node scripts/qualification/pair-root-diagnostic-windows-build.test.mjs
+
   workspace-reporting:
     name: Workspace reporting (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

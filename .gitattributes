@@ -135,3 +135,11 @@ scripts/qualification/pair-progress-windows-build.inputs.json text eol=lf
 scripts/qualification/pair-progress-windows-build-sdk.py text eol=lf
 scripts/qualification/pair-progress-windows-build-sdk.test.py text eol=lf
 .github/workflows/pair-progress-windows-build.yml text eol=lf
+
+scripts/qualification/pair-root-diagnostic-windows-build.mjs text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build-protocol.mjs text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build.ps1 text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build.inputs.json text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build-sdk.py text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build.test.mjs text eol=lf
+scripts/qualification/pair-root-diagnostic-windows-build-fixtures.ps1 text eol=lf

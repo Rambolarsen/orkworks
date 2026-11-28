@@ -53,3 +53,23 @@ after verification, review, merge, immutable source freeze and fresh-history
 checks. No retry or runtime/production qualification follows. All ADRs 0118/0119
 constraints remain. Reverting the new isolated tooling/workflow/fixture step
 reverses integration; an attempted job's allowance remains spent.
+
+## Amendment — 2026-11-28: isolated root diagnostics, owned fixtures only
+
+The owner accepted the [within-root contract](../superpowers/specs/2026-11-28-within-root-reader-diagnostics-design.md)
+through “keep going” after #2267. Implement an isolated v3 request/record/output
+domain in new pair-root-diagnostic-windows-build files, with 21 structural
+boundaries and at most 11 sparse MSVC samples. Its 32 × 128-byte inner format
+retains the same 4 KiB report, 18 KiB traces, 64 KiB result and conservative
+source/output/debit settlement. Reuse guarded pure validators and seal their
+transitive repository inputs; retain every reader custody pass and exclusive
+payload lease. Legacy tooling and its domains stay byte-identical.
+
+Acceptance covers new tooling and the contract's bounded owned fixtures plus
+one five-minute normal SDK-fixture CI step. Node, reader and SDK CLI entry
+refuse live use before scratch, installed probes or children. No qualification
+workflow or installed-input attempt is included. A later concrete finite
+proposal/owner decision must enable any live entry. Removing the new files,
+LF entries and fixture step reverses this additive change, with no runtime
+state migration and no renewal of a spent allowance. Native capacity, runtime
+cost and the historical timeout cause remain unverified.
