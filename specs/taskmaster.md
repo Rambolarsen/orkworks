@@ -831,19 +831,36 @@ has appeared, and reports the difference instead of forcing the change.
 
 Instruction and configuration surfaces such as `AGENTS.md`, `CLAUDE.md`, and
 skills are legitimate targets and are allowed. The sidecar sets
-`sensitive: true`, comparing case-insensitively, on a target under `.claude/`,
-`.codex/`, `.opencode/`, `.agents/`, `.cursor/`, `.vscode/`, `.devcontainer/`,
-`.husky/`, `.githooks/`, `.github/`, `.cargo/`, or `scripts/`, or whose final path
-segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`, `opencode.json`, `apm.yml`,
-`package.json`, `Cargo.toml`, `build.rs`, `Makefile`, `justfile`, or `Dockerfile`, at any depth, because those paths can run code or
-change hooks, permissions, or CI. A Markdown file under `skills/`, `.claude/skills/`,
-`.agents/skills/`, or `.codex/skills/` is never flagged, even beneath a flagged
-directory; other files there, such as skill scripts, follow the normal rules.
-`AGENTS.md`, `CLAUDE.md`, and skills are not flagged by name: the flag marks
-paths that execute or change permissions, and these are the primary intended
-targets. The directory rule takes precedence, so `.claude/CLAUDE.md` or
-`scripts/AGENTS.md` is flagged because of the directory it sits under. The model
-never sets this flag.
+`sensitive: true`, comparing case-insensitively, on any target that matches at
+least one of the following execution or configuration surfaces:
+
+- under `.claude/`, `.codex/`, `.opencode/`, `.agents/`, `.cursor/`,
+  `.vscode/`, `.devcontainer/`, `.husky/`, `.githooks/`, `.github/`, `.cargo/`,
+  or `scripts/`;
+- whose final path segment equals `.mcp.json`, `.gitattributes`, `.gitmodules`,
+  `opencode.json`, `apm.yml`, `package.json`, `Cargo.toml`, `build.rs`,
+  `Makefile`, `justfile`, or `Dockerfile`, at any depth;
+- any `.json`, `.yml`, `.yaml`, or `.toml` file directly in the repository root
+  (such as `.pre-commit-config.yaml`, `lefthook.yml`, `pnpm-workspace.yaml`, or
+  `rust-toolchain.toml`), because root-level configuration files are tooling and
+  execution surfaces by construction;
+- inside a test directory segment (`tests`, `test`, `__tests__`, or `spec` at
+  any parent depth): `conftest.py`, shell/command scripts (`*.sh`, `*.bash`,
+  `*.zsh`, `*.ps1`, `*.cmd`, `*.bat`), and non-documentation/non-data setup or
+  teardown scripts whose stem contains a dot-separated token starting with
+  `setup`, `teardown`, `global-setup`, `global_setup`, `globalsetup`,
+  `global-teardown`, `global_teardown`, or `globalteardown` (such as
+  `setupTests.ts`, `globalSetup.ts`, `jest.setup.js`, or `vitest.setup.ts`,
+  excluding `.md`, `.mdx`, `.rst`, `.txt`, `.json`, `.yml`, `.yaml`, `.toml`).
+
+A Markdown file under `skills/`, `.claude/skills/`, `.agents/skills/`, or
+`.codex/skills/` is never flagged, even beneath a flagged directory; other
+files there, such as skill scripts, follow the normal rules. `AGENTS.md`,
+`CLAUDE.md`, skills, ordinary test files, and passive test fixtures are not
+flagged by name: the flag marks paths that execute code or change hooks,
+toolchain configuration, permissions, or CI. The directory rule takes
+precedence, so `.claude/CLAUDE.md` or `scripts/AGENTS.md` is flagged because of
+the directory it sits under. The model never sets this flag.
 
 **Failure behavior.** Rollup failures degrade instead of rejecting the
 response. The rollups section is parsed leniently and validated as a unit,

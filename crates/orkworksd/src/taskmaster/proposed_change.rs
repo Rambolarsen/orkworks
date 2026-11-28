@@ -128,11 +128,63 @@ const SENSITIVE_FILE_NAMES: [&str; 11] = [
     "dockerfile",
 ];
 
-/// Paths that can run code or change hooks, permissions, or CI. Instruction
-/// files (`AGENTS.md`, `CLAUDE.md`, skills) are deliberately not flagged.
+const ROOT_CONFIG_EXTENSIONS: [&str; 4] = [".json", ".yml", ".yaml", ".toml"];
+const TEST_DIRECTORY_SEGMENTS: [&str; 4] = ["tests", "test", "__tests__", "spec"];
+const DOC_EXTENSIONS: [&str; 4] = [".md", ".mdx", ".rst", ".txt"];
+const SHELL_SCRIPT_EXTENSIONS: [&str; 6] = [".sh", ".bash", ".zsh", ".ps1", ".cmd", ".bat"];
+
+fn is_root_config_file(dirs: &[&str], file: &str) -> bool {
+    dirs.is_empty() && ROOT_CONFIG_EXTENSIONS.iter().any(|ext| file.ends_with(ext))
+}
+
+fn is_setup_or_teardown_token(token: &str) -> bool {
+    [
+        "setup",
+        "teardown",
+        "global-setup",
+        "global_setup",
+        "globalsetup",
+        "global-teardown",
+        "global_teardown",
+        "globalteardown",
+    ]
+    .iter()
+    .any(|prefix| token.starts_with(prefix))
+}
+
+fn is_test_directory_code_file(dirs: &[&str], file: &str) -> bool {
+    if !dirs.iter().any(|dir| TEST_DIRECTORY_SEGMENTS.contains(dir)) {
+        return false;
+    }
+    if file == "conftest.py" {
+        return true;
+    }
+    if SHELL_SCRIPT_EXTENSIONS
+        .iter()
+        .any(|ext| file.ends_with(ext))
+    {
+        return true;
+    }
+    if DOC_EXTENSIONS.iter().any(|ext| file.ends_with(ext))
+        || ROOT_CONFIG_EXTENSIONS.iter().any(|ext| file.ends_with(ext))
+    {
+        return false;
+    }
+    let stem_segments = match file.rsplit_once('.') {
+        Some((prefix, _)) => prefix,
+        None => file,
+    };
+    stem_segments.split('.').any(is_setup_or_teardown_token)
+}
+
+/// Paths that can run code or change hooks, toolchain configuration,
+/// permissions, or CI. Instruction files (`AGENTS.md`, `CLAUDE.md`, skills),
+/// ordinary tests, and passive fixtures are deliberately not flagged.
 pub(crate) fn is_sensitive_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
-    let file_name = lower.rsplit('/').next().unwrap_or("");
+    let segments: Vec<&str> = lower.split('/').collect();
+    let file_name = *segments.last().unwrap_or(&"");
+    let dirs = &segments[..segments.len().saturating_sub(1)];
     let in_skills = [
         "skills/",
         ".claude/skills/",
@@ -148,6 +200,8 @@ pub(crate) fn is_sensitive_path(path: &str) -> bool {
         .iter()
         .any(|prefix| lower.starts_with(prefix))
         || SENSITIVE_FILE_NAMES.contains(&file_name)
+        || is_root_config_file(dirs, file_name)
+        || is_test_directory_code_file(dirs, file_name)
 }
 
 fn is_test_file_name(file: &str) -> bool {
@@ -199,17 +253,11 @@ pub(crate) fn is_in_scope(path: &str) -> bool {
     }
     if lower.starts_with("docs/")
         || lower.starts_with("specs/")
-        || [".md", ".mdx", ".rst", ".txt"]
-            .iter()
-            .any(|ext| file.ends_with(ext))
+        || DOC_EXTENSIONS.iter().any(|ext| file.ends_with(ext))
     {
         return true;
     }
-    if dirs
-        .iter()
-        .any(|dir| matches!(*dir, "tests" | "test" | "__tests__" | "spec"))
-        || is_test_file_name(file)
-    {
+    if dirs.iter().any(|dir| TEST_DIRECTORY_SEGMENTS.contains(dir)) || is_test_file_name(file) {
         return true;
     }
     if TOOLING_PREFIXES
@@ -220,10 +268,7 @@ pub(crate) fn is_in_scope(path: &str) -> bool {
     {
         return true;
     }
-    dirs.is_empty()
-        && [".json", ".yml", ".yaml", ".toml"]
-            .iter()
-            .any(|ext| file.ends_with(ext))
+    is_root_config_file(dirs, file)
 }
 
 /// Unicode bidirectional controls (UAX #9 / Trojan Source) and zero-width
@@ -553,6 +598,73 @@ mod tests {
             crate::taskmaster::clean_proposed_change_reference(&spoofed_stored),
             fixture["invisibleCharacters"]["expectedReference"]
         );
+
+        for case in fixture["sensitiveTargets"].as_array().unwrap() {
+            let path = case["path"].as_str().unwrap();
+            let expected = case["sensitive"].as_bool().unwrap();
+            assert_eq!(is_sensitive_path(path), expected, "fixture path: {path}");
+            let validated = validate_proposed_change(&model(path, TargetAction::Create)).unwrap();
+            assert_eq!(
+                validated.targets[0].sensitive, expected,
+                "validated: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn root_config_and_code_bearing_test_files_are_flagged_sensitive() {
+        for path in [
+            ".pre-commit-config.yaml",
+            "lefthook.yml",
+            "pnpm-workspace.yaml",
+            "rust-toolchain.toml",
+            "tsconfig.json",
+            "pyproject.toml",
+            "tests/conftest.py",
+            "packages/core/test/conftest.py",
+            "tests/helpers/run.sh",
+            "test/bootstrap.ps1",
+            "__tests__/env.bash",
+            "spec/init.cmd",
+            "tests/setup.ts",
+            "tests/setupTests.ts",
+            "tests/setup_env.py",
+            "test/teardown.mjs",
+            "spec/global-setup.ts",
+            "tests/globalSetup.ts",
+            "tests/globalTeardown.ts",
+            "tests/global-setup_env.ts",
+            "__tests__/global_teardown.js",
+            "tests/vitest.setup.ts",
+            "tests/jest.setup.cjs",
+            "tests/setup",
+        ] {
+            assert!(is_in_scope(path), "expected in scope: {path}");
+            assert!(is_sensitive_path(path), "expected sensitive: {path}");
+            let validated = validate_proposed_change(&model(path, TargetAction::Create)).unwrap();
+            assert!(
+                validated.targets[0].sensitive,
+                "validated sensitive: {path}"
+            );
+        }
+        for path in [
+            "docs/config.json",
+            "docs/schema.yaml",
+            "tests/api.test.ts",
+            "tests/unit.rs",
+            "tests/README.md",
+            "tests/setup.md",
+            "tests/fixtures/setup.json",
+            "tests/fixtures/teardown.yaml",
+        ] {
+            assert!(is_in_scope(path), "expected in scope: {path}");
+            assert!(!is_sensitive_path(path), "expected non-sensitive: {path}");
+            let validated = validate_proposed_change(&model(path, TargetAction::Create)).unwrap();
+            assert!(
+                !validated.targets[0].sensitive,
+                "validated non-sensitive: {path}"
+            );
+        }
     }
 
     #[test]
