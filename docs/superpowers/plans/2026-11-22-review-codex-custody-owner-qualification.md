@@ -119,6 +119,45 @@ data. The parent verified all eight close-on-exec flags after the attempts.
 Exact-length, truncated, and trailing-data stream cases also passed. A closed
 selected descriptor was rejected before constructing an owned stream.
 
+## Sidecar executable entry check
+
+Use the opt-in `codex-custody-qualification` Cargo feature on macOS arm64.
+The private worker dispatch runs before the Git helper and normal sidecar
+startup. The parent launch supplies an empty environment. The actual macOS
+executable can acquire the platform's numeric `__CF_USER_TEXT_ENCODING` tuple
+before Rust runs. Entry accepts only that tuple if present, plus exactly
+three null standard streams and one connected Unix stream. Inspect the worker's complete descriptor inventory before creating a
+Rust-owned close-on-exec duplicate. The fixture execs the produced sidecar
+binary with only the intended endpoint made inheritable in the child.
+
+The challenge and ready messages retain the fixed 54-byte format. This
+entry reads exactly one challenge and returns one ready frame while keeping
+the stream open. A worker with the wrong startup tag, malformed invocation,
+or additional input already queued behind the challenge refuses startup. After
+readiness the worker waits for controller EOF. Additional input at that point
+exits with a protocol failure during this qualification. The fixture
+checks that the exact child stays alive after readiness, then closes the
+controller and confirms reap. A source-derived tag covers this startup entry
+and its frame contract. Exact artifact provenance and full lease framing
+remain separate qualification checks.
+
+Plan review for this check: **Ready.** The feature is off by default. The
+normal startup owner has no code that selects or starts the worker. The test
+uses only the private channel, a bounded startup exchange, and exact child
+cleanup. Process cost, resource transfer, and concurrent application launch
+qualification remain open.
+
+On macOS 26.6.2 arm64, the opt-in sidecar binary returned readiness on the
+still-open channel and reaped successfully after controller EOF. Its startup
+check required exactly four kernel-listed descriptors, and rejected a
+different startup tag and surplus bytes queued before readiness. A byte
+sent after readiness caused a protocol failure and reap. The parent launched
+with an empty environment. The observed platform locale tuple was the single
+allowlisted entry.
+
+Run both native fixtures with
+`cargo test --locked --manifest-path crates/orkworksd/Cargo.toml --features codex-custody-qualification --test codex_custody_entry --test codex_custody_bootstrap`.
+
 ## Bounded executable qualification after approval
 
 Before code, record the accepted amendment through ADR 0026's lifecycle and pin

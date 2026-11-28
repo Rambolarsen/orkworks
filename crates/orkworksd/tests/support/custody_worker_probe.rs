@@ -1,6 +1,6 @@
 //! One-shot native startup probe. The production lease stream does not use EOF framing.
 
-use std::io::{self, ErrorKind, Read, Write};
+use std::io::{self, ErrorKind};
 use std::net::Shutdown;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::{
@@ -12,8 +12,8 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::assert_closed;
 use super::bootstrap_frame::{self, Direction, FRAME_SIZE};
+use super::{assert_closed, deadline_io};
 
 const SELECTED: &str = "ORKWORKS_CUSTODY_FIXTURE_SELECTED";
 const REGISTERED: &str = "ORKWORKS_CUSTODY_FIXTURE_REGISTERED";
@@ -175,63 +175,20 @@ fn remaining(deadline: Instant) -> io::Result<Duration> {
     Ok(time)
 }
 
-fn wait_io(stream: &UnixStream, events: libc::c_short, deadline: Instant) -> io::Result<()> {
-    let mut interest = libc::pollfd {
-        fd: stream.as_raw_fd(),
-        events,
-        revents: 0,
-    };
-    loop {
-        let millis = remaining(deadline)?.as_millis().clamp(1, i32::MAX as u128) as i32;
-        // SAFETY: interest is one writable pollfd and the stream remains open.
-        match unsafe { libc::poll(&mut interest, 1, millis) } {
-            value if value > 0 => return Ok(()),
-            0 => {}
-            _ => {
-                let error = io::Error::last_os_error();
-                if error.kind() != ErrorKind::Interrupted {
-                    return Err(error);
-                }
-            }
-        }
-    }
-}
-
-fn write_frame(mut stream: &UnixStream, mut bytes: &[u8], deadline: Instant) -> io::Result<()> {
+fn write_frame(stream: &UnixStream, bytes: &[u8], deadline: Instant) -> io::Result<()> {
     stream.set_nonblocking(true)?;
-    while !bytes.is_empty() {
-        wait_io(stream, libc::POLLOUT, deadline)?;
-        match stream.write(bytes) {
-            Ok(0) => return Err(ErrorKind::WriteZero.into()),
-            Ok(count) => bytes = &bytes[count..],
-            Err(error)
-                if matches!(error.kind(), ErrorKind::Interrupted | ErrorKind::WouldBlock) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    remaining(deadline)?;
+    deadline_io::write_all(stream, bytes, deadline)?;
     stream.shutdown(Shutdown::Write)
 }
 
-fn read_frame(mut stream: &UnixStream, deadline: Instant) -> io::Result<[u8; FRAME_SIZE]> {
+fn read_frame(stream: &UnixStream, deadline: Instant) -> io::Result<[u8; FRAME_SIZE]> {
     stream.set_nonblocking(true)?;
-    let mut bytes = [0; FRAME_SIZE + 1];
-    let mut length = 0;
-    while length < bytes.len() {
-        wait_io(stream, libc::POLLIN, deadline)?;
-        match stream.read(&mut bytes[length..]) {
-            Ok(0) if length == FRAME_SIZE => {
-                remaining(deadline)?;
-                return Ok(bytes[..FRAME_SIZE].try_into().expect("fixed frame size"));
-            }
-            Ok(0) => return Err(ErrorKind::UnexpectedEof.into()),
-            Ok(count) => length += count,
-            Err(error)
-                if matches!(error.kind(), ErrorKind::Interrupted | ErrorKind::WouldBlock) => {}
-            Err(error) => return Err(error),
-        }
+    let mut frame = [0; FRAME_SIZE];
+    deadline_io::read_exact(stream, &mut frame, deadline)?;
+    if deadline_io::read(stream, &mut [0], deadline)? != 0 {
+        return Err(ErrorKind::InvalidData.into());
     }
-    Err(ErrorKind::InvalidData.into())
+    Ok(frame)
 }
 
 pub(super) fn verify_exact_stream_frames() {

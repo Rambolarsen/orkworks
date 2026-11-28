@@ -27,3 +27,30 @@ pub(super) fn matches(
 ) -> bool {
     bytes == encode(direction, nonce, build)
 }
+
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "codex-custody-qualification"
+))]
+pub(super) const WORKER_ARG: &str = "--orkworks-codex-custody-qualification-worker";
+
+#[cfg(all(
+    target_os = "macos",
+    target_arch = "aarch64",
+    feature = "codex-custody-qualification"
+))]
+pub(super) fn qualification_tag() -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"orkworks:codex-custody-qualification:v1");
+    for source in [
+        include_bytes!("bootstrap_frame.rs").as_slice(),
+        include_bytes!("qualification.rs").as_slice(),
+        include_bytes!("deadline_io.rs").as_slice(),
+    ] {
+        hash.update((source.len() as u64).to_be_bytes());
+        hash.update(source);
+    }
+    hash.finalize().into()
+}
