@@ -6,6 +6,7 @@ import { getTerminalOutput } from "../api";
 import { loadTerminalReplay } from "../terminalReplay";
 import { computeReplayScale, availableContentBox } from "../terminalReplayScale";
 import { orkworksTerminalOptions } from "../terminalTheme";
+import { markTerminalScrollback } from "../terminalScrollbar";
 import { createTerminalPlanLinkProvider, terminalLinkHandler } from "../terminalLinks";
 import EmptyState from "./EmptyState";
 
@@ -54,6 +55,7 @@ export default function HistoricalTerminal({ sessionId, onSelectPlan }: {
           planLinks = terminal.registerLinkProvider(createTerminalPlanLinkProvider(terminal,
             path => onSelectPlanRef.current?.(sessionId, path) ?? Promise.resolve()));
           if (!container) return terminal;
+          markTerminalScrollback(terminal);
           terminal.open(container);
 
           if (hasFixedSize) {

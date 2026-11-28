@@ -246,7 +246,29 @@ if (process.versions.electron) {
           await evaluate('fixture.runtime().terminal.scrollToBottom()');
           await captureReplay('terminal-polish-'+width);
         }
+        const scrollbar = 'document.querySelector(".xterm-scrollable-element > .scrollbar.vertical")';
+        await waitFor(scrollbar + '?.classList.contains("fade")');
+        assert.equal(await evaluate('getComputedStyle(' + scrollbar + ').pointerEvents'), 'none');
+        await evaluate('document.documentElement.dataset.platform="win32"');
+        await waitFor('getComputedStyle(' + scrollbar + ').opacity === "1"');
+        const thumb = await evaluate(`(() => {
+          const slider = (${scrollbar}).querySelector('.slider');
+          const rect = slider.getBoundingClientRect();
+          const x = Math.round(rect.x + rect.width / 2);
+          const y = Math.round(rect.y + rect.height / 2);
+          return { x, y, hit: document.elementFromPoint(x, y) === slider };
+        })()`);
+        assert.equal(thumb.hit, true, 'the idle Windows scrollbar thumb can be grabbed');
+        const {x,y} = thumb;
+        win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x,y});
+        await waitFor(scrollbar + '?.querySelector(".slider.active")');
+        win.webContents.sendInputEvent({type:'mouseMove',x,y:y-60,modifiers:['leftbuttondown']});
+        await waitFor('fixture.runtime().terminal.buffer.active.viewportY < fixture.runtime().terminal.buffer.active.baseY');
+        win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x,y:y-60});
+        await evaluate('fixture.runtime().terminal.scrollToBottom()');
         await captureReplay('terminal-fill');
+        await evaluate('fixture.runtime().terminal.reset()');
+        await waitFor('fixture.runtime().terminal.buffer.active.baseY === 0 && getComputedStyle(' + scrollbar + ').pointerEvents === "none"');
         assert.deepEqual(await evaluate('fixture.errors'),[]);
         return;
       } else if (scenario === 'app-review-replay') {
@@ -286,6 +308,7 @@ if (process.versions.electron) {
         };
         for (const initiallyHidden of [false, true]) {
           if (initiallyHidden) await fresh();
+          await evaluate('document.documentElement.dataset.platform="win32"');
           await waitFor('document.querySelector("[data-session-id=other] .session-row-select")');
           await evaluate('document.querySelector("[data-session-id=other] .session-row-select").click()');
           await waitFor('!!fixture.releaseReplay');
@@ -304,6 +327,11 @@ if (process.versions.electron) {
           // render. Wait for ResizeObserver to fit that final layout too.
           await waitFor(`(${snapshot}).screen.right<=(${snapshot}).content.right+1 && (${snapshot}).screen.bottom<=(${snapshot}).content.bottom+1`);
           const original = await assertReplay();
+          const scrollbar = 'document.querySelector(".terminal-container .scrollbar.vertical")';
+          await waitFor(scrollbar + '?.classList.contains("fade")');
+          await waitFor('getComputedStyle(' + scrollbar + ').opacity === "1"');
+          assert.equal(await evaluate('getComputedStyle(' + scrollbar + ').pointerEvents'), 'auto',
+            'historical replay keeps its idle Windows scrollbar available');
           const label = initiallyHidden ? 'revealed' : 'visible';
           await captureReplay(label + '-wide');
           await evaluate('Object.assign(document.querySelector(".terminal-shell").style,{width:"360px",height:"240px",flex:"none"});void 0');
@@ -3452,7 +3480,7 @@ if (process.versions.electron) {
               if(path.endsWith('/summary-log'))return response({entries:[]});
               if(path==='/sessions/other/terminal-output' && ${javascriptLiteral(scenario)}==='app-review-replay') {
                 await new Promise(resolve=>fixture.releaseReplay=resolve);
-                return response({lines:[{text:'\\x1b[2J\\x1b[H'+'0123456789'.repeat(12)+'Z\\x1b[3;1Hsecond-row\\x1b[40;1Hlast-row',delimiter:''}],cols:120,rows:40});
+                return response({lines:[{text:'earlier output\\r\\n'.repeat(40)+'\\x1b[2J\\x1b[H'+'0123456789'.repeat(12)+'Z\\x1b[3;1Hsecond-row\\x1b[40;1Hlast-row',delimiter:''}],cols:120,rows:40});
               }
               if(path==='/sessions/other/terminal-output')return response({lines:[${javascriptLiteral(scenario)}==='app-review-terminal-links'?'specs/history.md':'saved output'],cols:80,rows:24});
               if(path==='/sessions'){if((${javascriptLiteral(scenario)}==='app-startup-composer' || ${javascriptLiteral(scenario)}.startsWith('app-review-pending-enrichment'))&&!fixture.sessionsReleased)await new Promise(resolve=>fixture.releaseSessions=()=>{fixture.sessionsReleased=true;resolve()});return response(fixture.sessionList);}
